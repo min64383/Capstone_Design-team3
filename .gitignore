@@ -1,0 +1,25 @@
+# Gradle / IDE
+.gradle/
+build/
+.kotlin/
+local.properties
+.idea/
+*.iml
+captures/
+.externalNativeBuild/
+.cxx/
+
+# 실제 녹화 데이터와 서명 키는 올리지 않는다 (§14-6)
+data/
+*.jks
+*.keystore
+keystore.properties
+
+# Python
+__pycache__/
+.venv/
+*.pyc
+
+# OS
+.DS_Store
+Thumbs.db

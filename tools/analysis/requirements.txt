@@ -1,0 +1,4 @@
+# 분석 도구 의존성 (MVP_SPEC §3). 버전은 첫 스크립트 작성 시(M8) 고정한다.
+numpy
+pandas
+matplotlib
