@@ -514,6 +514,7 @@ F1~F8 결과를 반영해 `docs/FORMAT.md`에 **형식 v1**을 확정한다. `co
 | `state.recoverFrames` / `recoverScoreScale` / `unknownRepeatS` | 10 / 0.5 / 3.0 | |
 | `audio.sampleRate` / `blockSize` / `masterGainDb` | 48000 / 256 / −12 | |
 | `record.depthEveryN` / `rgbEveryN` | 1 / 3 | 저장 간격 (F7 결과로 조정) |
+| `record.deviceLogIntervalS` | 1.0 | `device.csv` 기록 주기 (M1 추가) |
 | `align.fitLengthM` | 2.0 | 분석 도구용 |
 
 ---

@@ -12,7 +12,12 @@ android {
         minSdk = 26
         targetSdk = 37
         versionCode = 1
-        versionName = "0.0.1"
+        versionName = "0.1.0"
+        buildConfigField("String", "ARCORE_SDK_VERSION", "\"${libs.versions.arcore.get()}\"")
+    }
+
+    buildFeatures {
+        buildConfig = true
     }
 
     compileOptions {
@@ -23,4 +28,5 @@ android {
 
 dependencies {
     implementation(project(":core"))
+    implementation(libs.arcore)
 }

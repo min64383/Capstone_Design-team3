@@ -81,7 +81,12 @@ data class StateConfig(val recoverFrames: Int, val recoverScoreScale: Float, val
 data class AudioConfig(val sampleRate: Int, val blockSize: Int, val masterGainDb: Float)
 
 /** 녹화 저장 간격 설정. */
-data class RecordConfig(val depthEveryN: Int, val rgbEveryN: Int)
+data class RecordConfig(
+    val depthEveryN: Int,
+    val rgbEveryN: Int,
+    /** device.csv(발열·배터리) 기록 주기. */
+    val deviceLogIntervalS: Float,
+)
 
 /** 분석 도구용 정답 정렬 설정. */
 data class AlignConfig(val fitLengthM: Float)

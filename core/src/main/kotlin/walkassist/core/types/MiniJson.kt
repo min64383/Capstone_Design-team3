@@ -37,6 +37,66 @@ object MiniJson {
         return v
     }
 
+    /** [value]를 JSON 텍스트로 쓴다. [pretty]면 두 칸 들여쓰기. 정수 값의 숫자는 소수점 없이 쓴다. */
+    fun write(value: JsonValue, pretty: Boolean = true): String =
+        StringBuilder().also { writeTo(it, value, pretty, 0) }.toString()
+
+    private fun writeTo(sb: StringBuilder, v: JsonValue, pretty: Boolean, indent: Int) {
+        fun newline(level: Int) {
+            if (pretty) sb.append('\n').append("  ".repeat(level))
+        }
+        when (v) {
+            is JsonObject -> {
+                sb.append('{')
+                v.fields.entries.forEachIndexed { k, (key, item) ->
+                    if (k > 0) sb.append(',')
+                    newline(indent + 1)
+                    writeString(sb, key)
+                    sb.append(if (pretty) ": " else ":")
+                    writeTo(sb, item, pretty, indent + 1)
+                }
+                if (v.fields.isNotEmpty()) newline(indent)
+                sb.append('}')
+            }
+            is JsonArray -> {
+                // 숫자 배열은 한 줄로 쓴다(벡터·내부 파라미터 가독성).
+                val inline = !pretty || v.items.all { it is JsonNumber }
+                sb.append('[')
+                v.items.forEachIndexed { k, item ->
+                    if (k > 0) sb.append(if (inline && pretty) ", " else ",")
+                    if (!inline) newline(indent + 1)
+                    writeTo(sb, item, pretty, indent + 1)
+                }
+                if (!inline && v.items.isNotEmpty()) newline(indent)
+                sb.append(']')
+            }
+            is JsonNumber -> {
+                val d = v.value
+                require(d.isFinite()) { "JSON cannot represent $d" }
+                if (d == Math.rint(d) && kotlin.math.abs(d) < 1e15) sb.append(d.toLong()) else sb.append(d)
+            }
+            is JsonString -> writeString(sb, v.value)
+            is JsonBool -> sb.append(v.value)
+            JsonNull -> sb.append("null")
+        }
+    }
+
+    private fun writeString(sb: StringBuilder, s: String) {
+        sb.append('"')
+        for (c in s) {
+            when {
+                c == '"' -> sb.append("\\\"")
+                c == '\\' -> sb.append("\\\\")
+                c == '\n' -> sb.append("\\n")
+                c == '\r' -> sb.append("\\r")
+                c == '\t' -> sb.append("\\t")
+                c < ' ' -> sb.append("\\u%04x".format(c.code))
+                else -> sb.append(c)
+            }
+        }
+        sb.append('"')
+    }
+
     private class Parser(private val s: String) {
         private var i = 0
 

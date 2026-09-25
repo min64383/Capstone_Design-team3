@@ -40,6 +40,25 @@ class MiniJsonTest {
     }
 
     @Test
+    fun `write then parse round trips`() {
+        val v = JsonObject(
+            linkedMapOf(
+                "s" to JsonString("a\"b\\c\n\u0001한"),
+                "n" to JsonArray(listOf(JsonNumber(1.0), JsonNumber(-2.5), JsonNumber(1e20))),
+                "o" to JsonObject(linkedMapOf("t" to JsonBool(true), "z" to JsonNull, "e" to JsonObject(emptyMap()))),
+                "a" to JsonArray(listOf(JsonString("x"), JsonArray(emptyList()))),
+            ),
+        )
+        for (pretty in listOf(true, false)) assertEquals(v, MiniJson.parse(MiniJson.write(v, pretty)))
+    }
+
+    @Test
+    fun `integers are written without fraction`() {
+        val v = JsonArray(listOf(JsonNumber(3.0), JsonNumber(-4.0), JsonNumber(0.5)))
+        assertEquals("[3,-4,0.5]", MiniJson.write(v, pretty = false))
+    }
+
+    @Test
     fun `rejects duplicate keys`() {
         assertThrows<JsonParseException> { MiniJson.parse("""{ "a": 1, "a": 2 }""") }
     }

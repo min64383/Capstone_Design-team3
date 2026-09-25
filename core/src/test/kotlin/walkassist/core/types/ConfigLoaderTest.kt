@@ -37,7 +37,7 @@ class ConfigLoaderTest {
         assertEquals(PolicyConfig(1.0f, 2.5f, 3.0f, 0.15f, 1, 300f), c.policy)
         assertEquals(StateConfig(10, 0.5f, 3.0f), c.state)
         assertEquals(AudioConfig(48000, 256, -12f), c.audio)
-        assertEquals(RecordConfig(1, 3), c.record)
+        assertEquals(RecordConfig(1, 3, 1.0f), c.record)
         assertEquals(AlignConfig(2.0f), c.align)
     }
 

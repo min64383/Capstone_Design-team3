@@ -101,7 +101,11 @@ object ConfigLoader {
                 )
             },
             record = root.section("record") {
-                RecordConfig(depthEveryN = atLeast1("depthEveryN"), rgbEveryN = atLeast1("rgbEveryN"))
+                RecordConfig(
+                    depthEveryN = atLeast1("depthEveryN"),
+                    rgbEveryN = atLeast1("rgbEveryN"),
+                    deviceLogIntervalS = positive("deviceLogIntervalS"),
+                )
             },
             align = root.section("align") { AlignConfig(fitLengthM = positive("fitLengthM")) },
         )

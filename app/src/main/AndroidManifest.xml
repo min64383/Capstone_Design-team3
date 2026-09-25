@@ -1,10 +1,24 @@
 <?xml version="1.0" encoding="utf-8"?>
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
 
+    <uses-permission android:name="android.permission.CAMERA" />
+
+    <!-- ARCore 필수 앱 (공식 샘플 hello_ar_kotlin과 같은 선언) -->
+    <uses-feature android:name="android.hardware.camera" android:required="true" />
+    <uses-feature android:name="android.hardware.camera.ar" android:required="true" />
+    <uses-feature android:glEsVersion="0x00020000" android:required="true" />
+
+    <!-- meta.json에 설치된 ARCore(Google Play 서비스(AR)) 버전을 기록하기 위해 조회 -->
+    <queries>
+        <package android:name="com.google.ar.core" />
+    </queries>
+
     <application
         android:allowBackup="false"
         android:label="WalkAssist Dev"
         android:theme="@android:style/Theme.DeviceDefault.NoActionBar">
+
+        <meta-data android:name="com.google.ar.core" android:value="required" />
 
         <activity
             android:name=".ui.dev.DevHomeActivity"
@@ -14,5 +28,16 @@
                 <category android:name="android.intent.category.LAUNCHER" />
             </intent-filter>
         </activity>
+
+        <!-- 세로 고정: 센서 방향 이미지와 화면 방향의 관계를 녹화마다 같게 둔다(F2·F3) -->
+        <activity
+            android:name=".ui.dev.RecordScreen"
+            android:configChanges="orientation|screenSize|keyboardHidden"
+            android:exported="false"
+            android:screenOrientation="portrait" />
+
+        <activity
+            android:name=".ui.dev.SessionList"
+            android:exported="false" />
     </application>
 </manifest>
