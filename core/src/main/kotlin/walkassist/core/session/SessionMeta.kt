@@ -75,6 +75,11 @@ data class SessionMeta(
     val camera: CameraInfo,
     /** 기준 파지에서 실측한 카메라 → 머리 오프셋(월드 수평 기준, m). */
     val gripOffsetM: Vec3,
+    /**
+     * 녹화 시작 시 `SystemClock.elapsedRealtimeNanos() − System.nanoTime()`(부팅 시계 − 단조 시계).
+     * 기기가 잠든 적이 있으면 0이 아니게 되어 `Frame.getTimestamp()`의 시간 기준을 판별할 수 있다(F5). 모르면 null.
+     */
+    val elapsedMinusMonotonicNs: Long?,
     val depthEveryN: Int,
     val rgbEveryN: Int,
     /** 좌표·시간 규약 설명(키 → 설명). */
@@ -112,6 +117,7 @@ data class SessionMeta(
             "fpsMax" to num(camera.fpsMax),
         ),
         "gripOffsetM" to JsonArray(listOf(num(gripOffsetM.x), num(gripOffsetM.y), num(gripOffsetM.z))),
+        "elapsedMinusMonotonicNs" to num(elapsedMinusMonotonicNs),
         "depthEveryN" to num(depthEveryN),
         "rgbEveryN" to num(rgbEveryN),
         "conventions" to JsonObject(conventions.mapValues { JsonString(it.value) }),
@@ -154,6 +160,7 @@ data class SessionMeta(
                     c.intOpt("fpsMin"), c.intOpt("fpsMax"),
                 ),
                 gripOffsetM = Vec3(g[0], g[1], g[2]),
+                elapsedMinusMonotonicNs = r.longOpt("elapsedMinusMonotonicNs"),
                 depthEveryN = r.int("depthEveryN"),
                 rgbEveryN = r.int("rgbEveryN"),
                 conventions = r.obj("conventions").strings(),
@@ -203,6 +210,7 @@ data class SessionMeta(
         fun long(k: String) = number(k).let { if (it == Math.rint(it)) it.toLong() else bad(k, "an integer") }
         fun int(k: String) = long(k).toInt()
         fun intOpt(k: String) = if (get(k) == JsonNull) null else int(k)
+        fun longOpt(k: String) = if (o.fields[k] == null || get(k) == JsonNull) null else long(k)
         fun floats(k: String) = ((get(k) as? JsonArray) ?: bad(k, "an array")).items.map {
             ((it as? JsonNumber) ?: bad(k, "an array of numbers")).value.toFloat()
         }

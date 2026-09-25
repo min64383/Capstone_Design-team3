@@ -124,8 +124,11 @@ def main() -> int:
         h, w = dm.shape
         sx, sy = w / ki["width"], h / ki["height"]
         print(f"깊이 {w}x{h}, 가로세로비 {w / h:.4f} (CPU 이미지 {ki['width'] / ki['height']:.4f})")
-        print(f"CPU K를 크기 비율로 환산한 깊이 K 후보: fx={ki['fx'] * sx:.2f} fy={ki['fy'] * sy:.2f} cx={ki['cx'] * sx:.2f} cy={ki['cy'] * sy:.2f}"
-              f" (sx={sx:.4f}, sy={sy:.4f})")
+        print(f"후보 A (CPU K를 크기 비율로): fx={ki['fx'] * sx:.2f} fy={ki['fy'] * sy:.2f} cx={ki['cx'] * sx:.2f} cy={ki['cy'] * sy:.2f}"
+              f" (sx={sx:.4f}, sy={sy:.4f}{', 비등방 → 부적합 가능' if abs(sx - sy) > 1e-3 else ''})")
+        tx, ty = w / kt["width"], h / kt["height"]
+        print(f"후보 B (텍스처 K를 크기 비율로): fx={kt['fx'] * tx:.2f} fy={kt['fy'] * ty:.2f} cx={kt['cx'] * tx:.2f} cy={kt['cy'] * ty:.2f}"
+              f" (sx={tx:.4f}, sy={ty:.4f}{', 비등방 → 부적합 가능' if abs(tx - ty) > 1e-3 else ''})")
         print(f"meta depth 크기: {dep['width']}x{dep['height']}")
         # 중앙 영역: 알려진 거리 평면을 찍은 세션에서 기대 거리와 비교
         rh, rw = max(1, int(h * args.roi)), max(1, int(w * args.roi))
@@ -141,6 +144,10 @@ def main() -> int:
             print(f"중앙 {args.roi:.0%} 영역 깊이 중앙값: 전체 {np.median(c):.0f} mm (파일별 p5 {np.percentile(c, 5):.0f}, p95 {np.percentile(c, 95):.0f})")
 
     section("F5 타임스탬프와 갱신 빈도")
+    clk = meta.get("elapsedMinusMonotonicNs")
+    if clk is not None:
+        print(f"녹화 시작 시 elapsedRealtime − monotonic = {clk / 1e6:.1f} ms "
+              "(0에 가까우면 두 시계를 구분할 수 없음. 기기가 한 번 잠든 뒤 녹화해야 판별 가능)")
     t = frames.tNs.to_numpy()
     print(f"ARCore 프레임 간격: {stats_ms(np.diff(t))}")
     off = (frames.sysElapsedNs - frames.tNs).to_numpy() / 1e6

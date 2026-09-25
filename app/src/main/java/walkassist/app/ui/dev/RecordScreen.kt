@@ -291,6 +291,7 @@ class RecordScreen : Activity(), GLSurfaceView.Renderer {
                 cc.fpsRange.lower, cc.fpsRange.upper,
             ),
             gripOffsetM = req.gripOffsetM,
+            elapsedMinusMonotonicNs = SystemClock.elapsedRealtimeNanos() - System.nanoTime(),
             depthEveryN = config.record.depthEveryN,
             rgbEveryN = config.record.rgbEveryN,
             conventions = CONVENTIONS,

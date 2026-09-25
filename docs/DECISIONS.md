@@ -28,3 +28,5 @@
 - 2026-09-26 · M0 수정 · `gradle.properties`에 BOM이 있어 첫 줄 `org.gradle.jvmargs`가 무시되던 문제 수정(PowerShell Set-Content 부작용), Metaspace 상한 1g 추가
 - 2026-09-26 · M1 · ARCore 이미지 복사는 행 단위 일괄 읽기 — 픽셀 단위 복사가 GL 스레드를 최대 190 ms 막는 것을 계측으로 확인(§14-7). 녹화 중 29.5 fps 회복
 - 2026-09-26 · M1 · GL 스레드 구간별 소요 시간을 1초마다 logcat(`gl timing`)에 요약 — 병목 확인용으로 유지, 형식은 M7 실행 로그에서 재검토
+- 2026-09-26 · M1 · `meta.json`에 `elapsedMinusMonotonicNs` 추가(없으면 null로 읽음) — F5에서 `Frame.getTimestamp()` 시간 기준 판별용
+- 2026-09-26 · M1 · (예비) 깊이 K는 텍스처 K를 크기 비율로 환산 — 깊이 160x90이 텍스처 16:9와 같고 CPU K 환산은 비등방. 벽 거리 촬영(F4)으로 확정 후 v1에 명시

@@ -42,6 +42,7 @@ class SessionFormatTest {
             90, 30, 30,
         ),
         gripOffsetM = Vec3(0.1f, 0f, -0.25f),
+        elapsedMinusMonotonicNs = 1_234_567_890L,
         depthEveryN = 1,
         rgbEveryN = 3,
         conventions = mapOf("pose" to "ARCore Camera.getPose(), GL: +Y up, -Z forward"),
@@ -97,6 +98,14 @@ class SessionFormatTest {
         assertEquals(done, SessionMeta.fromJson(text))
         // Float가 이진 근사값(0.10000000149…)으로 써지지 않아야 한다
         assertTrue("[0.1, 0, -0.25]" in text, text)
+    }
+
+    @Test
+    fun `meta json without clock field reads as null`() {
+        // 이 필드가 생기기 전의 v0 세션(스모크 테스트 녹화)도 읽을 수 있어야 한다
+        val text = meta().toJson().replace(Regex("""\s*"elapsedMinusMonotonicNs": [0-9]+,"""), "")
+        assertTrue("elapsedMinusMonotonicNs" !in text, text)
+        assertEquals(meta().copy(elapsedMinusMonotonicNs = null), SessionMeta.fromJson(text))
     }
 
     @Test
