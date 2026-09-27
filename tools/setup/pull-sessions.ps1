@@ -39,24 +39,33 @@ if (-not $adb) {
 }
 if (-not $adb) { throw 'adb를 찾지 못했습니다. tools\setup\setup-windows.ps1 을 먼저 실행하세요.' }
 
-$ready = @(& $adb devices | Where-Object { $_ -match '^(\S+)\s+device$' } | ForEach-Object { ($_ -split '\s+')[0] })
-if ($Serial) { $ready = @($ready | Where-Object { $_ -eq $Serial }) }
+# 시리얼이 "(no serial number)"처럼 공백을 포함할 수 있어, 기기 지정은 transport_id(-t)로 한다
+$ready = @(& $adb devices -l | ForEach-Object {
+    if ($_ -match '^(?<serial>.+?)\s+device(?<rest>\s.*)?$') {
+        $s = $Matches['serial']; $rest = [string]$Matches['rest']   # 다음 -match가 $Matches를 덮어쓰므로 먼저 꺼낸다
+        if ($rest -match 'transport_id:(\d+)') { [pscustomobject]@{ Serial = $s; TransportId = $Matches[1] } }
+    }
+})
+if ($Serial) { $ready = @($ready | Where-Object { $_.Serial -eq $Serial }) }
 if ($ready.Count -eq 0) { throw '연결된 기기가 없습니다. tools\setup\check-device.ps1 로 연결을 확인하세요.' }
-if ($ready.Count -gt 1) { throw "기기가 여러 대입니다. -Serial 로 고르세요: $($ready -join ', ')" }
-$dev = $ready[0]
+if ($ready.Count -gt 1) { throw "기기가 여러 대입니다. -Serial 로 고르세요: $(($ready | ForEach-Object Serial) -join ', ')" }
+$dev = $ready[0].Serial
+$tid = $ready[0].TransportId
 
 function Invoke-Shell([string]$cmd) {
-    return @(& $adb -s $dev shell $cmd | ForEach-Object { $_.TrimEnd("`r") })
+    return @(& $adb -t $tid shell $cmd | ForEach-Object { $_.TrimEnd("`r") })
 }
 
 # ---------------------------------------------------------------- 기기의 세션 목록
 
-# 한 번의 셸 호출로 이름·크기(KB)·파일 수·정상 종료 여부(meta.json에 stats가 채워졌는지)를 받는다
+# 한 번의 셸 호출로 이름·크기(KB)·파일 수·정상 종료 여부(meta.json에 stats가 채워졌는지)를 받는다.
+# Windows PowerShell 5.1은 외부 프로그램 인자 안의 큰따옴표를 제대로 넘기지 못하므로 큰따옴표를 쓰지 않는다
+# (세션 폴더 이름에는 공백이 없다). 구분자도 셸이 해석하지 않는 ':'를 쓴다.
 $listCmd = "cd $RemoteRoot 2>/dev/null || exit 0; for d in */; do d=`${d%/}; " +
-          "kb=`$(du -sk `"`$d`" | cut -f1); n=`$(find `"`$d`" -type f | wc -l); " +
-          "if grep -q durationS `"`$d/meta.json`" 2>/dev/null; then c=1; else c=0; fi; echo `"`$d|`$kb|`$n|`$c`"; done"
-$remote = @(Invoke-Shell $listCmd | Where-Object { $_ -match '^\d{8}_\d{6}_[^|]+\|' } | ForEach-Object {
-    $f = $_ -split '\|'
+          "kb=`$(du -sk `$d | cut -f1); n=`$(find `$d -type f | wc -l); " +
+          "if grep -q durationS `$d/meta.json 2>/dev/null; then c=1; else c=0; fi; echo `$d:`$kb:`$n:`$c; done"
+$remote = @(Invoke-Shell $listCmd | Where-Object { $_ -match '^\d{8}_\d{6}_[^:]+:\d+:\s*\d+:[01]$' } | ForEach-Object {
+    $f = $_ -split ':'
     [pscustomobject]@{
         세션ID = $f[0]
         크기MB = [math]::Round([double]$f[1] / 1024, 1)
@@ -104,7 +113,7 @@ foreach ($t in $targets) {
     if ($t.정상종료 -ne '예') { Write-Host "주의: $sid 은(는) meta.json에 통계가 없다(녹화가 정상 종료되지 않음). 그래도 가져온다." -ForegroundColor Yellow }
     if ($Force -and (Test-Path $local)) { Remove-Item -Recurse -Force $local }
     Write-Host "`n가져오는 중: $sid ($($t.크기MB) MB, 파일 $($t.파일수)개)" -ForegroundColor Cyan
-    & $adb -s $dev pull "$RemoteRoot/$sid" "$LocalRoot"
+    & $adb -t $tid pull "$RemoteRoot/$sid" "$LocalRoot"
     if ($LASTEXITCODE -ne 0) { Write-Host "실패: $sid (adb pull 종료 코드 $LASTEXITCODE)" -ForegroundColor Red; continue }
     $nLocal = @(Get-ChildItem -Recurse -File $local).Count
     if ($nLocal -ne $t.파일수) {

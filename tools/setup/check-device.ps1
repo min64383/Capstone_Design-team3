@@ -54,8 +54,9 @@ Write-Ok $adb
 & $adb start-server | Out-Null
 
 function Invoke-Adb([string[]]$adbArgs) {
+    # 기기 지정은 시리얼이 아니라 transport_id로 한다. 시리얼이 "(no serial number)"로 보고되는 경우가 있어 -s를 쓸 수 없다.
     $all = @()
-    if ($script:deviceSerial) { $all += @('-s', $script:deviceSerial) }
+    if ($script:transportId) { $all += @('-t', $script:transportId) }
     $out = & $adb @($all + $adbArgs)
     return (@($out) -join "`n").Trim()
 }
@@ -67,9 +68,12 @@ function Get-AdbDevices {
     $lines = & $adb devices -l
     $list = @()
     foreach ($l in $lines) {
-        if ($l -match '^(\S+)\s+(device|unauthorized|offline|no permissions|authorizing|recovery|sideload|bootloader)\b(.*)$') {
-            $model = if ($Matches[3] -match 'model:(\S+)') { $Matches[1] } else { '' }
-            $list += [pscustomobject]@{ Serial = $Matches[1]; State = $Matches[2]; Model = $model }
+        # 시리얼에 공백이 있을 수 있다(예: "(no serial number)"). 상태 단어 앞까지를 시리얼로 본다.
+        if ($l -match '^(?<serial>.+?)\s+(?<state>device|unauthorized|offline|no permissions|authorizing|recovery|sideload|bootloader)(?<rest>\s.*)?$') {
+            $serial = $Matches['serial']; $state = $Matches['state']; $rest = [string]$Matches['rest']
+            $model = if ($rest -match 'model:(\S+)') { $Matches[1] } else { '' }
+            $tid = if ($rest -match 'transport_id:(\d+)') { $Matches[1] } else { '' }
+            $list += [pscustomobject]@{ Serial = $serial; State = $state; Model = $model; TransportId = $tid }
         }
     }
     return , $list
@@ -104,7 +108,7 @@ if ($devices.Count -eq 0) {
 foreach ($d in $devices | Where-Object { $_.State -ne 'device' }) {
     switch ($d.State) {
         'unauthorized' { Write-Bad "$($d.Serial): 승인 안 됨" @('폰 화면의 "USB 디버깅을 허용하시겠습니까?"에서 "이 컴퓨터에서 항상 허용" 체크 후 허용', '창이 안 보이면: 개발자 옵션 > USB 디버깅 권한 승인 취소 → 케이블 재연결') }
-        'offline' { Write-Bad "$($d.Serial): offline" @('케이블 재연결', 'adb kill-server; adb start-server') }
+        'offline' { Write-Bad "$($d.Serial): offline" @('USB 케이블을 뽑았다 다시 꽂기 (adb 서버 재시작만으로는 복구되지 않는 경우가 많다)', '폰 화면에 USB 디버깅 허용 창이 다시 뜨면 허용') }
         default { Write-Bad "$($d.Serial): $($d.State)" @() }
     }
 }
@@ -120,9 +124,13 @@ if ($Serial) {
 } else {
     $pick = $ready[0]
 }
-$script:deviceSerial = $pick.Serial
-$env:ANDROID_SERIAL = $pick.Serial   # 아래 gradlew installDebug도 이 기기로
-Write-Ok "연결됨: $($pick.Serial)"
+$script:transportId = $pick.TransportId
+$validSerial = $pick.Serial -notmatch '\s'
+if ($validSerial) { $env:ANDROID_SERIAL = $pick.Serial }   # 아래 gradlew installDebug도 이 기기로
+Write-Ok "연결됨: $($pick.Serial) (모델 $($pick.Model), transport_id $($pick.TransportId))"
+if (-not $validSerial) {
+    Write-Host '   참고: adb가 시리얼을 읽지 못함. 기기 지정은 transport_id로 한다. -Install은 기기를 한 대만 연결했을 때만 대상이 정확하다' -ForegroundColor DarkYellow
+}
 
 # ---------------------------------------------------------------- 기기 정보
 
