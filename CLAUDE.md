@@ -7,6 +7,7 @@
 - `core/`: 순수 Kotlin(JVM). 알고리즘 전부. PC에서 테스트
 - `app/`: Android 앱. ARCore·오디오·UI
 - `tools/analysis/`: Python. 로그 분석 전용
+- `prototypes/<언어>/<모듈>/`: core 알고리즘 프로토타입(기본 Python). 최종 구현은 Kotlin core로 이식하고 README §4.8 규칙을 따른다
 
 ## 명령 (PowerShell)
 - core 테스트: `./gradlew :core:test`
