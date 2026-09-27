@@ -30,3 +30,10 @@
 - 2026-09-26 · M1 · GL 스레드 구간별 소요 시간을 1초마다 logcat(`gl timing`)에 요약 — 병목 확인용으로 유지, 형식은 M7 실행 로그에서 재검토
 - 2026-09-26 · M1 · `meta.json`에 `elapsedMinusMonotonicNs` 추가(없으면 null로 읽음) — F5에서 `Frame.getTimestamp()` 시간 기준 판별용
 - 2026-09-26 · M1 · (예비) 깊이 K는 텍스처 K를 크기 비율로 환산 — 깊이 160x90이 텍스처 16:9와 같고 CPU K 환산은 비등방. 벽 거리 촬영(F4)으로 확정 후 v1에 명시
+- 2026-09-27 · docs · 개발 환경 스크립트 `tools/setup/`(setup-windows·check-device·pull-sessions, PowerShell 5.1) 추가 — README §3 재현 절차 자동화. 새 의존성 없음(설치 대상은 MVP_SPEC §3 개발 환경 그대로, scrcpy는 선택)
+- 2026-09-27 · docs · 환경 변수는 사용자 범위(HKCU)에만 쓰고 변경 전 `%LOCALAPPDATA%\WalkAssist`에 백업, Path는 REG_EXPAND_SZ 원문 보존 — `[Environment]::SetEnvironmentVariable`은 Path를 REG_SZ로 바꿔 `%VAR%` 항목을 깨뜨림
+- 2026-09-27 · docs · `.ps1`은 UTF-8 BOM으로 저장 — Windows PowerShell 5.1은 BOM 없는 스크립트를 ANSI(cp949)로 읽어 한글이 깨짐
+- 2026-09-27 · docs · SDK 패키지 설치는 cmdline-tools의 `android.exe`(Android CLI) 우선, 결과는 종료 코드 대신 파일로 확인 — cmdline-tools 23에서 sdkmanager가 폐기 예정·Android CLI로 위임되고, 설치 후 종료 코드 0xC0000409로 끝나는 것을 확인. `sdkmanager.bat`은 cmd가 `;`에서 인자를 잘라 `platforms;android-37.0`을 못 받음
+- 2026-09-27 · docs · Codex용 루트 `AGENTS.md` 추가(CLAUDE.md + .claude/rules 내용과 동일, 모듈 규칙은 절로 통합) — Codex는 Git 루트~작업 디렉터리의 AGENTS.md만 읽고 경로별 규칙 로딩이 없음. 지침 변경 시 양쪽을 같은 커밋에서 수정(README §4.7)
+- 2026-09-27 · docs · `core` 알고리즘을 다른 언어(기본 Python)로 먼저 만들 수 있게 README §4.8 추가: `prototypes/<언어>/<모듈>/`, §6 데이터 계약·float32·설정 원본 유지, 골든 벡터(`core/src/test/resources/golden/`)로 Kotlin 이식 검증. 최종 구현과 완료 판정은 Kotlin `core` — 사용자 결정(이후 모바일 이식 시 Kotlin으로 통합)
+- 2026-09-27 · docs · 명세 §0 표·§4 구조·§14-10과 CLAUDE.md·AGENTS.md 구조 절에 `prototypes/` 추가 — README §4.8(다른 언어 프로토타입)이 "Python은 로그 분석 전용"과 충돌하던 것 해소. 사용자 승인

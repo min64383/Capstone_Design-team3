@@ -16,7 +16,7 @@ Galaxy S10 5G(SM-G977N)에서 동작하는 Android 앱으로, ARCore의 자세�
 
 | 구분 | 변경 |
 |---|---|
-| 플랫폼 | Python PC 파이프라인 → **Android 앱이 곧 MVP**. Python은 로그 분석 도구로만 사용 |
+| 플랫폼 | Python PC 파이프라인 → **Android 앱이 곧 MVP**. Python은 로그 분석 도구와 `core` 알고리즘 프로토타입(`prototypes/`, Kotlin 이식 전제)에만 사용 |
 | 구조 | `core`(순수 Kotlin, PC 테스트) + `app`(Android) + `tools/analysis`(Python) |
 | 입력 | 별도 녹화 앱 → 앱 내장 **녹화 모드**(ARCore MP4 + 프레임 로그)와 **재생 모드** |
 | 음향 | Python HRTF → Kotlin HRTF 합성곱 + `AudioTrack` 저지연 출력 |
@@ -125,6 +125,7 @@ walkassist/
 ├── tools/analysis/                        # Python 분석 전용
 │   ├── align.py, metrics.py, report.py, plots.py
 │   └── requirements.txt
+├── prototypes/<언어>/<모듈>/               # (선택) core 알고리즘 프로토타입. 최종 구현은 Kotlin core로 이식 (README §4.8)
 └── docs/  MVP_SPEC.md(이 문서), DECISIONS.md, LICENSES.md, FORMAT.md
 ```
 
@@ -564,6 +565,7 @@ F1~F8 결과를 반영해 `docs/FORMAT.md`에 **형식 v1**을 확정한다. `co
 7. 성능 최적화는 로그로 병목을 확인한 뒤에만 한다.
 8. 셸 명령은 PowerShell 기준으로 안내한다.
 9. 안전 원칙(§2.2)에 어긋나는 단순화(예: 확인 불가 상태에서 이전 음원 유지)는 하지 않는다.
+10. `core` 알고리즘은 `prototypes/<언어>/<모듈>/`에서 다른 언어로 먼저 만들 수 있다. 최종 구현과 마일스톤 완료 판정은 Kotlin `core`이며, 이식 규칙(데이터 계약·float32·설정 원본·골든 벡터)은 README §4.8을 따른다.
 
 ---
 
