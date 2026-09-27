@@ -317,6 +317,7 @@ adb pull /storage/emulated/0/Android/data/walkassist.app/files/sessions/<세션I
 ├── app/src/main/assets/config/default.json 설정의 유일한 원본
 ├── tools/analysis/                         Python 분석 스크립트
 ├── tools/setup/                            PC 준비·기기 확인·세션 가져오기 PowerShell 스크립트 (§3)
+├── prototypes/<언어>/<모듈>/                (필요할 때 생성) 다른 언어 프로토타입, Kotlin core로 이식 전제 (§4.8)
 ├── docs/                                   명세·결정·형식·라이선스
 └── data/                                   (git 제외) 녹화 세션
 ```
@@ -342,6 +343,7 @@ adb pull /storage/emulated/0/Android/data/walkassist.app/files/sessions/<세션I
 | 새 의존성·모델·데이터셋·HRTF 파일 | **팀 승인 후** 추가하고 `docs/LICENSES.md`에 코드·가중치·데이터 구분해 기록 |
 | 세션 형식·스파이크 결과 | `docs/FORMAT.md` |
 | 명세 수정 | `docs/MVP_SPEC.md` 직접 수정 + `DECISIONS.md`에 이유 |
+| 다른 언어 프로토타입을 Kotlin으로 이식 | 골든 벡터를 `core/src/test/resources/golden/`에, 이식하며 달라진 점을 `DECISIONS.md`에 (§4.8) |
 | 에이전트 지침 수정 | `CLAUDE.md`·`.claude/rules/`와 `AGENTS.md`를 같은 커밋에서 함께 수정 + `check-agent-docs.ps1` 통과 (§4.7) |
 
 ### 4.5 Claude Code 사용 시
@@ -384,6 +386,81 @@ powershell -ExecutionPolicy Bypass -File tools\setup\check-agent-docs.ps1   # �
 ```
 
 스크립트는 목록 항목과 본문 문장을 줄 단위로 비교한다(제목, HTML 주석, `.claude/rules`의 frontmatter는 무시). 그래서 절 제목은 달라도 되지만 **규칙 문장은 글자까지 같게** 쓴다.
+
+### 4.8 다른 언어로 개발할 때 (Kotlin `core`로 이식 전제)
+
+`core` 알고리즘을 Python 등 다른 언어로 먼저 만들어 볼 수 있다. 단, **최종 구현은 항상 Kotlin `core`**다. 앱은 `core`만 쓰고, 마일스톤 완료 기준(§6)도 Kotlin `core` 테스트로 판정한다. 다른 언어 코드는 이식할 때 옮기기 쉽도록 아래 규칙을 지킨다.
+
+#### 범위
+
+| 할 수 있음 | 하지 않음 |
+|---|---|
+| `core`의 알고리즘(기하, 바닥·복셀 맵, 군집·추적·대표점, 진행 방향·통로·상태 기계, HRTF 합성)을 먼저 만들어 보기 | `app`(ARCore, 스레드, 오디오 출력, UI)을 다른 언어로 만들기 |
+| 녹화 세션과 합성 장면으로 결과를 확인하기 | 앱이 다른 언어 코드를 직접 호출하게 만들기 (JNI, 임베디드 인터프리터 등) |
+| 파라미터를 바꿔 가며 실험하기 | `tools/analysis/`에 알고리즘 넣기 (분석 전용) |
+
+기본 언어는 **Python 3.11**이다(§3.1의 `.venv`를 그대로 쓴다). 다른 언어도 규칙은 같다.
+
+#### 위치
+
+```
+prototypes/<언어>/<모듈>/          모듈 이름은 core 패키지와 같게: geometry, mapping, tracking, guidance, audio, pipeline
+├── README.md                      상태(실험 중 / 이식 중 / 이식 완료 <커밋>), 대응하는 명세 절, core 파일
+├── *.py                           구현
+└── golden.py                      골든 벡터 생성 스크립트 (아래)
+```
+
+실행 결과·그림은 `data/` 아래에 둔다(git 제외). `prototypes/`는 처음 쓸 때 만든다.
+
+#### 이식을 쉽게 하는 규칙
+
+| 항목 | 규칙 | 이유 |
+|---|---|---|
+| 함수 경계 | 명세 §7의 클래스·함수 단위와 이름을 그대로 따른다. 입력·출력은 §6 데이터 계약(`PoseFrame`, `DepthFrame`, `Obstacle`, `ObstacleSnapshot`, `AudioCmd`, `GuidanceOutput`)과 같은 필드·이름으로 만든다(Python이면 `@dataclass(frozen=True)`) | 이식할 때 구조를 다시 설계하지 않도록 |
+| 좌표·단위 | 월드(W, +Y 위)와 카메라(C_cv: +Y 아래, +Z 앞)만 쓴다(§5). 이름에 단위 포함(`distance_m`, `t_capture_ns`, `azimuth_deg`) | Kotlin과 같은 규약 |
+| 수치 타입 | 실수는 **32비트**(`numpy.float32`), 시각은 **64비트 정수 ns**(`int64`). 깊이는 `uint16` mm | `core`는 `Float`/`Long`/`ShortArray`를 쓴다. 64비트로 개발하면 이식 후 결과가 달라진다 |
+| 설정 | 수치는 `app/src/main/assets/config/default.json`을 읽어 쓴다. 새 파라미터는 `prototypes/<언어>/config.override.json`에 두고 기본 설정 위에 덮어쓴다 | 설정의 원본은 하나. `default.json`에 키를 먼저 넣으면 Kotlin 설정 로더가 "모르는 키" 오류를 낸다. 새 키는 이식할 때 `default.json`·`Config.kt`·명세 §12에 함께 올린다 |
+| 설계 원칙 | §2.2를 그대로 지킨다: 과거 값만 쓰기, 정보 나이 만료, 시야 밖 복셀 보존, 무음 ≠ 안전 | 원칙 위반은 이식해도 위반 |
+| 라이브러리 | `numpy`까지만 기본으로 쓴다. `scipy`·`sklearn`·`opencv`처럼 알고리즘 자체를 라이브러리에 맡기는 것은 쓰지 않는다. 꼭 필요하면 Kotlin으로 직접 구현할 수 있는지 먼저 확인하고, 새 의존성은 승인 후 `docs/LICENSES.md`에 기록 | `core`는 외부 라이브러리를 쓰지 않는다. 라이브러리에 기댄 알고리즘은 이식 비용이 크다 |
+| 벡터화 | `numpy` 벡터 연산은 써도 되지만, 이식할 때 옮길 반복문 구조를 주석으로 적는다 | Kotlin에서는 원시 배열 반복문으로 옮긴다 |
+| 반올림·나눗셈 | `np.round`(짝수 쪽으로 반올림)·음수 정수 나눗셈(`//`)은 Kotlin(`roundToInt`는 0.5를 올림, `/`는 0 쪽으로 버림)과 다르다. 복셀 인덱스처럼 경계가 중요한 곳은 `floor`를 명시한다 | 경계값에서 결과가 달라지는 흔한 원인 |
+| 난수 | 난수는 시드를 고정하고, 결과가 난수 순서에 의존하지 않게 만든다 | 언어마다 난수 생성기가 다르다 |
+| 입력 데이터 | 세션은 `docs/FORMAT.md` 형식 그대로 읽는다. 자세는 ARCore 원본이므로 C_cv 변환(§5)을 읽는 쪽에서 한다 | Kotlin `SessionReader`와 같은 처리 |
+
+#### 골든 벡터: 다른 언어와 Kotlin을 잇는 테스트
+
+프로토타입이 맞다고 확인되면, **입력과 기대 출력을 파일로 남겨** Kotlin 이식이 같은 결과를 내는지 테스트로 확인한다.
+
+```
+core/src/test/resources/golden/<모듈>/<케이스>.json
+{
+  "case": "voxel_map_sc02_box",            // 이름. 가능하면 부록 B 합성 장면 ID(SC-xx)를 포함
+  "source": "prototypes/python/mapping @ <커밋>",
+  "configOverride": { ... },               // default.json 위에 덮어쓴 값 (없으면 {})
+  "input": { ... },                        // §6 데이터 계약 필드 이름 그대로
+  "expected": { ... },
+  "tolerance": { "abs": 1e-4 }             // float32 기준 허용 오차
+}
+```
+
+- 위 예시의 `//` 주석은 설명용이다. 실제 파일은 주석 없는 JSON이어야 `core`의 `MiniJson`이 읽는다.
+- 큰 배열(깊이 이미지 등)은 JSON에 넣지 않고 같은 폴더에 **16비트 PNG**(세션 형식과 같음, `core/session/Png16`로 읽음) 또는 **리틀 엔디언 float32 `.f32`** 파일로 두고 JSON에서 상대 경로로 가리킨다.
+- 입력은 가능하면 부록 B 합성 장면에서 만든다. 실제 녹화 데이터(`data/`)는 골든 벡터에 넣지 않는다(§5.4).
+- 골든 파일은 생성 스크립트(`golden.py`)로만 만들고 손으로 고치지 않는다.
+
+#### 이식 절차 (Kotlin으로 통합할 때)
+
+1. 프로토타입 `README.md`의 상태를 "이식 중"으로 바꾼다.
+2. 골든 벡터를 `core/src/test/resources/golden/<모듈>/`에 넣는다.
+3. §4.2 구조의 해당 `core` 패키지에 Kotlin으로 구현한다. 규칙은 §4.3과 같다(외부 라이브러리 없음, 공개 함수 KDoc 한 줄, 단위를 이름에 넣기).
+4. 테스트 두 종류를 통과시킨다.
+   - 골든 벡터 테스트: 프로토타입과 같은 결과인지
+   - 합성 장면 테스트(부록 B SC-xx): 마일스톤 완료 기준
+5. 프로토타입에서 쓴 새 파라미터를 `default.json`·`Config.kt`·명세 §12 표에 올리고 `config.override.json`에서 지운다.
+6. 이식하며 달라진 점(수치 타입, 반올림, 알고리즘 단순화 등)은 `docs/DECISIONS.md`에 한 줄로 남긴다.
+7. 프로토타입 `README.md`를 "이식 완료 `<커밋>`"으로 바꾼다. 프로토타입 코드는 참고용으로 남겨 두고, 이후 수정은 Kotlin `core`에서만 한다.
+
+브랜치·커밋은 §5와 같다. 프로토타입과 이식은 같은 마일스톤 접두어를 쓴다(예: 프로토타입 `m3/voxel-map-proto`, 이식 `m3/voxel-map`).
 
 ---
 

@@ -35,3 +35,4 @@
 - 2026-09-27 · docs · `.ps1`은 UTF-8 BOM으로 저장 — Windows PowerShell 5.1은 BOM 없는 스크립트를 ANSI(cp949)로 읽어 한글이 깨짐
 - 2026-09-27 · docs · SDK 패키지 설치는 cmdline-tools의 `android.exe`(Android CLI) 우선, 결과는 종료 코드 대신 파일로 확인 — cmdline-tools 23에서 sdkmanager가 폐기 예정·Android CLI로 위임되고, 설치 후 종료 코드 0xC0000409로 끝나는 것을 확인. `sdkmanager.bat`은 cmd가 `;`에서 인자를 잘라 `platforms;android-37.0`을 못 받음
 - 2026-09-27 · docs · Codex용 루트 `AGENTS.md` 추가(CLAUDE.md + .claude/rules 내용과 동일, 모듈 규칙은 절로 통합) — Codex는 Git 루트~작업 디렉터리의 AGENTS.md만 읽고 경로별 규칙 로딩이 없음. 지침 변경 시 양쪽을 같은 커밋에서 수정(README §4.7)
+- 2026-09-27 · docs · `core` 알고리즘을 다른 언어(기본 Python)로 먼저 만들 수 있게 README §4.8 추가: `prototypes/<언어>/<모듈>/`, §6 데이터 계약·float32·설정 원본 유지, 골든 벡터(`core/src/test/resources/golden/`)로 Kotlin 이식 검증. 최종 구현과 완료 판정은 Kotlin `core` — 사용자 결정(이후 모바일 이식 시 Kotlin으로 통합)
