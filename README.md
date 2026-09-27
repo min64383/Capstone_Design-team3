@@ -303,7 +303,7 @@ adb pull /storage/emulated/0/Android/data/walkassist.app/files/sessions/<세션I
 
 1. [`docs/MVP_SPEC.md`](docs/MVP_SPEC.md)의 해당 마일스톤(§13)과 관련 절
 2. [`docs/DECISIONS.md`](docs/DECISIONS.md) — 이미 내린 결정을 다시 뒤집지 않도록
-3. 모듈별 규칙: [`.claude/rules/core.md`](.claude/rules/core.md), [`.claude/rules/app.md`](.claude/rules/app.md)
+3. 에이전트 지침과 모듈별 규칙: Claude는 [`CLAUDE.md`](CLAUDE.md)·[`.claude/rules/`](.claude/rules/), Codex는 [`AGENTS.md`](AGENTS.md) (내용 동일, §4.7)
 
 명세와 코드가 충돌하면 **명세를 따른다.** 명세가 틀렸다고 판단되면 구현을 멈추고 팀에 수정을 제안한 뒤, 합의되면 명세를 먼저 고친다.
 
@@ -342,50 +342,48 @@ adb pull /storage/emulated/0/Android/data/walkassist.app/files/sessions/<세션I
 | 새 의존성·모델·데이터셋·HRTF 파일 | **팀 승인 후** 추가하고 `docs/LICENSES.md`에 코드·가중치·데이터 구분해 기록 |
 | 세션 형식·스파이크 결과 | `docs/FORMAT.md` |
 | 명세 수정 | `docs/MVP_SPEC.md` 직접 수정 + `DECISIONS.md`에 이유 |
+| 에이전트 지침 수정 | `CLAUDE.md`·`.claude/rules/`와 `AGENTS.md`를 같은 커밋에서 함께 수정 + `check-agent-docs.ps1` 통과 (§4.7) |
 
 ### 4.5 Claude Code 사용 시
 
-저장소 루트의 [`CLAUDE.md`](CLAUDE.md)와 `.claude/rules/`가 자동으로 적용된다. 에이전트가 만든 커밋도 아래 Git 규칙을 똑같이 따른다.
+- 저장소 루트의 [`CLAUDE.md`](CLAUDE.md)가 항상 적용된다.
+- `.claude/rules/`의 모듈 규칙은 **편집하는 파일의 경로**에 따라 자동으로 불러온다: `core/**` → `core.md`, `app/**` → `app.md` (각 파일 frontmatter의 `paths:`).
+- 커밋 메시지 끝에 `Co-Authored-By: Claude ...` 줄이 붙을 수 있다. §5.2 형식은 그대로 지킨다.
 
 ### 4.6 Codex 사용 시
 
-Codex는 `CLAUDE.md`와 `.claude/`를 읽지 않는다. 대신 저장소 루트의 [`AGENTS.md`](AGENTS.md)를 자동으로 읽으며, 이 파일에 Claude와 **같은 지침**이 들어 있다.
+- Codex는 `CLAUDE.md`와 `.claude/`를 읽지 않는다. 대신 저장소 루트의 [`AGENTS.md`](AGENTS.md)를 자동으로 읽는다.
+- Codex는 Git 루트부터 **현재 작업 디렉터리까지** 경로에 있는 `AGENTS.md`만 이어 붙여 읽는다(가까운 파일이 뒤에 붙어 우선). Claude처럼 편집하는 파일의 경로에 따라 규칙을 불러오지 않는다. 그래서 `core/AGENTS.md`처럼 나누지 않고, 모듈 규칙을 루트 `AGENTS.md`에 절("core 모듈 규칙", "app 모듈 규칙")로 넣었다. 기본 크기 한도(`project_doc_max_bytes`, 32 KiB)보다 충분히 작다. ([Codex AGENTS.md 문서](https://learn.chatgpt.com/docs/agent-configuration/agents-md))
+- **저장소 루트에서** 실행한다. 하위 폴더에서 실행해도 루트 `AGENTS.md`는 읽히지만, 명령(`./gradlew ...`)이 루트 기준이다.
+- 샌드박스가 네트워크를 막으면 첫 Gradle 실행(의존성 다운로드)이 실패한다. 먼저 사람이 `.\gradlew.bat :core:test`를 한 번 돌려 캐시를 채우거나 네트워크를 허용한다.
+- 개인 설정(모델, 승인 모드 등)은 저장소에 넣지 않고 각자 `~/.codex/config.toml`에 둔다.
 
-| Claude Code가 읽는 것 | 적용 방식 | Codex가 읽는 것 |
+### 4.7 에이전트 공통 규칙 (Claude Code · Codex)
+
+두 에이전트는 **같은 지침**을 서로 다른 파일로 읽는다. 구현 기준은 둘 다 `docs/MVP_SPEC.md`다.
+
+| 지침 | Claude Code | Codex |
 |---|---|---|
-| `CLAUDE.md` | 항상 | `AGENTS.md` 본문 (구조·명령·원칙·작업 방식) |
-| `.claude/rules/core.md` | `core/**` 파일을 다룰 때 자동 | `AGENTS.md`의 "core 모듈 규칙" 절 |
-| `.claude/rules/app.md` | `app/**` 파일을 다룰 때 자동 | `AGENTS.md`의 "app 모듈 규칙" 절 |
-
-**왜 한 파일에 모았나.** Codex는 Git 루트부터 **현재 작업 디렉터리까지** 경로에 있는 `AGENTS.md`만 이어 붙여 읽는다(가까운 파일이 뒤에 붙어 우선). Claude처럼 "편집하는 파일의 경로"에 따라 규칙을 불러오지 않으므로, `core/AGENTS.md`를 따로 두면 저장소 루트에서 실행한 Codex는 그 규칙을 보지 못한다. 그래서 모듈 규칙을 루트 `AGENTS.md`에 절로 넣었다. 기본 크기 한도(`project_doc_max_bytes`, 32 KiB)보다 충분히 작다. ([Codex AGENTS.md 문서](https://learn.chatgpt.com/docs/agent-configuration/agents-md))
+| 공통 (구조·명령·원칙·작업 방식) | `CLAUDE.md` (항상) | `AGENTS.md` 본문 |
+| core 전용 | `.claude/rules/core.md` (`core/**`를 다룰 때) | `AGENTS.md` "core 모듈 규칙" 절 |
+| app 전용 | `.claude/rules/app.md` (`app/**`를 다룰 때) | `AGENTS.md` "app 모듈 규칙" 절 |
+| 새 모듈 전용 (예: `tools/`) | `.claude/rules/<모듈>.md` (frontmatter `paths:`) | `AGENTS.md`에 "<모듈> 규칙 (`<경로>/**`를 다룰 때)" 절 추가 |
 
 **사용 방법**
 
-- Codex는 **저장소 루트에서** 실행한다. 하위 폴더에서 실행해도 루트 `AGENTS.md`는 읽히지만, 명령(`./gradlew ...`)이 루트 기준이다.
-- 에이전트용 지침 파일은 두 가지뿐이다: `AGENTS.md`(Codex)와 `CLAUDE.md` + `.claude/rules/`(Claude). 구현 기준은 둘 다 `docs/MVP_SPEC.md`다.
-- 첫 요청에 마일스톤을 밝힌다. 예: "M2를 시작한다. MVP_SPEC §7.1, §7.8, §13을 읽고 파일·클래스 목록과 테스트 계획부터 제시해." (작업 방식 규칙: 한 번에 한 마일스톤, 계획 먼저)
-- 명령은 PowerShell 기준이다. Codex의 샌드박스가 네트워크를 막으면 첫 Gradle 실행(의존성 다운로드)이 실패하므로, 먼저 사람이 `.\gradlew.bat :core:test`를 한 번 돌려 캐시를 채우거나 네트워크를 허용한다.
+- 첫 요청에 마일스톤을 밝히고 계획부터 받는다. 예: "M2를 시작한다. MVP_SPEC §7.1, §7.8, §13을 읽고 파일·클래스 목록과 테스트 계획부터 제시해." (한 번에 한 마일스톤, 계획 먼저)
 - 기기 작업(`installDebug`, `adb`)은 폰이 연결된 PC에서만 된다. 연결 확인은 `tools\setup\check-device.ps1`(§3.3).
-- 결과 확인과 기록은 Claude와 같다: `docs/DECISIONS.md`에 결정 한 줄, 새 의존성은 승인 후 `docs/LICENSES.md`, 확인 못 한 API는 `// VERIFY:`. 커밋·PR은 §5 규칙을 따른다.
+- 기록은 사람과 같다(§4.4). 에이전트가 만든 커밋·PR도 §5 규칙을 따른다.
 
 **지침을 바꿀 때 (중요)**
 
-`AGENTS.md`의 내용은 `CLAUDE.md` + `.claude/rules/core.md` + `.claude/rules/app.md`와 **같아야 한다.** 규칙을 추가·수정하면 같은 커밋에서 양쪽을 함께 고치고, 아래 확인 스크립트가 통과하는지 본 뒤 PR 본문에 "에이전트 지침 동기화함"을 적는다. 한쪽만 바뀌면 두 에이전트가 서로 다른 규칙으로 코드를 쓰게 된다.
+위 표의 두 열은 **내용이 같아야 한다.** 규칙을 추가·수정하면 같은 커밋에서 양쪽을 함께 고치고, 확인 스크립트가 통과하는지 본다. 한쪽만 바뀌면 두 에이전트가 서로 다른 규칙으로 코드를 쓰게 된다.
 
 ```powershell
 powershell -ExecutionPolicy Bypass -File tools\setup\check-agent-docs.ps1   # 같으면 "동기화됨", 다르면 한쪽에만 있는 줄 출력 + 종료 코드 1
 ```
 
 스크립트는 목록 항목과 본문 문장을 줄 단위로 비교한다(제목, HTML 주석, `.claude/rules`의 frontmatter는 무시). 그래서 절 제목은 달라도 되지만 **규칙 문장은 글자까지 같게** 쓴다.
-
-| 바꾸는 규칙 | Claude 쪽 | Codex 쪽 |
-|---|---|---|
-| 공통 (구조·명령·원칙·작업 방식) | `CLAUDE.md` | `AGENTS.md` 본문 |
-| core 전용 | `.claude/rules/core.md` | `AGENTS.md` "core 모듈 규칙" 절 |
-| app 전용 | `.claude/rules/app.md` | `AGENTS.md` "app 모듈 규칙" 절 |
-| 새 모듈 전용 (예: `tools/`) | `.claude/rules/<모듈>.md` (frontmatter `paths:`) | `AGENTS.md`에 "<모듈> 규칙 (`<경로>/**`를 다룰 때)" 절 추가 |
-
-개인 설정(모델, 승인 모드 등)은 저장소에 넣지 않고 각자 `~/.codex/config.toml`에 둔다.
 
 ---
 
@@ -427,7 +425,7 @@ git push -u origin m2/geometry
 
 - 제목은 커밋 메시지 형식과 같게
 - 본문에 적을 것: 무엇을 바꿨는지, 관련 명세 절(§), 테스트 결과(`./gradlew :core:test`, 기기 확인 여부), `DECISIONS.md`에 추가한 줄
-- 에이전트 지침(`CLAUDE.md`, `.claude/rules/`, `AGENTS.md`)을 바꿨다면 `tools\setup\check-agent-docs.ps1` 통과 확인 (§4.6)
+- 에이전트 지침(`CLAUDE.md`, `.claude/rules/`, `AGENTS.md`)을 바꿨다면 `tools\setup\check-agent-docs.ps1` 통과 확인 (§4.7)
 - 다른 팀원 **1명 이상 확인** 후 병합. 병합 방식은 Squash 또는 Merge 중 팀에서 하나로 통일
 - 병합한 브랜치는 삭제
 

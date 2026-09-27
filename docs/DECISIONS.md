@@ -34,4 +34,4 @@
 - 2026-09-27 · docs · 환경 변수는 사용자 범위(HKCU)에만 쓰고 변경 전 `%LOCALAPPDATA%\WalkAssist`에 백업, Path는 REG_EXPAND_SZ 원문 보존 — `[Environment]::SetEnvironmentVariable`은 Path를 REG_SZ로 바꿔 `%VAR%` 항목을 깨뜨림
 - 2026-09-27 · docs · `.ps1`은 UTF-8 BOM으로 저장 — Windows PowerShell 5.1은 BOM 없는 스크립트를 ANSI(cp949)로 읽어 한글이 깨짐
 - 2026-09-27 · docs · SDK 패키지 설치는 cmdline-tools의 `android.exe`(Android CLI) 우선, 결과는 종료 코드 대신 파일로 확인 — cmdline-tools 23에서 sdkmanager가 폐기 예정·Android CLI로 위임되고, 설치 후 종료 코드 0xC0000409로 끝나는 것을 확인. `sdkmanager.bat`은 cmd가 `;`에서 인자를 잘라 `platforms;android-37.0`을 못 받음
-- 2026-09-27 · docs · Codex용 루트 `AGENTS.md` 추가(CLAUDE.md + .claude/rules 내용과 동일, 모듈 규칙은 절로 통합) — Codex는 Git 루트~작업 디렉터리의 AGENTS.md만 읽고 경로별 규칙 로딩이 없음. 지침 변경 시 양쪽을 같은 커밋에서 수정(README §4.6)
+- 2026-09-27 · docs · Codex용 루트 `AGENTS.md` 추가(CLAUDE.md + .claude/rules 내용과 동일, 모듈 규칙은 절로 통합) — Codex는 Git 루트~작업 디렉터리의 AGENTS.md만 읽고 경로별 규칙 로딩이 없음. 지침 변경 시 양쪽을 같은 커밋에서 수정(README §4.7)

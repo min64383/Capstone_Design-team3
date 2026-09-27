@@ -1,6 +1,6 @@
 <!--
   Codex 등 AGENTS.md를 읽는 에이전트용 지침.
-  내용은 CLAUDE.md + .claude/rules/core.md + .claude/rules/app.md 와 같다. 한쪽을 바꾸면 다른 쪽도 같이 바꾼다 (README §4.6).
+  내용은 CLAUDE.md + .claude/rules/core.md + .claude/rules/app.md 와 같다. 한쪽을 바꾸면 다른 쪽도 같이 바꾼다 (README §4.7).
   Codex는 Git 루트부터 작업 디렉터리까지의 AGENTS.md만 읽으므로, 모듈 규칙도 하위 폴더가 아니라 이 파일에 둔다.
 -->
 # WalkAssist — 시각장애인 보행 보조 앱 MVP

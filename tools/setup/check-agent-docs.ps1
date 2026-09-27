@@ -3,7 +3,7 @@
     에이전트 지침 동기화 확인: AGENTS.md(Codex)와 CLAUDE.md + .claude/rules/*.md(Claude)의 규칙 항목이 같은지 비교한다.
 
 .DESCRIPTION
-    저장소 루트에서 실행한다. 지침을 바꾼 PR에서는 반드시 실행한다 (README §4.6).
+    저장소 루트에서 실행한다. 지침을 바꾼 PR에서는 반드시 실행한다 (README §4.7).
 
       powershell -ExecutionPolicy Bypass -File tools\setup\check-agent-docs.ps1
 
