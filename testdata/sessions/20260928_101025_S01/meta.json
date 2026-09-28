@@ -1,0 +1,70 @@
+{
+  "formatVersion": "v0",
+  "sessionId": "20260928_101025_S01",
+  "sceneId": "S01",
+  "createdAt": "2026-09-28T10:10:25+09:00",
+  "device": {
+    "manufacturer": "samsung",
+    "model": "SM-G977N",
+    "socModel": "Exynos 9820",
+    "androidRelease": "12",
+    "sdkInt": 31
+  },
+  "arcore": {
+    "sdkVersion": "1.56.0",
+    "apkVersion": "1.56.262080393"
+  },
+  "depth": {
+    "automaticSupported": true,
+    "rawDepthOnlySupported": true,
+    "modeUsed": "AUTOMATIC",
+    "width": 160,
+    "height": 90
+  },
+  "camera": {
+    "imageIntrinsics": {
+      "fx": 504.469,
+      "fy": 506.47116,
+      "cx": 315.17926,
+      "cy": 232.24963,
+      "width": 640,
+      "height": 480
+    },
+    "textureIntrinsics": {
+      "fx": 1513.407,
+      "fy": 1519.4135,
+      "cx": 946.53784,
+      "cy": 517.7489,
+      "width": 1920,
+      "height": 1080
+    },
+    "displayRotationDeg": 0,
+    "fpsMin": 30,
+    "fpsMax": 30
+  },
+  "gripOffsetM": [0, 0, 0],
+  "elapsedMinusMonotonicNs": 126109225702903,
+  "depthEveryN": 1,
+  "rgbEveryN": 3,
+  "conventions": {
+    "pose": "Camera.getPose(): physical camera pose, ARCore GL camera (+X right, +Y up, -Z forward), world +Y up; stored raw",
+    "displayPose": "Camera.getDisplayOrientedPose(): rotated about camera Z to the display orientation (F2 check)",
+    "tNs": "Frame.getTimestamp() ns; time base not defined by ARCore",
+    "sysElapsedNs": "SystemClock.elapsedRealtimeNanos() when the GL thread received the frame",
+    "depth": "Frame.acquireDepthImage16Bits(): uint16 mm, 0 = invalid, saved as 16-bit grayscale PNG; only new depth timestamps saved",
+    "rawDepth": "Frame.acquireRawDepthImage16Bits(): uint16 mm, 0 = invalid, 16-bit PNG",
+    "depthConf": "Frame.acquireRawDepthConfidenceImage(): uint8 0-255, 8-bit PNG, same frame as rawDepth",
+    "rgb": "Frame.acquireCameraImage() YUV_420_888 -> JPEG, sensor orientation (not rotated)",
+    "intrinsics": "Camera.getImageIntrinsics()/getTextureIntrinsics(): unrotated sensor orientation",
+    "device.tNs": "SystemClock.elapsedRealtimeNanos()"
+  },
+  "stats": {
+    "nFrames": 224,
+    "nDepthSaved": 221,
+    "nRawDepthSaved": 75,
+    "nRgbSaved": 75,
+    "nFileJobsSkipped": 2,
+    "nWriteErrors": 0,
+    "durationS": 7.526732
+  }
+}

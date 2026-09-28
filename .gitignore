@@ -9,7 +9,7 @@ captures/
 .externalNativeBuild/
 .cxx/
 
-# 실제 녹화 데이터와 서명 키는 올리지 않는다 (§14-6)
+# 실제 녹화 데이터와 서명 키는 올리지 않는다 (§14-6). 대표 세션 경량본은 testdata/sessions/ (arcore.mp4 제외)
 data/
 *.jks
 *.keystore

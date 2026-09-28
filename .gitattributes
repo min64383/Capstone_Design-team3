@@ -1,0 +1,2 @@
+# 녹화 경량본은 바이트 그대로 둔다 (csv·json 줄바꿈 변환 금지, PNG·JPEG는 바이너리)
+testdata/sessions/** -text
