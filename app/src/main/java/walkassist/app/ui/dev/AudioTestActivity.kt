@@ -51,7 +51,8 @@ class AudioTestActivity : Activity() {
             TextView(this).apply {
                 text =
                     "이어폰을 연결하고 테스트하세요.\n" +
-                            "방향 = 좌우 볼륨\n" +
+                            "방향 = 좌우 볼륨 + 두 귀 시간차\n" +
+                            "뒤쪽 = 낮은 음\n" +
                             "거리 = 비프 간격"
                 textSize = 20f
             }
@@ -107,6 +108,29 @@ class AudioTestActivity : Activity() {
         ) {
             play(
                 azimuthDeg = 90f,
+                distanceM = 1.5f,
+            )
+        }
+
+        /*
+         * 뒤쪽 확인. 낮은 음으로 바뀌어야 한다.
+         */
+        addButton(
+            root,
+            "뒤 오른쪽 +135° / 1.5 m",
+        ) {
+            play(
+                azimuthDeg = 135f,
+                distanceM = 1.5f,
+            )
+        }
+
+        addButton(
+            root,
+            "뒤 180° / 1.5 m",
+        ) {
+            play(
+                azimuthDeg = 180f,
                 distanceM = 1.5f,
             )
         }

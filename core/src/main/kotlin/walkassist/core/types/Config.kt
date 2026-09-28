@@ -121,6 +121,12 @@ data class AudioConfig(
 
     /** 먼 장애물의 비프 반복 주기. */
     val farPeriodMs: Float,
+
+    /** 뒤쪽(|방위각| > 90°) 장애물의 음높이. */
+    val rearToneHz: Float,
+
+    /** 완전히 옆(±90°)일 때 두 귀 시간차. */
+    val maxItdMs: Float,
 )
 
 /** 녹화 저장 간격 설정. */
