@@ -29,7 +29,7 @@ data class ArcoreInfo(
     val apkVersion: String?,
 )
 
-/** 깊이 지원 여부(F1)와 실제 사용한 모드. 해상도는 첫 깊이 이미지에서 채운다(F4). */
+/** 깊이 지원 여부(F1)와 실제 사용한 모드. 해상도·내부 파라미터는 첫 깊이 이미지에서 채운다(F4). */
 data class DepthInfo(
     val automaticSupported: Boolean,
     val rawDepthOnlySupported: Boolean,
@@ -37,6 +37,8 @@ data class DepthInfo(
     val modeUsed: String,
     val width: Int?,
     val height: Int?,
+    /** 깊이 내부 파라미터 = 텍스처 K × (깊이 크기 / 텍스처 크기) (F4, 형식 v1). v0이거나 깊이를 못 받았으면 null. */
+    val intrinsics: Intrinsics? = null,
 )
 
 /** 카메라 설정(F3). 내부 파라미터는 ARCore가 주는 회전하지 않은 센서 방향 값. */
@@ -108,6 +110,7 @@ data class SessionMeta(
             "modeUsed" to str(depth.modeUsed),
             "width" to num(depth.width),
             "height" to num(depth.height),
+            "intrinsics" to (depth.intrinsics?.let { intrinsics(it) } ?: JsonNull),
         ),
         "camera" to obj(
             "imageIntrinsics" to intrinsics(camera.imageIntrinsics),
@@ -154,6 +157,10 @@ data class SessionMeta(
                 depth = DepthInfo(
                     dp.bool("automaticSupported"), dp.bool("rawDepthOnlySupported"), dp.str("modeUsed"),
                     dp.intOpt("width"), dp.intOpt("height"),
+                    // v0 meta에는 이 필드가 없다
+                    dp.objOpt("intrinsics", missingIsNull = true)?.let { k ->
+                        Intrinsics(k.float("fx"), k.float("fy"), k.float("cx"), k.float("cy"), k.int("width"), k.int("height"))
+                    },
                 ),
                 camera = CameraInfo(
                     c.intrinsics("imageIntrinsics"), c.intrinsics("textureIntrinsics"), c.int("displayRotationDeg"),
@@ -193,7 +200,7 @@ data class SessionMeta(
         private fun bad(k: String, what: String): Nothing = throw IllegalArgumentException("meta.json: $prefix$k must be $what")
 
         fun obj(k: String) = Obj(get(k) as? JsonObject ?: bad(k, "an object"), "$prefix$k.")
-        fun objOpt(k: String) = when (val v = get(k)) {
+        fun objOpt(k: String, missingIsNull: Boolean = false) = if (missingIsNull && o.fields[k] == null) null else when (val v = get(k)) {
             JsonNull -> null
             is JsonObject -> Obj(v, "$prefix$k.")
             else -> bad(k, "an object or null")

@@ -1,9 +1,35 @@
 # 녹화 세션 형식과 스파이크 결과
 
-MVP_SPEC §8. 형식 **v0**은 M1 스파이크용 초안이고, F1~F8 결과로 G1에서 **v1**을 확정한다.
+MVP_SPEC §8. 형식 **v0**은 M1 스파이크용 초안이었고, F1~F7 결과로 G1에서 **v1**을 확정했다(F8은 M7).
 형식 정의 코드는 `core/session/SessionFormat.kt`, `SessionMeta.kt`, `Png16.kt`에 있고, 앱과 PC에서 같은 코드를 쓴다.
 
-## 형식 v0
+## 형식 v1 (G1 확정, 현재)
+
+v0에서 스파이크 결과(F1~F7)를 반영해 바꾼 것만 적는다. 나머지(폴더 구조, 파일 이름, 저장 규칙)는 아래 v0과 같다.
+F8(재생 모드)은 M7에서 확인한다.
+
+| 변경 | 내용 | 근거 |
+|---|---|---|
+| 제거 | `frames.csv`의 `dtx..dqw`(화면 기준 자세) | F2: `getPose()`와 항상 카메라 Z축 90° 차이, 위치 동일 |
+| 추가 | `meta.json`의 `depth.intrinsics` {fx, fy, cx, cy, width, height} = 텍스처 K × (깊이 크기 / 텍스처 크기) | F4: 깊이 160x90 = 텍스처 16:9, 척도 편향 없음 |
+| 유지 | `frames.csv`의 `sysElapsedNs` | F5: 촬영→앱 수신 지연(a0) 측정. `Frame.getTimestamp()`는 `elapsedRealtime` 기준 |
+| 유지 | `meta.json`의 `elapsedMinusMonotonicNs` | F5 판별 근거 보존 |
+| 유지 | `depth/`, `raw_depth/`, `depth_conf/` 모두 저장 | F6: 느린 경로 입력(일반 vs 원시+신뢰도)은 M3에서 비교 후 결정 |
+| 유지 | 저장 간격 `record.depthEveryN` 1, `rgbEveryN` 3 | F7: 8.5분에 건너뜀 2%, 쓰기 오류 0 |
+
+- `meta.formatVersion` = `"v1"`. `frames.csv` 헤더:
+  `frameIndex,tNs,sysElapsedNs,tracking,trackingFailure,tx,ty,tz,qx,qy,qz,qw,depthTNs,depthFile,rawDepthTNs,rawDepthFile,confFile,rgbFile`
+- 깊이의 `tCaptureNs`는 `depthTNs`/`rawDepthTNs`(이미지 자체 시각, 명세 §6). 깊이 시각의 자세는 도착 프레임까지 받은 자세 중 가장 가까운 것(DECISIONS 2026-09-28).
+- **v0 세션도 계속 읽는다**(`SessionReader`): 화면 기준 자세 열은 무시하고, 깊이 K는 같은 규칙으로 텍스처 K에서 환산한다.
+
+### G1 확인 (2026-09-28)
+
+- 앱 v1 녹화 `20260928_102615_S01`(10 s, 296프레임, 쓰기 오류 0): 헤더·`meta.depth.intrinsics` 정상, `SessionReader`로 읽기 성공.
+- 기존 v0 세션 13개도 같은 `SessionReader`로 모두 읽힘(경고 0).
+- **카메라 K는 세션마다 다르다**: 텍스처 fx 1483.1(9/26~9/28 오전) vs 1514.0(9/28 10시 이후, +2%). 세션마다 K를 기록하는 v1이 필요한 이유.
+- 이번 v1 녹화(폰 고정)에서는 원시 깊이도 30 Hz, 깊이 시각이 프레임보다 0.2 ms 뒤였다(이전: 원시 10 Hz, 0.3 ms 앞). 두 경우 모두 자세 선택 규칙으로 처리된다. 원시 깊이 갱신 빈도는 움직임에 따라 달라질 수 있다 — M3에서 입력 선택 시 고려.
+
+## 형식 v0 (M1 스파이크, 읽기만 지원)
 
 ```
 <getExternalFilesDir>/sessions/<yyyyMMdd_HHmmss>_<장면ID>/
@@ -93,6 +119,7 @@ adb pull /storage/emulated/0/Android/data/walkassist.app/files/sessions/<세션I
 | 20260928_084950_S02 | F4 벽 1 m (발끝, 눈대중) | 위 0.50, 뒤 0.30 | |
 | 20260928_101025_S01 | F4 벽 1.00 m (줄자, 렌즈 기준) | 위 0.50, 뒤 0.30 | |
 | 20260928_101053_S01 | F4 벽 2.00 m (줄자, 렌즈 기준) | 위 0.50, 뒤 0.30 | |
+| 20260928_102615_S01 | G1 v1 형식 확인(폰 고정, adb 녹화) | — | 첫 v1 세션 |
 | 20260928_085205_T01 | F7 **야외** 동네 한 바퀴(같은 길 반복 없음), 8.5분, 수평 675 m, 높이 변화 6 m | 위 0.50, 뒤 0.30, **왼쪽 0.15** (폰을 오른쪽으로 15 cm) | 실외라 원시 깊이 유효 34%, 신뢰도 중앙값 0 — 명세 기준 시나리오(실내) 밖 |
 
 ### 촬영 절차

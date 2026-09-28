@@ -93,15 +93,19 @@ def main() -> int:
     print(f"추적 프레임 {len(tr)}/{len(frames)}, 실패 사유 분포: {frames.trackingFailure.value_counts().to_dict()}")
     if len(tr):
         r = quat_to_rot(tr[["qx", "qy", "qz", "qw"]].to_numpy())
-        rd = quat_to_rot(tr[["dqx", "dqy", "dqz", "dqw"]].to_numpy())
+        poses = [("getPose", r)]
+        if "dqx" in tr.columns:  # 형식 v0에만 화면 기준 자세가 있다
+            poses.append(("displayOriented", quat_to_rot(tr[["dqx", "dqy", "dqz", "dqw"]].to_numpy())))
         # GL 카메라 축(열)의 월드 방향: +X 오른쪽, +Y 위, -Z 시선
-        for name, rot in (("getPose", r), ("displayOriented", rd)):
+        for name, rot in poses:
             x, y, fwd = rot[:, :, 0].mean(0), rot[:, :, 1].mean(0), -rot[:, :, 2].mean(0)
             print(f"{name}: 평균 +X_cam(월드)={np.round(x, 2)}, +Y_cam={np.round(y, 2)}, 시선(-Z)={np.round(fwd, 2)}")
-        rel = np.einsum("nji,njk->nik", r, rd)  # R_pose^T · R_display
-        ang = np.degrees(np.arctan2(rel[:, 1, 0], rel[:, 0, 0]))
-        print(f"두 자세의 카메라 Z축 회전 차이: 중앙값 {np.median(ang):.1f}°, 범위 {ang.min():.1f}~{ang.max():.1f}°")
-        print(f"  시선과 두 자세의 위치 차이 최대 {np.abs(tr[['tx','ty','tz']].to_numpy() - tr[['dtx','dty','dtz']].to_numpy()).max():.4f} m")
+        if len(poses) == 2:
+            rd = poses[1][1]
+            rel = np.einsum("nji,njk->nik", r, rd)  # R_pose^T · R_display
+            ang = np.degrees(np.arctan2(rel[:, 1, 0], rel[:, 0, 0]))
+            print(f"두 자세의 카메라 Z축 회전 차이: 중앙값 {np.median(ang):.1f}°, 범위 {ang.min():.1f}~{ang.max():.1f}°")
+            print(f"  두 자세의 위치 차이 최대 {np.abs(tr[['tx','ty','tz']].to_numpy() - tr[['dtx','dty','dtz']].to_numpy()).max():.4f} m")
         pos = tr[["tx", "ty", "tz"]].to_numpy()
         print(f"이동: 시작→끝 {np.round(pos[-1] - pos[0], 2)} m, 수평 경로 길이 {np.linalg.norm(np.diff(pos[:, [0, 2]], axis=0), axis=1).sum():.2f} m, "
               f"높이(Y) 범위 {pos[:, 1].min():.2f}~{pos[:, 1].max():.2f} m")
@@ -129,7 +133,7 @@ def main() -> int:
         tx, ty = w / kt["width"], h / kt["height"]
         print(f"후보 B (텍스처 K를 크기 비율로): fx={kt['fx'] * tx:.2f} fy={kt['fy'] * ty:.2f} cx={kt['cx'] * tx:.2f} cy={kt['cy'] * ty:.2f}"
               f" (sx={tx:.4f}, sy={ty:.4f}{', 비등방 → 부적합 가능' if abs(tx - ty) > 1e-3 else ''})")
-        print(f"meta depth 크기: {dep['width']}x{dep['height']}")
+        print(f"meta depth 크기: {dep['width']}x{dep['height']}, meta depth K(v1): {dep.get('intrinsics')}")
         # 중앙 영역: 알려진 거리 평면을 찍은 세션에서 기대 거리와 비교
         rh, rw = max(1, int(h * args.roi)), max(1, int(w * args.roi))
         center = []

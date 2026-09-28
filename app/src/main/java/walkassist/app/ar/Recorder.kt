@@ -21,6 +21,7 @@ import walkassist.core.session.GrayImage
 import walkassist.core.session.Png16
 import walkassist.core.session.SessionFormat
 import walkassist.core.session.SessionMeta
+import walkassist.core.session.SessionReader
 import walkassist.core.session.SessionStats
 import walkassist.core.types.RecordConfig
 import java.io.BufferedWriter
@@ -43,7 +44,7 @@ data class RecorderStats(
 )
 
 /**
- * 녹화 모드(§8.1): ARCore Recording API로 `arcore.mp4`, 저장 스레드로 `frames.csv`·깊이·이미지·`device.csv`·`meta.json`.
+ * 녹화 모드(§8.1, 형식 v1): ARCore Recording API로 `arcore.mp4`, 저장 스레드로 `frames.csv`·깊이·이미지·`device.csv`·`meta.json`.
  *
  * 스레드: [start]·[onFrame]·[stop]은 GL 스레드(또는 GL 스레드가 멈춘 뒤의 UI 스레드)에서만 호출한다.
  * - 자세 행: 모든 프레임을 기록해야 하므로(§8.1) 저장 스레드로 큐 전달. 행은 작아서 밀려도 부담이 작다.
@@ -155,7 +156,7 @@ class Recorder(
                 tracking = FrameAdapter.toCore(camera.trackingState),
                 trackingFailure = camera.trackingFailureReason.name,
                 pose = FrameAdapter.toPoseGl(camera.pose),
-                displayPose = FrameAdapter.toPoseGl(camera.displayOrientedPose),
+                displayPose = null, // v1: F2 확정 후 제거
                 depthTNs = depth?.tNs,
                 depthFile = job.depth?.let { SessionFormat.depthFile(idx) },
                 rawDepthTNs = rawDepth?.tNs,
@@ -178,7 +179,16 @@ class Recorder(
         }
         val durationS = (SystemClock.elapsedRealtimeNanos() - startElapsedNs) / 1e9f
         val finalMeta = initialMeta.copy(
-            depth = initialMeta.depth.copy(width = depthWidth, height = depthHeight),
+            depth = initialMeta.depth.copy(
+                width = depthWidth,
+                height = depthHeight,
+                // 깊이 K = 텍스처 K × 크기 비율 (F4 확정, 형식 v1)
+                intrinsics = if (depthWidth != null && depthHeight != null) {
+                    SessionReader.scaleTextureK(initialMeta.camera.textureIntrinsics, depthWidth!!, depthHeight!!)
+                } else {
+                    null
+                },
+            ),
             stats = null,
         )
         pendingFinish = { writeFinalMeta(finalMeta, durationS); onDone(dir) }
