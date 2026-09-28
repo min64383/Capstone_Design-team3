@@ -14,6 +14,9 @@ enum class RepStrategy { CENTROID, NEAREST, CORRIDOR_NEAREST }
 /** 통로 안 부분의 높이 분류 (§7.4). */
 enum class HeightClass { FLOOR, BODY, HEAD }
 
+/** 느린 경로 입력으로 쓸 ARCore 깊이 종류(F6): 일반(평활·채움, 30 Hz) 또는 원시(+신뢰도, 10~30 Hz). */
+enum class DepthSource { SMOOTHED, RAW }
+
 /** 로컬 맵의 건강 상태. */
 enum class MapHealth { OK, DEGRADED }
 
