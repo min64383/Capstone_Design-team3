@@ -118,6 +118,8 @@ object ConfigLoader {
                     beepOnMs = positive("beepOnMs"),
                     nearPeriodMs = positive("nearPeriodMs"),
                     farPeriodMs = positive("farPeriodMs"),
+                    rearToneHz = positive("rearToneHz"),
+                    maxItdMs = nonNegative("maxItdMs"),
                 )
             },
             record = root.section("record") {

@@ -47,7 +47,9 @@
     "toneHz": 880,
     "beepOnMs": 70,
     "nearPeriodMs": 180,
-    "farPeriodMs": 900
+    "farPeriodMs": 900,
+    "rearToneHz": 440,
+    "maxItdMs": 0.66
   },
   "record": { "depthEveryN": 1, "rgbEveryN": 3, "deviceLogIntervalS": 1.0 },
   "align": { "fitLengthM": 2.0 }

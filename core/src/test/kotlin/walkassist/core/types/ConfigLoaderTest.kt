@@ -45,6 +45,8 @@ class ConfigLoaderTest {
                 beepOnMs = 70f,
                 nearPeriodMs = 180f,
                 farPeriodMs = 900f,
+                rearToneHz = 440f,
+                maxItdMs = 0.66f,
             ),
             c.audio,
         )
