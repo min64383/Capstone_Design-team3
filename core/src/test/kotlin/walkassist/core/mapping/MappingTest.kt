@@ -274,6 +274,18 @@ class FloorTest {
     }
 
     @Test
+    fun `floor tolerance grows with horizontal distance`() {
+        val f = Floor(config.floor) // toleranceM 0.05, tolerancePerM 0.08
+        f.update(points(0f to 500), cameraY = 1f)
+        assertEquals(true, f.isFloor(0.12f, 1f)) // 허용 0.13
+        assertEquals(false, f.isFloor(0.14f, 1f))
+        assertEquals(true, f.isFloor(0.25f, 3f)) // 허용 0.29: 멀리서 올라가 보이는 바닥
+        assertEquals(false, f.isFloor(0.35f, 3f))
+        assertEquals(true, f.isBelowFloor(-0.2f, 1f)) // 기준 0.18
+        assertEquals(false, f.isBelowFloor(-0.3f, 3f)) // 기준 0.34
+    }
+
+    @Test
     fun `too few points keeps previous estimate`() {
         val f = Floor(config.floor)
         assertNull(f.update(points(-1f to 10), 0f).floorY)

@@ -47,17 +47,21 @@ class LocalMap(private val config: Config) {
             return MapUpdate(depth.tCaptureNs, n, 0, 0, 0, 0, PruneCounts(0, 0, 0), voxels.size, null, MapHealth.DEGRADED)
         }
 
+        val floorY = f.floorY
         voxels.beginFrame()
         var nFloor = 0
         var nBelow = 0
         var nInserted = 0
-        val radius2 = config.map.radiusM * config.map.radiusM
+        val radius = config.map.radiusM
+        val camW = depth.worldFromCam.translation()
         for (i in 0 until n) {
             val p = Vec3(pts[3 * i], pts[3 * i + 1], pts[3 * i + 2])
+            val camDist = (p - camW).horizontal().norm()
             when {
-                floor.isFloor(p.y) -> nFloor++
-                floor.isBelowFloor(p.y) -> nBelow++
-                (p - userPosW).horizontal().let { it dot it } > radius2 -> Unit
+                floor.isFloor(p.y, camDist) -> nFloor++
+                floor.isBelowFloor(p.y, camDist) -> nBelow++
+                p.y < floorY -> Unit // 바닥보다 낮은데 단차로도 확실하지 않은 점: 장애물일 수 없으므로 버린다
+                (p - userPosW).horizontal().norm() > radius -> Unit
                 else -> {
                     voxels.insert(p, depth.tCaptureNs)
                     nInserted++
