@@ -225,7 +225,8 @@ data class GuidanceOutput(                  // 음향 블록마다 계산
 
 ### 7.2 바닥 (`mapping/Floor.kt`)
 
-- 기본: 월드 +Y가 위이므로 **높이 히스토그램**. 카메라 높이 아래 `floor.searchBandM` 범위에서 가장 밀도 높은 높이를 `floorY`로 추정하고 지수 평활한다.
+- 기본: 월드 +Y가 위이므로 **높이 히스토그램**. 카메라보다 낮은 점에서 가장 밀도 높은 높이를 `floorY`로 추정하고 지수 평활한다(`floor.emaAlpha`). 한 번 찾은 뒤에는 직전 `floorY ± floor.searchBandM` 안에서만 찾는다(v0.2.1 해석).
+- 바닥을 아직 모르면 복셀 맵을 갱신하지 않고 `mapHealth = DEGRADED`로 둔다(바닥 점이 장애물로 쌓이는 것 방지).
 - 바닥 점: `|y − floorY| < floor.toleranceM`.
 - 바닥보다 확실히 낮은 점(내려가는 단차 후보)은 삭제하지 말고 개수만 로그에 남긴다(MVP 안내 대상 아님).
 
@@ -502,12 +503,15 @@ F1~F7 결과를 반영해 `docs/FORMAT.md`에 **형식 v1**을 확정한다(F8 �
 | `heading.windowS` / `minTravelM` | 1.0 / 0.15 | |
 | `corridor.widthM` / `heightM` / `lengthM` / `behindM` | 0.8 / 2.0 / 3.5 / 0.2 | |
 | `depth.subsample` | 2 | 역투영 픽셀 간격 |
+| `depth.source` / `minConfidence` | SMOOTHED / 0 | 느린 경로 입력 깊이(F6, M3 비교로 결정), 원시 깊이 신뢰도 하한(0~255) (M3 추가) |
 | `map.voxelSizeM` | 0.05 | 비교 실험 대상 |
+| `map.hitGain` | 0.2 | 관측 1회당 score 증가 (M3 추가) |
 | `map.minHits` / `minScore` | 3 / 0.1 | |
 | `map.freeMarginM` | 0.15 | 빈 공간 감쇠 여유 |
 | `map.decayPerObservation` | 0.3 | 시야 안 빈 공간 관측 1회당 감쇠 |
 | `map.passedMarginM` / `maxUnseenS` / `radiusM` | 1.0 / 10 / 5.0 | 시야 밖 복셀 삭제 조건 |
-| `floor.searchBandM` / `toleranceM` | 0.5 / 0.05 | |
+| `floor.searchBandM` / `toleranceM` | 0.5 / 0.05 | 첫 추정은 카메라보다 낮은 점 전체, 이후 직전 바닥 ± searchBandM (M3 해석) |
+| `floor.binM` / `emaAlpha` / `minPoints` / `belowMarginM` | 0.02 / 0.2 / 200 / 0.10 | 히스토그램 칸, 평활, 최소 점 수, 단차 후보 기준 (M3 추가) |
 | `cluster.epsM` / `minSamples` | 0.15 / 5 | |
 | `cluster.headMinM` / `bodyMinM` | 1.2 / 0.5 | 통로 내 부분 기준 |
 | `track.matchRadiusM` / `emaAlpha` | 0.3 / 0.3 | |
