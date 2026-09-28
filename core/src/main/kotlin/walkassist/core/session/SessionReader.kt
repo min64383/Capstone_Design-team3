@@ -28,7 +28,7 @@ data class PoseEvent(val frameIndex: Long, val pose: PoseFrame) : SessionEvent {
 data class DepthEvent(val frameIndex: Long, override val arrivalTNs: Long, val depth: DepthFrame) : SessionEvent
 
 /**
- * 녹화 세션 폴더(형식 v0, docs/FORMAT.md) → `PoseFrame`/`DepthFrame` (§7.9).
+ * 녹화 세션 폴더(형식 v1, v0도 읽음 — docs/FORMAT.md) → `PoseFrame`/`DepthFrame` (§7.9).
  *
  * - 자세: ARCore GL 원본을 C_cv로 변환한다(§5, 변환은 여기와 app `FrameAdapter`에서만).
  * - 깊이의 `tCaptureNs`는 깊이 이미지 자체의 시각이다(§2.2-4). 같은 시각이 반복되면(깊이 정지) 새 사건을 내지 않는다.
@@ -47,16 +47,15 @@ class SessionReader(private val dir: File) {
     /** 읽는 중 건너뛴 항목의 사유(파일 없음, 추적 아님 등). [events]를 끝까지 돈 뒤 채워진다. */
     val warnings: MutableList<String> = mutableListOf()
 
-    init {
-        require(meta.formatVersion == SessionFormat.VERSION) { "unsupported format ${meta.formatVersion}" }
-    }
-
     private fun readRows(): List<FrameRow> {
+        require(meta.formatVersion in SessionFormat.READABLE) { "unsupported format ${meta.formatVersion}" }
         val lines = File(dir, SessionFormat.FRAMES_FILE).readLines()
-        require(lines.isNotEmpty() && lines[0] == FramesCsv.headerLine()) { "frames.csv header mismatch" }
+        require(lines.isNotEmpty() && lines[0] == FramesCsv.headerLine(meta.formatVersion)) {
+            "frames.csv header does not match format ${meta.formatVersion}"
+        }
         return lines.drop(1).filter { it.isNotBlank() }.mapIndexed { i, line ->
             try {
-                FramesCsv.parse(line)
+                FramesCsv.parse(line, meta.formatVersion)
             } catch (e: IllegalArgumentException) {
                 throw IllegalArgumentException("frames.csv line ${i + 2}: ${e.message}", e)
             }
@@ -67,14 +66,12 @@ class SessionReader(private val dir: File) {
     fun poseFrames(): List<PoseFrame> = rows.map { toPoseFrame(it) }
 
     /**
-     * 깊이 내부 파라미터. 형식 v0에는 깊이 K가 없으므로 텍스처 K를 깊이 크기 비율로 환산한다
-     * (F4 후보: 깊이 16:9 = 텍스처 비율, 시야 일치. 척도 확정 전 — DECISIONS 2026-09-28).
+     * 깊이 내부 파라미터. v1은 `meta.depth.intrinsics`를 쓰고(크기가 맞을 때),
+     * v0은 같은 규칙(텍스처 K × 깊이 크기 / 텍스처 크기, F4 확정)으로 환산한다.
      */
     fun depthIntrinsics(width: Int, height: Int): Intrinsics {
-        val t = meta.camera.textureIntrinsics
-        val sx = width.toFloat() / t.width
-        val sy = height.toFloat() / t.height
-        return Intrinsics(t.fx * sx, t.fy * sy, t.cx * sx, t.cy * sy, width, height)
+        meta.depth.intrinsics?.let { if (it.width == width && it.height == height) return it }
+        return scaleTextureK(meta.camera.textureIntrinsics, width, height)
     }
 
     /** 자세·깊이 사건을 도착 순서로. 깊이 이미지는 필요할 때 읽는다(긴 세션 메모리 절약). */
@@ -143,6 +140,13 @@ class SessionReader(private val dir: File) {
     }
 
     companion object {
+        /** 텍스처 K를 깊이 크기로 환산(F4). 앱 녹화기와 v0 읽기가 같은 규칙을 쓴다. */
+        fun scaleTextureK(t: Intrinsics, width: Int, height: Int): Intrinsics {
+            val sx = width.toFloat() / t.width
+            val sy = height.toFloat() / t.height
+            return Intrinsics(t.fx * sx, t.fy * sy, t.cx * sx, t.cy * sy, width, height)
+        }
+
         /** ARCore GL 원본 자세 → C_cv 규약 `worldFromCam`. */
         fun toWorldFromCv(p: PoseGl): Mat4 =
             Conventions.glToCv(Quaternion(p.qx, p.qy, p.qz, p.qw).toMat4(Vec3(p.tx, p.ty, p.tz)))

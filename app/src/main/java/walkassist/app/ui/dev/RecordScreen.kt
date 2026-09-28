@@ -396,7 +396,6 @@ class RecordScreen : Activity(), GLSurfaceView.Renderer {
 
         private val CONVENTIONS = linkedMapOf(
             "pose" to "Camera.getPose(): physical camera pose, ARCore GL camera (+X right, +Y up, -Z forward), world +Y up; stored raw",
-            "displayPose" to "Camera.getDisplayOrientedPose(): rotated about camera Z to the display orientation (F2 check)",
             "tNs" to "Frame.getTimestamp() ns; time base not defined by ARCore",
             "sysElapsedNs" to "SystemClock.elapsedRealtimeNanos() when the GL thread received the frame",
             "depth" to "Frame.acquireDepthImage16Bits(): uint16 mm, 0 = invalid, saved as 16-bit grayscale PNG; only new depth timestamps saved",
@@ -404,6 +403,7 @@ class RecordScreen : Activity(), GLSurfaceView.Renderer {
             "depthConf" to "Frame.acquireRawDepthConfidenceImage(): uint8 0-255, 8-bit PNG, same frame as rawDepth",
             "rgb" to "Frame.acquireCameraImage() YUV_420_888 -> JPEG, sensor orientation (not rotated)",
             "intrinsics" to "Camera.getImageIntrinsics()/getTextureIntrinsics(): unrotated sensor orientation",
+            "depth.intrinsics" to "textureIntrinsics scaled by depth size / texture size (F4)",
             "device.tNs" to "SystemClock.elapsedRealtimeNanos()",
         )
     }

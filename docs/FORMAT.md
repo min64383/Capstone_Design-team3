@@ -1,9 +1,28 @@
 # 녹화 세션 형식과 스파이크 결과
 
-MVP_SPEC §8. 형식 **v0**은 M1 스파이크용 초안이고, F1~F8 결과로 G1에서 **v1**을 확정한다.
+MVP_SPEC §8. 형식 **v0**은 M1 스파이크용 초안이었고, F1~F7 결과로 G1에서 **v1**을 확정했다(F8은 M7).
 형식 정의 코드는 `core/session/SessionFormat.kt`, `SessionMeta.kt`, `Png16.kt`에 있고, 앱과 PC에서 같은 코드를 쓴다.
 
-## 형식 v0
+## 형식 v1 (G1 확정, 현재)
+
+v0에서 스파이크 결과(F1~F7)를 반영해 바꾼 것만 적는다. 나머지(폴더 구조, 파일 이름, 저장 규칙)는 아래 v0과 같다.
+F8(재생 모드)은 M7에서 확인한다.
+
+| 변경 | 내용 | 근거 |
+|---|---|---|
+| 제거 | `frames.csv`의 `dtx..dqw`(화면 기준 자세) | F2: `getPose()`와 항상 카메라 Z축 90° 차이, 위치 동일 |
+| 추가 | `meta.json`의 `depth.intrinsics` {fx, fy, cx, cy, width, height} = 텍스처 K × (깊이 크기 / 텍스처 크기) | F4: 깊이 160x90 = 텍스처 16:9, 척도 편향 없음 |
+| 유지 | `frames.csv`의 `sysElapsedNs` | F5: 촬영→앱 수신 지연(a0) 측정. `Frame.getTimestamp()`는 `elapsedRealtime` 기준 |
+| 유지 | `meta.json`의 `elapsedMinusMonotonicNs` | F5 판별 근거 보존 |
+| 유지 | `depth/`, `raw_depth/`, `depth_conf/` 모두 저장 | F6: 느린 경로 입력(일반 vs 원시+신뢰도)은 M3에서 비교 후 결정 |
+| 유지 | 저장 간격 `record.depthEveryN` 1, `rgbEveryN` 3 | F7: 8.5분에 건너뜀 2%, 쓰기 오류 0 |
+
+- `meta.formatVersion` = `"v1"`. `frames.csv` 헤더:
+  `frameIndex,tNs,sysElapsedNs,tracking,trackingFailure,tx,ty,tz,qx,qy,qz,qw,depthTNs,depthFile,rawDepthTNs,rawDepthFile,confFile,rgbFile`
+- 깊이의 `tCaptureNs`는 `depthTNs`/`rawDepthTNs`(이미지 자체 시각, 명세 §6). 깊이 시각의 자세는 도착 프레임까지 받은 자세 중 가장 가까운 것(DECISIONS 2026-09-28).
+- **v0 세션도 계속 읽는다**(`SessionReader`): 화면 기준 자세 열은 무시하고, 깊이 K는 같은 규칙으로 텍스처 K에서 환산한다.
+
+## 형식 v0 (M1 스파이크, 읽기만 지원)
 
 ```
 <getExternalFilesDir>/sessions/<yyyyMMdd_HHmmss>_<장면ID>/

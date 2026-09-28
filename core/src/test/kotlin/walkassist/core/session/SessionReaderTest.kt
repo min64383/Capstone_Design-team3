@@ -112,6 +112,49 @@ class SessionReaderTest {
     }
 
     @Test
+    fun `v0 and v1 sessions of the same recording read identically`() {
+        val rec = Scenes.SC08.generate()
+        val v1 = SessionReader(SyntheticSessionWriter.write(rec, File(tmp, "v1"), "SC-08"))
+        val v0 = SessionReader(SyntheticSessionWriter.write(rec, File(tmp, "v0"), "SC-08", version = "v0"))
+        assertEquals("v1", v1.meta.formatVersion)
+        assertEquals("v0", v0.meta.formatVersion)
+        assertTrue(v1.rows.all { it.displayPose == null })
+        assertTrue(v0.rows.all { it.displayPose != null })
+        assertEquals(v0.poseFrames(), v1.poseFrames())
+        val d0 = v0.events(DepthSource.SMOOTHED).filterIsInstance<DepthEvent>().toList()
+        val d1 = v1.events(DepthSource.SMOOTHED).filterIsInstance<DepthEvent>().toList()
+        assertEquals(d0.size, d1.size)
+        for ((a, b) in d0.zip(d1)) {
+            assertEquals(a.depth, b.depth.copy(K = a.depth.K)) // K 외 동일
+            assertEquals(a.depth.K.fx, b.depth.K.fx, 1e-3f)
+            assertEquals(a.depth.K.cx, b.depth.K.cx, 1e-3f)
+        }
+    }
+
+    @Test
+    fun `v1 meta depth intrinsics take precedence`() {
+        val dir = SyntheticSessionWriter.write(Scenes.SC02.generate(), File(tmp, "s"), "SC-02")
+        val f = File(dir, SessionFormat.META_FILE)
+        val m = SessionMeta.fromJson(f.readText())
+        val custom = m.depth.intrinsics!!.copy(fx = 100f, cy = 40f)
+        f.writeText(m.copy(depth = m.depth.copy(intrinsics = custom)).toJson())
+        val r = SessionReader(dir)
+        assertEquals(custom, r.depthIntrinsics(160, 90))
+        // 크기가 다르면 텍스처 K 환산으로
+        assertEquals(walkassist.core.synth.SyntheticGenerator.DEPTH_K.fx * 2, r.depthIntrinsics(320, 180).fx, 1e-2f)
+        assertEquals(custom, r.events(DepthSource.SMOOTHED).filterIsInstance<DepthEvent>().first().depth.K)
+    }
+
+    @Test
+    fun `header that does not match meta version is rejected`() {
+        val dir = SyntheticSessionWriter.write(Scenes.SC01.generate(), File(tmp, "s"), "SC-01")
+        val f = File(dir, SessionFormat.META_FILE)
+        f.writeText(f.readText().replace("\"formatVersion\": \"v1\"", "\"formatVersion\": \"v0\""))
+        val e = assertThrows<IllegalArgumentException> { SessionReader(dir) }
+        assertTrue("header" in e.message!!, e.message)
+    }
+
+    @Test
     fun `corrupt frames csv reports the line`() {
         val dir = SyntheticSessionWriter.write(Scenes.SC01.generate(), File(tmp, "s"), "SC-01")
         val f = File(dir, SessionFormat.FRAMES_FILE)

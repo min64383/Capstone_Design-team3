@@ -12,14 +12,14 @@ class SessionFormatTest {
 
     private val pose = PoseGl(0.1f, -1.25e-3f, 3.0f, 0f, 0.70710677f, 0f, 0.70710677f)
 
-    private fun row(withFiles: Boolean) = FrameRow(
+    private fun row(withFiles: Boolean, v0: Boolean = false) = FrameRow(
         frameIndex = 123,
         tNs = 98_765_432_101_234L,
         sysElapsedNs = 98_765_432_555_000L,
         tracking = if (withFiles) TrackingState.TRACKING else TrackingState.PAUSED,
         trackingFailure = if (withFiles) "NONE" else "INSUFFICIENT_FEATURES",
         pose = pose,
-        displayPose = pose.copy(qz = 0.5f),
+        displayPose = if (v0) pose.copy(qz = 0.5f) else null,
         depthTNs = if (withFiles) 98_765_400_000_000L else null,
         depthFile = if (withFiles) SessionFormat.depthFile(123) else null,
         rawDepthTNs = if (withFiles) 98_765_300_000_000L else null,
@@ -35,7 +35,7 @@ class SessionFormatTest {
         createdAt = "2026-09-26T10:15:00+09:00",
         device = DeviceInfo("samsung", "SM-G977N", "Exynos 9820", "12", 31),
         arcore = ArcoreInfo("1.56.0", null),
-        depth = DepthInfo(true, true, "AUTOMATIC", 160, 90),
+        depth = DepthInfo(true, true, "AUTOMATIC", 160, 90, Intrinsics(123.59f, 123.59f, 79.39f, 43.63f, 160, 90)),
         camera = CameraInfo(
             Intrinsics(492.3f, 492.1f, 319.5f, 239.25f, 640, 480),
             Intrinsics(1476.9f, 1476.3f, 958.5f, 717.75f, 1920, 1440),
@@ -58,21 +58,44 @@ class SessionFormatTest {
     }
 
     @Test
-    fun `frames csv header is fixed`() {
+    fun `frames csv headers are fixed`() {
+        assertEquals("v1", SessionFormat.VERSION)
         assertEquals(
-            "frameIndex,tNs,sysElapsedNs,tracking,trackingFailure,tx,ty,tz,qx,qy,qz,qw,dtx,dty,dtz,dqx,dqy,dqz,dqw," +
+            "frameIndex,tNs,sysElapsedNs,tracking,trackingFailure,tx,ty,tz,qx,qy,qz,qw," +
                 "depthTNs,depthFile,rawDepthTNs,rawDepthFile,confFile,rgbFile",
             FramesCsv.headerLine(),
         )
+        assertEquals(
+            "frameIndex,tNs,sysElapsedNs,tracking,trackingFailure,tx,ty,tz,qx,qy,qz,qw,dtx,dty,dtz,dqx,dqy,dqz,dqw," +
+                "depthTNs,depthFile,rawDepthTNs,rawDepthFile,confFile,rgbFile",
+            FramesCsv.headerLine("v0"),
+        )
+        assertEquals("v1", FramesCsv.versionOf(FramesCsv.headerLine()))
+        assertEquals("v0", FramesCsv.versionOf(FramesCsv.headerLine("v0")))
+        assertThrows<IllegalArgumentException> { FramesCsv.versionOf("a,b,c") }
+        assertThrows<IllegalArgumentException> { FramesCsv.headerLine("v9") }
     }
 
     @Test
     fun `frames csv round trips with and without files`() {
         for (r in listOf(row(true), row(false))) {
             val line = FramesCsv.format(r)
-            assertEquals(FramesCsv.HEADER.size, line.split(',').size, line)
+            assertEquals(FramesCsv.HEADER_V1.size, line.split(',').size, line)
             assertEquals(r, FramesCsv.parse(line))
         }
+    }
+
+    @Test
+    fun `v0 rows still round trip with display pose`() {
+        for (r in listOf(row(true, v0 = true), row(false, v0 = true))) {
+            val line = FramesCsv.format(r, "v0")
+            assertEquals(FramesCsv.HEADER_V0.size, line.split(',').size, line)
+            assertEquals(r, FramesCsv.parse(line, "v0"))
+        }
+        // v0 행을 v1로 읽으면 열 수가 달라 오류
+        assertThrows<IllegalArgumentException> { FramesCsv.parse(FramesCsv.format(row(true, v0 = true), "v0")) }
+        // v0로 쓰려면 displayPose가 있어야 함
+        assertThrows<IllegalArgumentException> { FramesCsv.format(row(true), "v0") }
     }
 
     @Test
@@ -98,6 +121,13 @@ class SessionFormatTest {
         assertEquals(done, SessionMeta.fromJson(text))
         // Float가 이진 근사값(0.10000000149…)으로 써지지 않아야 한다
         assertTrue("[0.1, 0, -0.25]" in text, text)
+    }
+
+    @Test
+    fun `v0 meta without depth intrinsics reads as null`() {
+        val text = meta().toJson().replace(Regex(""",\s*"intrinsics": \{[^}]*\}"""), "")
+        assertTrue("\"intrinsics\"" !in text.substringAfter("\"depth\"").substringBefore("\"camera\""), text)
+        assertEquals(meta().copy(depth = meta().depth.copy(intrinsics = null)), SessionMeta.fromJson(text))
     }
 
     @Test
