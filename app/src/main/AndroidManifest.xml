@@ -39,5 +39,10 @@
         <activity
             android:name=".ui.dev.SessionList"
             android:exported="false" />
+        <!-- 오디오 테스트 -->
+        <activity
+            android:name=".ui.dev.AudioTestActivity"
+            android:exported="false" />
+
     </application>
 </manifest>

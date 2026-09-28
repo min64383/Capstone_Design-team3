@@ -100,6 +100,10 @@ object ConfigLoader {
                     sampleRate = atLeast1("sampleRate"),
                     blockSize = atLeast1("blockSize"),
                     masterGainDb = float("masterGainDb"),
+                    toneHz = positive("toneHz"),
+                    beepOnMs = positive("beepOnMs"),
+                    nearPeriodMs = positive("nearPeriodMs"),
+                    farPeriodMs = positive("farPeriodMs"),
                 )
             },
             record = root.section("record") {
@@ -124,6 +128,19 @@ object ConfigLoader {
         }
         if (c.cluster.bodyMinM >= c.cluster.headMinM) {
             throw ConfigException("cluster", "must satisfy bodyMinM < headMinM")
+        }
+        if (c.audio.beepOnMs >= c.audio.nearPeriodMs) {
+            throw ConfigException(
+                "audio",
+                "must satisfy beepOnMs < nearPeriodMs"
+            )
+        }
+
+        if (c.audio.nearPeriodMs > c.audio.farPeriodMs) {
+            throw ConfigException(
+                "audio",
+                "must satisfy nearPeriodMs <= farPeriodMs"
+            )
         }
     }
 

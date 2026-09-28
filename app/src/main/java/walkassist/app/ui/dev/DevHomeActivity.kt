@@ -49,6 +49,17 @@ class DevHomeActivity : Activity() {
         button("녹화", enabled = true) { startActivity(Intent(this, RecordScreen::class.java)) }
         button("재생 (M7)", enabled = false) {}
         button("세션 목록", enabled = true) { startActivity(Intent(this, SessionList::class.java)) }
+        button(
+            "오디오 테스트",
+            enabled = true,
+        ) {
+            startActivity(
+                Intent(
+                    this,
+                    AudioTestActivity::class.java,
+                )
+            )
+        }
         setContentView(root)
     }
 }

@@ -86,7 +86,23 @@ data class StateConfig(
 )
 
 /** 오디오 렌더링 설정. */
-data class AudioConfig(val sampleRate: Int, val blockSize: Int, val masterGainDb: Float)
+data class AudioConfig(
+    val sampleRate: Int,
+    val blockSize: Int,
+    val masterGainDb: Float,
+
+    /** 단순 비프 프로토타입의 음높이. */
+    val toneHz: Float,
+
+    /** 한 번 울릴 때 실제 소리가 나는 시간. */
+    val beepOnMs: Float,
+
+    /** 가까운 장애물의 비프 반복 주기. */
+    val nearPeriodMs: Float,
+
+    /** 먼 장애물의 비프 반복 주기. */
+    val farPeriodMs: Float,
+)
 
 /** 녹화 저장 간격 설정. */
 data class RecordConfig(
