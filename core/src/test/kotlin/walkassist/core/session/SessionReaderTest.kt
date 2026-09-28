@@ -10,6 +10,7 @@ import walkassist.core.geometry.Quaternion
 import walkassist.core.synth.Noise
 import walkassist.core.synth.Scenes
 import walkassist.core.synth.SyntheticSessionWriter
+import walkassist.core.types.DepthSource
 import walkassist.core.types.TrackingState
 import java.io.File
 

@@ -34,15 +34,21 @@ data class HeadingConfig(val windowS: Float, val minTravelM: Float)
 /** 통로 치수. */
 data class CorridorConfig(val widthM: Float, val heightM: Float, val lengthM: Float, val behindM: Float)
 
-/** 깊이 역투영 설정. */
+/** 깊이 입력·역투영 설정. */
 data class DepthConfig(
     /** 역투영 픽셀 간격(1 = 모든 픽셀). */
     val subsample: Int,
+    /** 느린 경로 입력 깊이 종류(F6, M3 비교로 결정). */
+    val source: DepthSource,
+    /** 원시 깊이 신뢰도(0~255)가 이보다 낮은 픽셀은 무효로 본다. 일반 깊이에는 적용하지 않는다. */
+    val minConfidence: Int,
 )
 
 /** 로컬 복셀 맵 설정. */
 data class MapConfig(
     val voxelSizeM: Float,
+    /** 관측 1회(깊이 1장)당 score 증가량. */
+    val hitGain: Float,
     val minHits: Int,
     val minScore: Float,
     val freeMarginM: Float,
@@ -53,7 +59,20 @@ data class MapConfig(
 )
 
 /** 바닥 추정 설정. */
-data class FloorConfig(val searchBandM: Float, val toleranceM: Float)
+data class FloorConfig(
+    /** 바닥을 한 번 찾은 뒤에는 직전 바닥 ± 이 범위에서만 찾는다(첫 추정은 카메라보다 낮은 점 전체). */
+    val searchBandM: Float,
+    /** 바닥 점 판정: |y − floorY| < toleranceM. */
+    val toleranceM: Float,
+    /** 높이 히스토그램 칸 크기. */
+    val binM: Float,
+    /** 바닥 높이 지수 평활 계수(새 추정의 비중). */
+    val emaAlpha: Float,
+    /** 추정에 필요한 최소 후보 점 수. */
+    val minPoints: Int,
+    /** 바닥보다 이만큼 이상 낮은 점은 내려가는 단차 후보(개수만 기록). */
+    val belowMarginM: Float,
+)
 
 /** 군집·높이 분류 설정. */
 data class ClusterConfig(val epsM: Float, val minSamples: Int, val headMinM: Float, val bodyMinM: Float)

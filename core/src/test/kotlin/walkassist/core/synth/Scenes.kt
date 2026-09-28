@@ -17,10 +17,10 @@ data class SceneSpec(val id: String, val scene: Scene, val walk: Walk, val noise
 object Scenes {
     private val floor = SceneItem("floor", HorizontalPlane(0f), obstacle = false)
 
-    /** 보행선 위 [distM] 지점(앞면)에 놓인 의자 크기 상자(폭 0.45, 깊이 0.45, 높이 0.8). */
-    fun boxOnLine(distM: Float, heightM: Float = 0.8f, name: String = "box") = SceneItem(
+    /** 보행선 위 [distM] 지점(앞면)에 놓인 상자. 기본은 의자 크기(폭 0.45, 깊이 0.45, 높이 0.8). */
+    fun boxOnLine(distM: Float, heightM: Float = 0.8f, name: String = "box", depthM: Float = 0.45f) = SceneItem(
         name,
-        Box(Vec3(-0.225f, 0f, -distM - 0.45f), Vec3(0.225f, heightM, -distM)),
+        Box(Vec3(-0.225f, 0f, -distM - depthM), Vec3(0.225f, heightM, -distM)),
         obstacle = true,
         expectedClass = if (heightM >= 0.5f) HeightClass.BODY else HeightClass.FLOOR,
     )
@@ -45,10 +45,16 @@ object Scenes {
     /** SC-03 통로 양옆 벽(보행선에서 ±0.8 m, 통로 폭 0.8 밖). */
     val SC03 get() = SceneSpec("SC-03", Scene(listOf(floor, wall(0.8f, "wall_r"), wall(-0.8f, "wall_l"))), Walk(durationS = 5f))
 
-    /** SC-04 상자가 3 s에 제거됨(이동 물체 흔적). */
+    /** 보행선 앞 [distM] 지점의 끝 벽(폭 6, 높이 2.5). */
+    fun endWall(distM: Float) = SceneItem("end_wall", Box(Vec3(-3f, 0f, -distM - 0.1f), Vec3(3f, 2.5f, -distM)), obstacle = false)
+
+    /**
+     * SC-04 상자가 3 s에 제거됨(이동 물체 흔적). 6 m 앞에 끝 벽이 있다:
+     * 빈 공간 감쇠는 복셀 뒤에 유효 깊이가 보여야 일어나므로(무효 = 관측 없음), 뒤가 트인 곳에서는 흔적이 남는다.
+     */
     val SC04 get() = SceneSpec(
         "SC-04",
-        Scene(listOf(floor, boxOnLine(3f).copy(removeAtS = 3f))),
+        Scene(listOf(floor, boxOnLine(3f).copy(removeAtS = 3f), endWall(6f))),
         Walk(durationS = 5f),
     )
 
@@ -78,8 +84,15 @@ object Scenes {
         walkTo(2f),
     )
 
-    /** SC-07 1.5 m 지점 낮은 상자(높이 0.3) → 1 m 이내로 접근하며 시야 밖으로 나감. */
-    val SC07 get() = SceneSpec("SC-07", Scene(listOf(floor, boxOnLine(1.5f, heightM = 0.3f, name = "low_box"))), Walk(durationS = 2f + 1.1f))
+    /**
+     * SC-07 1.5 m 지점 낮은 상자(높이 0.3, 깊이 0.3) → 1.2 m 걸어 0.3 m 앞까지 접근하며 시야 밖으로 나감.
+     * 세로 파지·10° 숙임이면 아래쪽 시야 끝이 약 42.7° → 높이 0.3 m 윗면은 0.76 m 안쪽부터 안 보인다.
+     */
+    val SC07 get() = SceneSpec(
+        "SC-07",
+        Scene(listOf(floor, boxOnLine(1.5f, heightM = 0.3f, name = "low_box", depthM = 0.3f))),
+        Walk(durationS = 2f + 1.2f),
+    )
 
     /** SC-08 SC-02 + 손목 요 흔들림 ±20°. */
     val SC08 get() = SC02.copy(id = "SC-08", walk = walkTo(2f) { copy(wristYawAmpDeg = 20f, bobAmpM = 0.02f) })

@@ -1,7 +1,7 @@
 # WalkAssist MVP 구현 명세 v0.2 (Android 앱 우선)
 
 > 3조 「시각 정보의 청각 변환을 활용한 시각장애인 보행 보조 서비스」 캡스톤디자인(1) MVP
-> 문서 버전: v0.2.1 (2026-09-28, M1 스파이크 반영: 지연 구간 분리·자세 불연속 감지·깊이 나이 기준 — `docs/FORMAT.md`) · v0.2 (2026-09-25) · 이전 버전: v0.1 (Python PC 파이프라인안, 폐기)
+> 문서 버전: v0.2.2 (2026-09-28, §14-6 PC 분석용 녹화 경량본 `testdata/` 허용) · v0.2.1 (2026-09-28, M1 스파이크 반영: 지연 구간 분리·자세 불연속 감지·깊이 나이 기준 — `docs/FORMAT.md`) · v0.2 (2026-09-25) · 이전 버전: v0.1 (Python PC 파이프라인안, 폐기)
 > 근거 문서: 프로포절, 1차 멘토링 정리 보고서 v1.0, 기술 조사 보고서 v0.1, 서비스 기준 및 기술 명세 정리본 v0.2
 >
 > **이 문서를 읽는 Claude Code에게:** 이 문서는 구현의 단일 기준(source of truth)이다. 문서와 코드가 충돌하면 문서를 따르고, 문서가 틀렸다고 판단되면 구현을 멈추고 사용자에게 수정을 제안한다. `(가설)`로 표시된 값은 설정으로 빼서 바꿀 수 있게 만든다. ARCore·Android API의 정확한 이름과 동작은 **추측하지 말고 공식 문서나 공식 샘플로 확인**한 뒤 사용한다.
@@ -225,7 +225,8 @@ data class GuidanceOutput(                  // 음향 블록마다 계산
 
 ### 7.2 바닥 (`mapping/Floor.kt`)
 
-- 기본: 월드 +Y가 위이므로 **높이 히스토그램**. 카메라 높이 아래 `floor.searchBandM` 범위에서 가장 밀도 높은 높이를 `floorY`로 추정하고 지수 평활한다.
+- 기본: 월드 +Y가 위이므로 **높이 히스토그램**. 카메라보다 낮은 점에서 가장 밀도 높은 높이를 `floorY`로 추정하고 지수 평활한다(`floor.emaAlpha`). 한 번 찾은 뒤에는 직전 `floorY ± floor.searchBandM` 안에서만 찾는다(v0.2.1 해석).
+- 바닥을 아직 모르면 복셀 맵을 갱신하지 않고 `mapHealth = DEGRADED`로 둔다(바닥 점이 장애물로 쌓이는 것 방지).
 - 바닥 점: `|y − floorY| < floor.toleranceM`.
 - 바닥보다 확실히 낮은 점(내려가는 단차 후보)은 삭제하지 말고 개수만 로그에 남긴다(MVP 안내 대상 아님).
 
@@ -502,12 +503,15 @@ F1~F7 결과를 반영해 `docs/FORMAT.md`에 **형식 v1**을 확정한다(F8 �
 | `heading.windowS` / `minTravelM` | 1.0 / 0.15 | |
 | `corridor.widthM` / `heightM` / `lengthM` / `behindM` | 0.8 / 2.0 / 3.5 / 0.2 | |
 | `depth.subsample` | 2 | 역투영 픽셀 간격 |
+| `depth.source` / `minConfidence` | SMOOTHED / 0 | 느린 경로 입력 깊이(F6, M3 비교로 결정), 원시 깊이 신뢰도 하한(0~255) (M3 추가) |
 | `map.voxelSizeM` | 0.05 | 비교 실험 대상 |
+| `map.hitGain` | 0.2 | 관측 1회당 score 증가 (M3 추가) |
 | `map.minHits` / `minScore` | 3 / 0.1 | |
 | `map.freeMarginM` | 0.15 | 빈 공간 감쇠 여유 |
 | `map.decayPerObservation` | 0.3 | 시야 안 빈 공간 관측 1회당 감쇠 |
 | `map.passedMarginM` / `maxUnseenS` / `radiusM` | 1.0 / 10 / 5.0 | 시야 밖 복셀 삭제 조건 |
-| `floor.searchBandM` / `toleranceM` | 0.5 / 0.05 | |
+| `floor.searchBandM` / `toleranceM` | 0.5 / 0.05 | 첫 추정은 카메라보다 낮은 점 전체, 이후 직전 바닥 ± searchBandM (M3 해석) |
+| `floor.binM` / `emaAlpha` / `minPoints` / `belowMarginM` | 0.02 / 0.2 / 200 / 0.10 | 히스토그램 칸, 평활, 최소 점 수, 단차 후보 기준 (M3 추가) |
 | `cluster.epsM` / `minSamples` | 0.15 / 5 | |
 | `cluster.headMinM` / `bodyMinM` | 1.2 / 0.5 | 통로 내 부분 기준 |
 | `track.matchRadiusM` / `emaAlpha` | 0.3 / 0.3 | |
@@ -564,7 +568,7 @@ F1~F7 결과를 반영해 `docs/FORMAT.md`에 **형식 v1**을 확정한다(F8 �
 3. 모든 공개 함수에 KDoc 한 줄. 단위는 이름에 포함(`M`, `Ns`, `Deg`, `Mm`).
 4. ARCore·Android API는 공식 문서와 공식 샘플로 확인 후 사용한다. 확인하지 못한 사양은 코드에 `// VERIFY:` 주석으로 표시하고 사용자에게 알린다.
 5. 새 의존성, 모델 가중치, 데이터셋, HRTF 파일은 **사용자 승인 후** 추가하고 `docs/LICENSES.md`에 코드·가중치·데이터 라이선스를 구분해 기록한다.
-6. 테스트는 합성 장면으로 작성한다. 실제 녹화 데이터(`data/`)와 서명 키는 git에 올리지 않는다.
+6. 테스트는 합성 장면으로 작성한다. 실제 녹화 데이터(`data/`)와 서명 키는 git에 올리지 않는다. 예외로, 기기 없이 PC에서 같은 입력으로 `core`를 돌리기 위한 대표 세션 몇 개의 경량본(`arcore.mp4` 제외, 형식 그대로)은 `testdata/sessions/`에 둔다(v0.2.2). 자동 테스트의 합격 기준은 계속 합성 장면이다.
 7. 성능 최적화는 로그로 병목을 확인한 뒤에만 한다.
 8. 셸 명령은 PowerShell 기준으로 안내한다.
 9. 안전 원칙(§2.2)에 어긋나는 단순화(예: 확인 불가 상태에서 이전 음원 유지)는 하지 않는다.

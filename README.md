@@ -255,6 +255,8 @@ adb logcat -s WalkAssist         # 앱 로그 (녹화 중 GL 스레드 구간별
 
 `data/`는 git에 올리지 않는다([§5.4](#54-올리면-안-되는-것-gitignore)). 가져온 세션은 `data/sessions/<세션ID>/`에 둔다.
 
+기기가 없는 팀원도 같은 입력으로 `core`를 돌릴 수 있도록 대표 세션 몇 개는 경량본(`arcore.mp4` 제외)으로 [`testdata/sessions/`](testdata/README.md)에 올려 둔다. 클론하면 바로 `SessionReader`로 읽을 수 있다. 세션 추가 방법은 `testdata/README.md`에 있다.
+
 ```powershell
 powershell -ExecutionPolicy Bypass -File tools\setup\pull-sessions.ps1                       # 기기의 세션 목록
 powershell -ExecutionPolicy Bypass -File tools\setup\pull-sessions.ps1 -Latest 1 -Analyze    # 가장 최근 1개를 가져와 분석
@@ -319,6 +321,7 @@ adb pull /storage/emulated/0/Android/data/walkassist.app/files/sessions/<세션I
 ├── tools/setup/                            PC 준비·기기 확인·세션 가져오기 PowerShell 스크립트 (§3)
 ├── prototypes/<언어>/<모듈>/                (필요할 때 생성) 다른 언어 프로토타입, Kotlin core로 이식 전제 (§4.8)
 ├── docs/                                   명세·결정·형식·라이선스
+├── testdata/sessions/                      PC 분석용 대표 녹화 경량본 (arcore.mp4 제외, testdata/README.md)
 └── data/                                   (git 제외) 녹화 세션
 ```
 
@@ -445,7 +448,7 @@ core/src/test/resources/golden/<모듈>/<케이스>.json
 
 - 위 예시의 `//` 주석은 설명용이다. 실제 파일은 주석 없는 JSON이어야 `core`의 `MiniJson`이 읽는다.
 - 큰 배열(깊이 이미지 등)은 JSON에 넣지 않고 같은 폴더에 **16비트 PNG**(세션 형식과 같음, `core/session/Png16`로 읽음) 또는 **리틀 엔디언 float32 `.f32`** 파일로 두고 JSON에서 상대 경로로 가리킨다.
-- 입력은 가능하면 부록 B 합성 장면에서 만든다. 실제 녹화 데이터(`data/`)는 골든 벡터에 넣지 않는다(§5.4).
+- 입력은 가능하면 부록 B 합성 장면에서 만든다. 실제 녹화 데이터(`data/`, `testdata/`)는 골든 벡터에 넣지 않는다(§5.4).
 - 골든 파일은 생성 스크립트(`golden.py`)로만 만들고 손으로 고치지 않는다.
 
 #### 이식 절차 (Kotlin으로 통합할 때)
@@ -510,7 +513,7 @@ git push -u origin m2/geometry
 
 | 대상 | 이유 |
 |---|---|
-| `data/` (녹화 세션) | 용량이 크고 촬영 장소가 담김 (MVP_SPEC §14-6) |
+| `data/` (녹화 세션) | 용량이 크고 촬영 장소가 담김 (MVP_SPEC §14-6). 대표 세션 경량본만 `testdata/sessions/`에 올린다(`tools\setup\export-testdata.ps1`) |
 | `*.jks`, `*.keystore`, `keystore.properties` | 서명 키 |
 | `local.properties` | 개인 SDK 경로 |
 | `build/`, `.gradle/`, `.kotlin/`, `.venv/`, `.idea/` | 빌드·환경 산출물 |
@@ -575,7 +578,7 @@ O1 에뮬레이터 재생 · O2 깊이 신경망 보조 · O3 IMU 외삽 · O4 �
 | 산출물 | 만드는 법 | 보관 |
 |---|---|---|
 | 디버그 APK | `./gradlew :app:assembleDebug` → `app/build/outputs/apk/debug/` | 마일스톤 태그의 GitHub Release에 첨부 |
-| 녹화 세션 | 앱 녹화 → `adb pull` → `data/sessions/<세션ID>/` | 팀 공유 드라이브 (위치: TODO) |
+| 녹화 세션 | 앱 녹화 → `adb pull` → `data/sessions/<세션ID>/` | 팀 공유 드라이브 (위치: TODO). 대표 세션 경량본은 저장소 `testdata/sessions/` |
 | 정답 주석 | `data/sessions/<세션ID>/annotations/obstacles.json` | 세션과 함께 |
 | 실행 로그·지표 | `run_log/`, `metrics.json` | 세션과 함께 |
 | 시연 영상 | scrcpy 화면 녹화 | 팀 공유 드라이브 |

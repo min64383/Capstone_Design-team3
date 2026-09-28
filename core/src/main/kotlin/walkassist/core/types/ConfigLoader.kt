@@ -48,10 +48,17 @@ object ConfigLoader {
                     behindM = nonNegative("behindM"),
                 )
             },
-            depth = root.section("depth") { DepthConfig(subsample = atLeast1("subsample")) },
+            depth = root.section("depth") {
+                DepthConfig(
+                    subsample = atLeast1("subsample"),
+                    source = enumValue<DepthSource>("source"),
+                    minConfidence = intIn("minConfidence", 0, 255),
+                )
+            },
             map = root.section("map") {
                 MapConfig(
                     voxelSizeM = positive("voxelSizeM"),
+                    hitGain = unit("hitGain"),
                     minHits = atLeast1("minHits"),
                     minScore = unit("minScore"),
                     freeMarginM = nonNegative("freeMarginM"),
@@ -62,7 +69,14 @@ object ConfigLoader {
                 )
             },
             floor = root.section("floor") {
-                FloorConfig(searchBandM = positive("searchBandM"), toleranceM = positive("toleranceM"))
+                FloorConfig(
+                    searchBandM = positive("searchBandM"),
+                    toleranceM = positive("toleranceM"),
+                    binM = positive("binM"),
+                    emaAlpha = unit("emaAlpha"),
+                    minPoints = atLeast1("minPoints"),
+                    belowMarginM = positive("belowMarginM"),
+                )
             },
             cluster = root.section("cluster") {
                 ClusterConfig(
@@ -126,6 +140,9 @@ object ConfigLoader {
         if (!(p.stopM < p.warnMaxM && p.warnMaxM < p.silentMaxM)) {
             throw ConfigException("policy", "must satisfy stopM < warnMaxM < silentMaxM")
         }
+        if (c.floor.belowMarginM <= c.floor.toleranceM) {
+            throw ConfigException("floor", "must satisfy toleranceM < belowMarginM")
+        }
         if (c.cluster.bodyMinM >= c.cluster.headMinM) {
             throw ConfigException("cluster", "must satisfy bodyMinM < headMinM")
         }
@@ -185,10 +202,16 @@ object ConfigLoader {
         fun unit(key: String): Float =
             float(key).also { if (it < 0f || it > 1f) throw ConfigException(path(key), "must be in [0, 1], got $it") }
 
-        fun atLeast1(key: String): Int {
+        fun atLeast1(key: String): Int = intIn(key, 1, Int.MAX_VALUE)
+
+        fun intIn(key: String, lo: Int, hi: Int): Int {
             val d = number(key)
-            if (d != Math.rint(d) || d > Int.MAX_VALUE) throw ConfigException(path(key), "must be an integer, got $d")
-            if (d < 1) throw ConfigException(path(key), "must be >= 1, got ${d.toInt()}")
+            if (d != Math.rint(d) || d > Int.MAX_VALUE || d < Int.MIN_VALUE) {
+                throw ConfigException(path(key), "must be an integer, got $d")
+            }
+            if (d < lo || d > hi) {
+                throw ConfigException(path(key), if (hi == Int.MAX_VALUE) "must be >= $lo, got ${d.toInt()}" else "must be in [$lo, $hi], got ${d.toInt()}")
+            }
             return d.toInt()
         }
 
