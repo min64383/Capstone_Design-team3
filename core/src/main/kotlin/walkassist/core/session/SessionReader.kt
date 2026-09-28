@@ -5,14 +5,12 @@ import walkassist.core.geometry.Mat4
 import walkassist.core.geometry.Quaternion
 import walkassist.core.geometry.Vec3
 import walkassist.core.types.DepthFrame
+import walkassist.core.types.DepthSource
 import walkassist.core.types.Intrinsics
 import walkassist.core.types.PoseFrame
 import walkassist.core.types.TrackingState
 import java.io.File
 import kotlin.math.abs
-
-/** 느린 경로 입력으로 쓸 깊이 종류(F6). 기본값은 M3에서 비교 후 정한다. */
-enum class DepthSource { SMOOTHED, RAW }
 
 /** 세션을 도착 순서대로 재생할 때의 사건. [arrivalTNs]는 앱이 그 데이터를 받은 ARCore 프레임 시각. */
 sealed interface SessionEvent {
