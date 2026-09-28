@@ -91,6 +91,8 @@ object ConfigLoader {
                     recoverFrames = atLeast1("recoverFrames"),
                     recoverScoreScale = unit("recoverScoreScale"),
                     unknownRepeatS = positive("unknownRepeatS"),
+                    maxSpeedMps = positive("maxSpeedMps"),
+                    maxAngularSpeedDps = positive("maxAngularSpeedDps"),
                 )
             },
             audio = root.section("audio") {

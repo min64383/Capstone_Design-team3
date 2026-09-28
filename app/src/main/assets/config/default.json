@@ -25,7 +25,13 @@
     "maxSources": 1,
     "maxInfoAgeMs": 300
   },
-  "state": { "recoverFrames": 10, "recoverScoreScale": 0.5, "unknownRepeatS": 3.0 },
+  "state": {
+    "recoverFrames": 10,
+    "recoverScoreScale": 0.5,
+    "unknownRepeatS": 3.0,
+    "maxSpeedMps": 3.0,
+    "maxAngularSpeedDps": 600
+  },
   "audio": { "sampleRate": 48000, "blockSize": 256, "masterGainDb": -12 },
   "record": { "depthEveryN": 1, "rgbEveryN": 3, "deviceLogIntervalS": 1.0 },
   "align": { "fitLengthM": 2.0 }

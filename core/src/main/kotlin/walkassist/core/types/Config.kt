@@ -75,7 +75,15 @@ data class PolicyConfig(
 )
 
 /** 안내 상태 기계 설정. */
-data class StateConfig(val recoverFrames: Int, val recoverScoreScale: Float, val unknownRepeatS: Float)
+data class StateConfig(
+    val recoverFrames: Int,
+    val recoverScoreScale: Float,
+    val unknownRepeatS: Float,
+    /** 연속 자세 사이 이동 속도가 이보다 크면 자세 불연속(월드 좌표 재정렬)으로 본다. */
+    val maxSpeedMps: Float,
+    /** 연속 자세 사이 회전 각속도가 이보다 크면 자세 불연속으로 본다. */
+    val maxAngularSpeedDps: Float,
+)
 
 /** 오디오 렌더링 설정. */
 data class AudioConfig(val sampleRate: Int, val blockSize: Int, val masterGainDb: Float)
