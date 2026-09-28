@@ -72,6 +72,7 @@ object ConfigLoader {
                 FloorConfig(
                     searchBandM = positive("searchBandM"),
                     toleranceM = positive("toleranceM"),
+                    tolerancePerM = nonNegative("tolerancePerM"),
                     binM = positive("binM"),
                     emaAlpha = unit("emaAlpha"),
                     minPoints = atLeast1("minPoints"),

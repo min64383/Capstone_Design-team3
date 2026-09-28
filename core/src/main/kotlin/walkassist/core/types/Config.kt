@@ -62,8 +62,10 @@ data class MapConfig(
 data class FloorConfig(
     /** 바닥을 한 번 찾은 뒤에는 직전 바닥 ± 이 범위에서만 찾는다(첫 추정은 카메라보다 낮은 점 전체). */
     val searchBandM: Float,
-    /** 바닥 점 판정: |y − floorY| < toleranceM. */
+    /** 바닥 점 판정: |y − floorY| < toleranceM + tolerancePerM × 수평거리. */
     val toleranceM: Float,
+    /** 수평거리 1 m당 바닥 허용 오차 증가(실제 깊이는 멀수록 바닥이 위로 퍼져 보인다, M3 실측). */
+    val tolerancePerM: Float,
     /** 높이 히스토그램 칸 크기. */
     val binM: Float,
     /** 바닥 높이 지수 평활 계수(새 추정의 비중). */

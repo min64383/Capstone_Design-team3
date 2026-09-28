@@ -6,7 +6,7 @@
   "map": {
     "voxelSizeM": 0.05,
     "hitGain": 0.2,
-    "minHits": 3,
+    "minHits": 6,
     "minScore": 0.1,
     "freeMarginM": 0.15,
     "decayPerObservation": 0.3,
@@ -17,6 +17,7 @@
   "floor": {
     "searchBandM": 0.5,
     "toleranceM": 0.05,
+    "tolerancePerM": 0.08,
     "binM": 0.02,
     "emaAlpha": 0.2,
     "minPoints": 200,

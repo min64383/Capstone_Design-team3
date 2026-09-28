@@ -68,11 +68,13 @@ class Floor(private val cfg: FloorConfig) {
         return FloorUpdate(true, floorY, m)
     }
 
-    /** 바닥 점인지: |y − floorY| < toleranceM. 바닥을 모르면 false. */
-    fun isFloor(y: Float): Boolean = floorY?.let { abs(y - it) < cfg.toleranceM } ?: false
+    /** 바닥 점인지: |y − floorY| < toleranceM + tolerancePerM × [horizontalDistM](카메라에서 수평거리). 바닥을 모르면 false. */
+    fun isFloor(y: Float, horizontalDistM: Float): Boolean =
+        floorY?.let { abs(y - it) < cfg.toleranceM + cfg.tolerancePerM * horizontalDistM } ?: false
 
-    /** 바닥보다 확실히 낮은 점(내려가는 단차 후보)인지. 바닥을 모르면 false. */
-    fun isBelowFloor(y: Float): Boolean = floorY?.let { y < it - cfg.belowMarginM } ?: false
+    /** 바닥보다 확실히 낮은 점(내려가는 단차 후보)인지: y < floorY − (belowMarginM + tolerancePerM × 수평거리). */
+    fun isBelowFloor(y: Float, horizontalDistM: Float): Boolean =
+        floorY?.let { y < it - (cfg.belowMarginM + cfg.tolerancePerM * horizontalDistM) } ?: false
 
     /** 바닥 추정을 잊는다(자세 불연속 등으로 월드 좌표가 바뀌었을 때). */
     fun reset() {

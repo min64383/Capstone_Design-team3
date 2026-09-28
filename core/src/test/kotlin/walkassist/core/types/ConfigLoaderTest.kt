@@ -29,8 +29,8 @@ class ConfigLoaderTest {
         assertEquals(HeadingConfig(1.0f, 0.15f), c.heading)
         assertEquals(CorridorConfig(0.8f, 2.0f, 3.5f, 0.2f), c.corridor)
         assertEquals(DepthConfig(2, DepthSource.SMOOTHED, 0), c.depth)
-        assertEquals(MapConfig(0.05f, 0.2f, 3, 0.1f, 0.15f, 0.3f, 1.0f, 10f, 5.0f), c.map)
-        assertEquals(FloorConfig(0.5f, 0.05f, 0.02f, 0.2f, 200, 0.1f), c.floor)
+        assertEquals(MapConfig(0.05f, 0.2f, 6, 0.1f, 0.15f, 0.3f, 1.0f, 10f, 5.0f), c.map)
+        assertEquals(FloorConfig(0.5f, 0.05f, 0.08f, 0.02f, 0.2f, 200, 0.1f), c.floor)
         assertEquals(ClusterConfig(0.15f, 5, 1.2f, 0.5f), c.cluster)
         assertEquals(TrackConfig(0.3f, 0.3f), c.track)
         assertEquals(RepStrategy.CORRIDOR_NEAREST, c.repPoint.strategy)
@@ -65,7 +65,7 @@ class ConfigLoaderTest {
 
     @Test
     fun `missing key is rejected`() {
-        val json = defaultJson.replace(""""minHits": 3,""", "")
+        val json = defaultJson.replace(""""minHits": 6,""", "")
         val e = assertThrows<ConfigException> { ConfigLoader.load(json) }
         assertEquals("map.minHits", e.path)
     }
