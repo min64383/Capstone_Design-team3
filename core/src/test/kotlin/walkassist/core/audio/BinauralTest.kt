@@ -225,13 +225,23 @@ class BinauralTest {
         }
         val dir = File(System.getProperty("walkassist.testOutput")).apply { mkdirs() }
         val f = File(dir, "sweep_minus60_plus60.wav")
-        writeWav16(f, all, sr)
+        writeWav16(f, normalized(all), sr) // 청취 확인용: 최대 −1 dBFS로 정규화(앱에서는 기기 볼륨)
         assertTrue(f.length() > 44 + all.size * 2 - 10)
+        // 방향 판단이 쉬운 연속 분홍 잡음 스윕(같은 경로의 공간화)
+        val noise = pinkNoise(blocks * n)
+        val cont = spatialize({ noise[it] }, blocks) { b -> -60f + 120f * b / (blocks - 1) }
+        writeWav16(File(dir, "noise_sweep_minus60_plus60.wav"), normalized(cont), sr)
         // 앞쪽 절반은 왼쪽, 뒤쪽 절반은 오른쪽이 크다
         fun e(from: Int, to: Int, ch: Int) = (from until to).sumOf { (all[2 * it + ch] * all[2 * it + ch]).toDouble() }
         val half = all.size / 4
         assertTrue(e(0, half / 2, 0) > e(0, half / 2, 1))
         assertTrue(e(all.size / 2 - half / 2, all.size / 2, 1) > e(all.size / 2 - half / 2, all.size / 2, 0))
+    }
+
+    private fun normalized(x: FloatArray): FloatArray {
+        val peak = x.maxOf { abs(it) }
+        val g = if (peak > 0f) 0.89f / peak else 1f // −1 dBFS
+        return FloatArray(x.size) { x[it] * g }
     }
 
     private fun writeWav16(f: File, stereo: FloatArray, rate: Int) {
