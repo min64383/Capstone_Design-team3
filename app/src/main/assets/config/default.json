@@ -1,5 +1,5 @@
 {
-  "head": { "offsetFromCameraM": [0.0, 0.0, 0.0] },
+  "head": { "offsetFromCameraM": [0.0, 0.5, -0.39] },
   "heading": { "windowS": 1.0, "minTravelM": 0.15 },
   "corridor": { "widthM": 0.8, "heightM": 2.0, "lengthM": 3.5, "behindM": 0.2 },
   "depth": { "subsample": 2, "source": "SMOOTHED", "minConfidence": 0 },
@@ -38,7 +38,7 @@
     "recoverFrames": 10,
     "recoverScoreScale": 0.5,
     "unknownRepeatS": 3.0,
-    "maxSpeedMps": 3.0,
+    "maxSpeedMps": 15.0,
     "maxAngularSpeedDps": 600
   },
   "audio": {

@@ -1,7 +1,7 @@
 # WalkAssist MVP 구현 명세 v0.2 (Android 앱 우선)
 
 > 3조 「시각 정보의 청각 변환을 활용한 시각장애인 보행 보조 서비스」 캡스톤디자인(1) MVP
-> 문서 버전: v0.2.4 (2026-09-29, M4 실제 데이터: 통로 안 복셀만 군집, 추적 매칭은 중심점) · v0.2.3 (2026-09-28, M3 실제 데이터: 거리 비례 바닥 허용 오차·minHits 6·깊이 입력 SMOOTHED 확정) · v0.2.2 (2026-09-28, §14-6 PC 분석용 녹화 경량본 `testdata/` 허용) · v0.2.1 (2026-09-28, M1 스파이크 반영: 지연 구간 분리·자세 불연속 감지·깊이 나이 기준 — `docs/FORMAT.md`) · v0.2 (2026-09-25) · 이전 버전: v0.1 (Python PC 파이프라인안, 폐기)
+> 문서 버전: v0.2.5 (2026-09-29, M5: 머리 원점 귀 중앙, 자세 불연속 15 m/s, 비대칭 히스테리시스, 맵 명령) · v0.2.4 (2026-09-29, M4 실제 데이터: 통로 안 복셀만 군집, 추적 매칭은 중심점) · v0.2.3 (2026-09-28, M3 실제 데이터: 거리 비례 바닥 허용 오차·minHits 6·깊이 입력 SMOOTHED 확정) · v0.2.2 (2026-09-28, §14-6 PC 분석용 녹화 경량본 `testdata/` 허용) · v0.2.1 (2026-09-28, M1 스파이크 반영: 지연 구간 분리·자세 불연속 감지·깊이 나이 기준 — `docs/FORMAT.md`) · v0.2 (2026-09-25) · 이전 버전: v0.1 (Python PC 파이프라인안, 폐기)
 > 근거 문서: 프로포절, 1차 멘토링 정리 보고서 v1.0, 기술 조사 보고서 v0.1, 서비스 기준 및 기술 명세 정리본 v0.2
 >
 > **이 문서를 읽는 Claude Code에게:** 이 문서는 구현의 단일 기준(source of truth)이다. 문서와 코드가 충돌하면 문서를 따르고, 문서가 틀렸다고 판단되면 구현을 멈추고 사용자에게 수정을 제안한다. `(가설)`로 표시된 값은 설정으로 빼서 바꿀 수 있게 만든다. ARCore·Android API의 정확한 이름과 동작은 **추측하지 말고 공식 문서나 공식 샘플로 확인**한 뒤 사용한다.
@@ -263,7 +263,7 @@ data class GuidanceOutput(                  // 음향 블록마다 계산
 ### 7.5 안내 정책 (`guidance/`)
 
 **진행 방향 (`Heading.kt`)**
-- 최근 `heading.windowS` (가설 1.0) 동안 카메라 수평 이동 벡터로 진행 방향을 추정하고 평활한다.
+- 최근 `heading.windowS` (가설 1.0) 동안 카메라 수평 이동 벡터로 진행 방향을 추정하고 평활한다(창 자체가 평활). 자세 불연속이면 궤적을 버리고 다시 초기화한다.
 - 이동량이 `heading.minTravelM` 미만이면 직전 값을 유지. 초기값은 첫 `TRACKING` 프레임의 카메라 정면 수평 투영.
 - 손목 회전(카메라 요)은 진행 방향에 즉시 반영하지 않는다.
 
@@ -278,7 +278,8 @@ data class GuidanceOutput(                  // 음향 블록마다 계산
 | `SILENT` | 2.5 ~ 3.0 m | 추적하지만 소리 없음 |
 | 후보 제외 | > 3.0 m | 음원 후보에서 제외 |
 
-- 경계에는 히스테리시스 `policy.hysteresisM` (가설 0.15).
+- 경계에는 히스테리시스 `policy.hysteresisM` (가설 0.15), 물체 id별. **안전 쪽 비대칭**(v0.2.5): 더 급한 구간으로는 경계에서 바로 들어가고, 덜 급한 구간으로는 경계 + hysteresisM을 넘어야 나간다.
+- 구간 거리는 **머리 기준 진행 방향 거리**, `AudioCmd.distanceM`·`azimuthDeg`는 머리 기준 수평 거리·방위각(§7.1). 머리 뒤로 `corridor.behindM`보다 멀어진 물체는 후보에서 뺀다. SILENT 구간도 명령은 내되 소리는 렌더러가 내지 않는다.
 - 동시 음원 수 `policy.maxSources` (기본 1): 통로 안 가장 가까운 물체부터.
 - 정보 나이 = 현재 시각 − 스냅샷 `tCaptureNs`. `policy.maxInfoAgeMs` (가설 300) 초과 시 해당 음원 제외.
 - 참고: 정리본 PDF 표 13의 거리 구간은 이 표로 갱신한다.
@@ -292,6 +293,8 @@ data class GuidanceOutput(                  // 음향 블록마다 계산
 | `UNKNOWN` | 추적 `PAUSED`/`STOPPED`, 정보 만료, 또는 **자세 불연속**(아래) | **모든 장애물 음원 중단** + `UNKNOWN` 알림음 1회 + 긴 진동, 이후 `state.unknownRepeatS` 간격으로 짧은 알림 |
 | `PAUSED` | 사용자 일시정지 | 무음, 정지음 1회 |
 | 복귀 | `TRACKING`이 `state.recoverFrames` 연속(불연속 없이) | 맵 `score`를 `state.recoverScoreScale`배로 낮춘 뒤 `NORMAL`, 준비 완료음. 자세 불연속으로 들어간 경우는 **맵·추적기·진행 방향을 초기화**한 뒤 복귀 |
+
+**맵 명령 (v0.2.5)**: 복귀 시 맵 약화(SCALE)와 자세 불연속 시 초기화(RESET)는 빠른 경로가 판단하고 느린 경로가 다음 깊이 처리 전에 적용한다(`FastPath.takeMapAction()` → `SlowPath.apply()`, 앱에서는 최신 값 슬롯). 시작 직후와 일시정지 해제 뒤에도 같은 복귀 규칙(좋은 프레임 `state.recoverFrames` 연속)으로 기다리며, 이때는 UNKNOWN 알림을 내지 않는다(아직 안내 전).
 
 **자세 불연속 (v0.2.1 추가)**: ARCore는 추적 상태가 `TRACKING`인 채로 월드 좌표를 재정렬할 수 있다(M1 관찰: 한 프레임에 8.7 m·146°). 연속한 두 `PoseFrame` 사이의 카메라 이동 속도가 `state.maxSpeedMps` 또는 회전 각속도가 `state.maxAngularSpeedDps`를 넘으면 자세 불연속으로 보고 `UNKNOWN`으로 전환한다. 이전 월드 좌표로 만든 맵은 새 좌표와 맞지 않으므로 감쇠가 아니라 초기화한다.
 
@@ -499,7 +502,7 @@ F1~F7 결과를 반영해 `docs/FORMAT.md`에 **형식 v1**을 확정한다(F8 �
 
 | 키 | 초기값 | 비고 |
 |---|---|---|
-| `head.offsetFromCameraM` | [0, 0, 0] | 기준 파지에서 **실측 후 설정** |
+| `head.offsetFromCameraM` | [0, 0.5, −0.39] | 진행 방향 기준 (오른쪽, 위, 앞). 실측(눈 중앙: 카메라 위 0.5·뒤 0.3 m) + 귀 중앙은 눈보다 약 9 cm 뒤(HRTF 기준, v0.2.5 가설) |
 | `heading.windowS` / `minTravelM` | 1.0 / 0.15 | |
 | `corridor.widthM` / `heightM` / `lengthM` / `behindM` | 0.8 / 2.0 / 3.5 / 0.2 | |
 | `depth.subsample` | 2 | 역투영 픽셀 간격 |
@@ -519,7 +522,7 @@ F1~F7 결과를 반영해 `docs/FORMAT.md`에 **형식 v1**을 확정한다(F8 �
 | `policy.stopM` / `warnMaxM` / `silentMaxM` | 1.0 / 2.5 / 3.0 | |
 | `policy.hysteresisM` / `maxSources` / `maxInfoAgeMs` | 0.15 / 1 / 300 | |
 | `state.recoverFrames` / `recoverScoreScale` / `unknownRepeatS` | 10 / 0.5 / 3.0 | |
-| `state.maxSpeedMps` / `maxAngularSpeedDps` | 3.0 / 600 | 자세 불연속 판정 (v0.2.1). M1 실측: 정상 보행 p99 ≤ 0.7 m/s(실내)·2.6 m/s(야외), 정상 회전 최대 214°/s, 점프 ≥ 5.7 m/s |
+| `state.maxSpeedMps` / `maxAngularSpeedDps` | 15 / 600 | 자세 불연속 판정. v0.2.5: 3.0 → 15 m/s — 실제 녹화 2만 프레임에서 ARCore의 작은 자세 보정(한 프레임 0.1~0.33 m)이 3.0을 넘어 맵이 지워졌음. 재정렬은 8.7 m(262 m/s). 정상 회전 최대 214°/s, 재정렬 4367°/s |
 | `audio.sampleRate` / `blockSize` / `masterGainDb` | 48000 / 256 / −12 | |
 | `record.depthEveryN` / `rgbEveryN` | 1 / 3 | 저장 간격 (F7 결과로 조정) |
 | `record.deviceLogIntervalS` | 1.0 | `device.csv` 기록 주기 (M1 추가) |

@@ -2,6 +2,7 @@ package walkassist.core.pipeline
 
 import walkassist.core.geometry.Vec3
 import walkassist.core.guidance.Corridor
+import walkassist.core.guidance.MapAction
 import walkassist.core.mapping.LocalMap
 import walkassist.core.mapping.MapUpdate
 import walkassist.core.tracking.Cluster
@@ -56,6 +57,15 @@ class SlowPath(private val config: Config) {
             )
         }
         return ObstacleSnapshot(depth.tCaptureNs, tracker.update(detections), floorY, u.mapHealth)
+    }
+
+    /** 빠른 경로의 맵 명령을 적용한다(§7.5): SCALE = 추적 복귀 시 score × `state.recoverScoreScale`, RESET = 초기화. */
+    fun apply(action: MapAction) {
+        when (action) {
+            MapAction.NONE -> Unit
+            MapAction.SCALE -> map.voxels.scaleScores(config.state.recoverScoreScale)
+            MapAction.RESET -> reset()
+        }
     }
 
     /** 맵·바닥·추적을 모두 잊는다(자세 불연속, §7.5). */

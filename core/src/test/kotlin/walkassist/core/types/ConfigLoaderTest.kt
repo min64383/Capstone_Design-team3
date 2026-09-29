@@ -25,7 +25,7 @@ class ConfigLoaderTest {
     @Test
     fun `default json matches spec section 12 table`() {
         val c = load()
-        assertEquals(Vec3(0f, 0f, 0f), c.head.offsetFromCameraM)
+        assertEquals(Vec3(0f, 0.5f, -0.39f), c.head.offsetFromCameraM)
         assertEquals(HeadingConfig(1.0f, 0.15f), c.heading)
         assertEquals(CorridorConfig(0.8f, 2.0f, 3.5f, 0.2f), c.corridor)
         assertEquals(DepthConfig(2, DepthSource.SMOOTHED, 0), c.depth)
@@ -35,7 +35,7 @@ class ConfigLoaderTest {
         assertEquals(TrackConfig(0.3f, 0.3f), c.track)
         assertEquals(RepStrategy.CORRIDOR_NEAREST, c.repPoint.strategy)
         assertEquals(PolicyConfig(1.0f, 2.5f, 3.0f, 0.15f, 1, 300f), c.policy)
-        assertEquals(StateConfig(10, 0.5f, 3.0f, 3.0f, 600f), c.state)
+        assertEquals(StateConfig(10, 0.5f, 3.0f, 15.0f, 600f), c.state)
         assertEquals(
             AudioConfig(
                 sampleRate = 48000,
