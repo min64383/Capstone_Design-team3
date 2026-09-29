@@ -138,6 +138,25 @@ data class AudioConfig(
 
     /** 완전히 옆(±90°)일 때 두 귀 시간차. */
     val maxItdMs: Float,
+
+    // --- HRTF 바이노럴 렌더러 (M6, §7.6). 위 비프 키는 SimpleBeepRenderer 전용 ---
+
+    /** FLOOR_PULSE 버스트 길이(분홍 잡음 + 포락선). */
+    val pulseMs: Float,
+    /** WARN 구간 반복 주기: 거리 warnMaxM에서 이 값. */
+    val warnFarPeriodMs: Float,
+    /** WARN 구간 반복 주기: 거리 stopM에서 이 값(사이는 선형). */
+    val warnNearPeriodMs: Float,
+    /** STOP 구간 반복 주기. */
+    val stopPeriodMs: Float,
+    /** STOP 구간 음량 상승. */
+    val stopGainDb: Float,
+    /** HEAD_TONE 버스트의 음높이(고역 강조, 높이는 음색으로 구분). */
+    val headToneHz: Float,
+    /** 상태 알림음(비공간) 음량. */
+    val alertGainDb: Float,
+    /** 출력 리미터 상한(선형 진폭, 0~1). */
+    val limiterCeiling: Float,
 )
 
 /** 녹화 저장 간격 설정. */

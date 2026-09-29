@@ -123,6 +123,14 @@ object ConfigLoader {
                     farPeriodMs = positive("farPeriodMs"),
                     rearToneHz = positive("rearToneHz"),
                     maxItdMs = nonNegative("maxItdMs"),
+                    pulseMs = positive("pulseMs"),
+                    warnFarPeriodMs = positive("warnFarPeriodMs"),
+                    warnNearPeriodMs = positive("warnNearPeriodMs"),
+                    stopPeriodMs = positive("stopPeriodMs"),
+                    stopGainDb = float("stopGainDb"),
+                    headToneHz = positive("headToneHz"),
+                    alertGainDb = float("alertGainDb"),
+                    limiterCeiling = unit("limiterCeiling"),
                 )
             },
             record = root.section("record") {

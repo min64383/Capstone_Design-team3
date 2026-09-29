@@ -1,7 +1,7 @@
 # WalkAssist MVP 구현 명세 v0.2 (Android 앱 우선)
 
 > 3조 「시각 정보의 청각 변환을 활용한 시각장애인 보행 보조 서비스」 캡스톤디자인(1) MVP
-> 문서 버전: v0.2.5 (2026-09-29, M5: 머리 원점 귀 중앙, 자세 불연속 15 m/s, 비대칭 히스테리시스, 맵 명령) · v0.2.4 (2026-09-29, M4 실제 데이터: 통로 안 복셀만 군집, 추적 매칭은 중심점) · v0.2.3 (2026-09-28, M3 실제 데이터: 거리 비례 바닥 허용 오차·minHits 6·깊이 입력 SMOOTHED 확정) · v0.2.2 (2026-09-28, §14-6 PC 분석용 녹화 경량본 `testdata/` 허용) · v0.2.1 (2026-09-28, M1 스파이크 반영: 지연 구간 분리·자세 불연속 감지·깊이 나이 기준 — `docs/FORMAT.md`) · v0.2 (2026-09-25) · 이전 버전: v0.1 (Python PC 파이프라인안, 폐기)
+> 문서 버전: v0.2.6 (2026-09-29, M6: HRTF SADIE II D1, 소리 패턴 설정) · v0.2.5 (2026-09-29, M5: 머리 원점 귀 중앙, 자세 불연속 15 m/s, 비대칭 히스테리시스, 맵 명령) · v0.2.4 (2026-09-29, M4 실제 데이터: 통로 안 복셀만 군집, 추적 매칭은 중심점) · v0.2.3 (2026-09-28, M3 실제 데이터: 거리 비례 바닥 허용 오차·minHits 6·깊이 입력 SMOOTHED 확정) · v0.2.2 (2026-09-28, §14-6 PC 분석용 녹화 경량본 `testdata/` 허용) · v0.2.1 (2026-09-28, M1 스파이크 반영: 지연 구간 분리·자세 불연속 감지·깊이 나이 기준 — `docs/FORMAT.md`) · v0.2 (2026-09-25) · 이전 버전: v0.1 (Python PC 파이프라인안, 폐기)
 > 근거 문서: 프로포절, 1차 멘토링 정리 보고서 v1.0, 기술 조사 보고서 v0.1, 서비스 기준 및 기술 명세 정리본 v0.2
 >
 > **이 문서를 읽는 Claude Code에게:** 이 문서는 구현의 단일 기준(source of truth)이다. 문서와 코드가 충돌하면 문서를 따르고, 문서가 틀렸다고 판단되면 구현을 멈추고 사용자에게 수정을 제안한다. `(가설)`로 표시된 값은 설정으로 빼서 바꿀 수 있게 만든다. ARCore·Android API의 정확한 이름과 동작은 **추측하지 말고 공식 문서나 공식 샘플로 확인**한 뒤 사용한다.
@@ -303,8 +303,9 @@ data class GuidanceOutput(                  // 음향 블록마다 계산
 ### 7.6 음향 (`audio/`)
 
 **HRTF (`Hrtf.kt`)**
-- 공개 SOFA HRTF 데이터 중 **라이선스를 확인한 것**을 사용자에게 제안하고, 승인 후 수평면(고도 0°) HRIR만 추출해 앱 자산(`assets/hrtf/`)에 넣는다. SOFA 파싱은 PC에서 Python 스크립트(`tools/analysis/extract_hrir.py`)로 미리 해서, 앱에는 단순 바이너리(방위각 목록 + 좌우 HRIR)로 넣는다.
-- 방위각 사이는 인접 두 HRIR 선형 보간 또는 최근접 + 교차 페이드.
+- 공개 SOFA HRTF 데이터 중 **라이선스를 확인한 것**을 사용자에게 제안하고, 승인 후 수평면(고도 0°) HRIR만 추출해 앱 자산(`assets/hrtf/`)에 넣는다. **채택(v0.2.6): SADIE II D1(Neumann KU100 더미 헤드), 48 kHz·256탭, Apache 2.0** — 수평면 400방위각(간격 ≤ 1°), `sadie2_d1_48k.hrir`(802 KB). SOFA 파싱은 PC에서 Python 스크립트(`tools/analysis/extract_hrir.py`)로 미리 해서, 앱에는 단순 바이너리(방위각 목록 + 좌우 HRIR)로 넣는다.
+- 방위각 사이는 인접 두 HRIR 선형 보간(채택). 블록 사이 방위각이 바뀌면 블록 안에서 이전·새 HRIR 결과를 선형 교차 페이드.
+- 바이너리(리틀 엔디언): `"WAHR"`, version 1, sampleRate, taps, count, 이어서 count × {azimuthDeg(오른쪽 +), left[taps], right[taps]} float32.
 - `docs/LICENSES.md`에 출처와 라이선스를 기록한다.
 
 **소리 패턴 (`Sounds.kt`)** — 모두 가설, 설정으로 조정
@@ -527,6 +528,8 @@ F1~F7 결과를 반영해 `docs/FORMAT.md`에 **형식 v1**을 확정한다(F8 �
 | `state.recoverFrames` / `recoverScoreScale` / `unknownRepeatS` | 10 / 0.5 / 3.0 | |
 | `state.maxSpeedMps` / `maxAngularSpeedDps` | 15 / 600 | 자세 불연속 판정. v0.2.5: 3.0 → 15 m/s — 실제 녹화 2만 프레임에서 ARCore의 작은 자세 보정(한 프레임 0.1~0.33 m)이 3.0을 넘어 맵이 지워졌음. 재정렬은 8.7 m(262 m/s). 정상 회전 최대 214°/s, 재정렬 4367°/s |
 | `audio.sampleRate` / `blockSize` / `masterGainDb` | 48000 / 256 / −12 | |
+| `audio.pulseMs` / `warnFarPeriodMs` / `warnNearPeriodMs` / `stopPeriodMs` / `stopGainDb` | 30 / 800 / 250 / 100 / 6 | FLOOR_PULSE 패턴(§7.6, M6 추가) |
+| `audio.headToneHz` / `alertGainDb` / `limiterCeiling` | 3000 / −6 / 0.9 | HEAD_TONE 음높이, 알림음 음량, 리미터 상한(M6 추가) |
 | `record.depthEveryN` / `rgbEveryN` | 1 / 3 | 저장 간격 (F7 결과로 조정) |
 | `record.deviceLogIntervalS` | 1.0 | `device.csv` 기록 주기 (M1 추가) |
 | `align.fitLengthM` | 2.0 | 분석 도구용 |

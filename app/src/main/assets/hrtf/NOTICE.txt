@@ -1,0 +1,15 @@
+sadie2_d1_48k.hrir
+
+Derived from the SADIE II Database, subject D1 (Neumann KU100 dummy head),
+file D1_48K_24bit_256tap_FIR_SOFA.sofa.
+Copyright 2018, University of York. Licensed under the Apache License, Version 2.0
+(see LICENSE-Apache-2.0.txt in this folder).
+Source: https://www.york.ac.uk/sadie-project/database.html
+Reference: C. Armstrong, L. Thresh, D. Murphy, G. Kearney, "A Perceptual Evaluation of
+Individual and Non-Individual HRTFs: A Case Study of the SADIE II Database",
+Applied Sciences 8(11):2029, 2018. https://doi.org/10.3390/app8112029
+
+Modifications (WalkAssist, 2026-09-29): only the horizontal-plane (elevation 0 deg)
+measurements were extracted, azimuth converted to right-positive (-180..180 deg),
+and stored as little-endian float32 in a simple binary format by
+tools/analysis/extract_hrir.py. Impulse response samples are otherwise unchanged.

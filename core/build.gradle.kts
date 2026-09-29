@@ -28,6 +28,11 @@ tasks.test {
     val defaultConfig = rootProject.file("app/src/main/assets/config/default.json")
     inputs.file(defaultConfig)
     systemProperty("walkassist.defaultConfig", defaultConfig.absolutePath)
+    // M6: 앱 자산의 HRIR(SADIE II D1)과 스윕 WAV 출력 위치(헤드폰 확인용)
+    val hrir = rootProject.file("app/src/main/assets/hrtf/sadie2_d1_48k.hrir")
+    inputs.file(hrir)
+    systemProperty("walkassist.hrtfAsset", hrir.absolutePath)
+    systemProperty("walkassist.testOutput", layout.buildDirectory.dir("test-output").get().asFile.absolutePath)
     systemProperty("walkassist.coreSrc", project.file("src").absolutePath)
     inputs.dir("src/main")
 }

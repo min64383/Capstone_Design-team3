@@ -14,6 +14,7 @@
 | numpy | 2.4.6 (venv 기준, 미고정) | tools/analysis | BSD-3-Clause | 2026-09-26 (M0) |
 | pandas | 3.0.6 (venv 기준, 미고정) | tools/analysis | BSD-3-Clause | 2026-09-26 (M0) |
 | matplotlib | 3.11.2 (venv 기준, 미고정) | tools/analysis | Matplotlib License (PSF 계열) | 2026-09-26 (M0) |
+| h5py | 3.16.0 (venv 기준, 미고정) | tools/analysis: SOFA(HDF5) 읽기(extract_hrir.py) | BSD-3-Clause | 2026-09-29 (M6) |
 | Pillow | 12.3.0 (matplotlib 전이 의존성) | tools/analysis: PNG·JPEG 읽기(spike_check.py) | MIT-CMU (HPND) | 2026-09-26 (M1, 전이 의존성 사용) |
 
 ### ARCore 약관 메모
@@ -27,4 +28,8 @@
 
 ## 데이터 (HRTF·데이터셋)
 
-없음. HRTF는 M6 시작 전 사용자 승인 후 기록.
+| 이름 | 사용 부분 | 라이선스 | 조건 | 승인 |
+|---|---|---|---|---|
+| SADIE II Database, subject D1 (Neumann KU100), University of York | `D1_48K_24bit_256tap_FIR_SOFA.sofa`의 수평면(고도 0°) 400개 방위각 → `app/src/main/assets/hrtf/sadie2_d1_48k.hrir` | Apache License 2.0 (Copyright 2018, University of York) | 라이선스 사본 첨부(`assets/hrtf/LICENSE-Apache-2.0.txt`), 변경 고지·출처(`assets/hrtf/NOTICE.txt`), 학술 사용 시 DOI 10.3390/app8112029 인용 | 2026-09-29 (M6) |
+
+원본 SOFA는 `data/hrtf/`(git 제외)에 둔다. 다운로드: https://zenodo.org/records/12092466/files/D1_HRIR_SOFA.zip
