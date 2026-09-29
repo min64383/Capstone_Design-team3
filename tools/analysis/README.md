@@ -6,7 +6,7 @@
 |---|---|---|
 | `spike_check.py` | M1 | 녹화 세션 1개로 스파이크 F1~F7 수치 출력 (docs/FORMAT.md) |
 | `align.py`, `metrics.py`, `report.py`, `plots.py` | M8 | 정렬·지표·보고서 |
-| `extract_hrir.py` | M6 | HRTF 추출 |
+| `extract_hrir.py` | M6 | SOFA HRTF → 앱용 수평면 HRIR 바이너리(`assets/hrtf/`) |
 
 환경 (PowerShell, 저장소 루트, Python 3.11):
 

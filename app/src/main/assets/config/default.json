@@ -57,7 +57,15 @@
     "nearPeriodMs": 180,
     "farPeriodMs": 900,
     "rearToneHz": 440,
-    "maxItdMs": 0.66
+    "maxItdMs": 0.66,
+    "pulseMs": 30,
+    "warnFarPeriodMs": 800,
+    "warnNearPeriodMs": 250,
+    "stopPeriodMs": 100,
+    "stopGainDb": 6,
+    "headToneHz": 3000,
+    "alertGainDb": -6,
+    "limiterCeiling": 0.9
   },
   "record": { "depthEveryN": 1, "rgbEveryN": 3, "deviceLogIntervalS": 1.0 },
   "align": { "fitLengthM": 2.0 }
