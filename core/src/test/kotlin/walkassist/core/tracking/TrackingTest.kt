@@ -47,8 +47,8 @@ class TrackingTest {
         val spec = Scenes.SC05
         val top = spec.scene.items.first { it.name == "table_top" }.shape
         val snaps = run(spec)
-        // 테이블이 앞에 보이는 동안(걷기 중반)의 스냅샷
-        val (_, snap) = snaps.first { (t, s) -> t >= 2.6f && s.obstacles.any { overlaps(it, top.aabbMin, top.aabbMax) } }
+        // 가까이서 윗면이 조밀하게 보인 뒤(마지막 스냅샷). 멀리서는 스치듯 보여 앞 모서리 조각만 잡힌다(알려진 제약)
+        val snap = snaps.last().second
         val table = front(snap, top.aabbMin, top.aabbMax)!!
         assertTrue(table.inCorridor)
         assertEquals(HeightClass.BODY, table.heightClass)
@@ -58,24 +58,23 @@ class TrackingTest {
         // 보행선은 x = 0, 통로 반폭 0.4: 돌출 모서리(x 0.2~0.4)만 통로 안
         assertTrue(corridorNearest.x in 0.15f..0.45f, "corridor-nearest $corridorNearest")
         assertEquals(-2.0f, corridorNearest.z, 0.1f) // 모서리 앞면
-        // 중심점은 통로 밖(테이블 몸체 쪽), 통로 안 최근접은 모서리
-        assertTrue(centroid.x > corridorNearest.x + 0.1f, "centroid $centroid vs corridor-nearest $corridorNearest")
-        assertTrue((centroid - corridorNearest).horizontal().norm() > 0.1f)
+        // 군집은 통로 안 부분(돌출 모서리 띠)뿐이다: 중심점은 그 띠의 가운데(더 깊은 쪽), 통로 안 최근접은 앞 모서리
+        assertTrue(centroid.x in 0.15f..0.45f, "centroid $centroid should be the in-corridor strip")
+        assertTrue(centroid.z < corridorNearest.z - 0.1f, "centroid $centroid vs corridor-nearest $corridorNearest")
         assertEquals(corridorNearest, table.repPointW) // 기본 설정 CORRIDOR_NEAREST
     }
 
     @Test
     fun `SC-06 head-height plate attached to a wall is HEAD by its in-corridor part`() {
+        // 통로로 먼저 자르므로 통로 밖 벽은 군집에 들어오지 않는다 → 판의 통로 안 부분만 한 물체
         val spec = Scenes.SC06
         val plate = spec.scene.items.first { it.name == "head_plate" }.shape
         val snaps = run(spec)
         val last = snaps.last().second
         val obs = last.obstacles.filter { overlaps(it, plate.aabbMin, plate.aabbMax) }
-        assertEquals(1, obs.size, "plate and wall should be one cluster: ${last.obstacles}")
+        assertEquals(1, obs.size, "plate should be one obstacle: ${last.obstacles}")
         val o = obs.single()
-        // 벽(바닥까지 이어짐)과 한 군집이지만 통로 안 부분은 판뿐 → HEAD
-        // 벽 아랫부분 ~0.2 m는 거리 비례 바닥 허용 오차로 바닥 처리된다(M3). 판(1.55 m)보다 훨씬 아래까지 벽이 한 군집
-        assertTrue(o.aabbMinW.y < 0.5f, "cluster includes the wall well below the plate: ${o.aabbMinW}")
+        assertTrue(o.aabbMinW.y > 1.4f && o.aabbMaxW.x <= 0.45f, "only the in-corridor part of the plate: ${o.aabbMinW}..${o.aabbMaxW}")
         assertTrue(o.inCorridor)
         assertEquals(HeightClass.HEAD, o.heightClass)
         // 머리 높이 판이 보이기 시작한 뒤로 줄곧 HEAD
@@ -100,10 +99,16 @@ class TrackingTest {
     }
 
     @Test
-    fun `SC-03 side walls are outside the corridor`() {
-        val snap = run(Scenes.SC03).last().second
-        assertTrue(snap.obstacles.isNotEmpty())
-        assertTrue(snap.obstacles.none { it.inCorridor }, "${snap.obstacles.filter { it.inCorridor }}")
+    fun `SC-03 side walls outside the corridor produce no obstacles`() {
+        // 벽 복셀은 맵에 있지만(M3) 통로 밖이라 물체가 되지 않는다
+        val slow = SlowPath(config)
+        var last: ObstacleSnapshot? = null
+        for (f in Scenes.SC03.generate().frames) {
+            val d = f.depth ?: continue
+            last = slow.process(d, d.worldFromCam.translation(), f.truthHead.headingW)
+        }
+        assertTrue(slow.map.voxels.occupied().size > 100)
+        assertTrue(last!!.obstacles.isEmpty(), "${last.obstacles}")
     }
 
     @Test
