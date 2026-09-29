@@ -5,6 +5,7 @@ import walkassist.core.guidance.Corridor
 import walkassist.core.guidance.MapAction
 import walkassist.core.mapping.LocalMap
 import walkassist.core.mapping.MapUpdate
+import walkassist.core.mapping.VoxelView
 import walkassist.core.tracking.Cluster
 import walkassist.core.tracking.Detection
 import walkassist.core.tracking.HeightClassifier
@@ -41,7 +42,8 @@ class SlowPath(private val config: Config) {
             ?: return ObstacleSnapshot(depth.tCaptureNs, tracker.update(emptyList()), null, u.mapHealth)
 
         val corridor = Corridor(userPosW, headingW, floorY, config.corridor)
-        val voxels = map.voxels.occupied().filter { corridor.contains(it.centerW) }
+        val inCorridor = map.voxels.occupied().filter { corridor.contains(it.centerW) }
+        val voxels = withoutEdgeStructures(inCorridor, corridor)
         val centers = voxels.map { it.centerW }
         val half = config.map.voxelSizeM / 2
         val detections = Cluster.dbscanXZ(centers, config.cluster.epsM, config.cluster.minSamples).map { idx ->
@@ -57,6 +59,24 @@ class SlowPath(private val config: Config) {
             )
         }
         return ObstacleSnapshot(depth.tCaptureNs, tracker.update(detections), floorY, u.mapHealth)
+    }
+
+    /**
+     * 나란한 가장자리 구조물(벽·담장·난간·길가 차량 등)의 복셀을 뺀다. 가장자리 구역(|좌우| ≥ `corridor.edgeInnerM`)의
+     * 복셀만 따로 군집해, 진행 방향으로 `corridor.edgeMinLengthM` 이상 이어진 군집을 구조물로 본다.
+     * 좁은 복도에서 사용자가 조금만 치우쳐도 옆 벽 한 줄이 통로 안에 들어와 계속 경고하던 문제(M5 실측) 대응.
+     * 벽에 붙은 물체는 가장자리 구역 안 부분만 벽과 함께 빠지고 안쪽으로 나온 부분은 남는다.
+     * 실내 벽에 한정하지 않는 규칙이다(실외 확장, §15).
+     */
+    private fun withoutEdgeStructures(voxels: List<VoxelView>, corridor: Corridor): List<VoxelView> {
+        val edge = voxels.filter { kotlin.math.abs(corridor.lateralM(it.centerW)) >= config.corridor.edgeInnerM }
+        if (edge.isEmpty()) return voxels
+        val removed = HashSet<VoxelView>()
+        for (idx in Cluster.dbscanXZ(edge.map { it.centerW }, config.cluster.epsM, config.cluster.minSamples)) {
+            val along = idx.map { corridor.alongM(edge[it].centerW) }
+            if (along.max() - along.min() >= config.corridor.edgeMinLengthM) idx.forEach { removed += edge[it] }
+        }
+        return if (removed.isEmpty()) voxels else voxels.filter { it !in removed }
     }
 
     /** 빠른 경로의 맵 명령을 적용한다(§7.5): SCALE = 추적 복귀 시 score × `state.recoverScoreScale`, RESET = 초기화. */

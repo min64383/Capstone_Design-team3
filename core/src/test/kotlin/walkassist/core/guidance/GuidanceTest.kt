@@ -114,6 +114,25 @@ class GuidanceTest {
     }
 
     @Test
+    fun `SC-14 narrow corridor - side wall inside the corridor is not announced, the box ahead is`() {
+        val spec = Scenes.SC14
+        val steps = runGuidance(spec, configFor(spec))
+        val box = spec.scene.items.first { it.name == "box" }.shape
+        val announced = steps.flatMap { it.out.commands }.filter { it.band != Band.SILENT }
+        assertTrue(announced.isNotEmpty(), "the box must be announced")
+        // 안내된 물체는 모두 상자 쪽(오른쪽 벽은 사용자 기준 +0.35 m, 상자는 −0.2~+0.2 m 앞쪽)
+        for (s in steps.filter { st -> st.out.commands.any { it.band != Band.SILENT } }) {
+            val c = s.out.commands.single()
+            val rel = walkassist.core.geometry.headRelative(Vec3(0.2f, 0.4f, box.aabbMax.z), s.f.truthHead)
+            assertEquals(rel.horizontalDistM, c.distanceM, 0.35f, "t=${s.f.tS}: announced something that is not the box")
+        }
+        // 상자가 SILENT 끝(3.0 m) + 여유 밖에 있는 동안은 벽만 보인다 → 경고 없음. (−Z로 걸으므로 앞 거리 = 머리 z − 상자 앞면 z)
+        val early = steps.filter { it.out.state == GuidanceState.NORMAL && it.f.truthHead.positionW.z - box.aabbMax.z > 3.2f }
+        assertTrue(early.size > 10, "frames before the box is in range: ${early.size}")
+        assertTrue(early.all { s -> s.out.commands.none { it.band == Band.WARN || it.band == Band.STOP } })
+    }
+
+    @Test
     fun `SC-10 tracking loss - UNKNOWN at once, one alert, silence, then READY and map scale`() {
         val spec = Scenes.SC10 // 1.0~2.0 s 추적 상실
         val steps = runGuidance(spec, configFor(spec))

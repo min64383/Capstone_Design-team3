@@ -112,6 +112,23 @@ object Scenes {
     /** SC-13 SC-02 + 깊이 정지 1 s(1.0~2.0 s). */
     val SC13 get() = SC02.copy(id = "SC-13", noise = Noise(depthFreezeS = listOf(1.0f..2.0f)))
 
+    /**
+     * SC-14 좁은 복도(폭 1.1 m, 벽 x = ±0.55)에서 오른쪽으로 0.2 m 치우쳐 걷기 + 보행선 앞 3 m 상자(v0.2.5).
+     * 오른쪽 벽이 사용자에서 0.35 m라 통로(±0.4 m) 안에 들어온다: 벽은 안내하지 않고 상자는 안내해야 한다.
+     */
+    val SC14 get() = SceneSpec(
+        "SC-14",
+        Scene(
+            listOf(
+                floor,
+                wall(0.55f, "wall_r"),
+                wall(-0.55f, "wall_l"),
+                SceneItem("box", Box(Vec3(-0.025f, 0f, -3.45f), Vec3(0.425f, 0.8f, -3f)), obstacle = true, expectedClass = HeightClass.FLOOR),
+            ),
+        ),
+        Walk(startCameraW = Vec3(0.2f, 1f, 0f), durationS = 2f + 2.2f),
+    )
+
     /** 전체 목록. */
-    val ALL get() = listOf(SC01, SC02, SC03, SC04, SC05, SC06, SC07, SC08, SC09, SC10, SC11, SC12, SC13)
+    val ALL get() = listOf(SC01, SC02, SC03, SC04, SC05, SC06, SC07, SC08, SC09, SC10, SC11, SC12, SC13, SC14)
 }

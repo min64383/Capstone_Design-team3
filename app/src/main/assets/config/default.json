@@ -1,7 +1,14 @@
 {
   "head": { "offsetFromCameraM": [0.0, 0.5, -0.39] },
   "heading": { "windowS": 1.0, "minTravelM": 0.15 },
-  "corridor": { "widthM": 0.8, "heightM": 2.0, "lengthM": 3.5, "behindM": 0.2 },
+  "corridor": {
+    "widthM": 0.8,
+    "heightM": 2.0,
+    "lengthM": 3.5,
+    "behindM": 0.2,
+    "edgeInnerM": 0.25,
+    "edgeMinLengthM": 0.8
+  },
   "depth": { "subsample": 2, "source": "SMOOTHED", "minConfidence": 0 },
   "map": {
     "voxelSizeM": 0.05,
