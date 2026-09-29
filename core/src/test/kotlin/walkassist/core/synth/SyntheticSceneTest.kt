@@ -130,9 +130,9 @@ class SyntheticSceneTest {
         assertTrue(trueStep < 0.05f)
 
         val frozen = Scenes.SC13.generate()
-        val inFreeze = frozen.frames.filter { it.tS in 2.2f..3.2f }.mapNotNull { it.depth?.tCaptureNs }.toSet()
+        val inFreeze = frozen.frames.filter { it.tS in 1.0f..2.0f }.mapNotNull { it.depth?.tCaptureNs }.toSet()
         assertEquals(1, inFreeze.size, "depth timestamp must repeat during freeze")
-        assertTrue(inFreeze.first() < frozen.frames.first { it.tS >= 2.2f }.pose.tCaptureNs)
+        assertTrue(inFreeze.first() < frozen.frames.first { it.tS >= 1.0f }.pose.tCaptureNs)
 
         val poseNoise = Scenes.SC02.copy(noise = Noise(posePosStdM = 0.01f)).generate()
         val dev = poseNoise.frames.map { (it.pose.worldFromCam.translation() - it.truthWorldFromCam.translation()).norm() }
@@ -150,7 +150,7 @@ class SyntheticSceneTest {
     @Test
     fun `all appendix B scenes generate`() {
         val ids = Scenes.ALL.map { it.id }
-        assertEquals((1..13).map { "SC-%02d".format(it) }, ids)
+        assertEquals((1..14).map { "SC-%02d".format(it) }, ids)
         for (s in Scenes.ALL) assertTrue(s.generate().frames.any { it.depth != null }, s.id)
     }
 }

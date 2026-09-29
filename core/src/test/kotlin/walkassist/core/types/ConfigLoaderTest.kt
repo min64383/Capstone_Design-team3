@@ -25,9 +25,9 @@ class ConfigLoaderTest {
     @Test
     fun `default json matches spec section 12 table`() {
         val c = load()
-        assertEquals(Vec3(0f, 0f, 0f), c.head.offsetFromCameraM)
+        assertEquals(Vec3(0f, 0.5f, -0.39f), c.head.offsetFromCameraM)
         assertEquals(HeadingConfig(1.0f, 0.15f), c.heading)
-        assertEquals(CorridorConfig(0.8f, 2.0f, 3.5f, 0.2f), c.corridor)
+        assertEquals(CorridorConfig(0.8f, 2.0f, 3.5f, 0.2f, 0.25f, 0.8f), c.corridor)
         assertEquals(DepthConfig(2, DepthSource.SMOOTHED, 0), c.depth)
         assertEquals(MapConfig(0.05f, 0.2f, 6, 0.1f, 0.15f, 0.3f, 1.0f, 10f, 5.0f), c.map)
         assertEquals(FloorConfig(0.5f, 0.05f, 0.08f, 0.02f, 0.2f, 200, 0.1f), c.floor)
@@ -35,7 +35,7 @@ class ConfigLoaderTest {
         assertEquals(TrackConfig(0.3f, 0.3f), c.track)
         assertEquals(RepStrategy.CORRIDOR_NEAREST, c.repPoint.strategy)
         assertEquals(PolicyConfig(1.0f, 2.5f, 3.0f, 0.15f, 1, 300f), c.policy)
-        assertEquals(StateConfig(10, 0.5f, 3.0f, 3.0f, 600f), c.state)
+        assertEquals(StateConfig(10, 0.5f, 3.0f, 15.0f, 600f), c.state)
         assertEquals(
             AudioConfig(
                 sampleRate = 48000,
@@ -101,6 +101,7 @@ class ConfigLoaderTest {
         assertConfigError("depth.minConfidence", """{ "depth": { "minConfidence": 256 } }""")
         assertConfigError("depth.source", """{ "depth": { "source": "TOF" } }""")
         assertConfigError("floor", """{ "floor": { "belowMarginM": 0.04 } }""")
+        assertConfigError("corridor", """{ "corridor": { "edgeInnerM": 0.4 } }""")
     }
 
     @Test

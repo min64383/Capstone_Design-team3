@@ -46,6 +46,8 @@ object ConfigLoader {
                     heightM = positive("heightM"),
                     lengthM = positive("lengthM"),
                     behindM = nonNegative("behindM"),
+                    edgeInnerM = nonNegative("edgeInnerM"),
+                    edgeMinLengthM = positive("edgeMinLengthM"),
                 )
             },
             depth = root.section("depth") {
@@ -142,6 +144,9 @@ object ConfigLoader {
         val p = c.policy
         if (!(p.stopM < p.warnMaxM && p.warnMaxM < p.silentMaxM)) {
             throw ConfigException("policy", "must satisfy stopM < warnMaxM < silentMaxM")
+        }
+        if (c.corridor.edgeInnerM >= c.corridor.widthM / 2) {
+            throw ConfigException("corridor", "must satisfy edgeInnerM < widthM / 2")
         }
         if (c.floor.belowMarginM <= c.floor.toleranceM) {
             throw ConfigException("floor", "must satisfy toleranceM < belowMarginM")

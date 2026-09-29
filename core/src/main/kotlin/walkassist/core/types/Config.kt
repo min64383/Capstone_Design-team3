@@ -31,8 +31,17 @@ data class HeadConfig(
 /** 진행 방향 추정 설정. */
 data class HeadingConfig(val windowS: Float, val minTravelM: Float)
 
-/** 통로 치수. */
-data class CorridorConfig(val widthM: Float, val heightM: Float, val lengthM: Float, val behindM: Float)
+/** 통로 치수와 가장자리 구조물 판정. */
+data class CorridorConfig(
+    val widthM: Float,
+    val heightM: Float,
+    val lengthM: Float,
+    val behindM: Float,
+    /** 물체의 모든 점이 |좌우| ≥ 이 값인 한쪽 가장자리에 있고 */
+    val edgeInnerM: Float,
+    /** 진행 방향으로 이 길이 이상 이어지면 나란한 가장자리 구조물(벽·담장·난간)로 보고 안내하지 않는다(v0.2.5). */
+    val edgeMinLengthM: Float,
+)
 
 /** 깊이 입력·역투영 설정. */
 data class DepthConfig(
