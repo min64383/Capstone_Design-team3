@@ -22,7 +22,7 @@ object Scenes {
         name,
         Box(Vec3(-0.225f, 0f, -distM - depthM), Vec3(0.225f, heightM, -distM)),
         obstacle = true,
-        expectedClass = if (heightM >= 0.5f) HeightClass.BODY else HeightClass.FLOOR,
+        expectedClass = HeightClass.FLOOR, // 바닥에서 시작하는 물체: 통로 안 최저점이 바닥(§7.4)
     )
 
     /** 보행선에서 [xM] 떨어진 곳의 벽(두께 0.1, 높이 2.5, 길이 10). */
