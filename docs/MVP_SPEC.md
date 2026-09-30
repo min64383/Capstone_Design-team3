@@ -1,7 +1,7 @@
 # WalkAssist MVP 구현 명세 v0.2 (Android 앱 우선)
 
 > 3조 「시각 정보의 청각 변환을 활용한 시각장애인 보행 보조 서비스」 캡스톤디자인(1) MVP
-> 문서 버전: v0.2.6 (2026-09-29, M6: HRTF SADIE II D1, 소리 패턴 설정) · v0.2.5 (2026-09-29, M5: 머리 원점 귀 중앙, 자세 불연속 15 m/s, 비대칭 히스테리시스, 맵 명령) · v0.2.4 (2026-09-29, M4 실제 데이터: 통로 안 복셀만 군집, 추적 매칭은 중심점) · v0.2.3 (2026-09-28, M3 실제 데이터: 거리 비례 바닥 허용 오차·minHits 6·깊이 입력 SMOOTHED 확정) · v0.2.2 (2026-09-28, §14-6 PC 분석용 녹화 경량본 `testdata/` 허용) · v0.2.1 (2026-09-28, M1 스파이크 반영: 지연 구간 분리·자세 불연속 감지·깊이 나이 기준 — `docs/FORMAT.md`) · v0.2 (2026-09-25) · 이전 버전: v0.1 (Python PC 파이프라인안, 폐기)
+> 문서 버전: v0.2.7 (2026-09-30, M7: 바닥 재탐색·거리 제한) · v0.2.6 (2026-09-29, M6: HRTF SADIE II D1, 소리 패턴 설정) · v0.2.5 (2026-09-29, M5: 머리 원점 귀 중앙, 자세 불연속 15 m/s, 비대칭 히스테리시스, 맵 명령) · v0.2.4 (2026-09-29, M4 실제 데이터: 통로 안 복셀만 군집, 추적 매칭은 중심점) · v0.2.3 (2026-09-28, M3 실제 데이터: 거리 비례 바닥 허용 오차·minHits 6·깊이 입력 SMOOTHED 확정) · v0.2.2 (2026-09-28, §14-6 PC 분석용 녹화 경량본 `testdata/` 허용) · v0.2.1 (2026-09-28, M1 스파이크 반영: 지연 구간 분리·자세 불연속 감지·깊이 나이 기준 — `docs/FORMAT.md`) · v0.2 (2026-09-25) · 이전 버전: v0.1 (Python PC 파이프라인안, 폐기)
 > 근거 문서: 프로포절, 1차 멘토링 정리 보고서 v1.0, 기술 조사 보고서 v0.1, 서비스 기준 및 기술 명세 정리본 v0.2
 >
 > **이 문서를 읽는 Claude Code에게:** 이 문서는 구현의 단일 기준(source of truth)이다. 문서와 코드가 충돌하면 문서를 따르고, 문서가 틀렸다고 판단되면 구현을 멈추고 사용자에게 수정을 제안한다. `(가설)`로 표시된 값은 설정으로 빼서 바꿀 수 있게 만든다. ARCore·Android API의 정확한 이름과 동작은 **추측하지 말고 공식 문서나 공식 샘플로 확인**한 뒤 사용한다.
@@ -225,7 +225,7 @@ data class GuidanceOutput(                  // 음향 블록마다 계산
 
 ### 7.2 바닥 (`mapping/Floor.kt`)
 
-- 기본: 월드 +Y가 위이므로 **높이 히스토그램**. 카메라보다 낮은 점에서 가장 밀도 높은 높이를 `floorY`로 추정하고 지수 평활한다(`floor.emaAlpha`). 한 번 찾은 뒤에는 직전 `floorY ± floor.searchBandM` 안에서만 찾는다(v0.2.1 해석).
+- 기본: 월드 +Y가 위이므로 **높이 히스토그램**. 카메라보다 낮은 점에서 가장 밀도 높은 높이를 `floorY`로 추정하고 지수 평활한다(`floor.emaAlpha`). 한 번 찾은 뒤에는 직전 `floorY ± floor.searchBandM` 안에서만 찾는다(v0.2.1 해석). 후보는 카메라에서 수평거리 `map.radiusM` 안의 점만 쓰고, 직전 바닥 근처 후보가 모자란 깊이가 `floor.lostFrames`장 이어지면 바닥을 잊고 처음부터 다시 찾는다(v0.2.7: M7 재생 모드에서 시작 약 3 s의 17~28 m 깊이로 바닥이 −33.7 m에 고정된 실측).
 - 바닥을 아직 모르면 복셀 맵을 갱신하지 않고 `mapHealth = DEGRADED`로 둔다(바닥 점이 장애물로 쌓이는 것 방지).
 - 바닥 점: `|y − floorY| < floor.toleranceM + floor.tolerancePerM × d` (d = 카메라에서 수평거리, v0.2.3). 실제 ARCore 깊이는 멀수록 바닥이 위로 퍼져 보여 고정 ±5 cm로는 바닥 점이 장애물로 샌다(M3 실측, `docs/FORMAT.md`). 대가: 낮은 장애물은 가까이 와야 잡힌다(높이 h는 약 (h − 0.05)/0.08 m 안쪽부터).
 - 바닥보다 확실히 낮은 점(`y < floorY − (floor.belowMarginM + floor.tolerancePerM × d)`, 내려가는 단차 후보)은 삭제하지 말고 개수만 로그에 남긴다(MVP 안내 대상 아님). 바닥보다 낮지만 단차로 확실하지 않은 점은 버린다(장애물은 바닥 허용 오차보다 위의 점만).
@@ -519,6 +519,7 @@ F1~F7 결과를 반영해 `docs/FORMAT.md`에 **형식 v1**을 확정한다(F8 �
 | `map.passedMarginM` / `maxUnseenS` / `radiusM` | 1.0 / 10 / 5.0 | 시야 밖 복셀 삭제 조건 |
 | `floor.searchBandM` / `toleranceM` / `tolerancePerM` | 0.5 / 0.05 / 0.08 | 첫 추정은 카메라보다 낮은 점 전체, 이후 직전 바닥 ± searchBandM (M3 해석) |
 | `floor.binM` / `emaAlpha` / `minPoints` / `belowMarginM` | 0.02 / 0.2 / 200 / 0.10 | 히스토그램 칸, 평활, 최소 점 수, 단차 후보 기준 (M3 추가) |
+| `floor.lostFrames` | 10 | 직전 바닥 근처 후보가 모자란 깊이가 이만큼 이어지면 바닥 재탐색 (v0.2.7) |
 | `cluster.epsM` / `minSamples` | 0.15 / 5 | |
 | `cluster.headMinM` / `bodyMinM` | 1.2 / 0.5 | 통로 내 부분 기준 |
 | `track.matchRadiusM` / `emaAlpha` | 0.3 / 0.3 | |
@@ -530,6 +531,7 @@ F1~F7 결과를 반영해 `docs/FORMAT.md`에 **형식 v1**을 확정한다(F8 �
 | `audio.sampleRate` / `blockSize` / `masterGainDb` | 48000 / 256 / −12 | |
 | `audio.pulseMs` / `warnFarPeriodMs` / `warnNearPeriodMs` / `stopPeriodMs` / `stopGainDb` | 30 / 800 / 250 / 100 / 6 | FLOOR_PULSE 패턴(§7.6, M6 추가) |
 | `audio.headToneHz` / `alertGainDb` / `limiterCeiling` | 3000 / −6 / 0.9 | HEAD_TONE 음높이, 알림음 음량, 리미터 상한(M6 추가) |
+| `audio.bufferBlocks` | 8 | `AudioTrack` 버퍼(블록 수). S10 실측: 시스템 최소 약 80 ms, 4블록 끊김, 8블록 약 52 ms·끊김 0 (v0.2.7) |
 | `record.depthEveryN` / `rgbEveryN` | 1 / 3 | 저장 간격 (F7 결과로 조정) |
 | `record.deviceLogIntervalS` | 1.0 | `device.csv` 기록 주기 (M1 추가) |
 | `align.fitLengthM` | 2.0 | 분석 도구용 |
@@ -653,6 +655,7 @@ MVP는 실내에서 검증하지만 실제 서비스는 실외에서 동작해�
 | SC-12 | SC-02 + `TRACKING` 유지 중 월드 좌표 점프(수 m·수십 °) | 자세 불연속 감지 → `UNKNOWN`, 맵 초기화 후 복귀 (v0.2.1) |
 | SC-13 | SC-02 + 깊이 정지(같은 타임스탬프 깊이 반복) | 정보 나이 증가 → 음원 중단·`UNKNOWN` (v0.2.1) |
 | SC-14 | 좁은 복도(폭 1.1 m)에서 오른쪽으로 0.2 m 치우쳐 걷기 + 앞 3 m 상자(벽에서 12.5 cm) | 통로 안에 들어온 옆 벽은 안내하지 않고 상자는 안내 (v0.2.5) |
+| SC-15 | SC-02 + 시작 1 s 쓰레기 깊이(× 10, 거리 제한 없음) | 잘못 잡은 바닥에서 복구해 상자 `WARN`이 SC-02보다 1.5 s 이내로 늦음 (v0.2.7) |
 
 ## 부록 C. 분석 도구 (`tools/analysis`)
 

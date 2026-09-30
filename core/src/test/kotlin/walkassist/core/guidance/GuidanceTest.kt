@@ -219,6 +219,16 @@ class GuidanceTest {
     }
 
     @Test
+    fun `SC-15 recovers from garbage depth at start and warns about the box`() {
+        val spec = Scenes.SC15
+        val steps = runGuidance(spec, configFor(spec))
+        val clean = runGuidance(Scenes.SC02, configFor(Scenes.SC02))
+        val warnAt = steps.firstOrNull { s -> s.out.commands.any { it.band == Band.WARN } }?.f?.tS
+        val cleanWarnAt = clean.first { s -> s.out.commands.any { it.band == Band.WARN } }.f.tS
+        assertTrue(warnAt != null && warnAt < cleanWarnAt + 1.5f, "warn at $warnAt (clean $cleanWarnAt)")
+    }
+
+    @Test
     fun `audio blocks repeating the same pose do not speed up recovery`() {
         val spec = Scenes.SC10
         val c = configFor(spec)

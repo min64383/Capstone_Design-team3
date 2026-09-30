@@ -5,7 +5,6 @@ import android.media.AudioFormat
 import android.media.AudioTimestamp
 import android.media.AudioTrack
 import android.os.Process
-import android.os.SystemClock
 import android.util.Log
 import walkassist.app.TAG
 import walkassist.core.types.AudioConfig
@@ -33,6 +32,8 @@ class BinauralOutput(private val audio: AudioConfig, private val render: (FloatA
         if (running) return
         val t = build()
         check(t.state == AudioTrack.STATE_INITIALIZED) { "AudioTrack initialization failed" }
+        // 시스템 최소 버퍼(S10 약 80 ms)보다 줄여 출력 지연을 낮춘다(`audio.bufferBlocks`). 끊김 수는 close에서 기록
+        t.setBufferSizeInFrames(audio.bufferBlocks * audio.blockSize)
         track = t
         running = true
         t.play()
@@ -59,8 +60,8 @@ class BinauralOutput(private val audio: AudioConfig, private val render: (FloatA
             }
             written += off / 2
             if (t.getTimestamp(ts)) {
-                // 쓴 프레임 − 재생된 프레임(타임스탬프 이후 경과분 보정)
-                val played = ts.framePosition + (SystemClock.elapsedRealtimeNanos() - ts.nanoTime) * audio.sampleRate / 1_000_000_000L
+                // 쓴 프레임 − 재생된 프레임(타임스탬프 이후 경과분 보정). AudioTimestamp.nanoTime은 System.nanoTime 기준
+                val played = ts.framePosition + (System.nanoTime() - ts.nanoTime) * audio.sampleRate / 1_000_000_000L
                 latencyMs = (written - played) * 1000f / audio.sampleRate
             }
         }
@@ -84,7 +85,7 @@ class BinauralOutput(private val audio: AudioConfig, private val render: (FloatA
             )
             .setAudioFormat(format)
             .setTransferMode(AudioTrack.MODE_STREAM)
-            .setBufferSizeInBytes(maxOf(min, 2 * blockBytes)) // 지연을 줄이려 2블록(끊김이 잦으면 늘린다)
+            .setBufferSizeInBytes(maxOf(min, audio.bufferBlocks * blockBytes))
             .setPerformanceMode(AudioTrack.PERFORMANCE_MODE_LOW_LATENCY)
             .build()
     }
@@ -93,6 +94,7 @@ class BinauralOutput(private val audio: AudioConfig, private val render: (FloatA
         running = false
         thread?.join(1000)
         track?.let {
+            Log.i(TAG, "BinauralOutput stopped: underruns ${it.underrunCount}, latency ${latencyMs}ms")
             runCatching { it.stop() }
             it.release()
         }

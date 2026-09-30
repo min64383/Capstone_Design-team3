@@ -217,6 +217,8 @@ data class Noise(
     val poseJumps: List<PoseJump> = emptyList(),
     /** 깊이 정지 구간: 이 동안 직전 깊이(같은 시각·같은 값)가 반복된다(SC-13). */
     val depthFreezeS: List<ClosedFloatingPointRange<Float>> = emptyList(),
+    /** 쓰레기 깊이 구간: 이 동안 깊이 × 10, 최대 거리 제한 없음(M7 실측: 재생 시작 약 3 s 17~28 m, SC-15). */
+    val depthGarbageS: List<ClosedFloatingPointRange<Float>> = emptyList(),
 )
 
 /** 합성 프레임 1개. [truthWorldFromCam]은 점프·잡음이 없는 참 자세(C_cv). */
@@ -345,6 +347,7 @@ object SyntheticGenerator {
         scene: Scene, truth: Mat4, reported: Mat4, k: Intrinsics, tNs: Long, tS: Float, noise: Noise, rnd: Random,
     ): DepthFrame {
         val o = truth.translation()
+        val garbage = noise.depthGarbageS.any { tS in it }
         val mm = ShortArray(k.width * k.height)
         for (v in 0 until k.height) for (u in 0 until k.width) {
             // C_cv 광선 (Z = 1) → 월드. 교차 t가 곧 C_cv 깊이 Z다.
@@ -353,7 +356,8 @@ object SyntheticGenerator {
             var z = hit.first * (1f + noise.depthScaleBias)
             if (noise.depthMulStd > 0f) z *= 1f + noise.depthMulStd * gauss(rnd)
             if (noise.invalidRatio > 0f && rnd.nextFloat() < noise.invalidRatio) continue
-            if (z <= 0f || z > MAX_DEPTH_M) continue
+            if (garbage) z *= 10f else if (z > MAX_DEPTH_M) continue
+            if (z <= 0f) continue
             mm[v * k.width + u] = min((z * 1000f).roundToInt(), 65535).toShort()
         }
         return DepthFrame(tNs, mm, null, k, reported, "synthetic")

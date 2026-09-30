@@ -83,6 +83,8 @@ data class FloorConfig(
     val minPoints: Int,
     /** 바닥보다 이만큼 이상 낮은 점은 내려가는 단차 후보(개수만 기록). */
     val belowMarginM: Float,
+    /** 직전 바닥 근처 후보가 모자란 깊이가 이만큼 이어지면 바닥을 잊고 다시 찾는다(v0.2.7). */
+    val lostFrames: Int,
 )
 
 /** 군집·높이 분류 설정. */
@@ -157,6 +159,8 @@ data class AudioConfig(
     val alertGainDb: Float,
     /** 출력 리미터 상한(선형 진폭, 0~1). */
     val limiterCeiling: Float,
+    /** `AudioTrack` 버퍼 크기(블록 수). 작을수록 출력 지연이 짧고 끊김 위험이 크다(M7 S10: 4 → 끊김, 8 → 약 52 ms·끊김 0). */
+    val bufferBlocks: Int,
 )
 
 /** 녹화 저장 간격 설정. */

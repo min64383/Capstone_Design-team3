@@ -30,7 +30,7 @@ class ConfigLoaderTest {
         assertEquals(CorridorConfig(0.8f, 2.0f, 3.5f, 0.2f, 0.25f, 0.8f), c.corridor)
         assertEquals(DepthConfig(2, DepthSource.SMOOTHED, 0), c.depth)
         assertEquals(MapConfig(0.05f, 0.2f, 6, 0.1f, 0.15f, 0.3f, 1.0f, 10f, 5.0f), c.map)
-        assertEquals(FloorConfig(0.5f, 0.05f, 0.08f, 0.02f, 0.2f, 200, 0.1f), c.floor)
+        assertEquals(FloorConfig(0.5f, 0.05f, 0.08f, 0.02f, 0.2f, 200, 0.1f, 10), c.floor)
         assertEquals(ClusterConfig(0.15f, 5, 1.2f, 0.5f), c.cluster)
         assertEquals(TrackConfig(0.3f, 0.3f), c.track)
         assertEquals(RepStrategy.CORRIDOR_NEAREST, c.repPoint.strategy)
@@ -55,6 +55,7 @@ class ConfigLoaderTest {
                 headToneHz = 3000f,
                 alertGainDb = -6f,
                 limiterCeiling = 0.9f,
+                bufferBlocks = 8,
             ),
             c.audio,
         )

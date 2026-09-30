@@ -29,7 +29,7 @@ data class MapUpdate(
 class LocalMap(private val config: Config) {
 
     /** 바닥 추정기. */
-    val floor = Floor(config.floor)
+    val floor = Floor(config.floor, config.map.radiusM)
 
     /** 복셀 맵. */
     val voxels = VoxelMap(config.map)
@@ -42,7 +42,7 @@ class LocalMap(private val config: Config) {
         val depthMm = effectiveDepth(depth)
         val pts = Projection.backprojectToWorld(depthMm, depth.K, depth.worldFromCam, config.depth.subsample)
         val n = pts.size / 3
-        val f = floor.update(pts, depth.worldFromCam.translation().y)
+        val f = floor.update(pts, depth.worldFromCam.translation())
         if (f.floorY == null) {
             return MapUpdate(depth.tCaptureNs, n, 0, 0, 0, 0, PruneCounts(0, 0, 0), voxels.size, null, MapHealth.DEGRADED)
         }

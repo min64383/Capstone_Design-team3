@@ -10,7 +10,7 @@ data class SceneSpec(val id: String, val scene: Scene, val walk: Walk, val noise
 }
 
 /**
- * 부록 B 합성 장면 SC-01~SC-13.
+ * 부록 B 합성 장면 SC-01~SC-15.
  * 공통: 바닥 y = 0, 카메라 높이 1 m, 시작 카메라 (0, 1, 0), 2 s 정지 후 월드 −Z로 1 m/s 보행.
  * 거리는 시작 카메라 위치에서 보행선(−Z)을 따라 잰다. 장애물 크기는 가설(실측 장면 S01~S10과 비슷하게).
  */
@@ -108,6 +108,9 @@ object Scenes {
 
     /** SC-12 SC-02 + 추적 중 월드 좌표 점프(2.5 s, 3 m·60°). */
     val SC12 get() = SC02.copy(id = "SC-12", noise = Noise(poseJumps = listOf(PoseJump(2.5f, Vec3(3f, -0.5f, 1f), 60f))))
+
+    /** SC-15 SC-02 + 시작 1 s 쓰레기 깊이(× 10): 잘못 잡은 바닥에서 복구(v0.2.7). */
+    val SC15 get() = SC02.copy(id = "SC-15", noise = Noise(depthGarbageS = listOf(0f..1.0f)))
 
     /** SC-13 SC-02 + 깊이 정지 1 s(1.0~2.0 s). */
     val SC13 get() = SC02.copy(id = "SC-13", noise = Noise(depthFreezeS = listOf(1.0f..2.0f)))
