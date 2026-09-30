@@ -186,10 +186,10 @@ class BinauralTest {
         val l = FloatArray(n) { o[2 * it] }; val rr = FloatArray(n) { o[2 * it + 1] }
         assertTrue(l.any { it != 0f })
         assertArrayEquals(l, rr)
-        // 네 알림음은 서로 다르다
+        // 알림음은 서로 다르다
         val s = Sounds(config.audio, config.policy)
         val sigs = AlertKind.entries.map { s.alert(it).size to s.alert(it).take(2000).sum() }
-        assertEquals(4, sigs.toSet().size)
+        assertEquals(AlertKind.entries.size, sigs.toSet().size)
     }
 
     @Test

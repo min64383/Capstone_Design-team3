@@ -29,8 +29,8 @@ enum class SoundKind { FLOOR_PULSE, HEAD_TONE }
 /** 안내 상태 기계의 상태 (§7.5). */
 enum class GuidanceState { NORMAL, DEGRADED, UNKNOWN, PAUSED }
 
-/** 상태 전이 시 1회 내는 비공간 알림음 (§7.6: 시작, 준비 완료, 정지, 확인 불가). */
-enum class AlertKind { START, READY, PAUSE, UNKNOWN }
+/** 비공간 알림음 (§7.6: 시작, 준비 완료, 정지, 확인 불가, 준비 대기 중 반복음 — M9). */
+enum class AlertKind { START, READY, PAUSE, UNKNOWN, WAITING }
 
 /** 핀홀 내부 파라미터(픽셀). C_cv 규약으로 역투영할 때 쓴다. */
 data class Intrinsics(
