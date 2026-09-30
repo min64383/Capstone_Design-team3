@@ -24,6 +24,7 @@ import walkassist.core.types.Obstacle
 import walkassist.core.types.ObstacleSnapshot
 import walkassist.core.types.RepStrategy
 import walkassist.core.types.SoundKind
+import walkassist.core.types.TrackingState
 import java.io.File
 import kotlin.math.abs
 import kotlin.math.atan
@@ -298,5 +299,54 @@ class HeadingUnitTest {
         assertEquals(90f, Heading.toDeg(h.update(pose(1.0f, 0.5f, 0f))!!), 1e-3f) // +X로 0.5 m
         h.reset()
         assertNull(h.headingW)
+    }
+}
+
+/** 준비 대기음(M9, §11.2): 시작·재개 뒤 준비 완료 전까지만 `unknownRepeatS` 간격. */
+class WaitingAlertTest {
+    private val config = ConfigLoader.load(File(System.getProperty("walkassist.defaultConfig")).readText())
+    private val repeatNs = (config.state.unknownRepeatS * 1e9).toLong()
+    private val frameNs = 33_333_333L
+
+    /** [n]프레임을 진행하며 나온 (시각, 알림). */
+    private fun StateMachine.run(fromNs: Long, n: Int, tracking: TrackingState, paused: Boolean = false, age: Float? = 50f) =
+        (0 until n).mapNotNull { i ->
+            val t = fromNs + i * frameNs
+            step(t, true, tracking, false, age, MapHealth.OK, paused).alert?.let { t to it }
+        }
+
+    @Test
+    fun `waiting repeats until ready at start`() {
+        val sm = StateMachine(config.state, config.policy.maxInfoAgeMs)
+        val lost = sm.run(0L, 300, TrackingState.PAUSED) // 10 s 추적 준비 안 됨
+        assertEquals(listOf(AlertKind.WAITING), lost.map { it.second }.distinct())
+        assertEquals(3, lost.size) // 3, 6, 9 s
+        assertEquals(repeatNs.toDouble(), (lost[1].first - lost[0].first).toDouble(), frameNs.toDouble())
+        val ready = sm.run(300 * frameNs, 20, TrackingState.TRACKING).map { it.second }
+        assertEquals(listOf(AlertKind.READY), ready)
+    }
+
+    @Test
+    fun `loss during guidance gives unknown, not waiting`() {
+        val sm = StateMachine(config.state, config.policy.maxInfoAgeMs)
+        sm.run(0L, 20, TrackingState.TRACKING)
+        val alerts = sm.run(20 * frameNs, 300, TrackingState.PAUSED).map { it.second }
+        assertEquals(listOf(AlertKind.UNKNOWN), alerts.distinct())
+    }
+
+    @Test
+    fun `resume after pause waits again`() {
+        val sm = StateMachine(config.state, config.policy.maxInfoAgeMs)
+        sm.run(0L, 20, TrackingState.TRACKING)
+        assertEquals(listOf(AlertKind.PAUSE), sm.run(20 * frameNs, 30, TrackingState.TRACKING, paused = true).map { it.second })
+        val resumed = sm.run(50 * frameNs, 150, TrackingState.PAUSED).map { it.second }
+        assertEquals(listOf(AlertKind.WAITING), resumed.distinct())
+    }
+
+    @Test
+    fun `alert sounds are distinct`() {
+        val s = walkassist.core.audio.Sounds(config.audio, config.policy)
+        val all = AlertKind.entries.map { s.alert(it).toList() }
+        assertEquals(all.size, all.toSet().size)
     }
 }
