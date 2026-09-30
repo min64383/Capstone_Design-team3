@@ -28,7 +28,8 @@
     "binM": 0.02,
     "emaAlpha": 0.2,
     "minPoints": 200,
-    "belowMarginM": 0.1
+    "belowMarginM": 0.1,
+    "lostFrames": 10
   },
   "cluster": { "epsM": 0.15, "minSamples": 5, "headMinM": 1.2, "bodyMinM": 0.5 },
   "track": { "matchRadiusM": 0.3, "emaAlpha": 0.3 },
@@ -65,7 +66,8 @@
     "stopGainDb": 6,
     "headToneHz": 3000,
     "alertGainDb": -6,
-    "limiterCeiling": 0.9
+    "limiterCeiling": 0.9,
+    "bufferBlocks": 8
   },
   "record": { "depthEveryN": 1, "rgbEveryN": 3, "deviceLogIntervalS": 1.0 },
   "align": { "fitLengthM": 2.0 }

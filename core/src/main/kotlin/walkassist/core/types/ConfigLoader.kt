@@ -79,6 +79,7 @@ object ConfigLoader {
                     emaAlpha = unit("emaAlpha"),
                     minPoints = atLeast1("minPoints"),
                     belowMarginM = positive("belowMarginM"),
+                    lostFrames = atLeast1("lostFrames"),
                 )
             },
             cluster = root.section("cluster") {
@@ -131,6 +132,7 @@ object ConfigLoader {
                     headToneHz = positive("headToneHz"),
                     alertGainDb = float("alertGainDb"),
                     limiterCeiling = unit("limiterCeiling"),
+                    bufferBlocks = atLeast1("bufferBlocks"),
                 )
             },
             record = root.section("record") {

@@ -28,6 +28,7 @@ class FastPath(private val config: Config) {
     private val policy = Policy(config.policy, config.corridor.behindM)
     private var lastTracked: PoseFrame? = null
     private var pendingMapAction = MapAction.NONE
+    private var lastPoseTNs = Long.MIN_VALUE
 
     /** 사용자 일시정지(§7.5 PAUSED). */
     var paused = false
@@ -42,16 +43,21 @@ class FastPath(private val config: Config) {
     /** 쌓인 맵 명령을 꺼낸다(RESET이 SCALE보다 우선). 꺼내면 NONE으로 돌아간다. */
     fun takeMapAction(): MapAction = pendingMapAction.also { pendingMapAction = MapAction.NONE }
 
-    /** 오디오 블록 하나(또는 자세 하나)마다 호출. [nowNs]는 자세 시각과 같은 시계. */
+    /**
+     * 오디오 블록 하나(또는 자세 하나)마다 호출. [nowNs]는 자세 시각과 같은 시계.
+     * 같은 자세로 여러 블록을 계산해도 진행 방향·불연속·복귀 판정은 새 자세일 때만 진행한다(정보 나이·음원은 매번).
+     */
     fun compute(pose: PoseFrame, snapshot: ObstacleSnapshot?, nowNs: Long): GuidanceOutput {
-        val discontinuity = isDiscontinuous(pose)
+        val newFrame = pose.tCaptureNs != lastPoseTNs
+        lastPoseTNs = pose.tCaptureNs
+        val discontinuity = newFrame && isDiscontinuous(pose)
         if (discontinuity) heading.reset()
         if (pose.tracking == TrackingState.TRACKING) lastTracked = pose
 
-        val h = heading.update(pose)
+        val h = if (newFrame) heading.update(pose) else heading.headingW
         head = h?.let { HeadPose.fromCamera(pose.worldFromCam.translation(), it, config.head.offsetFromCameraM) }
         val infoAgeMs = snapshot?.let { (nowNs - it.tCaptureNs) / 1e6f }
-        val step = stateMachine.step(nowNs, pose.tracking, discontinuity, infoAgeMs, snapshot?.mapHealth, paused)
+        val step = stateMachine.step(nowNs, newFrame, pose.tracking, discontinuity, infoAgeMs, snapshot?.mapHealth, paused)
         if (step.mapAction == MapAction.RESET || (step.mapAction == MapAction.SCALE && pendingMapAction == MapAction.NONE)) {
             pendingMapAction = step.mapAction
         }

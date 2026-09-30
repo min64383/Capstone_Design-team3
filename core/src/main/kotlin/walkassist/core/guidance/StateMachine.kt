@@ -31,9 +31,13 @@ class StateMachine(private val cfg: StateConfig, private val maxInfoAgeMs: Float
     private var lastUnknownAlertNs = 0L
     private var resetSinceLoss = false
 
-    /** 한 프레임 진행. [infoAgeMs]는 스냅샷이 없으면 null. */
+    /**
+     * 한 번 진행. [infoAgeMs]는 스냅샷이 없으면 null. [newFrame]은 이번 자세가 새 ARCore 프레임인지:
+     * 오디오 블록마다 같은 자세로 불려도 복귀용 좋은 프레임은 새 프레임일 때만 센다(M7).
+     */
     fun step(
         nowNs: Long,
+        newFrame: Boolean,
         tracking: TrackingState,
         discontinuity: Boolean,
         infoAgeMs: Float?,
@@ -71,7 +75,7 @@ class StateMachine(private val cfg: StateConfig, private val maxInfoAgeMs: Float
         }
 
         if (state == GuidanceState.UNKNOWN) {
-            goodFrames++
+            if (newFrame) goodFrames++
             if (goodFrames < cfg.recoverFrames) return StateStep(state, null, MapAction.NONE)
             val action = if (resetSinceLoss) MapAction.NONE else MapAction.SCALE
             resetSinceLoss = false

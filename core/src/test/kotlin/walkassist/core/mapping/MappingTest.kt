@@ -263,20 +263,20 @@ class FloorTest {
 
     @Test
     fun `first estimate uses points below the camera, then the search band`() {
-        val f = Floor(config.floor)
+        val f = Floor(config.floor, config.map.radiusM)
         // 탁자면(0.7)보다 바닥(−0.3)이 많다
-        val u = f.update(points(-0.3f to 500, 0.7f to 300, 1.5f to 1000), cameraY = 1.0f)
+        val u = f.update(points(-0.3f to 500, 0.7f to 300, 1.5f to 1000), Vec3(0f, 1.0f, 0f))
         assertEquals(-0.3f, u.floorY!!, 1e-4f)
         assertEquals(800, u.nCandidates) // 카메라(1.0) 위의 점 제외
         // 이후: 직전 바닥 ± 0.5 밖(0.7의 많은 점)은 무시하고 평활
-        val u2 = f.update(points(-0.2f to 300, 0.7f to 5000), cameraY = 1.0f)
+        val u2 = f.update(points(-0.2f to 300, 0.7f to 5000), Vec3(0f, 1.0f, 0f))
         assertEquals(-0.3f + 0.2f * 0.1f, u2.floorY!!, 1e-4f)
     }
 
     @Test
     fun `floor tolerance grows with horizontal distance`() {
-        val f = Floor(config.floor) // toleranceM 0.05, tolerancePerM 0.08
-        f.update(points(0f to 500), cameraY = 1f)
+        val f = Floor(config.floor, config.map.radiusM) // toleranceM 0.05, tolerancePerM 0.08
+        f.update(points(0f to 500), Vec3(0f, 1f, 0f))
         assertEquals(true, f.isFloor(0.12f, 1f)) // 허용 0.13
         assertEquals(false, f.isFloor(0.14f, 1f))
         assertEquals(true, f.isFloor(0.25f, 3f)) // 허용 0.29: 멀리서 올라가 보이는 바닥
@@ -287,11 +287,29 @@ class FloorTest {
 
     @Test
     fun `too few points keeps previous estimate`() {
-        val f = Floor(config.floor)
-        assertNull(f.update(points(-1f to 10), 0f).floorY)
-        f.update(points(-1f to 300), 0f)
-        val u = f.update(points(-0.9f to 10), 0f)
+        val f = Floor(config.floor, config.map.radiusM)
+        assertNull(f.update(points(-1f to 10), Vec3.ZERO).floorY)
+        f.update(points(-1f to 300), Vec3.ZERO)
+        val u = f.update(points(-0.9f to 10), Vec3.ZERO)
         assertEquals(false, u.estimated)
         assertEquals(-1f, u.floorY!!, 1e-4f)
+    }
+
+    @Test
+    fun `far points are not floor candidates`() {
+        val f = Floor(config.floor, config.map.radiusM) // radiusM 5
+        val far = FloatArray(3 * 1000) { i -> if (i % 3 == 0) 20f else if (i % 3 == 1) -30f else 0f } // 수평 20 m, 아주 낮음
+        val u = f.update(far + points(-1f to 300), Vec3.ZERO)
+        assertEquals(-1f, u.floorY!!, 1e-4f)
+        assertEquals(300, u.nCandidates)
+    }
+
+    @Test
+    fun `floor is dropped and re-acquired after lostFrames without candidates`() {
+        val f = Floor(config.floor, config.map.radiusM) // lostFrames 10
+        f.update(points(-30f to 500), Vec3.ZERO) // 잘못 잡은 바닥
+        repeat(config.floor.lostFrames - 1) { assertEquals(-30f, f.update(points(-1f to 500), Vec3.ZERO).floorY!!, 1e-4f) }
+        assertNull(f.update(points(-1f to 500), Vec3.ZERO).floorY) // 잊음
+        assertEquals(-1f, f.update(points(-1f to 500), Vec3.ZERO).floorY!!, 1e-4f) // 다시 찾음
     }
 }
