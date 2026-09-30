@@ -1,7 +1,7 @@
 # WalkAssist MVP 구현 명세 v0.2 (Android 앱 우선)
 
 > 3조 「시각 정보의 청각 변환을 활용한 시각장애인 보행 보조 서비스」 캡스톤디자인(1) MVP
-> 문서 버전: v0.2.9 (2026-09-30, M9: 준비 대기음, 진동 설정, §17 음성 입출력) · v0.2.8 (2026-09-30, M8: 통로 원점 머리, 대표점 동점 규칙, 정답 원점 시작 표시) · v0.2.7 (2026-09-30, M7: 바닥 재탐색·거리 제한) · v0.2.6 (2026-09-29, M6: HRTF SADIE II D1, 소리 패턴 설정) · v0.2.5 (2026-09-29, M5: 머리 원점 귀 중앙, 자세 불연속 15 m/s, 비대칭 히스테리시스, 맵 명령) · v0.2.4 (2026-09-29, M4 실제 데이터: 통로 안 복셀만 군집, 추적 매칭은 중심점) · v0.2.3 (2026-09-28, M3 실제 데이터: 거리 비례 바닥 허용 오차·minHits 6·깊이 입력 SMOOTHED 확정) · v0.2.2 (2026-09-28, §14-6 PC 분석용 녹화 경량본 `testdata/` 허용) · v0.2.1 (2026-09-28, M1 스파이크 반영: 지연 구간 분리·자세 불연속 감지·깊이 나이 기준 — `docs/FORMAT.md`) · v0.2 (2026-09-25) · 이전 버전: v0.1 (Python PC 파이프라인안, 폐기)
+> 문서 버전: v0.2.10 (2026-09-30, 추적 v2: 연속 확인·놓침 유지, 오인식 필터 실험(기본 꺼짐), `cluster_debug.csv`) · v0.2.8 (2026-09-30, M8: 통로 원점 머리, 대표점 동점 규칙, 정답 원점 시작 표시) · v0.2.7 (2026-09-30, M7: 바닥 재탐색·거리 제한) · v0.2.6 (2026-09-29, M6: HRTF SADIE II D1, 소리 패턴 설정) · v0.2.5 (2026-09-29, M5: 머리 원점 귀 중앙, 자세 불연속 15 m/s, 비대칭 히스테리시스, 맵 명령) · v0.2.4 (2026-09-29, M4 실제 데이터: 통로 안 복셀만 군집, 추적 매칭은 중심점) · v0.2.3 (2026-09-28, M3 실제 데이터: 거리 비례 바닥 허용 오차·minHits 6·깊이 입력 SMOOTHED 확정) · v0.2.2 (2026-09-28, §14-6 PC 분석용 녹화 경량본 `testdata/` 허용) · v0.2.1 (2026-09-28, M1 스파이크 반영: 지연 구간 분리·자세 불연속 감지·깊이 나이 기준 — `docs/FORMAT.md`) · v0.2 (2026-09-25) · 이전 버전: v0.1 (Python PC 파이프라인안, 폐기)
 > 근거 문서: 프로포절, 1차 멘토링 정리 보고서 v1.0, 기술 조사 보고서 v0.1, 서비스 기준 및 기술 명세 정리본 v0.2
 >
 > **이 문서를 읽는 Claude Code에게:** 이 문서는 구현의 단일 기준(source of truth)이다. 문서와 코드가 충돌하면 문서를 따르고, 문서가 틀렸다고 판단되면 구현을 멈추고 사용자에게 수정을 제안한다. `(가설)`로 표시된 값은 설정으로 빼서 바꿀 수 있게 만든다. ARCore·Android API의 정확한 이름과 동작은 **추측하지 말고 공식 문서나 공식 샘플로 확인**한 뒤 사용한다.
@@ -255,6 +255,8 @@ data class GuidanceOutput(                  // 음향 블록마다 계산
 - 통로 내 점이 없으면 `inCorridor = false`
 
 **추적 (`Tracker.kt`)**: 이전 물체와 현재 군집을 대표점 거리 최근접 매칭(`track.matchRadiusM`). 매칭에는 가장 안정적인 중심점(CENTROID)을 쓴다(v0.2.4). 새 군집은 새 id. 대표점은 지수 이동 평균(`track.emaAlpha`)으로 평활(과거 값만 사용). 삭제 규칙은 §7.3의 복셀 삭제 규칙과 같은 기준을 따른다.
+  - **추적 v2 (v0.2.10, 팀원 실험안)**: 새 물체는 `track.minConfirmObservations`회 연속 관측된 뒤에만 출력한다(한 번 튄 군집 억제). 한 번 확인된 물체는 짝이 없어도 `track.maxMissedUpdates`회 동안 내부에 남겨 id를 이어 가고, 다시 잡히면 바로 출력한다. 놓친 동안에는 출력하지 않는다(오래된 위치로 안내하지 않음, 시야 밖 보존은 §7.3 복셀 맵의 몫).
+  - **오인식 필터 (실험, 기본 꺼짐)**: 통로 폭 전체·앞뒤 길게·바닥부터 머리 높이까지 채운 1 m 밖 군집(`falsePositiveFilter.*`)을 빼는 휴리스틱. 켜면 이런 모양의 실제 장애물(닫힌 문, 붙박이장, 실외 차량·담장)이 1 m 안에 들어올 때까지 WARN 없이 조용하다 STOP이 되므로, 정답 녹화로 누락을 측정하기 전에는 켜지 않는다(§16). 빈 복도 190833_S01 오프라인 재생에서 안내 중 경고 비율 0.58 → 0.46, 첫 WARN·STOP 시각은 같음.
 
 **대표점 (`RepPoint.kt`)** — 비교 실험 대상, 설정 `repPoint.strategy`:
 - `CENTROID`: 군집 점의 중심
@@ -430,6 +432,7 @@ F1~F7 결과를 반영해 `docs/FORMAT.md`에 **형식 v1**을 확정한다(F8 �
 - `slow_path.csv`: `tCaptureNs, tStartNs, tDoneNs, nPoints, nVoxels, nObstacles, floorY, mapHealth`
 - `guidance.csv` (오디오 블록마다 또는 N블록마다): `tBlockNs, poseTNs, snapshotTNs, state, obstacleId, azimuthDeg, distanceM, band, sound, infoAgeMs, headingDeg`
 - `obstacles.csv` (스냅샷마다): `tCaptureNs, id, heightClass, inCorridor, repStrategy별 대표점 좌표, aabb`
+- `cluster_debug.csv` (느린 경로마다, 군집마다, v0.2.10): 복셀 수, 통로 기준 좌우·앞뒤·높이 범위, 대표점 3방식, 복셀 score/hits, 관측 나이, 오인식 필터 결과(`filtered`, `filterReason`). 오인식 분석용
 - `device.csv`: `tNs, thermalStatus, batteryPct, audioOutputLatencyMs`
 - 모든 시각은 같은 단조 시계 기준.
 
@@ -524,6 +527,10 @@ F1~F7 결과를 반영해 `docs/FORMAT.md`에 **형식 v1**을 확정한다(F8 �
 | `cluster.epsM` / `minSamples` | 0.15 / 5 | |
 | `cluster.headMinM` / `bodyMinM` | 1.2 / 0.5 | 통로 내 부분 기준 |
 | `track.matchRadiusM` / `emaAlpha` | 0.3 / 0.3 | |
+| `track.minConfirmObservations` / `maxMissedUpdates` | 2 / 3 | 출력 전 연속 관측 수, id 유지할 놓침 수(느린 경로 갱신 단위) (v0.2.10) |
+| `falsePositiveFilter.enabled` | false | 오인식 필터(실험). 켜기 전 정답 녹화로 누락 측정 (v0.2.10) |
+| `falsePositiveFilter.minVoxels` / `minLateralSpanM` / `minAlongSpanM` / `minAlongMinM` | 500 / 0.60 / 0.80 / 1.00 | 제거 조건(모두 만족): 복셀 수, 좌우 폭, 앞뒤 길이, 가장 가까운 앞쪽 경계(이보다 가까우면 제거 안 함) |
+| `falsePositiveFilter.minHeightSpanM` / `maxHeightMinM` / `minHeightMaxM` | 1.40 / 0.20 / 1.70 | 높이 범위, 바닥 가까이에서 시작, 머리 높이까지 |
 | `repPoint.strategy` | CORRIDOR_NEAREST | |
 | `policy.stopM` / `warnMaxM` / `silentMaxM` | 1.0 / 2.5 / 3.0 | |
 | `policy.hysteresisM` / `maxSources` / `maxInfoAgeMs` | 0.15 / 1 / 300 | |

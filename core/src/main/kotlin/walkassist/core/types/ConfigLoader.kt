@@ -90,8 +90,25 @@ object ConfigLoader {
                     bodyMinM = positive("bodyMinM"),
                 )
             },
+            falsePositiveFilter = root.section("falsePositiveFilter") {
+                FalsePositiveFilterConfig(
+                    enabled = boolean("enabled"),
+                    minVoxels = atLeast1("minVoxels"),
+                    minLateralSpanM = positive("minLateralSpanM"),
+                    minAlongSpanM = positive("minAlongSpanM"),
+                    minAlongMinM = nonNegative("minAlongMinM"),
+                    minHeightSpanM = positive("minHeightSpanM"),
+                    maxHeightMinM = nonNegative("maxHeightMinM"),
+                    minHeightMaxM = positive("minHeightMaxM"),
+                )
+            },
             track = root.section("track") {
-                TrackConfig(matchRadiusM = positive("matchRadiusM"), emaAlpha = unit("emaAlpha"))
+                TrackConfig(
+                    matchRadiusM = positive("matchRadiusM"),
+                    emaAlpha = unit("emaAlpha"),
+                    minConfirmObservations = atLeast1("minConfirmObservations"),
+                    maxMissedUpdates = intIn("maxMissedUpdates", 0, Int.MAX_VALUE),
+                )
             },
             repPoint = root.section("repPoint") { RepPointConfig(strategy = enumValue<RepStrategy>("strategy")) },
             policy = root.section("policy") {
@@ -219,6 +236,11 @@ object ConfigLoader {
         }
 
         fun float(key: String): Float = number(key).toFloat()
+
+        fun boolean(key: String): Boolean {
+            val v = raw(key) as? JsonBool ?: throw ConfigException(path(key), "must be a boolean")
+            return v.value
+        }
 
         fun positive(key: String): Float =
             float(key).also { if (it <= 0f) throw ConfigException(path(key), "must be > 0, got $it") }

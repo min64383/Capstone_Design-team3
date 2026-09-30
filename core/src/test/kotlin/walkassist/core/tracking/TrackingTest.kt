@@ -154,15 +154,50 @@ class TrackerUnitTest {
     )
 
     @Test
-    fun `matching keeps ids, new detections get new ids, missing tracks are dropped`() {
+    fun `new detections must be confirmed before output`() {
         val t = Tracker(cfg.track, RepStrategy.CORRIDOR_NEAREST)
+        assertTrue(t.update(listOf(det(Vec3(0f, 0f, -2f)))).isEmpty())
+        val confirmed = t.update(listOf(det(Vec3(0.05f, 0f, -2f)))).single()
+        assertEquals(2, confirmed.nObservations)
+    }
+
+    @Test
+    fun `confirmed track keeps its id after a short miss`() {
+        val t = Tracker(cfg.track, RepStrategy.CORRIDOR_NEAREST)
+        t.update(listOf(det(Vec3(0f, 0f, -2f))))
+        val first = t.update(listOf(det(Vec3(0.05f, 0f, -2f)))).single()
+
+        // 한 번 놓친 동안에는 출력하지 않지만 내부 id는 유지한다.
+        assertTrue(t.update(emptyList()).isEmpty())
+
+        // 이미 확인된 track은 다시 잡히는 즉시 같은 id로 출력한다(재확인 대기로 음원이 끊기지 않게).
+        val recovered = t.update(listOf(det(Vec3(0.08f, 0f, -2f)))).single()
+        assertEquals(first.id, recovered.id)
+    }
+
+    @Test
+    fun `matching keeps ids when order changes, new detections get new ids`() {
+        val t = Tracker(cfg.track, RepStrategy.CORRIDOR_NEAREST)
+        t.update(listOf(det(Vec3(0f, 0f, -2f)), det(Vec3(1f, 0f, -2f))))
         val first = t.update(listOf(det(Vec3(0f, 0f, -2f)), det(Vec3(1f, 0f, -2f))))
+        assertEquals(2, first.size)
+        // 순서가 바뀌고 새 물체가 들어옴: 기존 둘은 id 유지, 새 물체는 확인 전이라 아직 없음
         val second = t.update(listOf(det(Vec3(1.1f, 0f, -2f)), det(Vec3(0.05f, 0f, -2f)), det(Vec3(3f, 0f, 0f))))
-        assertEquals(first[0].id, second[1].id)
-        assertEquals(first[1].id, second[0].id)
-        assertTrue(second[2].id !in first.map { it.id })
+        assertEquals(listOf(first[1].id, first[0].id), second.map { it.id })
         val third = t.update(listOf(det(Vec3(3f, 0f, 0f))))
-        assertEquals(listOf(second[2].id), third.map { it.id })
+        assertEquals(1, third.size)
+        assertTrue(third[0].id !in first.map { it.id })
+    }
+
+    @Test
+    fun `track is replaced after too many missed updates`() {
+        val t = Tracker(cfg.track, RepStrategy.CORRIDOR_NEAREST)
+        t.update(listOf(det(Vec3(0f, 0f, -2f))))
+        val first = t.update(listOf(det(Vec3(0.05f, 0f, -2f)))).single()
+        repeat(cfg.track.maxMissedUpdates + 1) { t.update(emptyList()) }
+        t.update(listOf(det(Vec3(0.05f, 0f, -2f))))
+        val newOne = t.update(listOf(det(Vec3(0.05f, 0f, -2f)))).single()
+        assertTrue(newOne.id != first.id)
     }
 
     @Test

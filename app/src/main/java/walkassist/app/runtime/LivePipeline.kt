@@ -150,6 +150,7 @@ class LivePipeline(
             nSlow.incrementAndGet()
             logger?.slowPath(RunLog.slowPathLine(slow.lastMapUpdate!!, t0, t1, s))
             logger?.obstacles(RunLog.obstacleLines(s))
+            logger?.clusters(slow.lastClusterDebug)
         }
     }
 

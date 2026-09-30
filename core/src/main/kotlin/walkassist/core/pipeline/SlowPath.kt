@@ -36,31 +36,84 @@ class SlowPath(private val config: Config) {
     var lastMapUpdate: MapUpdate? = null
         private set
 
+    /** 마지막 깊이에서 Detection으로 넘어간 군집 통계(false positive 분석용). */
+    var lastClusterDebug: List<ClusterDebug> = emptyList()
+        private set
+
     /** 깊이 한 장을 처리해 스냅샷을 만든다. */
     fun process(depth: DepthFrame, headingW: Vec3): ObstacleSnapshot {
         val userPosW = HeadPose.fromCamera(depth.worldFromCam.translation(), headingW, config.head.offsetFromCameraM).positionW
         val u = map.update(depth, userPosW, headingW)
         lastMapUpdate = u
         val floorY = u.floorY
-            ?: return ObstacleSnapshot(depth.tCaptureNs, tracker.update(emptyList()), null, u.mapHealth)
+        if (floorY == null) {
+            lastClusterDebug = emptyList()
+            return ObstacleSnapshot(depth.tCaptureNs, tracker.update(emptyList()), null, u.mapHealth)
+        }
 
         val corridor = Corridor(userPosW, headingW, floorY, config.corridor)
         val inCorridor = map.voxels.occupied().filter { corridor.contains(it.centerW) }
         val voxels = withoutEdgeStructures(inCorridor, corridor)
         val centers = voxels.map { it.centerW }
         val half = config.map.voxelSizeM / 2
-        val detections = Cluster.dbscanXZ(centers, config.cluster.epsM, config.cluster.minSamples).map { idx ->
-            val pts = idx.map { centers[it] }
-            Detection(
-                repCandidatesW = RepPoint.candidates(pts, corridor, config.map.voxelSizeM),
-                aabbMinW = Vec3(pts.minOf { it.x } - half, pts.minOf { it.y } - half, pts.minOf { it.z } - half),
-                aabbMaxW = Vec3(pts.maxOf { it.x } + half, pts.maxOf { it.y } + half, pts.maxOf { it.z } + half),
-                heightClass = HeightClassifier.classify(pts.map { it.y - floorY }, config.cluster)!!, // 군집 = 통로 안 부분
-                inCorridor = true,
-                confidence = idx.map { voxels[it].score }.average().toFloat(),
-                lastSeenNs = idx.maxOf { voxels[it].lastSeenNs },
+        val debug = ArrayList<ClusterDebug>()
+        val detections = ArrayList<Detection>()
+        val clusters = Cluster.dbscanXZ(centers, config.cluster.epsM, config.cluster.minSamples)
+        for ((clusterIndex, idx) in clusters.withIndex()) {
+            val clusterVoxels = idx.map { voxels[it] }
+            val pts = clusterVoxels.map { it.centerW }
+            val reps = RepPoint.candidates(pts, corridor, config.map.voxelSizeM)
+            val aabbMin = Vec3(pts.minOf { it.x } - half, pts.minOf { it.y } - half, pts.minOf { it.z } - half)
+            val aabbMax = Vec3(pts.maxOf { it.x } + half, pts.maxOf { it.y } + half, pts.maxOf { it.z } + half)
+            val heightClass = HeightClassifier.classify(pts.map { it.y - floorY }, config.cluster)!! // 군집 = 통로 안 부분
+            val scores = clusterVoxels.map { it.score }
+            val hits = clusterVoxels.map { it.hits }
+            val laterals = pts.map { corridor.lateralM(it) }
+            val alongs = pts.map { corridor.alongM(it) }
+            val heights = pts.map { it.y - floorY }
+            val agesMs = clusterVoxels.map { (depth.tCaptureNs - it.lastSeenNs).coerceAtLeast(0L) / 1_000_000f }
+
+            val rawDebug = ClusterDebug(
+                tCaptureNs = depth.tCaptureNs,
+                clusterIndex = clusterIndex,
+                nVoxels = pts.size,
+                heightClass = heightClass,
+                aabbMinW = aabbMin,
+                aabbMaxW = aabbMax,
+                lateralMinM = laterals.min(),
+                lateralMaxM = laterals.max(),
+                alongMinM = alongs.min(),
+                alongMaxM = alongs.max(),
+                heightMinM = heights.min(),
+                heightMaxM = heights.max(),
+                centroidW = reps.getValue(walkassist.core.types.RepStrategy.CENTROID),
+                nearestW = reps.getValue(walkassist.core.types.RepStrategy.NEAREST),
+                corridorNearestW = reps.getValue(walkassist.core.types.RepStrategy.CORRIDOR_NEAREST),
+                scoreMin = scores.min(),
+                scoreMean = scores.average().toFloat(),
+                scoreMax = scores.max(),
+                hitsMin = hits.min(),
+                hitsMean = hits.average().toFloat(),
+                hitsMax = hits.max(),
+                oldestVoxelAgeMs = agesMs.max(),
+                newestVoxelAgeMs = agesMs.min(),
             )
+            val filterReason = FalsePositiveFilter.reason(rawDebug, config.falsePositiveFilter)
+            debug += rawDebug.copy(filtered = filterReason != null, filterReason = filterReason ?: "")
+
+            if (filterReason == null) {
+                detections += Detection(
+                    repCandidatesW = reps,
+                    aabbMinW = aabbMin,
+                    aabbMaxW = aabbMax,
+                    heightClass = heightClass,
+                    inCorridor = true,
+                    confidence = scores.average().toFloat(),
+                    lastSeenNs = clusterVoxels.maxOf { it.lastSeenNs },
+                )
+            }
         }
+        lastClusterDebug = debug
         return ObstacleSnapshot(depth.tCaptureNs, tracker.update(detections), floorY, u.mapHealth)
     }
 

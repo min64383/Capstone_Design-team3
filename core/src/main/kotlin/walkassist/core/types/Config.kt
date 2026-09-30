@@ -13,6 +13,7 @@ data class Config(
     val map: MapConfig,
     val floor: FloorConfig,
     val cluster: ClusterConfig,
+    val falsePositiveFilter: FalsePositiveFilterConfig,
     val track: TrackConfig,
     val repPoint: RepPointConfig,
     val policy: PolicyConfig,
@@ -91,8 +92,28 @@ data class FloorConfig(
 /** 군집·높이 분류 설정. */
 data class ClusterConfig(val epsM: Float, val minSamples: Int, val headMinM: Float, val bodyMinM: Float)
 
+/** 실측에서 반복된 '통로 전체를 채우는 깊이 sheet' 오인식 실험 필터. 기본은 꺼 둔다. */
+data class FalsePositiveFilterConfig(
+    val enabled: Boolean,
+    val minVoxels: Int,
+    val minLateralSpanM: Float,
+    val minAlongSpanM: Float,
+    /** depth sheet의 가장 가까운 앞쪽 경계. 이보다 가까운 군집은 안전상 필터하지 않는다. */
+    val minAlongMinM: Float,
+    val minHeightSpanM: Float,
+    val maxHeightMinM: Float,
+    val minHeightMaxM: Float,
+)
+
 /** 추적 설정. */
-data class TrackConfig(val matchRadiusM: Float, val emaAlpha: Float)
+data class TrackConfig(
+    val matchRadiusM: Float,
+    val emaAlpha: Float,
+    /** 새 군집을 실제 물체로 내보내기 전에 연속해서 관측해야 하는 횟수. */
+    val minConfirmObservations: Int,
+    /** 군집이 잠깐 빠져도 같은 id를 복구할 수 있도록 내부 track을 유지하는 느린 경로 갱신 횟수. */
+    val maxMissedUpdates: Int,
+)
 
 /** 대표점 설정. */
 data class RepPointConfig(val strategy: RepStrategy)

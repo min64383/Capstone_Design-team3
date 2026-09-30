@@ -2,6 +2,7 @@ package walkassist.core.replay
 
 import walkassist.core.geometry.Vec3
 import walkassist.core.guidance.MapAction
+import walkassist.core.pipeline.ClusterDebugCsv
 import walkassist.core.pipeline.FastPath
 import walkassist.core.pipeline.SlowPath
 import walkassist.core.session.DepthEvent
@@ -45,6 +46,8 @@ class OfflineReplay(
         val slowOut = File(outDir, RunLog.SLOW_PATH_FILE).bufferedWriter()
         val guidOut = File(outDir, RunLog.GUIDANCE_FILE).bufferedWriter()
         val obsOut = File(outDir, RunLog.OBSTACLES_FILE).bufferedWriter()
+        val clusterOut = File(outDir, RunLog.CLUSTER_DEBUG_FILE).bufferedWriter()
+        clusterOut.line(ClusterDebugCsv.HEADER)
         slowOut.line(RunLog.header(RunLog.SLOW_PATH_HEADER))
         guidOut.line(RunLog.header(RunLog.GUIDANCE_HEADER))
         obsOut.line(RunLog.header(RunLog.OBSTACLES_HEADER))
@@ -72,7 +75,7 @@ class OfflineReplay(
             if (d.tCaptureNs < resetAfterNs) return
             val s = slow.process(d, h)
             val doneNs = atNs + slowPathNs(d)
-            job = Job(doneNs, s, resetAfterNs, RunLog.slowPathLine(slow.lastMapUpdate!!, atNs, doneNs, s))
+            job = Job(doneNs, s, resetAfterNs, RunLog.slowPathLine(slow.lastMapUpdate!!, atNs, doneNs, s), RunLog.clusterDebugLines(slow.lastClusterDebug))
         }
 
         fun finishUpTo(tNs: Long) {
@@ -83,6 +86,7 @@ class OfflineReplay(
                 if (resetAfterNs == j.resetMark) snapshot = j.snapshot
                 slowOut.line(j.slowLine)
                 RunLog.obstacleLines(j.snapshot).forEach { obsOut.line(it) }
+                j.clusterLines.forEach { clusterOut.line(it) }
                 startIfIdle(j.doneNs)
             }
         }
@@ -137,10 +141,10 @@ class OfflineReplay(
             }
             t += blockNs
         }
-        listOf(slowOut, guidOut, obsOut).forEach { it.close() }
+        listOf(slowOut, guidOut, obsOut, clusterOut).forEach { it.close() }
     }
 
-    private class Job(val doneNs: Long, val snapshot: ObstacleSnapshot, val resetMark: Long, val slowLine: String)
+    private class Job(val doneNs: Long, val snapshot: ObstacleSnapshot, val resetMark: Long, val slowLine: String, val clusterLines: List<String>)
 
     private fun java.io.Writer.line(s: String) {
         write(s)

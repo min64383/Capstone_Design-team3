@@ -32,7 +32,11 @@ class ConfigLoaderTest {
         assertEquals(MapConfig(0.05f, 0.2f, 6, 0.1f, 0.15f, 0.3f, 1.0f, 10f, 5.0f), c.map)
         assertEquals(FloorConfig(0.5f, 0.05f, 0.08f, 0.02f, 0.2f, 200, 0.1f, 10), c.floor)
         assertEquals(ClusterConfig(0.15f, 5, 1.2f, 0.5f), c.cluster)
-        assertEquals(TrackConfig(0.3f, 0.3f), c.track)
+        assertEquals(
+            FalsePositiveFilterConfig(false, 500, 0.60f, 0.80f, 1.00f, 1.40f, 0.20f, 1.70f),
+            c.falsePositiveFilter,
+        )
+        assertEquals(TrackConfig(0.3f, 0.3f, 2, 3), c.track)
         assertEquals(RepStrategy.CORRIDOR_NEAREST, c.repPoint.strategy)
         assertEquals(PolicyConfig(1.0f, 2.5f, 3.0f, 0.15f, 1, 300f), c.policy)
         assertEquals(StateConfig(10, 0.5f, 3.0f, 15.0f, 600f), c.state)
@@ -105,6 +109,9 @@ class ConfigLoaderTest {
     fun `out of range values are rejected`() {
         assertConfigError("map.voxelSizeM", """{ "map": { "voxelSizeM": 0 } }""")
         assertConfigError("track.emaAlpha", """{ "track": { "emaAlpha": 1.5 } }""")
+        assertConfigError("track.minConfirmObservations", """{ "track": { "minConfirmObservations": 0 } }""")
+        assertConfigError("track.maxMissedUpdates", """{ "track": { "maxMissedUpdates": -1 } }""")
+        assertConfigError("falsePositiveFilter.minVoxels", """{ "falsePositiveFilter": { "minVoxels": 0 } }""")
         assertConfigError("policy.maxSources", """{ "policy": { "maxSources": 0 } }""")
         assertConfigError("policy", """{ "policy": { "warnMaxM": 3.5 } }""")
         assertConfigError("cluster", """{ "cluster": { "bodyMinM": 1.3 } }""")
