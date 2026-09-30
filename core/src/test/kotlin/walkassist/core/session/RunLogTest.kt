@@ -35,7 +35,7 @@ class RunLogTest {
             val d = f.depth
             val h = fast.headingW
             if (d != null && h != null) {
-                val s = slow.process(d, d.worldFromCam.translation(), h)
+                val s = slow.process(d, h)
                 snap = s
                 lines += RunLog.slowPathLine(slow.lastMapUpdate!!, d.tCaptureNs, d.tCaptureNs, s)
                 lines += RunLog.obstacleLines(s)

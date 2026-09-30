@@ -121,7 +121,7 @@ class LivePipeline(
             val resetMark = resetAfterNs.get()
             if (d.tCaptureNs < resetMark) continue
             val t0 = clockNs()
-            val s = slow.process(d, d.worldFromCam.translation(), h)
+            val s = slow.process(d, h)
             val t1 = clockNs()
             // 처리 중 RESET이 왔으면 이 결과는 이전 월드 좌표의 것이다
             if (resetAfterNs.get() == resetMark) snapshot.set(s)
