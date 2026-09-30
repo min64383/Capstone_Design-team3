@@ -32,7 +32,13 @@ import kotlin.math.atan
 data class Step(val f: SynthFrame, val out: GuidanceOutput, val action: MapAction)
 
 /** 합성 장면을 앱과 같은 인과 순서로 돌린다: 자세마다 빠른 경로, 새 깊이면 맵 명령 적용 후 느린 경로(진행 방향은 빠른 경로의 최신 값). */
-fun runGuidance(spec: SceneSpec, config: Config, pauseAt: ClosedFloatingPointRange<Float>? = null): List<Step> {
+fun runGuidance(
+    spec: SceneSpec,
+    config: Config,
+    pauseAt: ClosedFloatingPointRange<Float>? = null,
+    /** 자세 하나당 빠른 경로 호출 수(앱은 오디오 블록마다 같은 자세로 부른다, M7). */
+    blocksPerFrame: Int = 1,
+): List<Step> {
     val fast = FastPath(config)
     val slow = SlowPath(config)
     var snapshot: ObstacleSnapshot? = null
@@ -40,7 +46,11 @@ fun runGuidance(spec: SceneSpec, config: Config, pauseAt: ClosedFloatingPointRan
     val out = ArrayList<Step>()
     for (f in spec.generate().frames) {
         fast.paused = pauseAt != null && f.tS in pauseAt
-        val g = fast.compute(f.pose, snapshot, f.pose.tCaptureNs)
+        var g = fast.compute(f.pose, snapshot, f.pose.tCaptureNs)
+        for (k in 1 until blocksPerFrame) {
+            val gk = fast.compute(f.pose, snapshot, f.pose.tCaptureNs + k * BLOCK_NS)
+            g = gk.copy(alert = g.alert ?: gk.alert)
+        }
         val action = fast.takeMapAction()
         slow.apply(action)
         if (action == MapAction.RESET) snapshot = null
@@ -54,6 +64,9 @@ fun runGuidance(spec: SceneSpec, config: Config, pauseAt: ClosedFloatingPointRan
     }
     return out
 }
+
+/** 256 샘플 @ 48 kHz 블록 길이. */
+private const val BLOCK_NS = 5_333_333L
 
 class GuidanceTest {
     private val base = File(System.getProperty("walkassist.defaultConfig")).readText()
@@ -203,6 +216,16 @@ class GuidanceTest {
         val uncorrected = meanErr(ConfigLoader.load(base, """{ "head": { "offsetFromCameraM": [0, 0.5, -0.3] }, "repPoint": { "strategy": "CENTROID" } }"""))
         assertTrue(abs(corrected) < 1.5f, "corrected mean azimuth error $corrected°")
         assertTrue(uncorrected < -5f, "uncorrected should be biased left by several degrees, was $uncorrected°")
+    }
+
+    @Test
+    fun `audio blocks repeating the same pose do not speed up recovery`() {
+        val spec = Scenes.SC10
+        val c = configFor(spec)
+        fun readyTimes(blocks: Int) = runGuidance(spec, c, blocksPerFrame = blocks).filter { it.out.alert == AlertKind.READY }.map { it.f.tS }
+        val perFrame = readyTimes(1)
+        assertEquals(2, perFrame.size, "start + recovery after loss")
+        assertEquals(perFrame, readyTimes(6))
     }
 }
 
