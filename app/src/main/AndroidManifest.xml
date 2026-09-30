@@ -2,6 +2,7 @@
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
 
     <uses-permission android:name="android.permission.CAMERA" />
+    <uses-permission android:name="android.permission.VIBRATE" />
 
     <!-- ARCore 필수 앱 (공식 샘플 hello_ar_kotlin과 같은 선언) -->
     <uses-feature android:name="android.hardware.camera" android:required="true" />
@@ -20,9 +21,23 @@
 
         <meta-data android:name="com.google.ar.core" android:value="required" />
 
+        <!-- 런처 아이콘 2개(§11.3): 사용자 모드와 개발 모드 -->
+        <activity
+            android:name=".ui.user.UserModeActivity"
+            android:configChanges="orientation|screenSize|keyboardHidden"
+            android:exported="true"
+            android:label="WalkAssist"
+            android:screenOrientation="portrait">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+        </activity>
+
         <activity
             android:name=".ui.dev.DevHomeActivity"
-            android:exported="true">
+            android:exported="true"
+            android:label="WalkAssist Dev">
             <intent-filter>
                 <action android:name="android.intent.action.MAIN" />
                 <category android:name="android.intent.category.LAUNCHER" />

@@ -1,5 +1,6 @@
 package walkassist.core.audio
 
+import walkassist.core.types.AlertKind
 import walkassist.core.types.AudioCmd
 import walkassist.core.types.Config
 import walkassist.core.types.GuidanceOutput
@@ -50,6 +51,11 @@ class BinauralRenderer(private val config: Config, private val hrtf: Hrtf) {
 
     init {
         require(hrtf.sampleRate == audio.sampleRate) { "HRTF ${hrtf.sampleRate} Hz != audio.sampleRate ${audio.sampleRate}" }
+    }
+
+    /** 상태 기계 밖에서 나는 알림음(시작 안내 등, M9)을 다음 블록부터 섞는다. [render]와 같은 스레드에서 부른다. */
+    fun alert(kind: AlertKind) {
+        alerts.addLast(sounds.alert(kind))
     }
 
     /** 한 블록을 [out](길이 2 × blockSize, L R 교차)에 쓴다. */

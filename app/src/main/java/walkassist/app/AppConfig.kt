@@ -18,5 +18,9 @@ object AppConfig {
     }
 }
 
+/** 앱 자산의 HRIR(SADIE II D1, M6). */
+fun loadHrtf(context: Context): walkassist.core.audio.Hrtf =
+    context.assets.open("hrtf/sadie2_d1_48k.hrir").use { walkassist.core.audio.Hrtf.parse(it.readBytes()) }
+
 /** Logcat 태그. `adb logcat -s WalkAssist`. */
 const val TAG = "WalkAssist"

@@ -53,6 +53,7 @@ class Sounds(private val audio: AudioConfig, private val policy: PolicyConfig) {
             AlertKind.READY -> listOf(784f to 90, 1047f to 160) // 짧게 오름
             AlertKind.PAUSE -> listOf(659f to 90, 0f to 60, 659f to 90) // 같은 음 두 번
             AlertKind.UNKNOWN -> listOf(392f to 250, 294f to 350) // 낮게 내려감
+            AlertKind.WAITING -> listOf(440f to 60) // 짧고 부드러운 한 음(준비 대기 중 반복, M9)
         }
         val out = ArrayList<Float>()
         for ((hz, ms) in notes) {

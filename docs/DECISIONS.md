@@ -108,3 +108,9 @@
 - 2026-09-30 · 추적 v2 · 오인식 필터는 기본 꺼짐 유지: 조건이 닫힌 문·붙박이장·차량 같은 실제 장애물과도 맞아 켜면 1 m 전까지 WARN이 없음. 빈 복도 오프라인 재생에서 경고 비율 0.58 → 0.46(첫 WARN·STOP 동일). 켜기 전 정답 녹화로 누락 측정
 - 2026-09-30 · 추적 v2 · `cluster_debug.csv`를 §10.1 실행 로그에 추가(`RunLog.CLUSTER_DEBUG_FILE`), 오프라인 재생도 기록. 삭제됐던 여러 물체 id 매칭 테스트는 확인 규칙을 반영해 복원
 - 2026-09-30 · M8 · `:core:replay` 설정 덮어쓰기는 `-PoverridesFile=<json>`: Windows에서 명령줄 JSON 따옴표가 사라짐(리뷰 중 발견)
+- 2026-09-30 · M9 · 사용자 모드 흐름·알림음·진동은 가설값으로 구현하고 사용자 평가 뒤 조정 — 사용자 승인. 준비 대기음 `AlertKind.WAITING`(시작·재개 뒤 준비 완료 전까지 `state.unknownRepeatS` 간격, 안내 도중 확인 불가에는 UNKNOWN만), 진동 길이는 설정 `haptics.*`
+- 2026-09-30 · M9 · 입력은 `UserModeActivity.onCommand(UserCommand)` 하나로 모은다(터치·TalkBack, 나중에 음성). 음성 입출력은 명세 §17(v0.2.9)로 기록 — 사용자 요구(전맹 사용자)
+- 2026-09-30 · M9 · 런처 아이콘 2개: 사용자 모드 "WalkAssist", 개발 모드 "WalkAssist Dev". 사용자 모드는 앱을 떠나면 안내를 멈추고 돌아오면 다시 두 번 탭으로 시작
+- 2026-09-30 · M9 · 두 번 탭은 두 번째 탭을 뗄 때 처리: 누를 때 처리하면 시작(ARCore 세션 생성 약 0.6 s)이 UI 스레드를 막는 동안 길게 누르기(종료)로 오인됨(기기 실측)
+- 2026-09-30 · M9 · 오디오 포커스는 `AUDIOFOCUS_GAIN` + `setWillPauseWhenDucked(false)`로 Android 자동 감쇠에 맡기고, 포커스를 잃어도 안내는 멈추지 않는다(안전 안내)
+- 2026-09-30 · M9 · `LiveScreen`의 GL 입력 코드를 `ArFeeder`, 실행 시작·정지를 `RunSession`으로 떼어 실시간·재생·사용자 모드가 같이 쓴다

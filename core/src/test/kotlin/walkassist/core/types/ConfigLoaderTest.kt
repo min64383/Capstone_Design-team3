@@ -63,6 +63,7 @@ class ConfigLoaderTest {
             ),
             c.audio,
         )
+        assertEquals(HapticsConfig(40, 40, 80, 400, 600), c.haptics)
         assertEquals(RecordConfig(1, 3, 1.0f), c.record)
         assertEquals(AlignConfig(2.0f), c.align)
     }

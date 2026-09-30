@@ -11,9 +11,11 @@ import walkassist.core.guidance.MapAction
 import walkassist.core.pipeline.FastPath
 import walkassist.core.pipeline.SlowPath
 import walkassist.core.session.RunLog
+import walkassist.core.types.AlertKind
 import walkassist.core.types.Config
 import walkassist.core.types.DepthFrame
 import walkassist.core.types.GuidanceOutput
+import walkassist.core.types.GuidanceState
 import walkassist.core.types.ObstacleSnapshot
 import walkassist.core.types.PoseFrame
 import java.util.concurrent.Semaphore
@@ -56,6 +58,19 @@ class LivePipeline(
     val lastHead = AtomicReference<HeadPose?>(null)
     val voxelCentersW = AtomicReference<List<Vec3>>(emptyList())
 
+    /** 사용자 일시정지(§7.5 PAUSED, UI 스레드가 쓴다). */
+    @Volatile
+    var paused = false
+
+    /** 알림(상태 전이·요청한 알림)이 날 때 오디오 스레드에서 부른다(진동·화면 갱신용, 가볍게). */
+    @Volatile
+    var onAlert: ((AlertKind) -> Unit)? = null
+
+    private val requestedAlert = AtomicReference<AlertKind?>(null)
+
+    /** 상태 기계 밖의 알림음(예: 시작 안내)을 다음 블록에 낸다. */
+    fun requestAlert(kind: AlertKind) = requestedAlert.set(kind)
+
     /** 느린 경로 처리 횟수(오버레이 Hz 계산용). */
     val nSlow = AtomicLong()
 
@@ -74,15 +89,21 @@ class LivePipeline(
 
     // ---- 오디오 스레드 ----
 
-    /** 블록 하나를 [out](2 × blockSize, L R 교차)에 렌더한다. 자세가 아직 없으면 무음. */
+    /** 블록 하나를 [out](2 × blockSize, L R 교차)에 렌더한다. 자세가 아직 없으면 알림음만. */
     fun renderBlock(out: FloatArray) {
+        requestedAlert.getAndSet(null)?.let {
+            renderer.alert(it)
+            onAlert?.invoke(it)
+        }
         val p = pose.get()
-        if (p == null) {
-            out.fill(0f)
+        if (p == null) { // 카메라 시작 전: 알림음만(음원 없음)
+            renderer.render(GuidanceOutput(clockNs(), GuidanceState.UNKNOWN, emptyList(), Float.NaN, null), out)
             return
         }
         val snap = snapshot.get()
+        fast.paused = paused
         val g = fast.compute(p, snap, clockNs())
+        g.alert?.let { onAlert?.invoke(it) }
         when (val a = fast.takeMapAction()) {
             MapAction.NONE -> Unit
             MapAction.RESET -> {

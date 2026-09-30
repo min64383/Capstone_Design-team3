@@ -19,6 +19,7 @@ data class Config(
     val policy: PolicyConfig,
     val state: StateConfig,
     val audio: AudioConfig,
+    val haptics: HapticsConfig,
     val record: RecordConfig,
     val align: AlignConfig,
 )
@@ -182,6 +183,19 @@ data class AudioConfig(
     val limiterCeiling: Float,
     /** `AudioTrack` 버퍼 크기(블록 수). 작을수록 출력 지연이 짧고 끊김 위험이 크다(M7 S10: 4 → 끊김, 8 → 약 52 ms·끊김 0). */
     val bufferBlocks: Int,
+)
+
+/** 상태 전이별 진동 길이(ms, §9.3, 가설 — 사용자 평가에서 조정). */
+data class HapticsConfig(
+    /** 준비 완료: 짧게 1회. */
+    val readyMs: Int,
+    /** 일시정지: 짧게 2회(각 [pauseMs], 사이 [pauseGapMs]). */
+    val pauseMs: Int,
+    val pauseGapMs: Int,
+    /** 확인 불가: 길게 1회. */
+    val unknownMs: Int,
+    /** 종료: 길게 1회. */
+    val exitMs: Int,
 )
 
 /** 녹화 저장 간격 설정. */

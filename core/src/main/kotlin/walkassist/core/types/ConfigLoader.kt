@@ -152,6 +152,15 @@ object ConfigLoader {
                     bufferBlocks = atLeast1("bufferBlocks"),
                 )
             },
+            haptics = root.section("haptics") {
+                HapticsConfig(
+                    readyMs = atLeast1("readyMs"),
+                    pauseMs = atLeast1("pauseMs"),
+                    pauseGapMs = atLeast1("pauseGapMs"),
+                    unknownMs = atLeast1("unknownMs"),
+                    exitMs = atLeast1("exitMs"),
+                )
+            },
             record = root.section("record") {
                 RecordConfig(
                     depthEveryN = atLeast1("depthEveryN"),
