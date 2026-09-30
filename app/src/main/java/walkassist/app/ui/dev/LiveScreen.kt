@@ -93,6 +93,34 @@ class LiveScreen : Activity(), GLSurfaceView.Renderer {
     private var lastDepthTNs = Long.MIN_VALUE
     private val recentPoses = ArrayDeque<PoseFrame>()
 
+    /** GL 스레드 → UI: 카메라 화면에 투영한 물체 대표점. */
+    private val markers = java.util.concurrent.atomic.AtomicReference<List<DebugOverlay.Marker>>(emptyList())
+    private val viewM = FloatArray(16)
+    private val projM = FloatArray(16)
+    private val vp = FloatArray(16)
+    private val clip = FloatArray(4)
+
+    /**
+     * 최신 스냅샷의 대표점(월드)을 이번 카메라 화면에 투영한다(§11.3 "선택 대표점 표시"). GL 스레드.
+     * ARCore 월드와 core 월드 W는 같은 좌표계다(카메라 규약만 다름, §5).
+     */
+    private fun projectMarkers(camera: com.google.ar.core.Camera): List<DebugOverlay.Marker> {
+        val p = pipeline ?: return emptyList()
+        val snap = p.snapshot.get() ?: return emptyList()
+        val selected = p.lastOutput.get()?.commands?.map { it.obstacleId }?.toSet().orEmpty()
+        camera.getViewMatrix(viewM, 0)
+        camera.getProjectionMatrix(projM, 0, 0.1f, 100f)
+        android.opengl.Matrix.multiplyMM(vp, 0, projM, 0, viewM, 0)
+        return snap.obstacles.mapNotNull { o ->
+            val w = o.repPointW
+            android.opengl.Matrix.multiplyMV(clip, 0, vp, 0, floatArrayOf(w.x, w.y, w.z, 1f), 0)
+            if (clip[3] <= 0f) return@mapNotNull null // 카메라 뒤
+            val x = (clip[0] / clip[3] + 1f) / 2f * viewportW
+            val y = (1f - clip[1] / clip[3]) / 2f * viewportH
+            DebugOverlay.Marker(x, y, o.id, o.heightClass, o.id in selected)
+        }
+    }
+
     // UI 스레드 전용
     private var lastSlowCount = 0L
     private var lastTickMs = 0L
@@ -221,6 +249,7 @@ class LiveScreen : Activity(), GLSurfaceView.Renderer {
         if (clockOffsetNs == null) clockOffsetNs = SystemClock.elapsedRealtimeNanos() - frame.timestamp
 
         val camera = frame.camera
+        markers.set(projectMarkers(camera))
         tracking = camera.trackingState.name
         val pose = PoseFrame(
             frame.timestamp,
@@ -287,7 +316,7 @@ class LiveScreen : Activity(), GLSurfaceView.Renderer {
             "발열 ${thermal.thermalName(thermal.sample().thermalStatus)} · 출력 지연 ${out?.latencyMs?.let { "%.0fms".format(it) } ?: "?"}" +
                 " · 끊김 ${out?.underruns ?: 0} · 로그 누락 ${logger?.nDropped?.get() ?: 0}",
         )
-        overlay.update(DebugOverlay.State(p?.lastHead?.get(), g, snap, p?.voxelCentersW?.get().orEmpty(), lines))
+        overlay.update(DebugOverlay.State(p?.lastHead?.get(), g, snap, p?.voxelCentersW?.get().orEmpty(), lines, markers.get()))
         if (playbackFinished && logger != null) {
             stopRun()
             Toast.makeText(this, "재생 끝: 로그 저장", Toast.LENGTH_LONG).show()

@@ -32,7 +32,12 @@ class DebugOverlay(context: Context, config: Config) : View(context) {
         val snapshot: ObstacleSnapshot?,
         val voxelsW: List<Vec3>,
         val lines: List<String>,
+        /** 카메라 화면에 투영한 물체 대표점(GL 스레드가 계산). */
+        val markers: List<Marker> = emptyList(),
     )
+
+    /** 화면 좌표(px)의 물체 표시. [selected]면 지금 소리 나는 음원. */
+    class Marker(val x: Float, val y: Float, val id: Int, val heightClass: HeightClass, val selected: Boolean)
 
     private var s: State? = null
 
@@ -48,12 +53,14 @@ class DebugOverlay(context: Context, config: Config) : View(context) {
 
     override fun onDraw(canvas: Canvas) {
         val st = s ?: return
-        val mapSize = width * 0.9f
-        val left = (width - mapSize) / 2
-        val top = height - mapSize - 40f
+        // 미니맵은 오른쪽 아래 작은 창(카메라 화면을 가리지 않게)
+        val mapSize = width * 0.42f
+        val left = width - mapSize - 16f
+        val top = height - mapSize - 16f
         fill.color = 0xAA000000.toInt()
         canvas.drawRect(left, top, left + mapSize, top + mapSize, fill)
         st.head?.let { drawMap(canvas, st, it, left, top, mapSize) }
+        drawMarkers(canvas, st.markers)
         drawSource(canvas, st.output)
 
         fill.color = 0x99000000.toInt()
@@ -81,11 +88,7 @@ class DebugOverlay(context: Context, config: Config) : View(context) {
         for (p in st.voxelsW) c.drawRect(sx(p) - v, sy(p) - v, sx(p) + v, sy(p) + v, fill)
         // 물체 AABB(높이 분류 색) + 대표점 3방식
         for (o in st.snapshot?.obstacles.orEmpty()) {
-            stroke.color = when (o.heightClass) {
-                HeightClass.HEAD -> Color.MAGENTA
-                HeightClass.BODY -> Color.rgb(255, 150, 0)
-                HeightClass.FLOOR -> Color.GREEN
-            }
+            stroke.color = heightColor(o.heightClass)
             val a = o.aabbMinW
             val b = o.aabbMaxW
             val corners = listOf(Vec3(a.x, 0f, a.z), Vec3(b.x, 0f, a.z), Vec3(b.x, 0f, b.z), Vec3(a.x, 0f, b.z))
@@ -102,6 +105,33 @@ class DebugOverlay(context: Context, config: Config) : View(context) {
         fill.color = Color.WHITE
         c.drawPath(Path().apply { moveTo(ox, oy - 24f); lineTo(ox - 14f, oy + 12f); lineTo(ox + 14f, oy + 12f); close() }, fill)
         c.restore()
+    }
+
+    /** 카메라 화면 위 물체 대표점: 음원은 큰 빨간 원 + id, 나머지는 높이 분류 색의 작은 점. */
+    private fun drawMarkers(c: Canvas, markers: List<Marker>) {
+        for (m0 in markers.sortedBy { it.selected }) {
+            // 화면 밖(대개 발밑 사각)은 가장자리에 붙여 속을 비운 원으로
+            val x = m0.x.coerceIn(40f, width - 40f)
+            val y = m0.y.coerceIn(40f, height - 40f)
+            val off = x != m0.x || y != m0.y
+            val m = Marker(x, y, m0.id, m0.heightClass, m0.selected)
+            if (m.selected) {
+                stroke.color = Color.RED
+                stroke.strokeWidth = 10f
+                c.drawCircle(m.x, m.y, 60f, stroke)
+                stroke.strokeWidth = 3f
+                c.drawText("#${m.id} ${m.heightClass}" + if (off) " (화면 밖)" else "", (m.x + 70f).coerceAtMost(width - 420f), m.y - 70f, text)
+            } else {
+                fill.color = heightColor(m.heightClass)
+                c.drawCircle(m.x, m.y, 14f, fill)
+            }
+        }
+    }
+
+    private fun heightColor(h: HeightClass) = when (h) {
+        HeightClass.HEAD -> Color.MAGENTA
+        HeightClass.BODY -> Color.rgb(255, 150, 0)
+        HeightClass.FLOOR -> Color.GREEN
     }
 
     /** 현재 음원: 화면 가운데 큰 화살표(방위각) + 구간·거리. 음원이 없으면 상태만(무음 ≠ 안전이므로 "없음"이라 쓰지 않는다). */
