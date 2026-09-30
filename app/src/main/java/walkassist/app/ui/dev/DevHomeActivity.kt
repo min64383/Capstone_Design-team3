@@ -13,7 +13,7 @@ import walkassist.app.AppConfig
 import walkassist.app.TAG
 import walkassist.core.types.ConfigException
 
-/** 개발 모드 홈(§11.3): 실시간 / 녹화 / 재생 / 세션 목록. 실시간·재생은 M7에서 연결한다. */
+/** 개발 모드 홈(§11.3): 실시간 / 녹화 / 재생 / 세션 목록. */
 class DevHomeActivity : Activity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -45,9 +45,9 @@ class DevHomeActivity : Activity() {
                 LinearLayout.LayoutParams(MATCH_PARENT, WRAP_CONTENT),
             )
         }
-        button("실시간 (M7)", enabled = false) {}
+        button("실시간", enabled = true) { startActivity(LiveScreen.intent(this, null)) }
         button("녹화", enabled = true) { startActivity(Intent(this, RecordScreen::class.java)) }
-        button("재생 (M7)", enabled = false) {}
+        button("재생", enabled = true) { startActivity(SessionList.pickIntent(this)) }
         button("세션 목록", enabled = true) { startActivity(Intent(this, SessionList::class.java)) }
         button(
             "오디오 테스트",

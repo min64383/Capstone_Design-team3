@@ -3,13 +3,16 @@ package walkassist.app.ar
 import android.Manifest
 import android.app.Activity
 import android.content.pm.PackageManager
+import android.net.Uri
 import android.util.Log
 import com.google.ar.core.ArCoreApk
 import com.google.ar.core.Config
 import com.google.ar.core.Session
 import com.google.ar.core.exceptions.CameraNotAvailableException
+import com.google.ar.core.exceptions.PlaybackFailedException
 import com.google.ar.core.exceptions.UnavailableException
 import walkassist.app.TAG
+import java.io.File
 
 /** 깊이 지원 확인 결과(F1)와 실제 설정한 모드. */
 data class DepthSupport(
@@ -21,8 +24,9 @@ data class DepthSupport(
 /**
  * ARCore 설치 확인·카메라 권한·세션 생성·깊이 모드 설정·재개/일시정지.
  * UI 스레드에서만 호출한다. 흐름은 공식 샘플(hello_ar_kotlin)의 onResume 처리와 같다.
+ * [playbackMp4]가 있으면 카메라 대신 녹화 MP4를 재생한다(재생 모드, §9.2).
  */
-class ArSessionManager(private val activity: Activity) {
+class ArSessionManager(private val activity: Activity, private val playbackMp4: File? = null) {
 
     /** 준비된 세션. [resume]이 성공한 뒤에만 null이 아니다. */
     var session: Session? = null
@@ -54,10 +58,15 @@ class ArSessionManager(private val activity: Activity) {
                 }
                 val s = Session(activity)
                 depthSupport = configure(s)
+                // VERIFY: 재생 데이터셋은 세션이 일시정지 상태일 때(첫 resume 전) 지정해야 한다(ARCore Playback API 문서)
+                playbackMp4?.let { s.setPlaybackDatasetUri(Uri.fromFile(it)) }
                 session = s
             } catch (e: UnavailableException) {
                 Log.e(TAG, "ARCore unavailable", e)
                 return "ARCore 사용 불가: ${e.javaClass.simpleName}"
+            } catch (e: PlaybackFailedException) {
+                Log.e(TAG, "playback dataset failed: $playbackMp4", e)
+                return "재생 파일을 열 수 없습니다"
             }
         }
         return try {
