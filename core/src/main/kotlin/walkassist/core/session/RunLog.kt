@@ -1,6 +1,8 @@
 package walkassist.core.session
 
 import walkassist.core.mapping.MapUpdate
+import walkassist.core.pipeline.ClusterDebug
+import walkassist.core.pipeline.ClusterDebugCsv
 import walkassist.core.types.GuidanceOutput
 import walkassist.core.types.ObstacleSnapshot
 import walkassist.core.types.RepStrategy
@@ -13,6 +15,9 @@ object RunLog {
     const val SLOW_PATH_FILE = "slow_path.csv"
     const val GUIDANCE_FILE = "guidance.csv"
     const val OBSTACLES_FILE = "obstacles.csv"
+
+    /** 군집 통계(오인식 분석용, 명세 §10.1 추가 로그, v0.2.10). 형식은 [ClusterDebugCsv]. */
+    const val CLUSTER_DEBUG_FILE = "cluster_debug.csv"
 
     val SLOW_PATH_HEADER = listOf("tCaptureNs", "tStartNs", "tDoneNs", "nPoints", "nVoxels", "nObstacles", "floorY", "mapHealth")
 
@@ -49,6 +54,9 @@ object RunLog {
                 listOf(o.aabbMinW.x, o.aabbMinW.y, o.aabbMinW.z, o.aabbMaxW.x, o.aabbMaxW.y, o.aabbMaxW.z)).toTypedArray(),
         )
     }
+
+    /** 느린 경로 한 번의 군집 통계 → `cluster_debug.csv` 줄. */
+    fun clusterDebugLines(items: List<ClusterDebug>): List<String> = items.map(ClusterDebugCsv::row)
 
     fun header(cols: List<String>): String = cols.joinToString(",")
 

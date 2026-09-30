@@ -170,10 +170,23 @@ class TrackerUnitTest {
         // 한 번 놓친 동안에는 출력하지 않지만 내부 id는 유지한다.
         assertTrue(t.update(emptyList()).isEmpty())
 
-        // 재관측 첫 프레임은 연속 확인 횟수를 다시 쌓으므로 아직 출력하지 않는다.
-        assertTrue(t.update(listOf(det(Vec3(0.08f, 0f, -2f)))).isEmpty())
-        val recovered = t.update(listOf(det(Vec3(0.10f, 0f, -2f)))).single()
+        // 이미 확인된 track은 다시 잡히는 즉시 같은 id로 출력한다(재확인 대기로 음원이 끊기지 않게).
+        val recovered = t.update(listOf(det(Vec3(0.08f, 0f, -2f)))).single()
         assertEquals(first.id, recovered.id)
+    }
+
+    @Test
+    fun `matching keeps ids when order changes, new detections get new ids`() {
+        val t = Tracker(cfg.track, RepStrategy.CORRIDOR_NEAREST)
+        t.update(listOf(det(Vec3(0f, 0f, -2f)), det(Vec3(1f, 0f, -2f))))
+        val first = t.update(listOf(det(Vec3(0f, 0f, -2f)), det(Vec3(1f, 0f, -2f))))
+        assertEquals(2, first.size)
+        // 순서가 바뀌고 새 물체가 들어옴: 기존 둘은 id 유지, 새 물체는 확인 전이라 아직 없음
+        val second = t.update(listOf(det(Vec3(1.1f, 0f, -2f)), det(Vec3(0.05f, 0f, -2f)), det(Vec3(3f, 0f, 0f))))
+        assertEquals(listOf(first[1].id, first[0].id), second.map { it.id })
+        val third = t.update(listOf(det(Vec3(3f, 0f, 0f))))
+        assertEquals(1, third.size)
+        assertTrue(third[0].id !in first.map { it.id })
     }
 
     @Test

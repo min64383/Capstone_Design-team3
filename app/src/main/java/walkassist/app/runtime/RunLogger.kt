@@ -24,7 +24,7 @@ class RunLogger(val dir: File) : AutoCloseable {
         SLOW(RunLog.SLOW_PATH_FILE, RunLog.header(RunLog.SLOW_PATH_HEADER)),
         GUIDANCE(RunLog.GUIDANCE_FILE, RunLog.header(RunLog.GUIDANCE_HEADER)),
         OBSTACLES(RunLog.OBSTACLES_FILE, RunLog.header(RunLog.OBSTACLES_HEADER)),
-        CLUSTERS("cluster_debug.csv", ClusterDebugCsv.HEADER),
+        CLUSTERS(RunLog.CLUSTER_DEBUG_FILE, ClusterDebugCsv.HEADER),
         DEVICE(SessionFormat.DEVICE_FILE, DeviceCsv.headerLine()),
     }
 
@@ -38,7 +38,7 @@ class RunLogger(val dir: File) : AutoCloseable {
     fun slowPath(line: String) = put(Kind.SLOW, line)
     fun guidance(lines: List<String>) = lines.forEach { put(Kind.GUIDANCE, it) }
     fun obstacles(lines: List<String>) = lines.forEach { put(Kind.OBSTACLES, it) }
-    fun clusters(items: List<ClusterDebug>) = items.forEach { put(Kind.CLUSTERS, ClusterDebugCsv.row(it)) }
+    fun clusters(items: List<ClusterDebug>) = RunLog.clusterDebugLines(items).forEach { put(Kind.CLUSTERS, it) }
     fun device(line: String) = put(Kind.DEVICE, line)
 
     private fun put(k: Kind, line: String) {

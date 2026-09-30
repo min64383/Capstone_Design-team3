@@ -18,11 +18,12 @@ data class Detection(
 )
 
 /**
- * 물체 추적 실험안(v2).
+ * 물체 추적 (§7.4, v0.2.10 추적 v2 — 팀원 실험안 fpfilter-v2 기반).
  *
  * 기존 방식의 두 문제를 보완한다.
  * 1) 한 번 군집이 빠지면 id가 즉시 사라지는 문제 -> [TrackConfig.maxMissedUpdates] 동안 내부 track 유지.
  * 2) 한 번 생긴 군집이 바로 장애물로 출력되는 문제 -> [TrackConfig.minConfirmObservations]회 연속 관측 후 출력.
+ *    한 번 확인된 track은 잠깐 놓쳤다 다시 잡히면 바로 출력한다(다시 확인하느라 음원이 끊기지 않게).
  *
  * 매칭 자체는 기존 결정대로 CENTROID 거리 최근접 + [TrackConfig.matchRadiusM]을 유지한다.
  * CORRIDOR_NEAREST는 물체가 통로에 들어오는 순간 튈 수 있어 id 매칭에는 쓰지 않는다.
@@ -39,6 +40,8 @@ class Tracker(private val cfg: TrackConfig, private val strategy: RepStrategy) {
         var nObservations: Int,
         var consecutiveObservations: Int,
         var missedUpdates: Int,
+        /** 한 번이라도 연속 확인을 통과했는지. */
+        var confirmed: Boolean = false,
     )
 
     private var tracks = listOf<Track>()
@@ -91,8 +94,9 @@ class Tracker(private val cfg: TrackConfig, private val strategy: RepStrategy) {
 
             next += track
 
-            // 연속 관측 횟수가 기준을 넘은 track만 실제 장애물로 출력한다.
-            if (track.consecutiveObservations >= cfg.minConfirmObservations) {
+            // 연속 관측 횟수가 기준을 넘은(또는 이미 확인된) track만 실제 장애물로 출력한다.
+            if (track.consecutiveObservations >= cfg.minConfirmObservations) track.confirmed = true
+            if (track.confirmed) {
                 out += Obstacle(
                     id = track.id,
                     repPointW = track.reps.getValue(strategy),
