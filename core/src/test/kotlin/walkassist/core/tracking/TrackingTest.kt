@@ -27,7 +27,7 @@ class TrackingTest {
         val slow = SlowPath(config)
         return spec.generate().frames.mapNotNull { f ->
             val d = f.depth ?: return@mapNotNull null
-            f.tS to slow.process(d, d.worldFromCam.translation(), f.truthHead.headingW)
+            f.tS to slow.process(d, f.truthHead.headingW)
         }
     }
 
@@ -105,7 +105,7 @@ class TrackingTest {
         var last: ObstacleSnapshot? = null
         for (f in Scenes.SC03.generate().frames) {
             val d = f.depth ?: continue
-            last = slow.process(d, d.worldFromCam.translation(), f.truthHead.headingW)
+            last = slow.process(d, f.truthHead.headingW)
         }
         assertTrue(slow.map.voxels.occupied().size > 100)
         assertTrue(last!!.obstacles.isEmpty(), "${last.obstacles}")

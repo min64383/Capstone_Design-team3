@@ -70,7 +70,7 @@ class OfflineReplay(
             pending = null
             val h = heading ?: return // 앱과 같이: 진행 방향을 모르면 그 깊이는 버린다
             if (d.tCaptureNs < resetAfterNs) return
-            val s = slow.process(d, d.worldFromCam.translation(), h)
+            val s = slow.process(d, h)
             val doneNs = atNs + slowPathNs(d)
             job = Job(doneNs, s, resetAfterNs, RunLog.slowPathLine(slow.lastMapUpdate!!, atNs, doneNs, s))
         }

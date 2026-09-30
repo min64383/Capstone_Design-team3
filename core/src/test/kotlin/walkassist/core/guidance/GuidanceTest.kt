@@ -58,7 +58,7 @@ fun runGuidance(
         val h = fast.headingW
         if (d != null && d.tCaptureNs > lastDepthT && h != null) { // 같은 시각의 깊이 반복(정지)은 새 입력이 아니다
             lastDepthT = d.tCaptureNs
-            snapshot = slow.process(d, d.worldFromCam.translation(), h)
+            snapshot = slow.process(d, h)
         }
         out += Step(f, g, action)
     }

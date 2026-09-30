@@ -70,7 +70,7 @@ def compute(session: Path, run_dir: Path) -> dict:
     sp = pd.read_csv(run_dir / "slow_path.csv")
     obs = pd.read_csv(run_dir / "obstacles.csv")
     t0 = g.tBlockNs.min()
-    out: dict = {"session": session.name, "run": str(run_dir), "config": {"repStrategy": cfg["repPoint"]["strategy"]}}
+    out: dict = {"session": session.name if session.name != "session" else session.parent.name, "run": str(run_dir), "config": {"repStrategy": cfg["repPoint"]["strategy"]}}
 
     # 정답 없이 되는 지표
     blocks = g.drop_duplicates("tBlockNs")
@@ -204,6 +204,7 @@ def compute(session: Path, run_dir: Path) -> dict:
 
 
 if __name__ == "__main__":
+    sys.stdout.reconfigure(encoding="utf-8")  # Windows 콘솔(cp949)에서도 한글·기호 출력
     if len(sys.argv) != 3:
         sys.exit(__doc__)
     session, run = Path(sys.argv[1]), Path(sys.argv[2])

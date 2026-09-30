@@ -47,6 +47,7 @@ def main(paths: list[str]) -> str:
 
 
 if __name__ == "__main__":
+    sys.stdout.reconfigure(encoding="utf-8")  # Windows 콘솔(cp949)에서도 한글·기호 출력
     if len(sys.argv) < 2:
         sys.exit(__doc__)
     print(main(sys.argv[1:]))

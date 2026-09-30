@@ -148,6 +148,7 @@ def main(session: Path, run: Path, at: list[float]):
 
 
 if __name__ == "__main__":
+    sys.stdout.reconfigure(encoding="utf-8")  # Windows 콘솔(cp949)에서도 한글·기호 출력
     args = sys.argv[1:]
     if len(args) < 2:
         sys.exit(__doc__)
