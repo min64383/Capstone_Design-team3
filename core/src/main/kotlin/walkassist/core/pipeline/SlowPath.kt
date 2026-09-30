@@ -49,7 +49,7 @@ class SlowPath(private val config: Config) {
         val detections = Cluster.dbscanXZ(centers, config.cluster.epsM, config.cluster.minSamples).map { idx ->
             val pts = idx.map { centers[it] }
             Detection(
-                repCandidatesW = RepPoint.candidates(pts, corridor),
+                repCandidatesW = RepPoint.candidates(pts, corridor, config.map.voxelSizeM),
                 aabbMinW = Vec3(pts.minOf { it.x } - half, pts.minOf { it.y } - half, pts.minOf { it.z } - half),
                 aabbMaxW = Vec3(pts.maxOf { it.x } + half, pts.maxOf { it.y } + half, pts.maxOf { it.z } + half),
                 heightClass = HeightClassifier.classify(pts.map { it.y - floorY }, config.cluster)!!, // 군집 = 통로 안 부분

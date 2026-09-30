@@ -36,3 +36,16 @@ tasks.test {
     systemProperty("walkassist.coreSrc", project.file("src").absolutePath)
     inputs.dir("src/main")
 }
+
+// M8 오프라인 재생: ./gradlew :core:replay -Psession=<세션 폴더> [-Pout=..] [-PslowMs=10 | -PslowFrom=<slow_path.csv>] [-Poverrides='{...}']
+tasks.register<JavaExec>("replay") {
+    group = "walkassist"
+    description = "녹화 세션을 PC에서 오프라인 재생해 실행 로그(§10.1)를 쓴다"
+    classpath = sourceSets["test"].runtimeClasspath
+    mainClass.set("walkassist.core.replay.OfflineReplayMainKt")
+    systemProperty("walkassist.defaultConfig", rootProject.file("app/src/main/assets/config/default.json").absolutePath)
+    systemProperty("walkassist.replayOut", layout.buildDirectory.dir("replay").get().asFile.absolutePath)
+    args = listOf("session", "out", "slowMs", "slowFrom", "overrides").mapNotNull { k ->
+        (project.findProperty(k) as String?)?.let { v -> "$k=${if (k == "session" || k == "out" || k == "slowFrom") rootProject.file(v).absolutePath else v}" }
+    }
+}

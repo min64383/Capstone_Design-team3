@@ -11,6 +11,8 @@ import walkassist.core.session.Png16
 import walkassist.core.session.SessionFormat
 import walkassist.core.session.SessionMeta
 import walkassist.core.session.SessionStats
+import walkassist.core.geometry.Vec3
+import walkassist.core.types.HeightClass
 import walkassist.core.types.Intrinsics
 import java.io.File
 
@@ -84,6 +86,36 @@ object SyntheticSessionWriter {
             stats = SessionStats(rec.frames.size.toLong(), saved, saved, 0, 0, 0, rec.walk.durationS),
         )
         File(dir, SessionFormat.META_FILE).writeText(meta.toJson())
+        writeTruth(rec, dir)
         return dir
+    }
+
+    /**
+     * 정답 `annotations/obstacles.json`(docs/FORMAT.md §정답): 원점 = 시작 시 머리 아래 바닥(시작 표시),
+     * +z = 보행선(진행 방향), +x = 오른쪽, +y = 위, 미터. 장애물은 월드 AABB를 이 좌표로 옮긴 것.
+     */
+    fun writeTruth(rec: SyntheticRecording, dir: File) {
+        val (_, head0) = SyntheticGenerator.cameraPose(rec.walk, 0f)
+        val f = head0.headingW
+        val r = head0.rightW
+        val o = Vec3(head0.positionW.x, 0f, head0.positionW.z) // 바닥 y = 0
+        fun toTruth(p: Vec3) = Vec3((p - o) dot r, p.y, (p - o) dot f)
+        val items = rec.scene.items.filter { it.obstacle }.map { item ->
+            val (mn, mx) = when (val sh = item.shape) {
+                is Box -> sh.min to sh.max
+                is VerticalCylinder -> Vec3(sh.cx - sh.radiusM, sh.yMin, sh.cz - sh.radiusM) to Vec3(sh.cx + sh.radiusM, sh.yMax, sh.cz + sh.radiusM)
+                else -> error("unsupported obstacle shape ${item.name}")
+            }
+            val corners = listOf(mn, mx, Vec3(mn.x, mn.y, mx.z), Vec3(mx.x, mx.y, mn.z)).map(::toTruth)
+            fun arr(v: List<Float>) = v.joinToString(", ", "[", "]")
+            val lo = listOf(corners.minOf { it.x }, mn.y, corners.minOf { it.z })
+            val hi = listOf(corners.maxOf { it.x }, mx.y, corners.maxOf { it.z })
+            val removed = item.removeAtS?.let { ", \"removeAtS\": $it" } ?: ""
+            """    { "name": "${item.name}", "type": "${item.expectedClass ?: HeightClass.FLOOR}", "min": ${arr(lo)}, "max": ${arr(hi)}$removed }"""
+        }
+        File(dir, "annotations").mkdirs()
+        File(dir, "annotations/obstacles.json").writeText(
+            "{\n  \"version\": 1,\n  \"estimated\": false,\n  \"obstacles\": [\n" + items.joinToString(",\n") + "\n  ]\n}\n",
+        )
     }
 }
