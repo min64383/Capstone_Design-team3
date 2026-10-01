@@ -114,3 +114,4 @@
 - 2026-09-30 · M9 · 두 번 탭은 두 번째 탭을 뗄 때 처리: 누를 때 처리하면 시작(ARCore 세션 생성 약 0.6 s)이 UI 스레드를 막는 동안 길게 누르기(종료)로 오인됨(기기 실측)
 - 2026-09-30 · M9 · 오디오 포커스는 `AUDIOFOCUS_GAIN` + `setWillPauseWhenDucked(false)`로 Android 자동 감쇠에 맡기고, 포커스를 잃어도 안내는 멈추지 않는다(안전 안내)
 - 2026-09-30 · M9 · `LiveScreen`의 GL 입력 코드를 `ArFeeder`, 실행 시작·정지를 `RunSession`으로 떼어 실시간·재생·사용자 모드가 같이 쓴다
+- 2026-10-01 · docs · 과제 제출 문서(PDF·docx)를 `references/`로 분리해 git에 올림. 프로젝트 완료 후 `.gitignore`에 추가하고 추적 해제 — 팀원 공유. 05 기술명세서(v0.2)는 명세보다 앞선 문서라 구현 기준은 MVP_SPEC — 사용자 결정

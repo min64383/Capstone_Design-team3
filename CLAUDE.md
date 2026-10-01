@@ -8,6 +8,7 @@
 - `app/`: Android 앱. ARCore·오디오·UI
 - `tools/analysis/`: Python. 로그 분석 전용
 - `prototypes/<언어>/<모듈>/`: core 알고리즘 프로토타입(기본 Python). 최종 구현은 Kotlin core로 이식하고 README §4.8 규칙을 따른다
+- `references/`: 과제 제출 문서(PDF·docx). 구현 참고용이며 명세와 다르면 `docs/MVP_SPEC.md`를 따른다
 
 ## 명령 (PowerShell)
 - core 테스트: `./gradlew :core:test`
