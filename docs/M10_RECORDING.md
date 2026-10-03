@@ -65,7 +65,7 @@
 - [ ] 사용자 모드 실행 → 시작(두 번 탭) → 준비 완료음 확인. 시작 시각을 적는다
 - [ ] **10분 중 3분·5분·7분에 폰을 좌우로 천천히 ±30° 돌렸다 되돌린다**(각 5초 정도). 맵 갱신과 음원 전환이 일어나게 하려는 것이며, 시각을 `note`에 적는다
 - [ ] 10분 이상 지난 뒤 길게 눌러 종료. 중간에 화면이 꺼지거나 앱이 멈추면 그 시각을 기록하고 계속한다(지속 동작 실패 자료)
-- [ ] 실행 로그 폴더 이름 기록: `/storage/emulated/0/Android/data/walkassist.app/files/runs/<시각>`
+- [ ] 실행 로그 폴더 이름 기록: `/storage/emulated/0/Android/data/hearspace.app/files/runs/<시각>`
 - 이 로그는 **"거치 + 간헐 회전"**이라고 `note`에 적는다. 보고서에서도 걷기 기반 수치가 아님을 표시한다
 
 ## 5. 정답 파일 작성
@@ -99,7 +99,7 @@ PC에서 세션마다 `data/sessions/<세션ID>/annotations/obstacles.json`을 �
 
 - [ ] 즉시: 앱 세션 목록에서 길이·크기 확인, 비정상(너무 짧음·0 프레임)은 다시 찍는다
 - [ ] PC 연결: `powershell -ExecutionPolicy Bypass -File tools\setup\pull-sessions.ps1 -All -Analyze` — 파일 수 검증과 스파이크 점검 자동 실행
-- [ ] T01(b) 실행 로그: `adb pull /storage/emulated/0/Android/data/walkassist.app/files/runs/<시각> data/runs/`
+- [ ] T01(b) 실행 로그: `adb pull /storage/emulated/0/Android/data/hearspace.app/files/runs/<시각> data/runs/`
 - [ ] 정답 파일 작성(5절)
 - [ ] 아래 **기록표** 채우기
 - [ ] 비교 실험(sweep)은 이 세션들로 돌린다. 먼저 기존 S01·S02로 코드를 검증하고 새 세션이 모이면 일괄 실행

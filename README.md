@@ -102,7 +102,7 @@ powershell -ExecutionPolicy Bypass -File tools\setup\setup-windows.ps1          
 
 #### 환경 변수 관리
 
-스크립트는 **사용자 범위**(`HKCU\Environment`)에만 쓰고, 바꾸기 전에 기존 값을 `%LOCALAPPDATA%\WalkAssist\env-backup-<시각>.json`에 백업한다.
+스크립트는 **사용자 범위**(`HKCU\Environment`)에만 쓰고, 바꾸기 전에 기존 값을 `%LOCALAPPDATA%\HEARSPACE\env-backup-<시각>.json`에 백업한다.
 
 | 변수 | 값 | 이유 |
 |---|---|---|
@@ -168,19 +168,19 @@ powershell -ExecutionPolicy Bypass -File tools\setup\check-device.ps1 -Launch   
 | 기기 | 모델, Android 버전, SoC | 기준 기기(SM-G977N)가 아니면 경고 |
 | ARCore | `com.google.ar.core` 설치 여부와 버전 | 없으면 폰에서 Play 스토어 페이지를 연다 |
 | 저장 공간·배터리 | 내부 저장소 여유 공간 5 GB 이상 | 오래된 세션을 PC로 옮긴 뒤 삭제 |
-| 앱 | `walkassist.app` 설치 여부·버전, 기기에 쌓인 세션 수 | `-Install` |
+| 앱 | `hearspace.app` 설치 여부·버전, 기기에 쌓인 세션 수 | `-Install` |
 
 `-Install`은 선택된 기기(`ANDROID_SERIAL`)에 `.\gradlew.bat :app:installDebug`를 실행하고 `pm grant`로 카메라 권한을 미리 준다. 직접 할 때:
 
 ```powershell
 adb devices                      # 목록에 "<시리얼>  device"로 보이면 연결된 것
 .\gradlew.bat :app:installDebug
-adb logcat -s WalkAssist         # 앱 로그 (녹화 중 GL 스레드 구간별 소요 시간 'gl timing' 포함)
+adb logcat -s HEARSPACE         # 앱 로그 (녹화 중 GL 스레드 구간별 소요 시간 'gl timing' 포함)
 ```
 
 ### 3.4 녹화하기
 
-앱 이름은 **WalkAssist Dev**다. 첫 실행 때 카메라 권한을 허용하고, ARCore가 없거나 오래됐으면 설치 화면을 거친다.
+앱 이름은 **HEARSPACE Dev**다. 첫 실행 때 카메라 권한을 허용하고, ARCore가 없거나 오래됐으면 설치 화면을 거친다.
 
 1. **개발 모드 홈** → `녹화`. (`실시간`·`재생`은 M7에서 활성화)
 2. 화면 위쪽 상태 표시를 확인한다.
@@ -201,7 +201,7 @@ adb logcat -s WalkAssist         # 앱 로그 (녹화 중 GL 스레드 구간별
 
 ### 3.5 녹화 세션에 담기는 정보 (형식 v0)
 
-세션 하나는 기기의 `/storage/emulated/0/Android/data/walkassist.app/files/sessions/<세션ID>/` 폴더 하나이고, 세션 ID는 `<yyyyMMdd_HHmmss>_<장면ID>`(녹화 시작 시각)다. 형식 정의 코드는 `core/session/`(`SessionFormat.kt`, `SessionMeta.kt`, `Png16.kt`)에 있어 앱과 PC가 같은 코드를 쓴다. 상세와 스파이크 결과는 [`docs/FORMAT.md`](docs/FORMAT.md)에 있다. **v0은 스파이크용 초안**이고 G1에서 v1로 확정된다.
+세션 하나는 기기의 `/storage/emulated/0/Android/data/hearspace.app/files/sessions/<세션ID>/` 폴더 하나이고, 세션 ID는 `<yyyyMMdd_HHmmss>_<장면ID>`(녹화 시작 시각)다. 형식 정의 코드는 `core/session/`(`SessionFormat.kt`, `SessionMeta.kt`, `Png16.kt`)에 있어 앱과 PC가 같은 코드를 쓴다. 상세와 스파이크 결과는 [`docs/FORMAT.md`](docs/FORMAT.md)에 있다. **v0은 스파이크용 초안**이고 G1에서 v1로 확정된다.
 
 ```
 20260926_050843_S01/                 실측 예: 21초 녹화, 합계 64 MB
@@ -276,7 +276,7 @@ powershell -ExecutionPolicy Bypass -File tools\setup\pull-sessions.ps1 -All     
 직접 할 때:
 
 ```powershell
-adb pull /storage/emulated/0/Android/data/walkassist.app/files/sessions/<세션ID> data/sessions/
+adb pull /storage/emulated/0/Android/data/hearspace.app/files/sessions/<세션ID> data/sessions/
 .venv\Scripts\python.exe tools/analysis/spike_check.py data/sessions/<세션ID>
 .venv\Scripts\python.exe tools/analysis/spike_check.py data/sessions/<세션ID> --roi 0.1   # 중앙 10% 영역 깊이 (F4 벽 거리 촬영용)
 ```
@@ -314,9 +314,9 @@ adb pull /storage/emulated/0/Android/data/walkassist.app/files/sessions/<세션I
 
 ```
 .
-├── core/src/main/kotlin/walkassist/core/   types, geometry, mapping, tracking, guidance, audio, pipeline, session
-├── core/src/test/kotlin/walkassist/core/   합성 장면 테스트 (synth/)
-├── app/src/main/java/walkassist/app/       ar, runtime, ui/dev, ui/user, render
+├── core/src/main/kotlin/hearspace/core/   types, geometry, mapping, tracking, guidance, audio, pipeline, session
+├── core/src/test/kotlin/hearspace/core/   합성 장면 테스트 (synth/)
+├── app/src/main/java/hearspace/app/       ar, runtime, ui/dev, ui/user, render
 ├── app/src/main/assets/config/default.json 설정의 유일한 원본
 ├── tools/analysis/                         Python 분석 스크립트
 ├── tools/setup/                            PC 준비·기기 확인·세션 가져오기 PowerShell 스크립트 (§3)

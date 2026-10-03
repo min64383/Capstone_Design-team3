@@ -22,7 +22,7 @@ param(
 
 $ErrorActionPreference = 'Stop'
 $RepoRoot = (Resolve-Path (Join-Path $PSScriptRoot '..\..')).Path
-$AppId = 'walkassist.app'
+$AppId = 'hearspace.app'
 $ArcoreId = 'com.google.ar.core'
 $ExpectedModel = 'SM-G977N'            # 기준 기기 (MVP_SPEC §2.1)
 $SessionsDir = "/storage/emulated/0/Android/data/$AppId/files/sessions"
@@ -172,7 +172,7 @@ if ($battery) { Write-Host "   배터리 $(($battery -replace '.*level:', '').Tr
 
 # ---------------------------------------------------------------- 앱
 
-Write-Step '6. WalkAssist 앱'
+Write-Step '6. HEARSPACE 앱'
 if ($Install) {
     Write-Host "   .\gradlew.bat :app:installDebug (기기 $($pick.Serial))"
     Push-Location $RepoRoot
@@ -206,4 +206,4 @@ if ($problems.Count) {
     $problems | ForEach-Object { Write-Host "  - $_" }
     exit 1
 }
-Write-Host "기기 준비 완료 ($model, $($pick.Serial)). 로그 보기: adb logcat -s WalkAssist" -ForegroundColor Green
+Write-Host "기기 준비 완료 ($model, $($pick.Serial)). 로그 보기: adb logcat -s HEARSPACE" -ForegroundColor Green

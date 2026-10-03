@@ -9,7 +9,7 @@ Reference: C. Armstrong, L. Thresh, D. Murphy, G. Kearney, "A Perceptual Evaluat
 Individual and Non-Individual HRTFs: A Case Study of the SADIE II Database",
 Applied Sciences 8(11):2029, 2018. https://doi.org/10.3390/app8112029
 
-Modifications (WalkAssist, 2026-09-29): only the horizontal-plane (elevation 0 deg)
+Modifications (HEARSPACE, 2026-09-29): only the horizontal-plane (elevation 0 deg)
 measurements were extracted, azimuth converted to right-positive (-180..180 deg),
 and stored as little-endian float32 in a simple binary format by
 tools/analysis/extract_hrir.py. Impulse response samples are otherwise unchanged.

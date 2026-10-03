@@ -16,7 +16,7 @@
 
     <application
         android:allowBackup="false"
-        android:label="WalkAssist Dev"
+        android:label="HEARSPACE Dev"
         android:theme="@android:style/Theme.DeviceDefault.NoActionBar">
 
         <meta-data android:name="com.google.ar.core" android:value="required" />
@@ -26,7 +26,7 @@
             android:name=".ui.user.UserModeActivity"
             android:configChanges="orientation|screenSize|keyboardHidden"
             android:exported="true"
-            android:label="WalkAssist"
+            android:label="HEARSPACE"
             android:screenOrientation="portrait">
             <intent-filter>
                 <action android:name="android.intent.action.MAIN" />
@@ -37,7 +37,7 @@
         <activity
             android:name=".ui.dev.DevHomeActivity"
             android:exported="true"
-            android:label="WalkAssist Dev">
+            android:label="HEARSPACE Dev">
             <intent-filter>
                 <action android:name="android.intent.action.MAIN" />
                 <category android:name="android.intent.category.LAUNCHER" />
