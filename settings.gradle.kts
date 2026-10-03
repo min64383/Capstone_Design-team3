@@ -15,4 +15,4 @@ dependencyResolutionManagement {
 }
 
 rootProject.name = "hearspace"
-include(":core", ":app")
+include(":core", ":app", ":viewer")
