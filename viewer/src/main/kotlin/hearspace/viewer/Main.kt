@@ -3,6 +3,7 @@ package hearspace.viewer
 import hearspace.core.types.MiniJson
 import java.awt.BorderLayout
 import java.awt.Font
+import java.awt.GraphicsEnvironment
 import java.awt.GridLayout
 import java.awt.event.KeyEvent
 import java.io.File
@@ -79,7 +80,10 @@ class MainWindow(initial: File?) : JFrame("HEARSPACE 평가 GUI") {
         add(status.apply { border = BorderFactory.createEmptyBorder(4, 8, 4, 8) }, BorderLayout.SOUTH)
         rootPane.registerKeyboardAction({ togglePlay() }, KeyStroke.getKeyStroke(KeyEvent.VK_SPACE, 0), JComponent.WHEN_IN_FOCUSED_WINDOW)
         vm.onChange { updateTimeLabel() }
-        setSize(1500, 920)
+        // 화면보다 크게 뜨면 오른쪽 탭이 화면 밖으로 나간다: 작업 영역에 맞춘다
+        val screen = GraphicsEnvironment.getLocalGraphicsEnvironment().maximumWindowBounds
+        setSize(minOf(1500, screen.width), minOf(920, screen.height))
+        setLocationRelativeTo(null)
         refreshVariants()
         initial?.let { open(it) }
     }
