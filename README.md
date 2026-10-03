@@ -70,6 +70,8 @@ setup-windows.ps1    (폰에서 직접)     check-device.ps1     (폰에서 직�
 
 ### 3.1 PC 준비 (Windows 11)
 
+> **기기 없이 평가 GUI(viewer)로 알고리즘만 개발한다면** 이 절 대신 `tools\setup\setup-viewer.ps1` 하나만 실행한다([§3.7](#37-기기-없이-개발하기-평가-guiviewer-사용법)). Android Studio·SDK를 설치하지 않는다.
+
 #### 필요한 것
 
 | 항목 | 버전 | 용도 | 스크립트 동작 |
@@ -302,16 +304,30 @@ adb pull /storage/emulated/0/Android/data/hearspace.app/files/sessions/<세션ID
 
 Android 기기와 Android SDK가 없어도, **git에 올라온 정답 세션**(`testdata/sessions/`, [목록](testdata/README.md))으로 알고리즘을 고치고 그 결과를 **보면서 들을 수 있다**. 평가 GUI(`viewer/`, Kotlin + Swing)는 녹화 세션을 PC에서 앱과 같은 순서로 다시 돌리고(오프라인 재생), 앱과 같은 바이노럴 렌더러로 소리를 만들어 영상·위에서 본 그림·타임라인과 같은 시각에 맞춰 보여 준다.
 
-#### 준비물
+#### 준비 (한 번): `tools\setup\setup-viewer.ps1`
 
-| 필요 | 확인 방법 | 비고 |
-|---|---|---|
-| JDK 17 이상 | `java -version` | Android Studio를 깔았다면 그 안의 JDK(`jbr`)를 `JAVA_HOME`으로 써도 된다 |
-| git | `git --version` | 정답 세션(약 80 MB)이 저장소에 들어 있다 |
-| 헤드폰 | — | 공간 음향은 스피커로는 방향을 알 수 없다 |
-| Python | 선택 | 정밀 지표·비교표(`tools/analysis`)를 낼 때만 |
+저장소 루트의 PowerShell에서 실행한다. 여러 번 실행해도 안전하다(있는 것은 건너뜀).
 
-Android SDK는 **필요 없다**(`:app`만 SDK가 필요하고 `:core`·`:viewer`는 SDK 없는 PC에서 테스트로 확인했다).
+```powershell
+powershell -ExecutionPolicy Bypass -File tools\setup\setup-viewer.ps1               # 확인 + 설치 + 환경 변수 + 검증
+powershell -ExecutionPolicy Bypass -File tools\setup\setup-viewer.ps1 -CheckOnly    # 확인만 (아무것도 바꾸지 않음)
+powershell -ExecutionPolicy Bypass -File tools\setup\setup-viewer.ps1 -WithPython   # 정밀 지표·비교표용 Python(.venv)도
+powershell -ExecutionPolicy Bypass -File tools\setup\setup-viewer.ps1 -SkipTest     # 마지막 검증 생략
+```
+
+| 항목 | 스크립트 동작 |
+|---|---|
+| Git | 없으면 `winget install Git.Git` |
+| JDK 17 이상 | 사용자 `JAVA_HOME` → 시스템 `JAVA_HOME` → Android Studio 내장 JDK(JBR) → `Program Files`의 JDK 순으로 찾고, 없으면 `winget install EclipseAdoptium.Temurin.25.JDK`(이 프로젝트를 빌드해 온 JDK와 같은 25) |
+| `JAVA_HOME` | 쓸 수 있는 값이 이미 있으면 그대로 둔다. 없거나 17 미만이면 찾은 JDK로 **사용자 범위**에 설정(바꾸기 전 `%LOCALAPPDATA%\HEARSPACE\env-backup-<시각>.json`에 백업, 새 터미널부터 적용) |
+| 정답 세션·HRTF·기본 설정 | `testdata/sessions`, `app/src/main/assets/hrtf`, `config/default.json`이 있는지(모두 git에 있음) |
+| 소리 장치 | 정상 소리 장치가 있는지(헤드폰을 기본 출력으로 두는 것은 직접) |
+| Python (`-WithPython`) | uv, Python 3.11, `.venv`, `tools/analysis/requirements.txt` (§3.1과 같은 동작) |
+| 검증 | `./gradlew :viewer:test` — core·viewer를 빌드하고 정답 세션을 재생·렌더해 본다. **처음에는 Gradle과 라이브러리를 내려받아 수 분 걸린다**(인터넷 필요) |
+
+끝에 표가 나오고, 모두 OK면 `viewer 준비 완료`와 실행 명령이 나온다. 바꾼 환경 변수를 되돌리려면 백업 파일을 보거나 `setup-windows.ps1 -RemoveEnv`(JAVA_HOME·ANDROID_HOME 제거)를 쓴다.
+
+Android SDK는 **필요 없다**(`:app`만 SDK가 필요하고 `:core`·`:viewer`는 SDK 없는 PC에서 테스트로 확인했다). Windows가 아닌 PC는 JDK 17 이상과 git을 직접 설치하고 `JAVA_HOME`을 설정한 뒤 아래 실행으로 넘어간다. 헤드폰은 공간 음향의 방향을 듣는 데 필요하다.
 
 #### 실행
 
@@ -420,7 +436,7 @@ git clone <저장소>; cd capstone
 ├── app/src/main/assets/config/default.json 설정의 유일한 원본
 ├── viewer/src/main/kotlin/hearspace/viewer/ 평가 GUI (Kotlin + Swing, core만 의존, §3.7)
 ├── tools/analysis/                         Python 분석 스크립트
-├── tools/setup/                            PC 준비·기기 확인·세션 가져오기 PowerShell 스크립트 (§3)
+├── tools/setup/                            PC 준비(setup-windows: 앱 개발 전체, setup-viewer: 기기 없는 viewer 개발)·기기 확인·세션 가져오기 PowerShell 스크립트 (§3), 공통 함수 common.ps1
 ├── prototypes/<언어>/<모듈>/                (필요할 때 생성) 다른 언어 프로토타입, Kotlin core로 이식 전제 (§4.8)
 ├── docs/                                   명세·결정·형식·라이선스
 ├── references/                             과제 제출 문서(프로포절·조사 보고서·멘토링 보고서, PDF·docx). 구현 기준 아님, 프로젝트 완료 후 git 제외 예정
