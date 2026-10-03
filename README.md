@@ -27,7 +27,8 @@ Galaxy S10 5G(SM-G977N)에서 동작하는 Android 앱이다. ARCore의 자세�
 
 | 문서 | 내용 |
 |---|---|
-| [`docs/MVP_SPEC.md`](docs/MVP_SPEC.md) | **구현의 단일 기준.** 범위, 설계 원칙, 모듈 명세, 마일스톤 |
+| [`docs/IMPROVE_SPEC.md`](docs/IMPROVE_SPEC.md) | **M11부터 구현 기준.** 성능 개선: 여러 물체 지각·추적·음원화, 평가 GUI, 마일스톤 M11~ |
+| [`docs/MVP_SPEC.md`](docs/MVP_SPEC.md) | MVP 명세(M0~M10, v0.2.12 동결). IMPROVE_SPEC에 없는 규약·원칙·형식의 기준 |
 | [`docs/DECISIONS.md`](docs/DECISIONS.md) | 결정 기록 (한 줄씩) |
 | [`docs/FORMAT.md`](docs/FORMAT.md) | 녹화 세션 형식과 스파이크(F1~F9) 결과 |
 | [`docs/LICENSES.md`](docs/LICENSES.md) | 의존성·모델·데이터 라이선스 |
@@ -366,7 +367,7 @@ adb pull /storage/emulated/0/Android/data/walkassist.app/files/sessions/<세션I
 
 ### 4.7 에이전트 공통 규칙 (Claude Code · Codex)
 
-두 에이전트는 **같은 지침**을 서로 다른 파일로 읽는다. 구현 기준은 둘 다 `docs/MVP_SPEC.md`다.
+두 에이전트는 **같은 지침**을 서로 다른 파일로 읽는다. 구현 기준은 둘 다 `docs/IMPROVE_SPEC.md`(M11~)와 `docs/MVP_SPEC.md`(그 밖의 규약)다.
 
 | 지침 | Claude Code | Codex |
 |---|---|---|
@@ -552,6 +553,8 @@ git push origin m1
 | M8 | 오프라인 재생 테스트 + Python 분석 도구 | 합성 세션 지표 ≈ 0, 실제 세션 전 지표 산출 | ✅ 완료 (명세 v0.2.8: 오프라인 재생·align/metrics/report/plots, 통로 원점 머리. S02 정답은 추정치) |
 | M9 | 사용자 모드 UI, 알림음·진동, 오디오 포커스 | TalkBack 상태에서 시작·일시정지·종료 | ✅ 완료 (두 번 탭·길게 누르기, 준비 대기음·진동·오디오 포커스. TalkBack 두 번 탭은 가끔 터치 탐색으로 빠짐 → 음성 명령 §17 과제) |
 | M10 | S02·S03·S07 녹화(S01 재사용), 대표점·복셀 비교, 10분 지속 | 비교표와 파라미터 조정안 | ✅ 완료 (`docs/M10_REPORT.md`. 설정 변경 없음, 조정안 후보와 10분 지속 미달(발열)은 M11 이후 성능 개선으로 이월) |
+| M11 | 평가 기반: 오프라인 재생 core 이동, 평가 GUI(`:viewer`) v1 | GUI에서 보며 듣고 5 s 안에 재실행, 평가 저장 ([IMPROVE_SPEC §13](docs/IMPROVE_SPEC.md#13-마일스톤)) | ⏳ |
+| M12~M16 | 평가 세트 녹화, 분할·군집, 여러 물체 추적, 여러 음원 음원화, 통합 평가 | IMPROVE_SPEC §13 | ⏳ |
 
 ### 6.2 선택 (필수 완료 후, 측정 근거가 있을 때)
 
