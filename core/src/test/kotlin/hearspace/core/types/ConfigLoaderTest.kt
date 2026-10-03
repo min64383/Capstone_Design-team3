@@ -126,4 +126,24 @@ class ConfigLoaderTest {
         val e = assertThrows<ConfigException> { load("""{ "map": """) }
         assertTrue(e.path == "<override>")
     }
+
+    @Test
+    fun `sonify defaults preserve baseline and risk preset opts in`() {
+        assertEquals(SonifyMode.PULSE, load().sonify.mode)
+        assertEquals(false, load().policy.prioritizeStop)
+        val c = load("""{"sonify":{"mode":"RISK_CONTINUOUS"},"policy":{"maxSources":2,"prioritizeStop":true}}""")
+        assertEquals(SonifyMode.RISK_CONTINUOUS, c.sonify.mode)
+        assertEquals(2, c.policy.maxSources)
+        assertEquals(true, c.policy.prioritizeStop)
+    }
+
+    @Test
+    fun `invalid risk configuration is rejected`() {
+        assertConfigError("sonify.mode", """{"sonify":{"mode":"UNKNOWN"}}""")
+        assertConfigError("sonify", """{"sonify":{"minHistoryS":0.8}}""")
+        assertConfigError("sonify", """{"sonify":{"approachOffMps":0.2}}""")
+        assertConfigError("sonify", """{"sonify":{"maxHz":20000}}""")
+        assertConfigError("sonify.duckDb", """{"sonify":{"duckDb":3}}""")
+        assertConfigError("sonify.prototypeGain", """{"sonify":{"prototypeGain":2}}""")
+    }
 }

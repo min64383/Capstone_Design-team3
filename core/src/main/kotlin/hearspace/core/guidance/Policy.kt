@@ -21,7 +21,8 @@ class Policy(private val cfg: PolicyConfig, private val behindM: Float) {
 
     /**
      * 스냅샷의 물체들로 음원 명령을 만든다. 정보 나이가 허용치를 넘으면 빈 목록(§2.2-4).
-     * 가까운 순으로 `maxSources`개. SILENT 구간은 명령을 내되 소리는 내지 않는다(렌더러 몫).
+     * 가까운 순으로 `maxSources`개. prioritizeStop이면 통로 안 STOP을 우선한다.
+     * SILENT 구간은 명령을 내되 소리는 내지 않는다(렌더러 몫).
      */
     fun commands(snapshot: ObstacleSnapshot, head: HeadPose, infoAgeMs: Float): List<AudioCmd> {
         if (infoAgeMs > cfg.maxInfoAgeMs) return emptyList()
@@ -47,11 +48,17 @@ class Policy(private val cfg: PolicyConfig, private val behindM: Float) {
                     band = BANDS[rank],
                     sound = if (o.heightClass == HeightClass.HEAD) SoundKind.HEAD_TONE else SoundKind.FLOOR_PULSE,
                     infoAgeMs = infoAgeMs,
+                    inCorridor = o.inCorridor,
                 ),
             )
         }
         lastRank.keys.retainAll(seen)
-        return scored.sortedWith(compareBy({ it.first }, { it.second })).take(cfg.maxSources).map { it.third }
+        val sorted = if (cfg.prioritizeStop) {
+            scored.sortedWith(compareBy<Triple<Float, Int, AudioCmd>>(
+                { if (it.third.inCorridor && it.third.band == Band.STOP) 0 else 1 },
+                { it.first }, { it.second }))
+        } else scored.sortedWith(compareBy({ it.first }, { it.second }))
+        return sorted.take(cfg.maxSources).map { it.third }
     }
 
     /** 구간 기억을 모두 지운다(상태가 UNKNOWN·PAUSED로 바뀔 때). */
@@ -77,3 +84,4 @@ class Policy(private val cfg: PolicyConfig, private val behindM: Float) {
         val BANDS = listOf(Band.STOP, Band.WARN, Band.SILENT)
     }
 }
+

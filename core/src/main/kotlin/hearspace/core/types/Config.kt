@@ -22,6 +22,7 @@ data class Config(
     val haptics: HapticsConfig,
     val record: RecordConfig,
     val align: AlignConfig,
+    val sonify: SonifyConfig,
 )
 
 /** 머리 좌표계 설정. */
@@ -126,6 +127,7 @@ data class PolicyConfig(
     val hysteresisM: Float,
     val maxSources: Int,
     val maxInfoAgeMs: Float,
+    val prioritizeStop: Boolean = false,
 )
 
 /** 안내 상태 기계 설정. */
@@ -211,3 +213,34 @@ data class AlignConfig(val fitLengthM: Float)
 
 /** 설정 파일의 키 누락·미지의 키·타입 불일치·값 범위 오류. [path]는 `map.voxelSizeM` 같은 점 표기. */
 class ConfigException(val path: String, message: String) : IllegalArgumentException("config '$path': $message")
+
+
+/** 기존 펄스와 접근 연속음 중 선택한다. */
+enum class SonifyMode { PULSE, RISK_CONTINUOUS }
+
+/** 접근 연속음 설정. 수치 원본은 default.json이다. */
+data class SonifyConfig(
+    val mode: SonifyMode,
+    val historyS: Float,
+    val minHistoryS: Float,
+    val approachOnMps: Float,
+    val approachOffMps: Float,
+    val onceS: Float,
+    val nearM: Float,
+    val farM: Float,
+    val minHz: Float,
+    val maxHz: Float,
+    val minGain: Float,
+    val maxGain: Float,
+    val ttcHorizonS: Float,
+    val ttcWeight: Float,
+    val minSecondHarmonic: Float,
+    val maxSecondHarmonic: Float,
+    val thirdHarmonic: Float,
+    val headPitchRatio: Float,
+    val attackS: Float,
+    val releaseS: Float,
+    val pitchSmoothS: Float,
+    val prototypeGain: Float,
+    val duckDb: Float,
+)

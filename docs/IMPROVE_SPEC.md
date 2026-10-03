@@ -299,3 +299,40 @@ M10 공간(폭 약 1.5 m, 길이 4~5 m)에서 찍을 수 있게 구성한다. �
 2. `:viewer`에 알고리즘을 두지 않는다. 표시용 변환(좌표 → 화면)만 둔다.
 3. 새 방법은 먼저 기준선과 같은 세션·지표로 비교하고, 기본값 변경은 비교표와 함께 제안한다(사용자 결정).
 4. 정답 v2를 쓰는 도구는 v1 파일도 읽는다.
+
+
+
+## 15. 접근 연속음 후보 구현 (2026-10-03)
+
+- `sonify.mode`: `PULSE`는 기존 기준선, `RISK_CONTINUOUS`는 사용자 청취로 선택한 후보.
+- 앱은 `AppConfig`에서 `risk-continuous.override.json`을 병합해 후보를 활성화한다. 기본 JSON만 읽는 기존 PC 테스트는 기준선을 유지한다.
+- RiskSoundGenerator는 물체 ID별 최근 `sonify.historyS` 상대 거리 관측으로 closingMps/TTC를 계산한다. 미래 관측은 쓰지 않는다.
+- 신규 물체/거리 구간 변화 시 `onceS` 동안 안내하고, 접근 중에는 연속음을 유지한다. 통로 안 STOP은 정적이어도 지속하고 다른 음원은 `duckDb` 감쇠한다.
+- 거리 음높이는 nearM/farM 사이의 지수 매핑. TTC와 근접도는 진폭과 배음 비율에 반영한다. HEAD_TONE은 headPitchRatio로 음높이를 구분한다.
+- 만료된 명령 및 UNKNOWN/PAUSED는 음원/합성곱 이력을 즉시 버린다. 신선한 동일 ID 재등장은 신규 안내로 처리한다.
+- policy.prioritizeStop이 켜지면 통로 안 STOP 후보를 먼저 선택한다. 기존 공간 관심영역/군집 확장은 이 변경에 포함하지 않는다.
+- HRTF, 비공간 알림음, 주 음량, 리미터, 최신 값 교체 방식은 기존 구현을 재사용한다.
+- 음원별 모노/이력 배열은 생성 시 할당한다. 실기기 처리 시간·발열·끊김·사용자 보행 성능은 이후 측정한다.
+- 자동 검사는 RiskSoundGeneratorTest, RiskPolicyTest, ConfigLoaderTest, BinauralTest.riskContinuousWavs로 한다.
+- 무음은 장애물 없음/안전으로 해석하지 않는다. 이 변경만으로 M15 전체 완료를 선언하지 않는다.
+
+### 15.1 설정 키 (sonify)
+
+| 키 | 기본값 | 단위/의미 |
+|---|---:|---|
+| mode | PULSE | 기존/접근 연속음 선택 |
+| historyS / minHistoryS | 0.4 / 0.2 | 과거 창/최소 관측 s |
+| approachOnMps / approachOffMps | 0.1 / 0.05 | 접근 시작/해제 m/s |
+| onceS | 0.7 | 신규·구간 변경 안내 s |
+| nearM / farM | 0.5 / 3.0 | 거리 매핑 끝점 m |
+| minHz / maxHz | 250 / 1000 | 기본음 Hz |
+| minGain / maxGain | 0.25 / 0.75 | 위험도별 진폭 |
+| ttcHorizonS / ttcWeight | 4.0 / 0.6 | TTC 위험도 창 s/비중 |
+| minSecondHarmonic / maxSecondHarmonic | 0.1 / 0.45 | 위험도별 2배음 비율 |
+| thirdHarmonic | 0.08 | 3배음 비율 |
+| headPitchRatio | 1.4 | HEAD 음높이 비율 |
+| attackS / releaseS / pitchSmoothS | 0.04 / 0.18 / 0.08 | 평활 시간상수 s |
+| prototypeGain | 0.8 | 연속음 공통 진폭 |
+| duckDb | -12 | STOP 외 음원 감쇠 dB |
+
+`policy.prioritizeStop`은 기본 false, 후보 앱 설정에서 true. `policy.maxSources`는 후보 설정에서 2. 관측 범위 확대는 별도 변경이다.

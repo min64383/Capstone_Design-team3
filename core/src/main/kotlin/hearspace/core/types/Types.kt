@@ -122,6 +122,8 @@ data class AudioCmd(
     val band: Band,
     val sound: SoundKind,
     val infoAgeMs: Float,
+    /** 진행 통로 안의 물체인지. 기존 생성 코드와 호환되도록 기본값 true. */
+    val inCorridor: Boolean = true,
 )
 
 /** 오디오 블록마다 계산하는 빠른 경로의 출력. */
@@ -133,3 +135,4 @@ data class GuidanceOutput(
     /** 상태 전이 시에만 값이 있다(1회 알림). */
     val alert: AlertKind?,
 )
+

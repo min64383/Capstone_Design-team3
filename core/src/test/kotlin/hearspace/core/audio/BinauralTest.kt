@@ -238,6 +238,66 @@ class BinauralTest {
         assertTrue(e(all.size / 2 - half / 2, all.size / 2, 1) > e(all.size / 2 - half / 2, all.size / 2, 0))
     }
 
+    /** 실사용 생성기로 같은 네 장면을 기존/새 방식 모두 WAV로 만든다. */
+    @Test
+    fun riskContinuousWavs() {
+        val dir = File(System.getProperty("hearspace.testOutput"), "risk-continuous").apply { mkdirs() }
+        val seconds = 12f
+        val blocks = kotlin.math.ceil(seconds * sr / n).toInt()
+        val blockNs = n * 1_000_000_000L / sr
+        val names = listOf("static_once", "slow_approach", "fast_approach", "two_objects_different_risk")
+        fun scene(name: String, tS: Float): List<AudioCmd> {
+            if (tS < 0.5f) return emptyList()
+            val movingS = maxOf(0f, tS - 1.5f)
+            fun point(id: Int, azDeg: Float, distanceM: Float, corridor: Boolean): AudioCmd {
+                val band = when {
+                    distanceM < config.policy.stopM -> Band.STOP
+                    distanceM < config.policy.warnMaxM -> Band.WARN
+                    else -> Band.SILENT
+                }
+                return AudioCmd(id, azDeg, distanceM, band, SoundKind.FLOOR_PULSE, 0f, corridor)
+            }
+            return when (name) {
+                "static_once" -> listOf(point(1, -30f, 1.8f, false))
+                "slow_approach" -> listOf(point(1, 0f, maxOf(0.7f, 2.5f - 0.2f * movingS), true))
+                "fast_approach" -> listOf(point(1, 0f, maxOf(0.7f, 2.5f - 0.8f * movingS), true))
+                else -> listOf(point(1, -15f, maxOf(0.8f, 2.4f - 0.22f * movingS), true),
+                    point(2, 45f, 2.2f, false))
+            }
+        }
+        fun render(name: String, mode: hearspace.core.types.SonifyMode): FloatArray {
+            val cfg = config.copy(sonify = config.sonify.copy(mode = mode))
+            val r = BinauralRenderer(cfg, hrtf)
+            val all = FloatArray(2 * n * blocks)
+            val o = FloatArray(2 * n)
+            for (b in 0 until blocks) {
+                r.render(GuidanceOutput(b * blockNs, GuidanceState.NORMAL,
+                    scene(name, b * n.toFloat() / sr), 0f, null), o)
+                o.copyInto(all, 2 * b * n)
+            }
+            val fadeFrames = sr / 10
+            val frames = all.size / 2
+            for (i in frames - fadeFrames until frames) {
+                val gain = (frames - 1 - i).toFloat() / fadeFrames
+                all[2 * i] *= gain; all[2 * i + 1] *= gain
+            }
+            assertTrue(all.all { it.isFinite() && abs(it) <= cfg.audio.limiterCeiling + 1e-6f })
+            return all
+        }
+        for (name in names) {
+            val baseline = render(name, hearspace.core.types.SonifyMode.PULSE)
+            val risk = render(name, hearspace.core.types.SonifyMode.RISK_CONTINUOUS)
+            // 파일별 정규화 없음. 거리/위험도에 따른 음량 차이를 보존한다.
+            writeWav16(File(dir, "${name}_baseline.wav"), baseline, sr)
+            writeWav16(File(dir, "$name.wav"), risk, sr)
+            writeWav16(File(dir, "${name}_AB.wav"), baseline + FloatArray(2 * sr) + risk, sr)
+            if (name == "static_once") {
+                assertTrue((4 * sr * 2 until risk.size).all { risk[it] == 0f })
+                assertTrue((4 * sr * 2 until 5 * sr * 2).any { abs(baseline[it]) > 1e-4f })
+            }
+        }
+    }
+
     private fun normalized(x: FloatArray): FloatArray {
         val peak = x.maxOf { abs(it) }
         val g = if (peak > 0f) 0.89f / peak else 1f // −1 dBFS
@@ -261,3 +321,4 @@ class BinauralTest {
         }
     }
 }
+
