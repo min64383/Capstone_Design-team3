@@ -1,11 +1,12 @@
 # HEARSPACE — 시각장애인 보행 보조 앱 MVP
 
-구현 기준은 M11부터 `docs/IMPROVE_SPEC.md`(v0.1)이고, 거기 없는 것은 `docs/MVP_SPEC.md`(v0.2.12, M0~M10 기록으로 동결)를 따른다. 작업 전 해당 마일스톤(IMPROVE_SPEC §13)과 관련 절을 읽는다.
+구현 기준은 M11부터 `docs/IMPROVE_SPEC.md`(v0.2.1)이고, 거기 없는 것은 `docs/MVP_SPEC.md`(v0.2.12, M0~M10 기록으로 동결)를 따른다. 작업 전 해당 마일스톤(IMPROVE_SPEC §13)과 관련 절을 읽는다.
 명세와 코드가 충돌하면 명세를 따르고, 명세가 틀렸다고 판단되면 멈추고 사용자에게 제안한다.
 
 ## 구조
 - `core/`: 순수 Kotlin(JVM). 알고리즘 전부. PC에서 테스트
 - `app/`: Android 앱. ARCore·오디오·UI
+- `viewer/`: 평가 GUI(Kotlin + Swing, JDK 내장만). core만 의존, 알고리즘 두지 않음. 기기·SDK 없이 testdata 정답 세션으로 개발
 - `tools/analysis/`: Python. 로그 분석 전용
 - `prototypes/<언어>/<모듈>/`: core 알고리즘 프로토타입(기본 Python). 최종 구현은 Kotlin core로 이식하고 README §4.8 규칙을 따른다
 - `references/`: 과제 제출 문서(PDF·docx). 구현 참고용이며 명세와 다르면 `docs/MVP_SPEC.md`를 따른다
@@ -13,6 +14,7 @@
 ## 명령 (PowerShell)
 - core 테스트: `./gradlew :core:test`
 - 앱 설치: `./gradlew :app:installDebug`
+- 평가 GUI: `./gradlew :viewer:run "-Psession=testdata/sessions/<세션ID>"`
 - 로그: `adb logcat -s HEARSPACE`
 
 ## 반드시 지킬 원칙

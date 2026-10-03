@@ -1,0 +1,78 @@
+{
+  "formatVersion": "v1",
+  "sessionId": "20261003_135701_S01",
+  "sceneId": "S01",
+  "createdAt": "2026-10-03T13:57:01+09:00",
+  "device": {
+    "manufacturer": "samsung",
+    "model": "SM-G977N",
+    "socModel": "Exynos 9820",
+    "androidRelease": "12",
+    "sdkInt": 31
+  },
+  "arcore": {
+    "sdkVersion": "1.56.0",
+    "apkVersion": "1.56.262080393"
+  },
+  "depth": {
+    "automaticSupported": true,
+    "rawDepthOnlySupported": true,
+    "modeUsed": "AUTOMATIC",
+    "width": 160,
+    "height": 90,
+    "intrinsics": {
+      "fx": 125.37795,
+      "fy": 125.494064,
+      "cx": 79.318115,
+      "cy": 43.081738,
+      "width": 160,
+      "height": 90
+    }
+  },
+  "camera": {
+    "imageIntrinsics": {
+      "fx": 501.51178,
+      "fy": 501.97623,
+      "cx": 316.93912,
+      "cy": 231.9936,
+      "width": 640,
+      "height": 480
+    },
+    "textureIntrinsics": {
+      "fx": 1504.5354,
+      "fy": 1505.9287,
+      "cx": 951.8173,
+      "cy": 516.98083,
+      "width": 1920,
+      "height": 1080
+    },
+    "displayRotationDeg": 0,
+    "fpsMin": 30,
+    "fpsMax": 30
+  },
+  "gripOffsetM": [0, 0.5, -0.39],
+  "elapsedMinusMonotonicNs": 517839101201287,
+  "depthEveryN": 1,
+  "rgbEveryN": 3,
+  "conventions": {
+    "pose": "Camera.getPose(): physical camera pose, ARCore GL camera (+X right, +Y up, -Z forward), world +Y up; stored raw",
+    "tNs": "Frame.getTimestamp() ns; time base not defined by ARCore",
+    "sysElapsedNs": "SystemClock.elapsedRealtimeNanos() when the GL thread received the frame",
+    "depth": "Frame.acquireDepthImage16Bits(): uint16 mm, 0 = invalid, saved as 16-bit grayscale PNG; only new depth timestamps saved",
+    "rawDepth": "Frame.acquireRawDepthImage16Bits(): uint16 mm, 0 = invalid, 16-bit PNG",
+    "depthConf": "Frame.acquireRawDepthConfidenceImage(): uint8 0-255, 8-bit PNG, same frame as rawDepth",
+    "rgb": "Frame.acquireCameraImage() YUV_420_888 -> JPEG, sensor orientation (not rotated)",
+    "intrinsics": "Camera.getImageIntrinsics()/getTextureIntrinsics(): unrotated sensor orientation",
+    "depth.intrinsics": "textureIntrinsics scaled by depth size / texture size (F4)",
+    "device.tNs": "SystemClock.elapsedRealtimeNanos()"
+  },
+  "stats": {
+    "nFrames": 282,
+    "nDepthSaved": 280,
+    "nRawDepthSaved": 216,
+    "nRgbSaved": 93,
+    "nFileJobsSkipped": 1,
+    "nWriteErrors": 0,
+    "durationS": 9.454143
+  }
+}

@@ -6,7 +6,7 @@
 |---|---|---|
 | `spike_check.py` | M1 | 녹화 세션 1개로 스파이크 F1~F7 수치 출력 (docs/FORMAT.md) |
 | `align.py` | M8 | 보행선 정렬(§10.3) → `align.json` |
-| `metrics.py` | M8, M10 | 지표(§10.2) → `metrics.json`. `--run <실행 로그>`면 세션 없이(사용자 모드 T01: 1분마다 UNKNOWN·주기·발열) |
+| `metrics.py` | M8, M10, M11 | 지표(§10.2) → `metrics.json`. `--run <실행 로그>`면 세션 없이(사용자 모드 T01: 1분마다 UNKNOWN·주기·발열). 정답 v2(`distanceFrom`, `kind`), 단계별 처리 시간(`stage_timing.csv` → `stageMs`) |
 | `report.py` | M8, M10 | 여러 `metrics.json` → Markdown 비교표. `--group`이면 장면 × 변형마다 회차 묶음 |
 | `sweep.py` | M10 | 변형 목록(`sweeps/*.json`) × 세션마다 오프라인 재생 → `metrics.json` |
 | `plots.py` | M8 | 시계열·지연·위에서 본 그림, `--at 초`로 그 시각 RGB와 나란히 |

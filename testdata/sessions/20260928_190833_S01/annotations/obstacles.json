@@ -1,0 +1,9 @@
+{
+  "version": 1,
+  "estimated": true,
+  "scene": "S01",
+  "note": "빈 복도(폭 약 1.1 m) 4.1 m 직진, 끝에 문(시작점에서 약 4.89 m, docs/FORMAT.md M3 정답 녹화). 문 위치·폭은 기록값 기반 추정. 문 앞 경고는 오경보가 아니다",
+  "obstacles": [
+    { "name": "door", "type": "FLOOR", "min": [-0.55, 0.0, 4.89], "max": [0.55, 2.2, 4.95] }
+  ]
+}

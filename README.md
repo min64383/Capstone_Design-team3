@@ -70,6 +70,8 @@ setup-windows.ps1    (폰에서 직접)     check-device.ps1     (폰에서 직�
 
 ### 3.1 PC 준비 (Windows 11)
 
+> **기기 없이 평가 GUI(viewer)로 알고리즘만 개발한다면** 이 절 대신 `tools\setup\setup-viewer.ps1` 하나만 실행한다([§3.7](#37-기기-없이-개발하기-평가-guiviewer-사용법)). Android Studio·SDK를 설치하지 않는다.
+
 #### 필요한 것
 
 | 항목 | 버전 | 용도 | 스크립트 동작 |
@@ -298,13 +300,127 @@ adb pull /storage/emulated/0/Android/data/hearspace.app/files/sessions/<세션ID
 
 정렬·지표·보고서(`align.py`, `metrics.py`, `report.py`, `plots.py`)는 M8에서 추가된다([`tools/analysis/README.md`](tools/analysis/README.md)).
 
+### 3.7 기기 없이 개발하기: 평가 GUI(viewer) 사용법
+
+Android 기기와 Android SDK가 없어도, **git에 올라온 정답 세션**(`testdata/sessions/`, [목록](testdata/README.md))으로 알고리즘을 고치고 그 결과를 **보면서 들을 수 있다**. 평가 GUI(`viewer/`, Kotlin + Swing)는 녹화 세션을 PC에서 앱과 같은 순서로 다시 돌리고(오프라인 재생), 앱과 같은 바이노럴 렌더러로 소리를 만들어 영상·위에서 본 그림·타임라인과 같은 시각에 맞춰 보여 준다.
+
+#### 준비 (한 번): `tools\setup\setup-viewer.ps1`
+
+저장소 루트의 PowerShell에서 실행한다. 여러 번 실행해도 안전하다(있는 것은 건너뜀).
+
+```powershell
+powershell -ExecutionPolicy Bypass -File tools\setup\setup-viewer.ps1               # 확인 + 설치 + 환경 변수 + 검증
+powershell -ExecutionPolicy Bypass -File tools\setup\setup-viewer.ps1 -CheckOnly    # 확인만 (아무것도 바꾸지 않음)
+powershell -ExecutionPolicy Bypass -File tools\setup\setup-viewer.ps1 -WithPython   # 정밀 지표·비교표용 Python(.venv)도
+powershell -ExecutionPolicy Bypass -File tools\setup\setup-viewer.ps1 -SkipTest     # 마지막 검증 생략
+```
+
+| 항목 | 스크립트 동작 |
+|---|---|
+| Git | 없으면 `winget install Git.Git` |
+| JDK 17 이상 | 사용자 `JAVA_HOME` → 시스템 `JAVA_HOME` → Android Studio 내장 JDK(JBR) → `Program Files`의 JDK 순으로 찾고, 없으면 `winget install EclipseAdoptium.Temurin.25.JDK`(이 프로젝트를 빌드해 온 JDK와 같은 25) |
+| `JAVA_HOME` | 쓸 수 있는 값이 이미 있으면 그대로 둔다. 없거나 17 미만이면 찾은 JDK로 **사용자 범위**에 설정(바꾸기 전 `%LOCALAPPDATA%\HEARSPACE\env-backup-<시각>.json`에 백업, 새 터미널부터 적용) |
+| 정답 세션·HRTF·기본 설정 | `testdata/sessions`, `app/src/main/assets/hrtf`, `config/default.json`이 있는지(모두 git에 있음) |
+| 소리 장치 | 정상 소리 장치가 있는지(헤드폰을 기본 출력으로 두는 것은 직접) |
+| Python (`-WithPython`) | uv, Python 3.11, `.venv`, `tools/analysis/requirements.txt` (§3.1과 같은 동작) |
+| 검증 | `./gradlew :viewer:test` — core·viewer를 빌드하고 정답 세션을 재생·렌더해 본다. **처음에는 Gradle과 라이브러리를 내려받아 수 분 걸린다**(인터넷 필요) |
+
+끝에 표가 나오고, 모두 OK면 `viewer 준비 완료`와 실행 명령이 나온다. 바꾼 환경 변수를 되돌리려면 백업 파일을 보거나 `setup-windows.ps1 -RemoveEnv`(JAVA_HOME·ANDROID_HOME 제거)를 쓴다.
+
+Android SDK는 **필요 없다**(`:app`만 SDK가 필요하고 `:core`·`:viewer`는 SDK 없는 PC에서 테스트로 확인했다). Windows가 아닌 PC는 JDK 17 이상과 git을 직접 설치하고 `JAVA_HOME`을 설정한 뒤 아래 실행으로 넘어간다. 헤드폰은 공간 음향의 방향을 듣는 데 필요하다.
+
+#### 실행
+
+```powershell
+git clone <저장소>; cd capstone
+./gradlew :viewer:run "-Psession=testdata/sessions/20261003_130815_S01"   # 세션을 바로 열기
+./gradlew :viewer:run                                                     # 창의 [세션 열기]에서 고르기(기본 폴더 testdata/sessions)
+```
+
+창이 뜨면 바로 재실행이 시작되고, 끝나면 아래 **상태 줄**에 `재실행 3.02 s · 세션 · 장면 S02 · … · 정답 1개 · 설정 <해시>`가 나온다. 처음 한 번은 JVM이 데워지느라 조금 더 걸린다. 처음 보기 좋은 세션:
+
+| 세션 | 장면 | 볼 것 |
+|---|---|---|
+| `20261003_130815_S01` | S02 캐리어 정면 | 기본: 정면 소리가 다가오며 빨라지고 1 m 안에서 STOP |
+| `20261003_135718_S01` | S03 캐리어가 통로 가장자리에 걸침 | 대표점 방식에 따른 방향 차이 |
+| `20261003_131039_S01` | S07 눕힌 낮은 캐리어 | 시야 아래로 사라진 뒤에도 STOP이 나는지 |
+| `20260928_190833_S01` | S01 빈 복도 | 오경보(정답은 끝의 문 하나) |
+
+폴더 이름은 모두 `_S01`이지만 실제 장면은 정답 파일의 `"scene"`이고 GUI 상태 줄에도 그 값이 나온다.
+
+#### 화면 읽기
+
+| 영역 | 보이는 것 | 색 |
+|---|---|---|
+| **영상**(왼쪽 위) | 그 시각까지 들어온 마지막 RGB 프레임(약 10 Hz 저장), 깊이 겹침, 추적 물체 상자, 정답 상자, 지금 소리 내는 물체의 대표점 | 상자: 바닥 물체 주황 · 몸 높이 하늘 · 머리 높이 보라 / **정답: 초록 점선** / 대표점: 노란 점 / 깊이: 빨강(가까움) → 파랑(4 m 이상) |
+| **위에서 본 그림**(오른쪽 위) | 보행선 좌표(위 = 앞, 오른쪽 = +x, 격자 0.5 m): 걸은 궤적, 점유 복셀, 현재 통로, 추적 물체, 정답 상자, 머리 위치, 음원 방향 선 | 복셀: 회색(밝을수록 높음) / 통로: 흰 반투명 / 음원 선: WARN 주황 · STOP 빨강 굵게 / 정답: 초록 점선 |
+| **타임라인**(아래) | 상태 띠, 첫 음원의 거리·방위(점)와 정답 통로 안 가장 가까운 정답의 거리·방위(초록 선), 평가 메모 위치(노란 삼각형), 현재 위치(흰 선) | 상태: 안내 중 초록 · 정보 지연(DEGRADED) 올리브 · 확인 불가(UNKNOWN) 빨강 · 일시정지 회색 |
+
+- 점(추정)이 초록 선(정답)을 따라가면 맞게 안내한 것이다. 점이 없는 구간은 그 시각에 낸 음원이 없다는 뜻이지 장애물이 없다는 뜻이 아니다(상태 띠와 함께 본다).
+- 화면은 **그 시각까지 나온 값만** 보여 준다(앱처럼 미래 프레임을 쓰지 않음).
+- 정답 상자는 정답 파일(`annotations/obstacles.json`)이 있는 세션에만 나온다.
+
+#### 조작
+
+| 동작 | 방법 |
+|---|---|
+| 재생 / 멈춤 | `스페이스` 또는 [▶ 재생] (1배속만. 느린 재생은 소리 단서가 바뀌어 지원하지 않음) |
+| 시각 이동 | 타임라인을 클릭하거나 끌기, [⏮ 처음] |
+| 깊이 겹침 끄기 | [깊이 겹침] 체크 해제 |
+| 다른 세션 | [세션 열기] |
+
+#### 설정 바꿔 다시 돌리기 (설정 탭)
+
+기본 설정(`app/src/main/assets/config/default.json`)에 **덮어쓸 부분만** JSON으로 적고 [재실행]을 누른다. 보던 시각은 유지되므로 같은 장면을 설정만 바꿔 바로 비교할 수 있다.
+
+```json
+{ "map": { "voxelSizeM": 0.075 } }
+{ "repPoint": { "strategy": "NEAREST" } }
+{ "cluster": { "epsM": 0.10 } }
+{ "floor": { "tolerancePerM": 0.04 } }
+{ "policy": { "maxSources": 3 } }
+```
+
+- 여러 항목을 함께 바꾸려면 한 객체에 같이 쓴다: `{ "map": { "voxelSizeM": 0.075 }, "policy": { "maxSources": 3 } }`
+- [기본값({})]은 덮어쓰기를 지운다. JSON이 틀리면 상태 줄에 오류가 나오고 재실행하지 않는다.
+- [변형 이름] + [저장]으로 자주 쓰는 덮어쓰기를 `data/viewer/variants/<이름>.json`에 남기고 [불러오기]로 다시 쓴다.
+- 설정 키와 기본값은 `default.json`과 [MVP_SPEC §12](docs/MVP_SPEC.md#12-설정-assetsconfigdefaultjson-실험-패널에서-덮어쓰기) 표를 본다.
+
+#### 평가 남기기 (평가 탭)
+
+1. 듣고 나서 평점 5개(1~5)를 고른다: 방향 정확성, 거리감, 물체 구분, 위험 인지, 소음·피로(5 = 편함).
+2. 이상한 순간에 멈추고 메모를 쓴 뒤 [메모 추가(현재 시각)] — 타임라인에 노란 삼각형으로 표시된다.
+3. [평가 저장] → `data/feedback/<세션ID>/<시각>.json`. **실제로 들은 결과의 설정**(편집 중인 글이 아님)과 그 해시가 함께 저장돼, 나중에 어떤 설정을 평가했는지 알 수 있다.
+
+`data/`는 git에 올라가지 않는다. 평가를 팀과 나누려면 파일을 따로 공유한다.
+
+#### 알고리즘을 고칠 때의 흐름
+
+1. `core/`의 Kotlin 코드를 고친다(알고리즘은 core에만 둔다. viewer에는 화면 코드만).
+2. `./gradlew :core:test` — 합성 장면 테스트가 합격 기준이다.
+3. GUI를 **다시 실행**해 정답 세션에서 보고 듣는다(코드 변경은 GUI 안 [재실행]으로는 반영되지 않는다. 설정 값만 바꿀 때 [재실행]).
+4. 숫자로 비교하려면 `tools/analysis`의 `sweep.py`·`report.py --group`([사용법](tools/analysis/README.md)).
+
+#### 문제가 생기면
+
+| 증상 | 확인 |
+|---|---|
+| 소리가 안 난다 | Windows 기본 출력 장치가 헤드폰인지, 다른 앱이 오디오를 독점하고 있지 않은지 |
+| 오른쪽 탭이 화면 밖에 있다 | 창을 최대화한다(창은 화면 작업 영역에 맞춰 열린다) |
+| 위에서 본 그림에 "바닥을 잡지 못해 보행선 좌표가 없음" | 그 세션에서 바닥이 한 번도 잡히지 않았다(벽만 찍힌 세션 등) |
+| 재실행이 오래 걸린다 | 15초 세션 약 5초가 정상(병목은 core 군집 단계). 처음 한 번은 더 걸린다 |
+| core를 고쳤는데 그대로다 | GUI를 닫고 `./gradlew :viewer:run`을 다시 실행 |
+| `SDK location not found` | `:app`을 빌드하려 할 때만 난다. `:core`·`:viewer` 작업만 실행한다 |
+
+**알려진 한계(M11 확인):** 점유 복셀이 실제 세계를 정확히 나타내지 못한다(예: S02에서 캐리어와 그 뒤 문·벽이 한 물체로 합쳐짐, 복셀이 흩어짐). 맵·군집 정확도는 M13부터 다룬다([IMPROVE_SPEC §6](docs/IMPROVE_SPEC.md#6-분할군집-비교-대상)).
+
 ---
 
 ## 4. 개발 안내
 
 ### 4.1 작업 전에 읽을 것
 
-1. [`docs/MVP_SPEC.md`](docs/MVP_SPEC.md)의 해당 마일스톤(§13)과 관련 절
+1. [`docs/IMPROVE_SPEC.md`](docs/IMPROVE_SPEC.md)(M11~)의 해당 마일스톤(§13)과 관련 절, 거기 없는 규약은 [`docs/MVP_SPEC.md`](docs/MVP_SPEC.md)
 2. [`docs/DECISIONS.md`](docs/DECISIONS.md) — 이미 내린 결정을 다시 뒤집지 않도록
 3. 에이전트 지침과 모듈별 규칙: Claude는 [`CLAUDE.md`](CLAUDE.md)·[`.claude/rules/`](.claude/rules/), Codex는 [`AGENTS.md`](AGENTS.md) (내용 동일, §4.7)
 
@@ -318,8 +434,9 @@ adb pull /storage/emulated/0/Android/data/hearspace.app/files/sessions/<세션ID
 ├── core/src/test/kotlin/hearspace/core/   합성 장면 테스트 (synth/)
 ├── app/src/main/java/hearspace/app/       ar, runtime, ui/dev, ui/user, render
 ├── app/src/main/assets/config/default.json 설정의 유일한 원본
+├── viewer/src/main/kotlin/hearspace/viewer/ 평가 GUI (Kotlin + Swing, core만 의존, §3.7)
 ├── tools/analysis/                         Python 분석 스크립트
-├── tools/setup/                            PC 준비·기기 확인·세션 가져오기 PowerShell 스크립트 (§3)
+├── tools/setup/                            PC 준비(setup-windows: 앱 개발 전체, setup-viewer: 기기 없는 viewer 개발)·기기 확인·세션 가져오기 PowerShell 스크립트 (§3), 공통 함수 common.ps1
 ├── prototypes/<언어>/<모듈>/                (필요할 때 생성) 다른 언어 프로토타입, Kotlin core로 이식 전제 (§4.8)
 ├── docs/                                   명세·결정·형식·라이선스
 ├── references/                             과제 제출 문서(프로포절·조사 보고서·멘토링 보고서, PDF·docx). 구현 기준 아님, 프로젝트 완료 후 git 제외 예정
@@ -553,7 +670,7 @@ git push origin m1
 | M8 | 오프라인 재생 테스트 + Python 분석 도구 | 합성 세션 지표 ≈ 0, 실제 세션 전 지표 산출 | ✅ 완료 (명세 v0.2.8: 오프라인 재생·align/metrics/report/plots, 통로 원점 머리. S02 정답은 추정치) |
 | M9 | 사용자 모드 UI, 알림음·진동, 오디오 포커스 | TalkBack 상태에서 시작·일시정지·종료 | ✅ 완료 (두 번 탭·길게 누르기, 준비 대기음·진동·오디오 포커스. TalkBack 두 번 탭은 가끔 터치 탐색으로 빠짐 → 음성 명령 §17 과제) |
 | M10 | S02·S03·S07 녹화(S01 재사용), 대표점·복셀 비교, 10분 지속 | 비교표와 파라미터 조정안 | ✅ 완료 (`docs/M10_REPORT.md`. 설정 변경 없음, 조정안 후보와 10분 지속 미달(발열)은 M11 이후 성능 개선으로 이월) |
-| M11 | 평가 기반: 오프라인 재생 core 이동, 평가 GUI(`:viewer`) v1 | GUI에서 보며 듣고 5 s 안에 재실행, 평가 저장 ([IMPROVE_SPEC §13](docs/IMPROVE_SPEC.md#13-마일스톤)) | ⏳ |
+| M11 | 평가 기반: 오프라인 재생 core 이동, 평가 GUI(`:viewer`) v1 | GUI에서 보며 듣고 5 s 안에 재실행, 평가 저장 ([IMPROVE_SPEC §13](docs/IMPROVE_SPEC.md#13-마일스톤)) | ✅ 완료 (사용자 재생·청취 확인, 평가 저장은 테스트. 15초 세션 재실행 약 5 s. 복셀 정확도 문제 → M13, 사용법 §3.7) |
 | M12~M16 | 평가 세트 녹화, 분할·군집, 여러 물체 추적, 여러 음원 음원화, 통합 평가 | IMPROVE_SPEC §13 | ⏳ |
 
 ### 6.2 선택 (필수 완료 후, 측정 근거가 있을 때)
