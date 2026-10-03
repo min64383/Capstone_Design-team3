@@ -25,7 +25,7 @@ param(
 
 $ErrorActionPreference = 'Stop'
 $RepoRoot = (Resolve-Path (Join-Path $PSScriptRoot '..\..')).Path
-$AppId = 'walkassist.app'
+$AppId = 'hearspace.app'
 $RemoteRoot = "/storage/emulated/0/Android/data/$AppId/files/sessions"
 $LocalRoot = Join-Path $RepoRoot 'data\sessions'
 $VenvPy = Join-Path $RepoRoot '.venv\Scripts\python.exe'

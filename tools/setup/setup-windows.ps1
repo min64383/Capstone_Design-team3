@@ -1,6 +1,6 @@
 ﻿<#
 .SYNOPSIS
-    WalkAssist 개발 PC 준비(Windows 11): 도구 확인·설치, 환경 변수 설정, local.properties, 분석용 Python venv.
+    HEARSPACE 개발 PC 준비(Windows 11): 도구 확인·설치, 환경 변수 설정, local.properties, 분석용 Python venv.
 
 .DESCRIPTION
     여러 번 실행해도 안전하다(이미 있는 것은 건너뜀). 저장소 루트에서 실행한다.
@@ -11,7 +11,7 @@
       powershell -ExecutionPolicy Bypass -File tools\setup\setup-windows.ps1 -RemoveEnv   # 관리 대상 환경 변수 제거(JAVA_HOME, ANDROID_HOME, PATH의 SDK 항목)
 
     환경 변수는 사용자 범위(HKCU\Environment)에만 쓴다. 바꾸기 전에 기존 값을
-    %LOCALAPPDATA%\WalkAssist\env-backup-<시각>.json 에 백업한다.
+    %LOCALAPPDATA%\HEARSPACE\env-backup-<시각>.json 에 백업한다.
 #>
 [CmdletBinding()]
 param(
@@ -26,7 +26,7 @@ $ErrorActionPreference = 'Stop'
 $ProgressPreference = 'SilentlyContinue'   # 5.1에서 진행 표시줄이 다운로드·압축 해제를 크게 늦춘다
 $RepoRoot = (Resolve-Path (Join-Path $PSScriptRoot '..\..')).Path
 $JbrDir = Join-Path $StudioDir 'jbr'
-$BackupDir = Join-Path $env:LOCALAPPDATA 'WalkAssist'
+$BackupDir = Join-Path $env:LOCALAPPDATA 'HEARSPACE'
 $SdkRepoXml = 'https://dl.google.com/android/repository/repository2-3.xml'
 $PythonVersion = '3.11'      # MVP_SPEC §3
 $MinJavaMajor = 17           # AGP 9.4 요구 (DECISIONS.md)
@@ -63,14 +63,14 @@ function Set-UserEnvRaw([string]$name, [string]$value) {
 
 function Send-EnvChanged {
     # 새로 여는 탐색기·터미널이 바뀐 환경 변수를 읽도록 WM_SETTINGCHANGE 방송
-    if (-not ('WalkAssist.NativeEnv' -as [type])) {
-        Add-Type -Namespace WalkAssist -Name NativeEnv -MemberDefinition @'
+    if (-not ('HEARSPACE.NativeEnv' -as [type])) {
+        Add-Type -Namespace HEARSPACE -Name NativeEnv -MemberDefinition @'
 [DllImport("user32.dll", SetLastError = true, CharSet = CharSet.Auto)]
 public static extern System.IntPtr SendMessageTimeout(System.IntPtr hWnd, uint Msg, System.UIntPtr wParam, string lParam, uint fuFlags, uint uTimeout, out System.UIntPtr lpdwResult);
 '@
     }
     $r = [System.UIntPtr]::Zero
-    [void][WalkAssist.NativeEnv]::SendMessageTimeout([System.IntPtr]0xffff, 0x1A, [System.UIntPtr]::Zero, 'Environment', 2, 5000, [ref]$r)
+    [void][HEARSPACE.NativeEnv]::SendMessageTimeout([System.IntPtr]0xffff, 0x1A, [System.UIntPtr]::Zero, 'Environment', 2, 5000, [ref]$r)
 }
 
 $script:envBackedUp = $false
@@ -190,7 +190,7 @@ function Install-CmdlineTools {
     $url = 'https://dl.google.com/android/repository/' + $archive.complete.url
     $sha1 = $archive.complete.checksum.'#text'
     if (-not $sha1) { $sha1 = [string]$archive.complete.checksum }
-    $tmp = Join-Path $env:TEMP ('walkassist-cmdline-tools-' + [guid]::NewGuid().ToString('N'))
+    $tmp = Join-Path $env:TEMP ('hearspace-cmdline-tools-' + [guid]::NewGuid().ToString('N'))
     New-Item -ItemType Directory -Force $tmp | Out-Null
     try {
         $zip = Join-Path $tmp 'cmdline-tools.zip'

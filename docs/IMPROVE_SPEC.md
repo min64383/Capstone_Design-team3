@@ -1,4 +1,4 @@
-# WalkAssist 성능 개선 명세 v0.1 (M11~)
+# HEARSPACE 성능 개선 명세 v0.1 (M11~)
 
 > 3조 「시각 정보의 청각 변환을 활용한 시각장애인 보행 보조 서비스」 — MVP 이후 성능 개선
 > 문서 버전: v0.1 (2026-10-03, 초안)
@@ -213,7 +213,7 @@ v1과 호환한다(v1 파일은 그대로 읽힌다). 추가 항목:
 ### 10.1 구성
 
 - 새 Gradle 모듈 `:viewer` (Kotlin/JVM). **Swing·`javax.sound.sampled`만 사용(JDK 내장, 새 의존성 없음)**. `:core`에만 의존하고 `:app`에는 의존하지 않는다.
-- 오프라인 재생(`OfflineReplay`)을 `core`의 테스트 소스에서 **main 소스(`walkassist.core.replay`)로 옮긴다**. `:core:replay` Gradle 작업은 그대로 유지한다.
+- 오프라인 재생(`OfflineReplay`)을 `core`의 테스트 소스에서 **main 소스(`hearspace.core.replay`)로 옮긴다**. `:core:replay` Gradle 작업은 그대로 유지한다.
 - 실행: `./gradlew :viewer:run` (세션 폴더를 열기 대화상자로 선택).
 
 ### 10.2 화면

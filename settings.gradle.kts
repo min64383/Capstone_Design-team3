@@ -14,5 +14,5 @@ dependencyResolutionManagement {
     }
 }
 
-rootProject.name = "walkassist"
+rootProject.name = "hearspace"
 include(":core", ":app")

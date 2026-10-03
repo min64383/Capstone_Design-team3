@@ -4,11 +4,11 @@ plugins {
 }
 
 android {
-    namespace = "walkassist.app"
+    namespace = "hearspace.app"
     compileSdk = 37
 
     defaultConfig {
-        applicationId = "walkassist.app"
+        applicationId = "hearspace.app"
         minSdk = 26
         targetSdk = 37
         versionCode = 1

@@ -1,4 +1,4 @@
-# WalkAssist MVP 구현 명세 v0.2 (Android 앱 우선)
+# HEARSPACE MVP 구현 명세 v0.2 (Android 앱 우선)
 
 > 3조 「시각 정보의 청각 변환을 활용한 시각장애인 보행 보조 서비스」 캡스톤디자인(1) MVP
 > 문서 버전: v0.2.12 (2026-10-03, M10 범위: 공간·시간 제약으로 S02·S03·S07·T01 녹화, S01 재사용) · v0.2.10 (2026-09-30, 추적 v2: 연속 확인·놓침 유지, 오인식 필터 실험(기본 꺼짐), `cluster_debug.csv`) · v0.2.8 (2026-09-30, M8: 통로 원점 머리, 대표점 동점 규칙, 정답 원점 시작 표시) · v0.2.7 (2026-09-30, M7: 바닥 재탐색·거리 제한) · v0.2.6 (2026-09-29, M6: HRTF SADIE II D1, 소리 패턴 설정) · v0.2.5 (2026-09-29, M5: 머리 원점 귀 중앙, 자세 불연속 15 m/s, 비대칭 히스테리시스, 맵 명령) · v0.2.4 (2026-09-29, M4 실제 데이터: 통로 안 복셀만 군집, 추적 매칭은 중심점) · v0.2.3 (2026-09-28, M3 실제 데이터: 거리 비례 바닥 허용 오차·minHits 6·깊이 입력 SMOOTHED 확정) · v0.2.2 (2026-09-28, §14-6 PC 분석용 녹화 경량본 `testdata/` 허용) · v0.2.1 (2026-09-28, M1 스파이크 반영: 지연 구간 분리·자세 불연속 감지·깊이 나이 기준 — `docs/FORMAT.md`) · v0.2 (2026-09-25) · 이전 버전: v0.1 (Python PC 파이프라인안, 폐기)
@@ -89,19 +89,19 @@ Galaxy S10 5G(SM-G977N)에서 동작하는 Android 앱으로, ARCore의 자세�
 | 분석 도구 | Python 3.11, `numpy`, `pandas`, `matplotlib` (`tools/analysis`) |
 | 화면 미러링(시연) | scrcpy |
 
-셸 명령은 PowerShell 기준으로 작성한다. 예: `./gradlew :core:test`, `./gradlew :app:installDebug`, `adb logcat -s WalkAssist`.
+셸 명령은 PowerShell 기준으로 작성한다. 예: `./gradlew :core:test`, `./gradlew :app:installDebug`, `adb logcat -s HEARSPACE`.
 
 ---
 
 ## 4. 저장소 구조
 
 ```
-walkassist/
+hearspace/
 ├── settings.gradle.kts
 ├── gradle/libs.versions.toml
 ├── core/                                  # 순수 Kotlin(JVM) 라이브러리
 │   └── src/
-│       ├── main/kotlin/walkassist/core/
+│       ├── main/kotlin/hearspace/core/
 │       │   ├── types/        Types.kt, Config.kt
 │       │   ├── geometry/     Geometry.kt, Quaternion.kt
 │       │   ├── mapping/      Floor.kt, VoxelMap.kt
@@ -110,12 +110,12 @@ walkassist/
 │       │   ├── audio/        Hrtf.kt, Sounds.kt, BinauralRenderer.kt
 │       │   ├── pipeline/     SlowPath.kt, FastPath.kt, Snapshot.kt
 │       │   └── session/      SessionFormat.kt, SessionReader.kt   # 오프라인 재생용
-│       └── test/kotlin/walkassist/core/
+│       └── test/kotlin/hearspace/core/
 │           ├── synth/        SyntheticScene.kt, Scenes.kt         # 합성 장면 생성기
 │           └── ...           각 모듈 테스트, OfflineReplayTest.kt
 ├── app/                                   # Android 앱
 │   └── src/main/
-│       ├── java/walkassist/app/
+│       ├── java/hearspace/app/
 │       │   ├── ar/          ArSessionManager.kt, FrameAdapter.kt, Recorder.kt, Playback.kt
 │       │   ├── runtime/     SlowPathWorker.kt, AudioOutput.kt, Haptics.kt, ThermalMonitor.kt, RunLogger.kt
 │       │   ├── ui/user/     UserModeActivity.kt

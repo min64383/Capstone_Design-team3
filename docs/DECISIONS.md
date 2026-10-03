@@ -13,7 +13,7 @@
 - 2026-09-26 · M0 · JSON 파서는 core에 직접 구현(`MiniJson`, 중복 키 오류) — core 외부 라이브러리 금지 원칙
 - 2026-09-26 · M0 · `Mat4`는 행 우선 저장, 이름 규약 `aFromB` — M2에서 연산 추가
 - 2026-09-26 · M0 · `AlertKind` = START, READY, PAUSE, UNKNOWN — §7.6 상태 알림음 4종(시작·준비 완료·정지·확인 불가)
-- 2026-09-26 · M0 · 저장소 루트는 `capstone/`(명세 §4의 `walkassist/`에 해당), Gradle 루트 프로젝트 이름은 `walkassist`, 원격은 팀 저장소 `min64383/Capstone_Design-team3`
+- 2026-09-26 · M0 · 저장소 루트는 `capstone/`(명세 §4의 `hearspace/`에 해당), Gradle 루트 프로젝트 이름은 `hearspace`, 원격은 팀 저장소 `min64383/Capstone_Design-team3`
 - 2026-09-26 · M0 · 기준 기기를 연결된 SM-G977N(Galaxy S10 5G 국내판, Exynos 9820 확인, Android 12)으로 확정하고 명세 §0·§2.1·§3 갱신. 명세의 "S10"은 이 기기 — 사용자 결정
 - 2026-09-26 · M1 · ARCore SDK 1.56.0(Google Maven 최신) 추가 — 사용자 승인
 - 2026-09-26 · M1 · 깊이 모드: AUTOMATIC 지원 시 AUTOMATIC(일반·원시 깊이 모두 획득), 아니면 RAW_DEPTH_ONLY — F6 비교
@@ -31,7 +31,7 @@
 - 2026-09-26 · M1 · `meta.json`에 `elapsedMinusMonotonicNs` 추가(없으면 null로 읽음) — F5에서 `Frame.getTimestamp()` 시간 기준 판별용
 - 2026-09-26 · M1 · (예비) 깊이 K는 텍스처 K를 크기 비율로 환산 — 깊이 160x90이 텍스처 16:9와 같고 CPU K 환산은 비등방. 벽 거리 촬영(F4)으로 확정 후 v1에 명시
 - 2026-09-27 · docs · 개발 환경 스크립트 `tools/setup/`(setup-windows·check-device·pull-sessions, PowerShell 5.1) 추가 — README §3 재현 절차 자동화. 새 의존성 없음(설치 대상은 MVP_SPEC §3 개발 환경 그대로, scrcpy는 선택)
-- 2026-09-27 · docs · 환경 변수는 사용자 범위(HKCU)에만 쓰고 변경 전 `%LOCALAPPDATA%\WalkAssist`에 백업, Path는 REG_EXPAND_SZ 원문 보존 — `[Environment]::SetEnvironmentVariable`은 Path를 REG_SZ로 바꿔 `%VAR%` 항목을 깨뜨림
+- 2026-09-27 · docs · 환경 변수는 사용자 범위(HKCU)에만 쓰고 변경 전 `%LOCALAPPDATA%\HEARSPACE`에 백업, Path는 REG_EXPAND_SZ 원문 보존 — `[Environment]::SetEnvironmentVariable`은 Path를 REG_SZ로 바꿔 `%VAR%` 항목을 깨뜨림
 - 2026-09-27 · docs · `.ps1`은 UTF-8 BOM으로 저장 — Windows PowerShell 5.1은 BOM 없는 스크립트를 ANSI(cp949)로 읽어 한글이 깨짐
 - 2026-09-27 · docs · SDK 패키지 설치는 cmdline-tools의 `android.exe`(Android CLI) 우선, 결과는 종료 코드 대신 파일로 확인 — cmdline-tools 23에서 sdkmanager가 폐기 예정·Android CLI로 위임되고, 설치 후 종료 코드 0xC0000409로 끝나는 것을 확인. `sdkmanager.bat`은 cmd가 `;`에서 인자를 잘라 `platforms;android-37.0`을 못 받음
 - 2026-09-27 · docs · Codex용 루트 `AGENTS.md` 추가(CLAUDE.md + .claude/rules 내용과 동일, 모듈 규칙은 절로 통합) — Codex는 Git 루트~작업 디렉터리의 AGENTS.md만 읽고 경로별 규칙 로딩이 없음. 지침 변경 시 양쪽을 같은 커밋에서 수정(README §4.7)
@@ -110,7 +110,7 @@
 - 2026-09-30 · M8 · `:core:replay` 설정 덮어쓰기는 `-PoverridesFile=<json>`: Windows에서 명령줄 JSON 따옴표가 사라짐(리뷰 중 발견)
 - 2026-09-30 · M9 · 사용자 모드 흐름·알림음·진동은 가설값으로 구현하고 사용자 평가 뒤 조정 — 사용자 승인. 준비 대기음 `AlertKind.WAITING`(시작·재개 뒤 준비 완료 전까지 `state.unknownRepeatS` 간격, 안내 도중 확인 불가에는 UNKNOWN만), 진동 길이는 설정 `haptics.*`
 - 2026-09-30 · M9 · 입력은 `UserModeActivity.onCommand(UserCommand)` 하나로 모은다(터치·TalkBack, 나중에 음성). 음성 입출력은 명세 §17(v0.2.9)로 기록 — 사용자 요구(전맹 사용자)
-- 2026-09-30 · M9 · 런처 아이콘 2개: 사용자 모드 "WalkAssist", 개발 모드 "WalkAssist Dev". 사용자 모드는 앱을 떠나면 안내를 멈추고 돌아오면 다시 두 번 탭으로 시작
+- 2026-09-30 · M9 · 런처 아이콘 2개: 사용자 모드 "HEARSPACE", 개발 모드 "HEARSPACE Dev". 사용자 모드는 앱을 떠나면 안내를 멈추고 돌아오면 다시 두 번 탭으로 시작
 - 2026-09-30 · M9 · 두 번 탭은 두 번째 탭을 뗄 때 처리: 누를 때 처리하면 시작(ARCore 세션 생성 약 0.6 s)이 UI 스레드를 막는 동안 길게 누르기(종료)로 오인됨(기기 실측)
 - 2026-09-30 · M9 · 오디오 포커스는 `AUDIOFOCUS_GAIN` + `setWillPauseWhenDucked(false)`로 Android 자동 감쇠에 맡기고, 포커스를 잃어도 안내는 멈추지 않는다(안전 안내)
 - 2026-09-30 · M9 · `LiveScreen`의 GL 입력 코드를 `ArFeeder`, 실행 시작·정지를 `RunSession`으로 떼어 실시간·재생·사용자 모드가 같이 쓴다
@@ -123,3 +123,4 @@
 - 2026-10-03 · M10 · 비교 결과와 조정안은 `docs/M10_REPORT.md`. 대표점 `CORRIDOR_NEAREST`·`epsM` 0.15 유지 제안, 복셀 0.075·바닥 허용치 0.04·정보 나이 허용치 400 ms는 후보(추가 측정 또는 사용자 결정 대기). `default.json`은 바꾸지 않음. S01 재사용은 빈 복도 `190833` 1개뿐(처음 적은 101025·102615·190936은 빈 복도가 아님)
 - 2026-10-03 · M10 · M10 완료(MVP 구현 끝). `default.json`은 바꾸지 않고, 조정안 후보(복셀 0.075, 바닥 허용치 0.04, 정보 나이 허용치 400 ms)와 10분 지속 미달(발열)은 M11 이후 성능 개선 마일스톤에서 다룬다 — 사용자 결정. MVP 명세(v0.2.12)는 M0~M10 기록으로 동결하고 M11부터 새 명세를 쓴다
 - 2026-10-03 · M11 · 성능 개선 명세 `docs/IMPROVE_SPEC.md` v0.1 초안: 목표는 녹화 세션 오프라인 재생에서 여러 물체의 정확한 공간 음향. 오프라인 정확도 우선(기기 실시간은 측정·보고만), 평가 GUI는 Kotlin + Swing(JDK 내장, 새 의존성 없음), 동시 음원은 개수 제한 없이 실험, MVP 명세는 동결 — 사용자 결정
+- 2026-10-03 · chore · 프로젝트명을 WalkAssist에서 HEARSPACE로 변경 — 사용자 결정. 표시 이름·로그 태그(`adb logcat -s HEARSPACE`)·문서는 `HEARSPACE`, 식별자는 `hearspace`(Kotlin 패키지, `applicationId`/`namespace` `hearspace.app`, Gradle 프로젝트, `hearspace.*` 시스템 속성). `applicationId`가 바뀌어 기기에는 새 앱으로 설치되고, 이전 앱(`walkassist.app`)과 그 녹화 폴더(`Android/data/walkassist.app/`)는 지우기 전까지 남는다. `references/` PDF는 손대지 않음

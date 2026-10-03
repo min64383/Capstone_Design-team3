@@ -1,4 +1,4 @@
-# WalkAssist — 시각장애인 보행 보조 앱 MVP
+# HEARSPACE — 시각장애인 보행 보조 앱 MVP
 
 구현 기준은 M11부터 `docs/IMPROVE_SPEC.md`(v0.1)이고, 거기 없는 것은 `docs/MVP_SPEC.md`(v0.2.12, M0~M10 기록으로 동결)를 따른다. 작업 전 해당 마일스톤(IMPROVE_SPEC §13)과 관련 절을 읽는다.
 명세와 코드가 충돌하면 명세를 따르고, 명세가 틀렸다고 판단되면 멈추고 사용자에게 제안한다.
@@ -13,7 +13,7 @@
 ## 명령 (PowerShell)
 - core 테스트: `./gradlew :core:test`
 - 앱 설치: `./gradlew :app:installDebug`
-- 로그: `adb logcat -s WalkAssist`
+- 로그: `adb logcat -s HEARSPACE`
 
 ## 반드시 지킬 원칙
 - 현재 시각 이후의 프레임·자세를 절대 사용하지 않는다 (보간 금지, 과거 값만)

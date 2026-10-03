@@ -87,7 +87,7 @@ F8(재생 모드)은 M7에서 확인한다.
 ### PC로 가져오기
 
 ```powershell
-adb pull /storage/emulated/0/Android/data/walkassist.app/files/sessions/<세션ID> data/sessions/
+adb pull /storage/emulated/0/Android/data/hearspace.app/files/sessions/<세션ID> data/sessions/
 .venv\Scripts\python.exe tools/analysis/spike_check.py data/sessions/<세션ID>
 ```
 
