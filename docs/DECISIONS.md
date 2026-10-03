@@ -115,3 +115,5 @@
 - 2026-09-30 · M9 · 오디오 포커스는 `AUDIOFOCUS_GAIN` + `setWillPauseWhenDucked(false)`로 Android 자동 감쇠에 맡기고, 포커스를 잃어도 안내는 멈추지 않는다(안전 안내)
 - 2026-09-30 · M9 · `LiveScreen`의 GL 입력 코드를 `ArFeeder`, 실행 시작·정지를 `RunSession`으로 떼어 실시간·재생·사용자 모드가 같이 쓴다
 - 2026-10-01 · docs · 과제 제출 문서(PDF·docx)를 `references/`로 분리해 git에 올림. 프로젝트 완료 후 `.gitignore`에 추가하고 추적 해제 — 팀원 공유. 05 기술명세서(v0.2)는 명세보다 앞선 문서라 구현 기준은 MVP_SPEC — 사용자 결정
+- 2026-10-03 · M9 · TalkBack 켠 상태 확인: 인식된 두 번 탭(`onDoubleTap` → 시작·일시정지·재개)과 두 번 탭 후 유지(`onDoubleTapAndHold` → 종료)는 전부 명령으로 전달됨(기기 로그 ↔ `user command`). 빠지는 입력은 TalkBack이 터치 탐색으로 처리한 경우라 앱에서 못 고침(터치 통과 API는 Android 14부터, S10 불가). 근본 대책은 음성 명령(§17) — 사용자 확인
+- 2026-10-03 · M9 · 볼륨 키 길게 누르기 조작 시도 후 철회: Samsung TalkBack이 볼륨 키를 가로채 접근성 음량을 바꾸고 앱에는 키가 오지 않음(기기 로그) — 사용자 결정
