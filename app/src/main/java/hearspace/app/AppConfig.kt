@@ -4,17 +4,21 @@ import android.content.Context
 import hearspace.core.types.Config
 import hearspace.core.types.ConfigLoader
 
-/** 앱 자산의 기본 설정을 한 번 읽어 둔다. 실험 패널 덮어쓰기는 M7 이후. */
+/** 기본 설정과 연속음 선택 설정을 병합해 한 번 읽어 둔다. */
 object AppConfig {
     private const val CONFIG_ASSET = "config/default.json"
+    private const val SONIFY_OVERRIDE_ASSET = "config/risk-continuous.override.json"
 
     @Volatile
     private var cached: Config? = null
 
     /** 설정을 읽는다. 형식 오류는 [hearspace.core.types.ConfigException]. */
     fun get(context: Context): Config = cached ?: synchronized(this) {
-        cached ?: context.assets.open(CONFIG_ASSET).bufferedReader().use { ConfigLoader.load(it.readText()) }
-            .also { cached = it }
+        cached ?: run {
+            val base = context.assets.open(CONFIG_ASSET).bufferedReader().use { it.readText() }
+            val override = context.assets.open(SONIFY_OVERRIDE_ASSET).bufferedReader().use { it.readText() }
+            ConfigLoader.load(base, override).also { cached = it }
+        }
     }
 }
 
@@ -24,3 +28,4 @@ fun loadHrtf(context: Context): hearspace.core.audio.Hrtf =
 
 /** Logcat 태그. `adb logcat -s HEARSPACE`. */
 const val TAG = "HEARSPACE"
+

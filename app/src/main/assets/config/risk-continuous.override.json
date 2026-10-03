@@ -1,0 +1,9 @@
+{
+  "sonify": {
+    "mode": "RISK_CONTINUOUS"
+  },
+  "policy": {
+    "maxSources": 2,
+    "prioritizeStop": true
+  }
+}

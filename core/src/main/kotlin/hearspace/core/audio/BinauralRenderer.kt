@@ -2,6 +2,9 @@ package hearspace.core.audio
 
 import hearspace.core.types.AlertKind
 import hearspace.core.types.AudioCmd
+import hearspace.core.types.Band
+import hearspace.core.types.SonifyMode
+import hearspace.core.types.GuidanceState
 import hearspace.core.types.Config
 import hearspace.core.types.GuidanceOutput
 import kotlin.math.abs
@@ -11,6 +14,7 @@ import kotlin.math.min
 /**
  * HRTF 바이노럴 렌더러 (§7.6). 블록(`audio.blockSize`)마다 그 블록의 [GuidanceOutput](최신 자세로 방금 계산한 값)을 받아
  * 스테레오 블록을 만든다.
+ * - sonify.mode로 기존 PULSE 또는 RISK_CONTINUOUS 선택. 연속음도 동일한 공간화/알림/리미터 사용.
  * - 음원마다 버스트 열(구간·거리에 따른 주기)을 만들어 HRIR과 시간 영역 합성곱. 합성곱 이력(taps − 1)을 블록 사이에 이어 붙인다.
  * - 방위각이 바뀌면 그 블록 안에서 이전 HRIR 결과 → 새 HRIR 결과로 선형 교차 페이드(클릭 방지).
  * - 음원이 명령에서 빠지면 새 버스트는 시작하지 않고, 진행 중 버스트와 합성곱 꼬리만 끝까지 낸다(급한 끊김 없음).
@@ -25,8 +29,10 @@ class BinauralRenderer(private val config: Config, private val hrtf: Hrtf) {
     private val taps = hrtf.taps
     private val sounds = Sounds(audio, config.policy)
     private val master = Sounds.db(audio.masterGainDb)
+    private val continuous = config.sonify.mode == SonifyMode.RISK_CONTINUOUS
 
     private inner class Source {
+        val riskSound = if (continuous) RiskSoundGenerator(config) else null
         val history = FloatArray(taps - 1) // 직전 입력의 끝(합성곱 이력)
         var az = Float.NaN
         var sinceOnset = Int.MAX_VALUE / 2 // 마지막 버스트 시작 후 샘플 수
@@ -64,22 +70,42 @@ class BinauralRenderer(private val config: Config, private val hrtf: Hrtf) {
         out.fill(0f)
         g.alert?.let { alerts.addLast(sounds.alert(it)) }
 
-        val cmds = g.commands.filter { it.infoAgeMs <= config.policy.maxInfoAgeMs }
+        val cmds = g.commands.filter {
+            it.infoAgeMs.isFinite() && it.infoAgeMs >= 0f && it.infoAgeMs <= config.policy.maxInfoAgeMs &&
+                (!continuous || (it.distanceM.isFinite() && it.distanceM > 0f && it.azimuthDeg.isFinite()))
+        }
+        if (continuous) {
+            if (g.state != GuidanceState.NORMAL && g.state != GuidanceState.DEGRADED) {
+                sources.clear()
+                mixAlerts(out); limit(out); return
+            }
+            // 만료 명령은 release/합성곱 꼬리까지 즉시 버린다. 만료 정보로 계속 울리지 않는다.
+            for (c in g.commands) if (c !in cmds) sources.remove(c.obstacleId)
+        }
+        val hasStop = continuous && cmds.any { it.inCorridor && it.band == Band.STOP }
+        fun duck(c: AudioCmd): Float =
+            if (hasStop && !(c.inCorridor && c.band == Band.STOP)) Sounds.db(config.sonify.duckDb) else 1f
         for (s in sources.values) s.active = false
-        for (c in cmds) sources.getOrPut(c.obstacleId) { Source() }.let { it.active = true; renderSource(it, c, out) }
+        for (c in cmds) sources.getOrPut(c.obstacleId) { Source() }.let { it.active = true; renderSource(it, c, out, g.tBlockNs, duck(c)) }
         // 명령에서 빠진 음원: 새 버스트 없이 꼬리만
         val it = sources.entries.iterator()
         while (it.hasNext()) {
             val (_, s) = it.next()
             if (s.active) continue
-            renderSource(s, null, out)
+            renderSource(s, null, out, g.tBlockNs, 1f)
             if (s.quietBlocks * n > taps) it.remove()
         }
         mixAlerts(out)
         limit(out)
     }
 
-    private fun renderSource(s: Source, c: AudioCmd?, out: FloatArray) {
+    private fun renderSource(s: Source, c: AudioCmd?, out: FloatArray, timeNs: Long, duckGain: Float) {
+        if (continuous) {
+            s.riskSound!!.render(c, timeNs, duckGain, mono)
+            s.quietBlocks = if (mono.any { it != 0f }) 0 else s.quietBlocks + 1
+            spatialize(s, c?.azimuthDeg ?: s.az, mono, out)
+            return
+        }
         // 1) 입력 버스트 열
         val period = c?.let { sounds.periodSamples(it.band, it.distanceM) }
         var any = false
@@ -186,3 +212,4 @@ class BinauralRenderer(private val config: Config, private val hrtf: Hrtf) {
         limiterGain = target
     }
 }
+

@@ -55,7 +55,8 @@
     "silentMaxM": 3.0,
     "hysteresisM": 0.15,
     "maxSources": 1,
-    "maxInfoAgeMs": 300
+    "maxInfoAgeMs": 300,
+    "prioritizeStop": false
   },
   "state": {
     "recoverFrames": 10,
@@ -86,5 +87,30 @@
   },
   "haptics": { "readyMs": 40, "pauseMs": 40, "pauseGapMs": 80, "unknownMs": 400, "exitMs": 600 },
   "record": { "depthEveryN": 1, "rgbEveryN": 3, "deviceLogIntervalS": 1.0 },
-  "align": { "fitLengthM": 2.0 }
+  "align": { "fitLengthM": 2.0 },
+  "sonify": {
+      "mode": "PULSE",
+      "historyS": 0.4,
+      "minHistoryS": 0.2,
+      "approachOnMps": 0.1,
+      "approachOffMps": 0.05,
+      "onceS": 0.7,
+      "nearM": 0.5,
+      "farM": 3.0,
+      "minHz": 250,
+      "maxHz": 1000,
+      "minGain": 0.25,
+      "maxGain": 0.75,
+      "ttcHorizonS": 4.0,
+      "ttcWeight": 0.6,
+      "minSecondHarmonic": 0.1,
+      "maxSecondHarmonic": 0.45,
+      "thirdHarmonic": 0.08,
+      "headPitchRatio": 1.4,
+      "attackS": 0.04,
+      "releaseS": 0.18,
+      "pitchSmoothS": 0.08,
+      "prototypeGain": 0.8,
+      "duckDb": -12
+  }
 }

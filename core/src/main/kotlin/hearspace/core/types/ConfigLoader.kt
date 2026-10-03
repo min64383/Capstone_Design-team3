@@ -119,6 +119,7 @@ object ConfigLoader {
                     hysteresisM = nonNegative("hysteresisM"),
                     maxSources = atLeast1("maxSources"),
                     maxInfoAgeMs = positive("maxInfoAgeMs"),
+                    prioritizeStop = boolean("prioritizeStop"),
                 )
             },
             state = root.section("state") {
@@ -169,6 +170,33 @@ object ConfigLoader {
                 )
             },
             align = root.section("align") { AlignConfig(fitLengthM = positive("fitLengthM")) },
+            sonify = root.section("sonify") {
+                SonifyConfig(
+                    mode = enumValue<SonifyMode>("mode"),
+                    historyS = positive("historyS"),
+                    minHistoryS = positive("minHistoryS"),
+                    approachOnMps = positive("approachOnMps"),
+                    approachOffMps = nonNegative("approachOffMps"),
+                    onceS = positive("onceS"),
+                    nearM = positive("nearM"),
+                    farM = positive("farM"),
+                    minHz = positive("minHz"),
+                    maxHz = positive("maxHz"),
+                    minGain = unit("minGain"),
+                    maxGain = unit("maxGain"),
+                    ttcHorizonS = positive("ttcHorizonS"),
+                    ttcWeight = unit("ttcWeight"),
+                    minSecondHarmonic = nonNegative("minSecondHarmonic"),
+                    maxSecondHarmonic = nonNegative("maxSecondHarmonic"),
+                    thirdHarmonic = nonNegative("thirdHarmonic"),
+                    headPitchRatio = positive("headPitchRatio"),
+                    attackS = positive("attackS"),
+                    releaseS = positive("releaseS"),
+                    pitchSmoothS = positive("pitchSmoothS"),
+                    prototypeGain = unit("prototypeGain"),
+                    duckDb = float("duckDb"),
+                )
+            },
         )
         root.rejectUnknown()
         crossCheck(config)
@@ -178,6 +206,17 @@ object ConfigLoader {
     /** 여러 키에 걸친 일관성 검사. */
     private fun crossCheck(c: Config) {
         val p = c.policy
+        val s = c.sonify
+        if (s.minHistoryS > s.historyS) throw ConfigException("sonify", "minHistoryS must be <= historyS")
+        if (s.approachOffMps >= s.approachOnMps) throw ConfigException("sonify", "approachOffMps must be < approachOnMps")
+        if (s.nearM >= s.farM) throw ConfigException("sonify", "nearM must be < farM")
+        if (s.minHz > s.maxHz || 3f * s.maxHz * maxOf(1f, s.headPitchRatio) >= c.audio.sampleRate / 2f)
+            throw ConfigException("sonify", "pitch including harmonics must remain below Nyquist")
+        if (s.minGain > s.maxGain || s.minSecondHarmonic > s.maxSecondHarmonic)
+            throw ConfigException("sonify", "minimum must be <= maximum")
+        if (s.duckDb > 0f) throw ConfigException("sonify.duckDb", "must be <= 0")
+        if (s.historyS * c.audio.sampleRate / c.audio.blockSize > 1_000_000f)
+            throw ConfigException("sonify.historyS", "history window is too large")
         if (!(p.stopM < p.warnMaxM && p.warnMaxM < p.silentMaxM)) {
             throw ConfigException("policy", "must satisfy stopM < warnMaxM < silentMaxM")
         }
@@ -280,3 +319,4 @@ object ConfigLoader {
         }
     }
 }
+
