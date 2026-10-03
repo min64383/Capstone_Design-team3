@@ -1,8 +1,10 @@
 """지표 (MVP_SPEC §10.2, M8). 기준값은 가설.
 
     python metrics.py <세션 폴더> <실행 로그 폴더>   → <실행 로그 폴더>/metrics.json
+    python metrics.py --run <실행 로그 폴더>          → 세션 없이 실행 로그만(사용자 모드 T01 등, M10)
 
 - 정답: <세션>/annotations/obstacles.json (정답 좌표, docs/FORMAT.md). 없으면 정답이 필요 없는 지표만.
+  `"scene"`이 있으면 장면 ID로 쓴다(폴더 이름의 장면 ID가 틀린 녹화, M10).
 - 실행 로그: 같은 세션의 PC 오프라인 재생(`:core:replay`) 또는 그 세션을 녹화하며 돌린 실시간 로그.
   ARCore 재생 모드 로그는 월드 좌표가 녹화와 달라(F8) 정답 지표를 낼 수 없다.
 - 정답 머리 = 카메라 + 파지 오프셋(보행선 방향 기준), 정답 방향 = 보행선(+z). 정답 통로 = 머리에서 보행선 방향 폭·길이.
@@ -33,6 +35,69 @@ def load_truth(session: Path):
         return None, None
     j = json.loads(f.read_text(encoding="utf-8"))
     return j["obstacles"], bool(j.get("estimated", False))
+
+
+def scene_of(session: Path) -> str:
+    """정답 파일의 `scene`, 없으면 폴더 이름 끝(`..._S02` → S02)."""
+    f = session / "annotations/obstacles.json"
+    if f.is_file():
+        s = json.loads(f.read_text(encoding="utf-8")).get("scene")
+        if s:
+            return s
+    name = session.parent.name if session.name == "session" else session.name
+    return name.rsplit("_", 1)[-1]
+
+
+def per_minute(blocks: pd.DataFrame, sp: pd.DataFrame, dev: pd.DataFrame | None) -> list[dict]:
+    """지속 동작(§10.2): 1분마다 UNKNOWN 비율·느린 경로 주기·스냅샷 나이·계산 시간·발열."""
+    t0 = blocks.tBlockNs.min()
+    bm = ((blocks.tBlockNs - t0) // 60_000_000_000).astype(int)
+    sm = ((sp.tStartNs - t0) // 60_000_000_000).astype(int)
+    out = []
+    for m in range(int(bm.max()) + 1):
+        b, s = blocks[bm == m], sp[sm == m]
+        span = (b.tBlockNs.max() - b.tBlockNs.min()) / 1e9 if len(b) > 1 else 0
+        row = {
+            "minute": m,
+            "unknownFraction": round(float((b.state == "UNKNOWN").mean()), 4) if len(b) else None,
+            "slowPathHz": round(len(s) / span, 2) if span > 0 else None,
+            "snapshotAgeP50Ms": p((b.tBlockNs - b.snapshotTNs).dropna() / 1e6, 50),
+            "slowComputeP50Ms": p((s.tDoneNs - s.tStartNs) / 1e6, 50),
+            "captureToDoneP50Ms": p((s.tDoneNs - s.tCaptureNs) / 1e6, 50),
+        }
+        if dev is not None:
+            d = dev[((dev.tNs - t0) // 60_000_000_000).astype(int) == m]
+            row["thermalMax"] = int(d.thermalStatus.max()) if len(d) else None
+        out.append(row)
+    return out
+
+
+def run_metrics(run_dir: Path, cfg: dict) -> dict:
+    """정답·세션 없이 실행 로그만으로 되는 지표."""
+    g = pd.read_csv(run_dir / "guidance.csv")
+    sp = pd.read_csv(run_dir / "slow_path.csv")
+    blocks = g.drop_duplicates("tBlockNs")
+    out: dict = {"run": str(run_dir), "config": {"repStrategy": cfg["repPoint"]["strategy"]}}
+    out["durationS"] = float((blocks.tBlockNs.max() - blocks.tBlockNs.min()) / 1e9)
+    out["stateFraction"] = blocks.state.value_counts(normalize=True).round(4).to_dict()
+    dur = (sp.tCaptureNs.max() - sp.tCaptureNs.min()) / 1e9
+    out["slowPathHz"] = float(len(sp) / dur) if dur > 0 else None
+    age = g.infoAgeMs.dropna()  # 음원이 있는 블록만 기록된다
+    out["infoAgeMs"] = {"p50": p(age, 50), "p95": p(age, 95), "max": float(age.max()) if len(age) else None}
+    snap = ((blocks.tBlockNs - blocks.snapshotTNs) / 1e6).dropna()  # 음원 유무와 무관한 스냅샷 나이
+    out["snapshotAgeMs"] = {"p50": p(snap, 50), "p95": p(snap, 95)}
+    prev = blocks.state.shift()
+    out["unknownTransitions"] = int(((blocks.state == "UNKNOWN") & (prev != "UNKNOWN") & prev.notna()).sum())
+    active = blocks[blocks.state.isin(ACTIVE)]
+    out["warnFraction"] = float(active.band.isin(["WARN", "STOP"]).mean()) if len(active) else None
+    dev = None
+    if (run_dir / "device.csv").is_file():
+        dev = pd.read_csv(run_dir / "device.csv")
+        out["latencyMs"] = {"b_output_p50": p(dev.audioOutputLatencyMs.dropna(), 50)}
+        out["thermalMax"] = int(dev.thermalStatus.max()) if len(dev) else None
+    if out["durationS"] >= 60:
+        out["perMinute"] = per_minute(blocks, sp, dev)
+    return out
 
 
 def truth_nearest(ob, hx, hz, cfg):
@@ -67,28 +132,18 @@ def compute(session: Path, run_dir: Path) -> dict:
     pol = cfg["policy"]
     frames = load_frames(session)
     g = pd.read_csv(run_dir / "guidance.csv")
-    sp = pd.read_csv(run_dir / "slow_path.csv")
     obs = pd.read_csv(run_dir / "obstacles.csv")
     t0 = g.tBlockNs.min()
-    out: dict = {"session": session.name if session.name != "session" else session.parent.name, "run": str(run_dir), "config": {"repStrategy": cfg["repPoint"]["strategy"]}}
+    blocks = g.drop_duplicates("tBlockNs")
 
     # 정답 없이 되는 지표
-    blocks = g.drop_duplicates("tBlockNs")
-    out["stateFraction"] = blocks.state.value_counts(normalize=True).round(4).to_dict()
-    dur = (sp.tCaptureNs.max() - sp.tCaptureNs.min()) / 1e9
-    out["slowPathHz"] = float(len(sp) / dur) if dur > 0 else None
-    age = g.infoAgeMs.dropna()
-    out["infoAgeMs"] = {"p50": p(age, 50), "p95": p(age, 95), "max": float(age.max()) if len(age) else None}
+    out: dict = {"session": session.name if session.name != "session" else session.parent.name, "scene": scene_of(session)}
+    out.update(run_metrics(run_dir, cfg))
     arrival = frames.set_index("tNs").sysElapsedNs
     a0 = (frames.sysElapsedNs - frames.tNs) / 1e6
     pipe = (blocks.tBlockNs - blocks.poseTNs.map(arrival)) / 1e6
-    out["latencyMs"] = {"a0_arcore_p50": p(a0, 50), "a_pipeline_p50": p(pipe.dropna(), 50), "a_pipeline_p95": p(pipe.dropna(), 95)}
-    dev = run_dir / "device.csv"
-    if dev.is_file():
-        lat = pd.read_csv(dev).audioOutputLatencyMs.dropna()
-        out["latencyMs"]["b_output_p50"] = p(lat, 50)
-    prev = blocks.state.shift()
-    out["unknownTransitions"] = int(((blocks.state == "UNKNOWN") & (prev != "UNKNOWN") & prev.notna()).sum())
+    out["latencyMs"] = {"a0_arcore_p50": p(a0, 50), "a_pipeline_p50": p(pipe.dropna(), 50), "a_pipeline_p95": p(pipe.dropna(), 95),
+                        **out.get("latencyMs", {})}
 
     truth, estimated = load_truth(session)
     if truth is None:
@@ -138,6 +193,7 @@ def compute(session: Path, run_dir: Path) -> dict:
     dir_err, over, jitter_src, fa, n_cmd = [], [], {}, 0, 0
     band_ok = band_n = 0
     first_truth_warn, first_est_warn = {}, {}
+    first_warn_dist, first_stop_dist = {}, {}  # 처음 WARN·STOP을 낸 순간의 정답 거리(출발부터 경고 구간 안인 장면용, M10)
     stop_needed, stop_seen = set(), set()
     head_cls = []
     for r in rows:
@@ -162,9 +218,13 @@ def compute(session: Path, run_dir: Path) -> dict:
             else:
                 i = r["match"]
                 first_est_warn.setdefault(i, r["t"])
+                v = r["tn"][i]
+                if v is not None:
+                    first_warn_dist.setdefault(i, round(v[1], 3))
                 if r["band"] == "STOP":
                     stop_seen.add(i)
-                v = r["tn"][i]
+                    if v is not None:
+                        first_stop_dist.setdefault(i, round(v[1], 3))
                 if v is not None:
                     dir_err.append(abs(r["az"] - v[2]))
                     if 1.5 <= v[1] <= 2.5:
@@ -195,6 +255,8 @@ def compute(session: Path, run_dir: Path) -> dict:
         "headClassAccuracy": (sum(head_cls) / len(head_cls)) if head_cls else None,
         "warnTimingErrorS": {truth[i]["name"]: round(first_est_warn[i] - first_truth_warn[i], 3) if i in first_est_warn else None
                              for i in sorted(entered)},
+        "firstWarnDistanceM": {truth[i]["name"]: first_warn_dist.get(i) for i in sorted(entered)},
+        "firstStopDistanceM": {truth[i]["name"]: first_stop_dist.get(i) for i in sorted(entered)},
         "missedStop": len(stop_needed - stop_seen),
         "sourceJitterDegStd": jitter_std(),
         "falseAlarmFraction": fa / n_cmd if n_cmd else None,
@@ -207,7 +269,11 @@ if __name__ == "__main__":
     sys.stdout.reconfigure(encoding="utf-8")  # Windows 콘솔(cp949)에서도 한글·기호 출력
     if len(sys.argv) != 3:
         sys.exit(__doc__)
-    session, run = Path(sys.argv[1]), Path(sys.argv[2])
-    m = compute(session, run)
+    if sys.argv[1] == "--run":
+        run = Path(sys.argv[2])
+        m = run_metrics(run, load_config(run))
+    else:
+        session, run = Path(sys.argv[1]), Path(sys.argv[2])
+        m = compute(session, run)
     (run / "metrics.json").write_text(json.dumps(m, indent=2, ensure_ascii=False), encoding="utf-8")
     print(json.dumps(m, indent=2, ensure_ascii=False))
