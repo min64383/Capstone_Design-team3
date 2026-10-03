@@ -1,7 +1,7 @@
 # HEARSPACE 성능 개선 명세 v0.1 (M11~)
 
 > 3조 「시각 정보의 청각 변환을 활용한 시각장애인 보행 보조 서비스」 — MVP 이후 성능 개선
-> 문서 버전: v0.1.1 (2026-10-03, M11: 단계별 처리 시간 `stage_timing.csv`, 정답 v2 구현) · v0.1 (2026-10-03, 초안)
+> 문서 버전: v0.2 (2026-10-03, M11: 평가 GUI 구현, 기기 없는 PC 개발, 재실행 시간 실측) · v0.1.1 (2026-10-03, M11: 단계별 처리 시간 `stage_timing.csv`, 정답 v2 구현) · v0.1 (2026-10-03, 초안)
 > 선행 문서: `docs/MVP_SPEC.md` v0.2.12 (M0~M10, **동결**), `docs/M10_REPORT.md`(MVP 성능 기준선)
 
 ---
@@ -210,11 +210,15 @@ v1과 호환한다(v1 파일은 그대로 읽힌다). 추가 항목:
 
 ## 10. 평가 GUI (`viewer` 모듈)
 
+**목적(사용자 결정, M11):** Android 기기·SDK에 접근할 수 없는 PC에서도 git에 올라온 정답 세션(`testdata/sessions/`)으로 알고리즘을 개발하고, 결과를 보고 들으며 정성 평가한다. 그래서 GUI의 모든 입력(세션, 기본 설정, HRTF)은 저장소 안 파일이고, JDK 17만 있으면 된다(SDK 없는 복제본에서 확인). 정답 세션은 RGB를 포함해 `testdata/`에 둔다(M10 세션 8개, 약 79 MB).
+
 ### 10.1 구성
 
 - 새 Gradle 모듈 `:viewer` (Kotlin/JVM). **Swing·`javax.sound.sampled`만 사용(JDK 내장, 새 의존성 없음)**. `:core`에만 의존하고 `:app`에는 의존하지 않는다.
-- 오프라인 재생(`OfflineReplay`)을 `core`의 테스트 소스에서 **main 소스(`hearspace.core.replay`)로 옮긴다**. `:core:replay` Gradle 작업은 그대로 유지한다.
-- 실행: `./gradlew :viewer:run` (세션 폴더를 열기 대화상자로 선택).
+- 오프라인 재생(`OfflineReplay`)을 `core`의 테스트 소스에서 **main 소스(`hearspace.core.replay`)로 옮겼다**(M11). 결과는 `ReplayListener`(느린 경로 결과 `SlowStep`, 오디오 블록마다 `onBlock`)로 받는다: 실행 로그 파일은 `RunLogWriter`, GUI는 메모리에 모은다. `:core:replay` Gradle 작업은 그대로다.
+- 실행: `./gradlew :viewer:run [-Psession=testdata/sessions/<세션ID>]` (생략하면 열기 대화상자). 사용법은 README §3.7.
+- 저장 위치(git 제외): 변형 `data/viewer/variants/<이름>.json`, 평가 `data/feedback/<세션ID>/<시각>.json`.
+- 정답 표시는 core `GroundTruth`·`Alignment`(`align.py`와 같은 계산)와 `TruthObstacle.nearestInCorridor`(`metrics.py` `truth_nearest`와 같은 규칙)를 쓴다.
 
 ### 10.2 화면
 
@@ -235,6 +239,7 @@ v1과 호환한다(v1 파일은 그대로 읽힌다). 추가 항목:
 ### 10.4 성능 목표
 
 - 15초 세션 재실행(재생 + 오디오 렌더) ≤ 5 s (PC). 넘으면 진행 표시와 함께 백그라운드로.
+- **M11 실측**(개발 PC): 9.4 s 세션(S02) 처음 3.0 s, 15.4 s 세션(빈 복도 190833) 처음 6.4 s · 이후 4.8~5.0 s. 소리·복셀 복사 없이 재생만 4.4 s라 **병목은 core 파이프라인(주로 군집 단계, 이 세션 깊이 프레임당 약 7.8 ms)**이다. 측정 근거 없는 최적화는 하지 않으므로(MVP §14-7) 군집 방법을 바꾸는 M13에서 다시 잰다.
 - Swing 이벤트 스레드에서 `core`를 돌리지 않는다.
 
 ## 11. 평가용 녹화 세트 (M12)

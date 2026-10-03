@@ -114,6 +114,25 @@ class TruthTest {
     }
 
     @Test
+    fun `corridor-nearest truth point follows metrics truth_nearest`() {
+        val c = hearspace.core.types.CorridorConfig(widthM = 0.8f, heightM = 2.0f, lengthM = 3.5f, behindM = 0.2f, edgeInnerM = 0.25f, edgeMinLengthM = 0.8f)
+        fun box(x0: Float, x1: Float, z0: Float, z1: Float, y0: Float = 0f) =
+            TruthObstacle("b", HeightClass.FLOOR, TruthKind.OBJECT, Vec3(x0, y0, z0), Vec3(x1, y0 + 0.5f, z1), null)
+        val ahead = box(-0.2f, 0.2f, 2.0f, 2.3f).nearestInCorridor(0f, 0f, c)!!
+        close(2.0f, ahead.alongM); close(2.0f, ahead.distanceM); close(0f, ahead.azimuthDeg)
+        // 통로(±0.4)에 걸친 상자: 통로 안 부분의 머리 쪽 끝(x 0.2)
+        val edge = box(0.2f, 0.6f, 2.0f, 2.3f).nearestInCorridor(0f, 0f, c)!!
+        close(Math.toDegrees(kotlin.math.atan2(0.2, 2.0)).toFloat(), edge.azimuthDeg, what = "az to x=0.2")
+        assertNull(box(0.5f, 0.9f, 2.0f, 2.3f).nearestInCorridor(0f, 0f, c), "outside corridor width")
+        assertNull(box(-0.2f, 0.2f, 2.0f, 2.3f, y0 = 2.0f).nearestInCorridor(0f, 0f, c), "above corridor height")
+        assertNull(box(-0.2f, 0.2f, -1f, -0.5f).nearestInCorridor(0f, 0f, c), "behind")
+        assertNull(box(-0.2f, 0.2f, 4.0f, 4.5f).nearestInCorridor(0f, 0f, c), "beyond corridor length")
+        // 머리가 상자 옆을 지나가는 중(상자 앞면이 머리 뒤 behindM 안): along은 −behindM까지
+        val passing = box(-0.2f, 0.2f, 1.0f, 2.0f).nearestInCorridor(0f, 1.5f, c)!!
+        close(-0.2f, passing.alongM, what = "along clipped at -behind")
+    }
+
+    @Test
     fun `median floor matches numpy`() {
         assertEquals(2.0, Alignment.medianFloorY(listOf(3f, null, 1f, 2f)))
         assertEquals(2.5, Alignment.medianFloorY(listOf(4f, 1f, 2f, 3f)))

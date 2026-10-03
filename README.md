@@ -298,13 +298,37 @@ adb pull /storage/emulated/0/Android/data/hearspace.app/files/sessions/<세션ID
 
 정렬·지표·보고서(`align.py`, `metrics.py`, `report.py`, `plots.py`)는 M8에서 추가된다([`tools/analysis/README.md`](tools/analysis/README.md)).
 
+### 3.7 기기 없이 개발하기 (평가 GUI, M11)
+
+Android 기기·Android SDK가 없어도 **git에 올라온 정답 세션**(`testdata/sessions/`, [목록](testdata/README.md))으로 알고리즘을 고치고 결과를 보고 들을 수 있다. 필요한 것은 **JDK 17 이상과 git**뿐이다(Python은 정밀 지표·비교표를 낼 때만, 헤드폰은 소리를 들을 때).
+
+```powershell
+git clone <저장소>; cd capstone
+./gradlew :viewer:run "-Psession=testdata/sessions/20261003_130815_S01"   # 바로 열기(생략하면 창에서 고름)
+./gradlew :core:test :viewer:test                                         # 테스트 (Android SDK 없이도 됨, :app만 SDK 필요)
+```
+
+평가 GUI(`viewer/`, Kotlin + Swing):
+
+| 영역 | 내용 |
+|---|---|
+| 영상 | RGB(센서 방향을 돌려 표시) + 깊이 겹침(빨강 가까움 ~ 파랑 4 m) + 추적 물체 상자(높이 유형 색) + **정답 상자(초록 점선)** + 음원 대표점(노랑) |
+| 위에서 본 그림 | 보행선 좌표(위 = 앞). 궤적, 점유 복셀, 통로, 추적 물체, 정답 상자, 음원 방향 선(구간 색, STOP이 가장 굵음) |
+| 타임라인 | 상태 띠, 첫 음원의 거리·방위(점)와 **정답(초록 선)**. 클릭·끌기로 이동, 스페이스로 재생/멈춤 |
+| 설정 탭 | 기본 설정에 덮어쓸 JSON(예: `{"map": {"voxelSizeM": 0.075}}`) → 재실행. 변형 저장·불러오기(`data/viewer/variants/`) |
+| 평가 탭 | 평점 5항목(1~5)과 시점 메모 → `data/feedback/<세션ID>/<시각>.json`(설정 해시 포함) |
+
+- 소리는 앱과 같은 바이노럴 렌더러로 세션 전체를 미리 만들어 재생 위치 = 세션 시각으로 맞춘다. 1배속만(느린 재생은 소리 단서가 바뀜).
+- **core 코드를 고치면 GUI를 다시 실행**한다. 설정 값만 바꿀 때는 GUI 안에서 재실행(15초 세션 약 5초, 처음 한 번은 더 걸림).
+- 화면은 그 시각까지 나온 값만 보여 준다(미래 프레임을 쓰지 않음). 아래 상태 줄에 재실행 시간과 PC 단계별 처리 시간이 나온다.
+
 ---
 
 ## 4. 개발 안내
 
 ### 4.1 작업 전에 읽을 것
 
-1. [`docs/MVP_SPEC.md`](docs/MVP_SPEC.md)의 해당 마일스톤(§13)과 관련 절
+1. [`docs/IMPROVE_SPEC.md`](docs/IMPROVE_SPEC.md)(M11~)의 해당 마일스톤(§13)과 관련 절, 거기 없는 규약은 [`docs/MVP_SPEC.md`](docs/MVP_SPEC.md)
 2. [`docs/DECISIONS.md`](docs/DECISIONS.md) — 이미 내린 결정을 다시 뒤집지 않도록
 3. 에이전트 지침과 모듈별 규칙: Claude는 [`CLAUDE.md`](CLAUDE.md)·[`.claude/rules/`](.claude/rules/), Codex는 [`AGENTS.md`](AGENTS.md) (내용 동일, §4.7)
 
@@ -318,6 +342,7 @@ adb pull /storage/emulated/0/Android/data/hearspace.app/files/sessions/<세션ID
 ├── core/src/test/kotlin/hearspace/core/   합성 장면 테스트 (synth/)
 ├── app/src/main/java/hearspace/app/       ar, runtime, ui/dev, ui/user, render
 ├── app/src/main/assets/config/default.json 설정의 유일한 원본
+├── viewer/src/main/kotlin/hearspace/viewer/ 평가 GUI (Kotlin + Swing, core만 의존, §3.7)
 ├── tools/analysis/                         Python 분석 스크립트
 ├── tools/setup/                            PC 준비·기기 확인·세션 가져오기 PowerShell 스크립트 (§3)
 ├── prototypes/<언어>/<모듈>/                (필요할 때 생성) 다른 언어 프로토타입, Kotlin core로 이식 전제 (§4.8)

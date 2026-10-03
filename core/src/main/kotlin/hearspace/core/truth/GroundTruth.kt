@@ -1,6 +1,7 @@
 package hearspace.core.truth
 
 import hearspace.core.geometry.Vec3
+import hearspace.core.types.CorridorConfig
 import hearspace.core.types.HeightClass
 import hearspace.core.types.JsonArray
 import hearspace.core.types.JsonBool
@@ -9,6 +10,8 @@ import hearspace.core.types.JsonObject
 import hearspace.core.types.JsonString
 import hearspace.core.types.MiniJson
 import java.io.File
+import kotlin.math.atan2
+import kotlin.math.hypot
 
 /** 정답 물체 종류(IMPROVE_SPEC §9.1). 구조물(벽·문 같은 큰 평면)은 물체 탐지율 분모에서 뺀다. */
 enum class TruthKind { OBJECT, STRUCTURE }
@@ -26,7 +29,26 @@ data class TruthObstacle(
     val maxM: Vec3,
     /** 이 시각(세션 시작 후 s)부터 없음(합성 SC-04). */
     val removeAtS: Float?,
-)
+) {
+    /**
+     * 정답 통로(머리 [headX], [headZ]에서 보행선 +z 방향) 안 최근접점. 통로 밖이면 null.
+     * `tools/analysis/metrics.py`의 `truth_nearest`와 같은 규칙이다(바꾸면 두 곳을 같이 바꾼다).
+     */
+    fun nearestInCorridor(headX: Float, headZ: Float, c: CorridorConfig): TruthNearest? {
+        if (minM.y >= c.heightM) return null
+        val lo = maxOf(minM.x, headX - c.widthM / 2)
+        val hi = minOf(maxM.x, headX + c.widthM / 2)
+        if (lo > hi) return null
+        val zn = maxOf(minM.z, headZ - c.behindM)
+        if (zn > maxM.z || zn - headZ > c.lengthM) return null
+        val xn = headX.coerceIn(lo, hi)
+        val along = zn - headZ
+        return TruthNearest(along, hypot(xn - headX, along), Math.toDegrees(atan2((xn - headX).toDouble(), along.toDouble())).toFloat())
+    }
+}
+
+/** 정답 통로 안 최근접점: 보행선 방향 거리, 수평 거리, 방위각(오른쪽 +). */
+data class TruthNearest(val alongM: Float, val distanceM: Float, val azimuthDeg: Float)
 
 /** 세션의 정답 파일 `annotations/obstacles.json` (docs/FORMAT.md, IMPROVE_SPEC §9.1). */
 data class GroundTruth(
