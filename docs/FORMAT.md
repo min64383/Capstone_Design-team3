@@ -29,7 +29,7 @@ F8(재생 모드)은 M7에서 확인한다.
 - **카메라 K는 세션마다 다르다**: 텍스처 fx 1483.1(9/26~9/28 오전) vs 1514.0(9/28 10시 이후, +2%). 세션마다 K를 기록하는 v1이 필요한 이유.
 - 이번 v1 녹화(폰 고정)에서는 원시 깊이도 30 Hz, 깊이 시각이 프레임보다 0.2 ms 뒤였다(이전: 원시 10 Hz, 0.3 ms 앞). 두 경우 모두 자세 선택 규칙으로 처리된다. 원시 깊이 갱신 빈도는 움직임에 따라 달라질 수 있다 — M3에서 입력 선택 시 고려.
 
-## 정답 `annotations/obstacles.json` (M8, 명세 §10.3)
+## 정답 `annotations/obstacles.json` (M8, 명세 §10.3 · v2: M11, IMPROVE_SPEC §9.1)
 
 사람이 PC에서 작성한다(합성 세션은 `SyntheticSessionWriter`가 자동 작성). 좌표는 **정답 좌표**:
 원점 = 시작 시 머리 아래 바닥(시작 표시), +z = 보행선 앞, +x = 오른쪽, +y = 위(바닥 0), 미터.
@@ -48,7 +48,12 @@ F8(재생 모드)은 M7에서 확인한다.
 - `type`: 기대 높이 분류(`FLOOR` 바닥에서 시작, `BODY`, `HEAD` 머리 높이 돌출). `min`/`max`: 축 정렬 상자.
 - `estimated: true`면 줄자 실측이 아닌 추정치. 보고서에 표시되고, 방향·거리 지표는 참고용.
 - 선택: `removeAtS`(그 시각부터 없음, 합성 SC-04).
-- 정렬은 `tools/analysis/align.py`가 궤적과 `head.offsetFromCameraM`으로 계산한다(`align.json`).
+- 정렬은 `tools/analysis/align.py`가 궤적과 `head.offsetFromCameraM`으로 계산한다(`align.json`). Kotlin `hearspace.core.truth.Alignment`도 같은 계산(평가 GUI용, M11 실제 세션 9개에서 차이 < 1e-7).
+
+**v2 추가 항목**(v1 파일도 그대로 읽힌다. 읽는 곳: Python `metrics.load_truth`, Kotlin `GroundTruth`):
+- `scene`: 장면 ID. 폴더 이름의 장면 ID보다 우선한다(M10 녹화는 폴더가 모두 `_S01`).
+- `distanceFrom`: `"start"`(기본, 시작 표시 = 머리 아래에서 잼) 또는 `"camera"`(시작 때 폰 카메라에서 잼). `"camera"`면 읽는 쪽이 `head.offsetFromCameraM`만큼 옮긴다(현재 설정이면 z + 0.39 m).
+- `kind`: `"object"`(기본) 또는 `"structure"`(벽·문 같은 큰 평면). 구조물은 물체 탐지율 분모에서 빠지고 `structureCommandFraction`(구조물을 물체처럼 경고한 비율)로 따로 잰다.
 
 ## 형식 v0 (M1 스파이크, 읽기만 지원)
 

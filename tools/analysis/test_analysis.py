@@ -8,7 +8,9 @@ from pathlib import Path
 
 import pandas as pd
 
-from metrics import compute, run_metrics
+import json
+
+from metrics import compute, load_truth, run_metrics
 from report import combine
 from sweep import plan
 
@@ -34,6 +36,8 @@ def check_run_only():
                       "nPoints": 3600, "nVoxels": 500, "nObstacles": 1, "floorY": -1.0, "mapHealth": "OK"}).to_csv(d / "slow_path.csv", index=False)
         pd.DataFrame({"tNs": [0, 30 * s, 61 * s, 100 * s], "thermalStatus": [0, 1, 2, 2], "batteryPct": 70,
                       "audioOutputLatencyMs": 50.0}).to_csv(d / "device.csv", index=False)
+        pd.DataFrame({"tCaptureNs": [1, 2, 3], "mapNs": [10_000_000, 20_000_000, 30_000_000], "clusterNs": 1_000_000,
+                      "trackNs": 0}).to_csv(d / "stage_timing.csv", index=False)
         cfg = {"repPoint": {"strategy": "CORRIDOR_NEAREST"}}
         m = run_metrics(d, cfg)
         assert m["thermalMax"] == 2 and abs(m["snapshotAgeMs"]["p50"] - 200) < 1e-6, m
@@ -44,6 +48,26 @@ def check_run_only():
         assert abs(pm[0]["slowPathHz"] - 20) < 0.5 and abs(pm[0]["slowComputeP50Ms"] - 30) < 1e-6, pm
         assert abs(pm[0]["captureToDoneP50Ms"] - 180) < 1e-6, pm
         assert m["warnFraction"] == 1.0, m
+        assert m["stageMs"]["map"]["p50"] == 20.0 and m["stageMs"]["cluster"]["p95"] == 1.0, m["stageMs"]
+
+
+def check_truth_v2():
+    """정답 v2: 카메라 기준 거리 → 머리 원점(+0.39 m), kind 기본값 object (IMPROVE_SPEC §9.1, M11)."""
+    cfg = {"head": {"offsetFromCameraM": [0.0, 0.5, -0.39]}}
+    with tempfile.TemporaryDirectory() as d:
+        ses = Path(d)
+        (ses / "annotations").mkdir()
+        (ses / "annotations/obstacles.json").write_text(json.dumps({
+            "version": 2, "distanceFrom": "camera", "obstacles": [
+                {"name": "box", "type": "FLOOR", "min": [-0.3, 0, 2.0], "max": [0.3, 0.4, 2.3]},
+                {"name": "wall", "type": "FLOOR", "kind": "structure", "min": [0.7, 0, 0], "max": [0.75, 2.4, 6]}]}), encoding="utf-8")
+        obs, est = load_truth(ses, cfg)
+        assert abs(obs[0]["min"][2] - 2.39) < 1e-9 and abs(obs[0]["max"][2] - 2.69) < 1e-9 and obs[0]["min"][0] == -0.3, obs[0]
+        assert obs[0]["kind"] == "object" and obs[1]["kind"] == "structure" and est is False, obs
+        (ses / "annotations/obstacles.json").write_text(json.dumps({"obstacles": [
+            {"name": "box", "type": "FLOOR", "min": [-0.3, 0, 2.0], "max": [0.3, 0.4, 2.3]}]}), encoding="utf-8")
+        obs, _ = load_truth(ses, cfg)
+        assert obs[0]["min"][2] == 2.0, obs  # v1(시작 표시 기준)은 그대로
 
 
 def check_group_and_plan():
@@ -81,6 +105,7 @@ def main():
     assert grip["directionErrorDeg"]["p95"] < 3.0, grip["directionErrorDeg"]
 
     check_run_only()
+    check_truth_v2()
     check_group_and_plan()
     print("analysis self-check ok")
 

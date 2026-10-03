@@ -12,6 +12,9 @@ import hearspace.core.synth.Scenes
 import hearspace.core.synth.SyntheticSessionWriter
 import hearspace.core.synth.Walk
 import hearspace.core.types.ConfigLoader
+import hearspace.core.types.GuidanceOutput
+import hearspace.core.types.ObstacleSnapshot
+import hearspace.core.types.PoseFrame
 import java.io.File
 import kotlin.math.abs
 
@@ -64,6 +67,37 @@ class OfflineReplayTest {
         for (f in listOf(RunLog.SLOW_PATH_FILE, RunLog.GUIDANCE_FILE, RunLog.OBSTACLES_FILE)) {
             assertEquals(File(a, f).readText(), File(b, f).readText(), f)
         }
+    }
+
+    @Test
+    fun `stage timing has one row per slow path result`() {
+        val run = replay("clean", variants.getValue("clean"), runName = "run_stage")
+        val slow = File(run, RunLog.SLOW_PATH_FILE).readLines().drop(1)
+        val stage = File(run, RunLog.STAGE_TIMING_FILE).readLines()
+        assertEquals(RunLog.header(RunLog.STAGE_TIMING_HEADER), stage.first())
+        assertEquals(slow.map { it.substringBefore(',') }, stage.drop(1).map { it.substringBefore(',') })
+        assertTrue(stage.drop(1).all { r -> r.split(',').drop(1).all { it.toLong() >= 0 } })
+    }
+
+    @Test
+    fun `memory listener sees the same blocks and slow steps as the log files`() {
+        val spec = variants.getValue("clean")
+        val run = replay("clean", spec, runName = "run_listener")
+        val blocks = ArrayList<Long>()
+        val steps = ArrayList<SlowStep>()
+        val listener = object : ReplayListener {
+            override val captureVoxels = true
+            override fun onSlowStep(step: SlowStep) { steps += step }
+            override fun onBlock(tNs: Long, pose: PoseFrame, snapshot: ObstacleSnapshot?, g: GuidanceOutput) { blocks += tNs }
+        }
+        val overrides = overridesFor(spec)
+        OfflineReplay(ConfigLoader.load(base, overrides), OfflineReplay.fixed(10f)).run(File(root, "clean/session"), listener)
+        val logBlocks = guidance(run).map { it[0].toLong() }.distinct()
+        assertEquals(logBlocks, blocks)
+        assertEquals(File(run, RunLog.SLOW_PATH_FILE).readLines().size - 1, steps.size)
+        assertTrue(steps.zipWithNext().all { (a, b) -> a.doneNs <= b.doneNs }, "slow steps in time order")
+        assertTrue(steps.all { it.occupiedVoxels != null && it.doneNs > it.startNs })
+        assertTrue(steps.any { it.occupiedVoxels!!.isNotEmpty() })
     }
 
     @Test
