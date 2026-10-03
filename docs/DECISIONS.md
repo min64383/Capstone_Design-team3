@@ -124,3 +124,7 @@
 - 2026-10-03 · M10 · M10 완료(MVP 구현 끝). `default.json`은 바꾸지 않고, 조정안 후보(복셀 0.075, 바닥 허용치 0.04, 정보 나이 허용치 400 ms)와 10분 지속 미달(발열)은 M11 이후 성능 개선 마일스톤에서 다룬다 — 사용자 결정. MVP 명세(v0.2.12)는 M0~M10 기록으로 동결하고 M11부터 새 명세를 쓴다
 - 2026-10-03 · M11 · 성능 개선 명세 `docs/IMPROVE_SPEC.md` v0.1 초안: 목표는 녹화 세션 오프라인 재생에서 여러 물체의 정확한 공간 음향. 오프라인 정확도 우선(기기 실시간은 측정·보고만), 평가 GUI는 Kotlin + Swing(JDK 내장, 새 의존성 없음), 동시 음원은 개수 제한 없이 실험, MVP 명세는 동결 — 사용자 결정
 - 2026-10-03 · chore · 프로젝트명을 WalkAssist에서 HEARSPACE로 변경 — 사용자 결정. 표시 이름·로그 태그(`adb logcat -s HEARSPACE`)·문서는 `HEARSPACE`, 식별자는 `hearspace`(Kotlin 패키지, `applicationId`/`namespace` `hearspace.app`, Gradle 프로젝트, `hearspace.*` 시스템 속성). `applicationId`가 바뀌어 기기에는 새 앱으로 설치되고, 이전 앱(`walkassist.app`)과 그 녹화 폴더(`Android/data/walkassist.app/`)는 지우기 전까지 남는다. `references/` PDF는 손대지 않음
+- 2026-10-03 · M11 · 오프라인 재생을 core main(`hearspace.core.replay`)으로 옮기고 결과를 `ReplayListener`로 낸다(실행 로그 파일 `RunLogWriter` / 평가 GUI 메모리 수집). 이동 전후 M10 세션 9개의 실행 로그 36개 파일이 바이트 단위로 같고 지표 225개 항목이 같음
+- 2026-10-03 · M11 · 느린 경로 단계별 처리 시간(맵·군집·추적)을 주입 시계로 재고 `stage_timing.csv`에 따로 쓴다(실제 시계라 실행마다 달라 기존 로그의 재현성을 지키려고 분리). 앱은 이번에 기록하지 않음. PC 중앙값: 맵 약 1.4 ms, 군집 2.4~7.8 ms, 추적 0.03 ms
+- 2026-10-03 · M11 · 정답 v2(`scene`, `distanceFrom`, `kind`)를 Python `load_truth`·Kotlin `GroundTruth`가 읽는다. 정렬(`align.py`)을 Kotlin `Alignment`로 옮김(실제 세션 9개에서 차이 < 1e-7, 평가 GUI용)
+- 2026-10-03 · M11 · 기기 없는 PC 개발용으로 M10 정답 세션 8개(S02 3·S03 3·S07 2)를 RGB 포함 경량본으로 `testdata/`에 올림(약 79 MB) — 사용자 결정. 빈 복도 190833에 정답 파일 추가. 경량본 재생 결과가 원본 세션과 같음을 확인. Android SDK 없는 복제본에서도 `:core:test` 통과(`:app`만 실패)

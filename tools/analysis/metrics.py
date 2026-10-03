@@ -29,12 +29,26 @@ def p(v, q):
     return float(np.percentile(v, q)) if v.size else None
 
 
-def load_truth(session: Path):
+def load_truth(session: Path, cfg: dict):
+    """정답 v1·v2 (IMPROVE_SPEC §9.1). `distanceFrom: camera`면 머리 원점으로 옮긴다(Kotlin `GroundTruth`와 같은 계산):
+    머리 = 카메라 + 오프셋(진행 방향 기준)이라 정답 좌표에서 카메라는 (−ox, ·, −oz). `kind` 없으면 object."""
     f = session / "annotations/obstacles.json"
     if not f.is_file():
         return None, None
     j = json.loads(f.read_text(encoding="utf-8"))
-    return j["obstacles"], bool(j.get("estimated", False))
+    frm = j.get("distanceFrom", "start")
+    if frm not in ("start", "camera"):
+        raise ValueError(f"distanceFrom must be start or camera, got {frm}")
+    ox, _, oz = cfg["head"]["offsetFromCameraM"]
+    sx, sz = (-ox, -oz) if frm == "camera" else (0.0, 0.0)
+    obs = []
+    for o in j["obstacles"]:
+        o = dict(o)
+        o["min"] = [o["min"][0] + sx, o["min"][1], o["min"][2] + sz]
+        o["max"] = [o["max"][0] + sx, o["max"][1], o["max"][2] + sz]
+        o.setdefault("kind", "object")
+        obs.append(o)
+    return obs, bool(j.get("estimated", False))
 
 
 def scene_of(session: Path) -> str:
@@ -97,6 +111,9 @@ def run_metrics(run_dir: Path, cfg: dict) -> dict:
         out["thermalMax"] = int(dev.thermalStatus.max()) if len(dev) else None
     if out["durationS"] >= 60:
         out["perMinute"] = per_minute(blocks, sp, dev)
+    if (run_dir / "stage_timing.csv").is_file():  # 실제 시계로 잰 단계별 처리 시간(M11). 기기 값이 아니면 PC 값
+        st = pd.read_csv(run_dir / "stage_timing.csv")
+        out["stageMs"] = {k: {"p50": p(st[f"{k}Ns"] / 1e6, 50), "p95": p(st[f"{k}Ns"] / 1e6, 95)} for k in ("map", "cluster", "track")}
     return out
 
 
@@ -145,7 +162,7 @@ def compute(session: Path, run_dir: Path) -> dict:
     out["latencyMs"] = {"a0_arcore_p50": p(a0, 50), "a_pipeline_p50": p(pipe.dropna(), 50), "a_pipeline_p95": p(pipe.dropna(), 95),
                         **out.get("latencyMs", {})}
 
-    truth, estimated = load_truth(session)
+    truth, estimated = load_truth(session, cfg)
     if truth is None:
         out["truth"] = None
         return out
@@ -241,15 +258,17 @@ def compute(session: Path, run_dir: Path) -> dict:
                 diffs.extend(np.diff(a))
         return float(np.std(diffs)) if diffs else None
 
-    types = sorted({ob["type"] for ob in truth})
+    objects = {i for i, ob in enumerate(truth) if ob["kind"] == "object"}  # 구조물은 탐지율 분모에서 뺀다(IMPROVE_SPEC §9.1)
+    types = sorted({truth[i]["type"] for i in objects})
     entered = set(first_truth_warn)
+    n_struct = sum(1 for r in rows if r["match"] is not None and r["match"] not in objects and r["band"] in ("WARN", "STOP"))
     out.update({
         "directionErrorDeg": {"p50": p(dir_err, 50), "p95": p(dir_err, 95), "n": len(dir_err)},
         "overestimate1p5to2p5": {"p95": p(over, 95), "n": len(over)},
         "bandAgreement": band_ok / band_n if band_n else None,
         "detectionRateByType": {
-            t: (sum(1 for i in entered if truth[i]["type"] == t and i in first_est_warn) /
-                max(1, sum(1 for i in entered if truth[i]["type"] == t)))
+            t: (sum(1 for i in entered & objects if truth[i]["type"] == t and i in first_est_warn) /
+                max(1, sum(1 for i in entered & objects if truth[i]["type"] == t)))
             for t in types
         },
         "headClassAccuracy": (sum(head_cls) / len(head_cls)) if head_cls else None,
@@ -260,6 +279,7 @@ def compute(session: Path, run_dir: Path) -> dict:
         "missedStop": len(stop_needed - stop_seen),
         "sourceJitterDegStd": jitter_std(),
         "falseAlarmFraction": fa / n_cmd if n_cmd else None,
+        "structureCommandFraction": n_struct / n_cmd if n_cmd else None,  # 구조물을 물체처럼 경고한 비율
         "selectedTruth": {truth[i]["name"]: sum(1 for r in rows if r["match"] == i and r["band"] in ("WARN", "STOP")) for i in range(len(truth))},
     })
     return out

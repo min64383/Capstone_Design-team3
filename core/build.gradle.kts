@@ -41,7 +41,7 @@ tasks.test {
 tasks.register<JavaExec>("replay") {
     group = "hearspace"
     description = "녹화 세션을 PC에서 오프라인 재생해 실행 로그(§10.1)를 쓴다"
-    classpath = sourceSets["test"].runtimeClasspath
+    classpath = sourceSets["main"].runtimeClasspath
     mainClass.set("hearspace.core.replay.OfflineReplayMainKt")
     systemProperty("hearspace.defaultConfig", rootProject.file("app/src/main/assets/config/default.json").absolutePath)
     systemProperty("hearspace.replayOut", layout.buildDirectory.dir("replay").get().asFile.absolutePath)

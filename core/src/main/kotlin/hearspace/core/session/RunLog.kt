@@ -3,6 +3,7 @@ package hearspace.core.session
 import hearspace.core.mapping.MapUpdate
 import hearspace.core.pipeline.ClusterDebug
 import hearspace.core.pipeline.ClusterDebugCsv
+import hearspace.core.pipeline.StageTimes
 import hearspace.core.types.GuidanceOutput
 import hearspace.core.types.ObstacleSnapshot
 import hearspace.core.types.RepStrategy
@@ -18,6 +19,14 @@ object RunLog {
 
     /** 군집 통계(오인식 분석용, 명세 §10.1 추가 로그, v0.2.10). 형식은 [ClusterDebugCsv]. */
     const val CLUSTER_DEBUG_FILE = "cluster_debug.csv"
+
+    /**
+     * 느린 경로 단계별 처리 시간(실제 시계, IMPROVE_SPEC §3-3, M11). 실행마다 달라지므로 다른 로그와 파일을 나눠
+     * "같은 입력이면 같은 출력"인 로그를 지킨다.
+     */
+    const val STAGE_TIMING_FILE = "stage_timing.csv"
+
+    val STAGE_TIMING_HEADER = listOf("tCaptureNs", "mapNs", "clusterNs", "trackNs")
 
     val SLOW_PATH_HEADER = listOf("tCaptureNs", "tStartNs", "tDoneNs", "nPoints", "nVoxels", "nObstacles", "floorY", "mapHealth")
 
@@ -54,6 +63,9 @@ object RunLog {
                 listOf(o.aabbMinW.x, o.aabbMinW.y, o.aabbMinW.z, o.aabbMaxW.x, o.aabbMaxW.y, o.aabbMaxW.z)).toTypedArray(),
         )
     }
+
+    /** 느린 경로 한 번의 단계별 처리 시간 → `stage_timing.csv` 한 줄. */
+    fun stageTimingLine(tCaptureNs: Long, s: StageTimes): String = row(tCaptureNs, s.mapNs, s.clusterNs, s.trackNs)
 
     /** 느린 경로 한 번의 군집 통계 → `cluster_debug.csv` 줄. */
     fun clusterDebugLines(items: List<ClusterDebug>): List<String> = items.map(ClusterDebugCsv::row)

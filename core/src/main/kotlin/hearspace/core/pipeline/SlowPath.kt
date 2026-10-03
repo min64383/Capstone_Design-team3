@@ -25,7 +25,11 @@ import hearspace.core.types.ObstacleSnapshot
  * 통로·삭제 기준 위치는 **머리**(깊이 촬영 시 카메라 + `head.offsetFromCameraM`, v0.2.8): 폰을 몸 옆에 들어도
  * 통로가 몸의 진행선에 놓이고 안내(머리 기준 방위각·거리)와 같은 기준이 된다.
  */
-class SlowPath(private val config: Config) {
+class SlowPath(
+    private val config: Config,
+    /** 단계별 처리 시간을 재는 시계(ns). 실행 결과에는 영향이 없고 [lastStageNs]에만 쓴다. */
+    private val nanoTime: () -> Long = System::nanoTime,
+) {
 
     /** 바닥·복셀 맵. */
     val map = LocalMap(config)
@@ -40,15 +44,23 @@ class SlowPath(private val config: Config) {
     var lastClusterDebug: List<ClusterDebug> = emptyList()
         private set
 
+    /** 마지막 [process]의 단계별 처리 시간(이 기기·PC의 실측, IMPROVE_SPEC §3-3). */
+    var lastStageNs: StageTimes = StageTimes(0, 0, 0)
+        private set
+
     /** 깊이 한 장을 처리해 스냅샷을 만든다. */
     fun process(depth: DepthFrame, headingW: Vec3): ObstacleSnapshot {
+        val t0 = nanoTime()
         val userPosW = HeadPose.fromCamera(depth.worldFromCam.translation(), headingW, config.head.offsetFromCameraM).positionW
         val u = map.update(depth, userPosW, headingW)
         lastMapUpdate = u
+        val t1 = nanoTime()
         val floorY = u.floorY
         if (floorY == null) {
             lastClusterDebug = emptyList()
-            return ObstacleSnapshot(depth.tCaptureNs, tracker.update(emptyList()), null, u.mapHealth)
+            val obstacles = tracker.update(emptyList())
+            lastStageNs = StageTimes(t1 - t0, 0, nanoTime() - t1)
+            return ObstacleSnapshot(depth.tCaptureNs, obstacles, null, u.mapHealth)
         }
 
         val corridor = Corridor(userPosW, headingW, floorY, config.corridor)
@@ -114,7 +126,10 @@ class SlowPath(private val config: Config) {
             }
         }
         lastClusterDebug = debug
-        return ObstacleSnapshot(depth.tCaptureNs, tracker.update(detections), floorY, u.mapHealth)
+        val t2 = nanoTime()
+        val obstacles = tracker.update(detections)
+        lastStageNs = StageTimes(t1 - t0, t2 - t1, nanoTime() - t2)
+        return ObstacleSnapshot(depth.tCaptureNs, obstacles, floorY, u.mapHealth)
     }
 
     /**
@@ -150,3 +165,6 @@ class SlowPath(private val config: Config) {
         tracker.reset()
     }
 }
+
+/** 느린 경로 단계별 처리 시간(ns): 맵 갱신(역투영·바닥·복셀), 군집(통로·구조물 제외·군집·대표점), 추적. */
+data class StageTimes(val mapNs: Long, val clusterNs: Long, val trackNs: Long)
