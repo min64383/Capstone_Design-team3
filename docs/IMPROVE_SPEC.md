@@ -225,7 +225,7 @@ v1과 호환한다(v1 파일은 그대로 읽힌다). 추가 항목:
 
 - 새 Gradle 모듈 `:viewer` (Kotlin/JVM). **Swing·`javax.sound.sampled`만 사용(JDK 내장, 새 의존성 없음)**. `:core`에만 의존하고 `:app`에는 의존하지 않는다.
 - 오프라인 재생(`OfflineReplay`)을 `core`의 테스트 소스에서 **main 소스(`hearspace.core.replay`)로 옮겼다**(M11). 결과는 `ReplayListener`(느린 경로 결과 `SlowStep`, 오디오 블록마다 `onBlock`)로 받는다: 실행 로그 파일은 `RunLogWriter`, GUI는 메모리에 모은다. `:core:replay` Gradle 작업은 그대로다.
-- 실행: `./gradlew :viewer:run [-Psession=testdata/sessions/<세션ID>]` (생략하면 열기 대화상자). 사용법은 README §3.7.
+- 실행: `./gradlew :viewer:run [-Psession=<세션 ID | ID 일부 | 저장소 기준 상대경로>]` (생략하면 세션 목록 창). 세션은 `testdata/sessions` → `data/sessions` 순으로 찾고, 화면·평가 파일에는 저장소 기준 상대경로를 쓴다. 사용법은 README §3.7.
 - 저장 위치(git 제외): 변형 `data/viewer/variants/<이름>.json`, 평가 `data/feedback/<세션ID>/<시각>.json`.
 - 정답 표시는 core `GroundTruth`·`Alignment`(`align.py`와 같은 계산)와 `TruthObstacle.nearestInCorridor`(`metrics.py` `truth_nearest`와 같은 규칙)를 쓴다.
 
