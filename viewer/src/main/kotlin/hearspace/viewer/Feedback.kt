@@ -29,6 +29,8 @@ data class Note(val tS: Double, val text: String)
  */
 data class Feedback(
     val sessionId: String,
+    /** 저장소 기준 상대경로(`testdata/sessions/<ID>`). 같은 ID가 testdata와 data 양쪽에 있을 수 있어 함께 남긴다. */
+    val sessionPath: String,
     val scene: String,
     val variant: String,
     val overridesJson: String,
@@ -45,6 +47,7 @@ data class Feedback(
             linkedMapOf(
                 "version" to JsonNumber(1.0),
                 "session" to JsonString(sessionId),
+                "sessionPath" to JsonString(sessionPath),
                 "scene" to JsonString(scene),
                 "variant" to JsonString(variant),
                 "configHash" to JsonString(configHash(overridesJson)),
@@ -76,6 +79,7 @@ data class Feedback(
             fun str(k: String) = (f[k] as JsonString).value
             return Feedback(
                 sessionId = str("session"),
+                sessionPath = (f["sessionPath"] as? JsonString)?.value ?: str("session"),
                 scene = str("scene"),
                 variant = str("variant"),
                 overridesJson = MiniJson.write(f["overrides"]!!, pretty = false),

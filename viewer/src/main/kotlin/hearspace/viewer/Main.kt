@@ -15,7 +15,6 @@ import javax.swing.JButton
 import javax.swing.JCheckBox
 import javax.swing.JComboBox
 import javax.swing.JComponent
-import javax.swing.JFileChooser
 import javax.swing.JFrame
 import javax.swing.JLabel
 import javax.swing.JList
@@ -30,9 +29,9 @@ import javax.swing.SwingUtilities
 import javax.swing.SwingWorker
 import javax.swing.Timer
 
-/** `./gradlew :viewer:run [-Psession=testdata/sessions/<세션ID>]` (IMPROVE_SPEC §10). */
+/** `./gradlew :viewer:run [-Psession=<세션 ID 또는 저장소 기준 경로>]` (IMPROVE_SPEC §10). */
 fun main(args: Array<String>) {
-    SwingUtilities.invokeLater { MainWindow(args.firstOrNull()?.let(::File)).isVisible = true }
+    SwingUtilities.invokeLater { MainWindow(args.firstOrNull()).isVisible = true }
 }
 
 /**
@@ -40,7 +39,7 @@ fun main(args: Array<String>) {
  * 소리를 같은 시각으로 맞춰 보여 준다. 설정 덮어쓰기를 바꿔 다시 돌리고, 평가(평점·시점 메모)를 저장한다.
  * core 실행은 Swing 이벤트 스레드 밖에서만 한다(IMPROVE_SPEC §15-1).
  */
-class MainWindow(initial: File?) : JFrame("HEARSPACE 평가 GUI") {
+class MainWindow(initialSession: String?) : JFrame("HEARSPACE 평가 GUI") {
     private val vm = ViewerModel()
     private val player = AudioPlayer()
     private val hrtf = ReplayRunner.loadHrtf()
@@ -88,7 +87,12 @@ class MainWindow(initial: File?) : JFrame("HEARSPACE 평가 GUI") {
         setSize(minOf(1500, screen.width), minOf(920, screen.height))
         setLocationRelativeTo(null)
         refreshVariants()
-        initial?.let { open(it) }
+        // 명령줄 값: 세션 ID(일부도 하나에만 맞으면), testdata/sessions 기준 상대경로, 저장소 기준 경로
+        initialSession?.let { arg ->
+            runCatching { Sessions.resolve(arg) }
+                .onSuccess { open(it) }
+                .onFailure { status.text = "${it.message} — [세션 열기]에서 고르세요" }
+        }
     }
 
     private fun configPanel(): JComponent = JPanel(BorderLayout(4, 4)).apply {
@@ -120,13 +124,12 @@ class MainWindow(initial: File?) : JFrame("HEARSPACE 평가 GUI") {
     }
 
     private fun chooseSession() {
-        val ch = JFileChooser(session?.parentFile ?: Repo.sessions).apply { fileSelectionMode = JFileChooser.DIRECTORIES_ONLY }
-        if (ch.showOpenDialog(this) == JFileChooser.APPROVE_OPTION) open(ch.selectedFile)
+        Sessions.choose(this, session)?.let { open(it) }
     }
 
     private fun open(dir: File) {
         session = dir
-        title = "HEARSPACE 평가 GUI — ${dir.name}"
+        title = "HEARSPACE 평가 GUI — ${Repo.relative(dir)}"
         rerun()
     }
 
@@ -140,7 +143,7 @@ class MainWindow(initial: File?) : JFrame("HEARSPACE 평가 GUI") {
         player.pause()
         timer.stop()
         rerunButton.isEnabled = false
-        status.text = "재실행 중… ${dir.name}"
+        status.text = "재실행 중… ${Repo.relative(dir)}"
         object : SwingWorker<ReplayResult, Unit>() {
             override fun doInBackground() = ReplayRunner.run(dir, text, hrtf, exportDir)
             override fun done() {
@@ -162,7 +165,7 @@ class MainWindow(initial: File?) : JFrame("HEARSPACE 평가 GUI") {
         fun med(f: (hearspace.core.pipeline.StageTimes) -> Long) = r.slow.map { f(it.stageNs) }.sorted().let { if (it.isEmpty()) 0.0 else it[it.size / 2] / 1e6 }
         val truth = r.truth?.let { "정답 ${it.obstacles.size}개${if (it.estimated) "(추정)" else ""}" } ?: "정답 없음"
         return "재실행 %.2f s · %s · 장면 %s · %.1f s · 블록 %d · 느린 경로 %d회(PC 중앙값 맵 %.1f · 군집 %.1f · 추적 %.2f ms) · %s · 설정 %s"
-            .format(r.elapsedMs / 1000.0, r.sessionId, r.scene, r.durationS, r.blocks.size, r.slow.size,
+            .format(r.elapsedMs / 1000.0, Repo.relative(r.session), r.scene, r.durationS, r.blocks.size, r.slow.size,
                 med { it.mapNs }, med { it.clusterNs }, med { it.trackNs }, truth, Feedback.configHash(r.overridesJson))
     }
 
@@ -237,6 +240,7 @@ class MainWindow(initial: File?) : JFrame("HEARSPACE 평가 GUI") {
         val r = vm.result ?: return
         val fb = Feedback(
             sessionId = r.sessionId,
+            sessionPath = Repo.relative(r.session),
             scene = r.scene,
             variant = variantName.text.trim(),
             overridesJson = r.overridesJson, // 실제로 들은 결과의 설정(편집 중인 글이 아님)
