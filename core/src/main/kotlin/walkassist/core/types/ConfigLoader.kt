@@ -90,8 +90,28 @@ object ConfigLoader {
                     bodyMinM = positive("bodyMinM"),
                 )
             },
+            falsePositive = root.section("falsePositive") {
+                FalsePositiveConfig(
+                    enabled = bool("enabled"),
+                    minVoxels = atLeast1("minVoxels"),
+                    minLateralSpanM = positive("minLateralSpanM"),
+                    minAlongSpanM = positive("minAlongSpanM"),
+                    minAlongMinM = nonNegative("minAlongMinM"),
+                    minHeightSpanM = positive("minHeightSpanM"),
+                    maxHeightMinM = nonNegative("maxHeightMinM"),
+                    minHeightMaxM = positive("minHeightMaxM"),
+                )
+            },
             track = root.section("track") {
-                TrackConfig(matchRadiusM = positive("matchRadiusM"), emaAlpha = unit("emaAlpha"))
+                TrackConfig(
+                    matchRadiusM = positive("matchRadiusM"),
+                    emaAlpha = unit("emaAlpha"),
+                    minConfirmObservations = atLeast1("minConfirmObservations"),
+                    suspiciousConfirmObservations = atLeast1("suspiciousConfirmObservations"),
+                    maxMissedUpdates = atLeast1("maxMissedUpdates"),
+                    minConfirmConfidence = unit("minConfirmConfidence"),
+                    maxConfirmCentroidJumpM = positive("maxConfirmCentroidJumpM"),
+                )
             },
             repPoint = root.section("repPoint") { RepPointConfig(strategy = enumValue<RepStrategy>("strategy")) },
             policy = root.section("policy") {
@@ -164,6 +184,12 @@ object ConfigLoader {
         if (c.cluster.bodyMinM >= c.cluster.headMinM) {
             throw ConfigException("cluster", "must satisfy bodyMinM < headMinM")
         }
+        if (c.track.suspiciousConfirmObservations < c.track.minConfirmObservations) {
+            throw ConfigException("track", "suspiciousConfirmObservations must be >= minConfirmObservations")
+        }
+        if (c.track.maxConfirmCentroidJumpM > c.track.matchRadiusM) {
+            throw ConfigException("track", "maxConfirmCentroidJumpM must be <= matchRadiusM")
+        }
         if (c.audio.beepOnMs >= c.audio.nearPeriodMs) {
             throw ConfigException(
                 "audio",
@@ -206,6 +232,11 @@ object ConfigLoader {
         private fun number(key: String): Double {
             val v = raw(key) as? JsonNumber ?: throw ConfigException(path(key), "must be a number")
             if (!v.value.isFinite()) throw ConfigException(path(key), "must be finite")
+            return v.value
+        }
+
+        fun bool(key: String): Boolean {
+            val v = raw(key) as? JsonBool ?: throw ConfigException(path(key), "must be a boolean")
             return v.value
         }
 

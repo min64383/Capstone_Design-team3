@@ -15,17 +15,25 @@ data class Detection(
     val inCorridor: Boolean,
     val confidence: Float,
     val lastSeenNs: Long,
+    /** 큰 depth-sheet 형태 등 오인식 가능성이 높은 군집. 삭제하지 않고 더 오래 확인한다. */
+    val suspicious: Boolean = false,
 )
 
 /**
- * 물체 추적 (§7.4). 이전 물체와 이번 군집을 **중심점(CENTROID)** 거리 최근접으로 짝짓는다(`track.matchRadiusM`, 탐욕적).
- * 중심점을 쓰는 이유: CORRIDOR_NEAREST는 물체가 통로에 들어오는 순간 튈 수 있어 id가 끊긴다(DECISIONS 2026-09-29).
- * 대표점 3개는 모두 지수 이동 평균(`track.emaAlpha` = 새 값 비중)으로 평활한다(과거 값만 사용).
- * 짝이 없는 이전 물체는 지운다: 군집이 사라졌다는 것은 복셀이 §7.3 규칙으로 지워졌다는 뜻이다.
+ * 물체 추적. 중심점(CENTROID) 거리 최근접 매칭과 EMA는 기존 동작을 유지한다.
+ * 다만 새 군집을 즉시 출력하지 않고 시간적으로 안정된 관측이 반복된 뒤에만 confirmed 상태로 만든다.
+ * confirmed 물체를 잠깐 놓치면 ID만 보존하고(최대 maxMissedUpdates), 누락 중에는 오래된 위치를 출력하지 않는다.
  */
 class Tracker(private val cfg: TrackConfig, private val strategy: RepStrategy) {
 
-    private class Track(val id: Int, var reps: Map<RepStrategy, Vec3>, var nObservations: Int)
+    private class Track(
+        val id: Int,
+        var reps: Map<RepStrategy, Vec3>,
+        var nObservations: Int,
+        var consecutiveObservations: Int,
+        var missedUpdates: Int,
+        var confirmed: Boolean,
+    )
 
     private var tracks = listOf<Track>()
     private var nextId = 1
@@ -49,33 +57,68 @@ class Tracker(private val cfg: TrackConfig, private val strategy: RepStrategy) {
         val next = ArrayList<Track>()
         val out = ArrayList<Obstacle>()
         for ((di, d) in detections.withIndex()) {
-            val track = if (trackOf[di] >= 0) {
-                tracks[trackOf[di]].also { t ->
-                    t.reps = t.reps.mapValues { (s, old) -> old + (d.repCandidatesW.getValue(s) - old) * cfg.emaAlpha }
+            val oldIndex = trackOf[di]
+            val track = if (oldIndex >= 0) {
+                tracks[oldIndex].also { t ->
+                    val previousCenter = t.reps.getValue(RepStrategy.CENTROID)
+                    val newCenter = d.repCandidatesW.getValue(RepStrategy.CENTROID)
+                    val stable = d.confidence >= cfg.minConfirmConfidence &&
+                        (newCenter - previousCenter).norm() <= cfg.maxConfirmCentroidJumpM
+
+                    t.reps = t.reps.mapValues { (s, old) ->
+                        old + (d.repCandidatesW.getValue(s) - old) * cfg.emaAlpha
+                    }
                     t.nObservations++
+                    t.missedUpdates = 0
+                    if (!t.confirmed) {
+                        t.consecutiveObservations = if (stable) t.consecutiveObservations + 1 else 1
+                    }
                 }
             } else {
-                Track(nextId++, d.repCandidatesW, 1)
+                val stableFirst = d.confidence >= cfg.minConfirmConfidence
+                Track(
+                    id = nextId++,
+                    reps = d.repCandidatesW,
+                    nObservations = 1,
+                    consecutiveObservations = if (stableFirst) 1 else 0,
+                    missedUpdates = 0,
+                    confirmed = false,
+                )
             }
+
+            val required = if (d.suspicious) cfg.suspiciousConfirmObservations else cfg.minConfirmObservations
+            if (!track.confirmed && track.consecutiveObservations >= required) track.confirmed = true
             next += track
-            out += Obstacle(
-                id = track.id,
-                repPointW = track.reps.getValue(strategy),
-                repCandidatesW = track.reps,
-                aabbMinW = d.aabbMinW,
-                aabbMaxW = d.aabbMaxW,
-                heightClass = d.heightClass,
-                inCorridor = d.inCorridor,
-                confidence = d.confidence,
-                lastSeenNs = d.lastSeenNs,
-                nObservations = track.nObservations,
-            )
+
+            if (track.confirmed) {
+                out += Obstacle(
+                    id = track.id,
+                    repPointW = track.reps.getValue(strategy),
+                    repCandidatesW = track.reps,
+                    aabbMinW = d.aabbMinW,
+                    aabbMaxW = d.aabbMaxW,
+                    heightClass = d.heightClass,
+                    inCorridor = d.inCorridor,
+                    confidence = d.confidence,
+                    lastSeenNs = d.lastSeenNs,
+                    nObservations = track.nObservations,
+                )
+            }
         }
+
+        // 이번 깊이에서 놓친 기존 물체는 ID만 잠시 보존한다. 오래된 좌표는 출력하지 않는다.
+        for ((ti, old) in tracks.withIndex()) {
+            if (usedTrack[ti]) continue
+            old.missedUpdates++
+            old.consecutiveObservations = 0
+            if (old.missedUpdates <= cfg.maxMissedUpdates) next += old
+        }
+
         tracks = next
         return out
     }
 
-    /** 모든 물체를 잊는다(자세 불연속, §7.5). id는 계속 증가한다. */
+    /** 모든 물체를 잊는다(자세 불연속). id는 계속 증가한다. */
     fun reset() {
         tracks = emptyList()
     }

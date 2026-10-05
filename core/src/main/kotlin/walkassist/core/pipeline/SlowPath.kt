@@ -51,14 +51,27 @@ class SlowPath(private val config: Config) {
         val half = config.map.voxelSizeM / 2
         val detections = Cluster.dbscanXZ(centers, config.cluster.epsM, config.cluster.minSamples).map { idx ->
             val pts = idx.map { centers[it] }
+            val heights = pts.map { it.y - floorY }
+            val along = pts.map { corridor.alongM(it) }
+            val lateral = pts.map { corridor.lateralM(it) }
+            val fp = config.falsePositive
+            val suspicious = fp.enabled &&
+                idx.size >= fp.minVoxels &&
+                lateral.max() - lateral.min() >= fp.minLateralSpanM &&
+                along.max() - along.min() >= fp.minAlongSpanM &&
+                along.min() >= fp.minAlongMinM &&
+                heights.max() - heights.min() >= fp.minHeightSpanM &&
+                heights.min() <= fp.maxHeightMinM &&
+                heights.max() >= fp.minHeightMaxM
             Detection(
                 repCandidatesW = RepPoint.candidates(pts, corridor, config.map.voxelSizeM),
                 aabbMinW = Vec3(pts.minOf { it.x } - half, pts.minOf { it.y } - half, pts.minOf { it.z } - half),
                 aabbMaxW = Vec3(pts.maxOf { it.x } + half, pts.maxOf { it.y } + half, pts.maxOf { it.z } + half),
-                heightClass = HeightClassifier.classify(pts.map { it.y - floorY }, config.cluster)!!, // 군집 = 통로 안 부분
+                heightClass = HeightClassifier.classify(heights, config.cluster)!!, // 군집 = 통로 안 부분
                 inCorridor = true,
                 confidence = idx.map { voxels[it].score }.average().toFloat(),
                 lastSeenNs = idx.maxOf { voxels[it].lastSeenNs },
+                suspicious = suspicious,
             )
         }
         return ObstacleSnapshot(depth.tCaptureNs, tracker.update(detections), floorY, u.mapHealth)

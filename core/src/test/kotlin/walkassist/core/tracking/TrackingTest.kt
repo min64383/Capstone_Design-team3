@@ -149,29 +149,71 @@ class ClusterTest {
 class TrackerUnitTest {
     private val cfg = ConfigLoader.load(File(System.getProperty("walkassist.defaultConfig")).readText())
 
-    private fun det(p: Vec3) = Detection(
-        RepStrategy.entries.associateWith { p }, p, p, HeightClass.BODY, true, 1f, 0L,
+    private fun det(p: Vec3, confidence: Float = 1f, suspicious: Boolean = false) = Detection(
+        RepStrategy.entries.associateWith { p }, p, p, HeightClass.BODY, true, confidence, 0L, suspicious,
     )
 
-    @Test
-    fun `matching keeps ids, new detections get new ids, missing tracks are dropped`() {
-        val t = Tracker(cfg.track, RepStrategy.CORRIDOR_NEAREST)
-        val first = t.update(listOf(det(Vec3(0f, 0f, -2f)), det(Vec3(1f, 0f, -2f))))
-        val second = t.update(listOf(det(Vec3(1.1f, 0f, -2f)), det(Vec3(0.05f, 0f, -2f)), det(Vec3(3f, 0f, 0f))))
-        assertEquals(first[0].id, second[1].id)
-        assertEquals(first[1].id, second[0].id)
-        assertTrue(second[2].id !in first.map { it.id })
-        val third = t.update(listOf(det(Vec3(3f, 0f, 0f))))
-        assertEquals(listOf(second[2].id), third.map { it.id })
+    private fun confirmed(t: Tracker, p: Vec3, suspicious: Boolean = false): Obstacle {
+        var out = emptyList<Obstacle>()
+        val n = if (suspicious) cfg.track.suspiciousConfirmObservations else cfg.track.minConfirmObservations
+        repeat(n) { out = t.update(listOf(det(p, suspicious = suspicious))) }
+        return out.single()
     }
 
     @Test
-    fun `rep points are smoothed with emaAlpha`() {
+    fun `new detections are confirmed only after consecutive stable observations`() {
         val t = Tracker(cfg.track, RepStrategy.CENTROID)
-        t.update(listOf(det(Vec3(0f, 0f, 0f))))
+        assertTrue(t.update(listOf(det(Vec3(0f, 0f, 0f)))).isEmpty())
+        assertTrue(t.update(listOf(det(Vec3(0.02f, 0f, 0f)))).isEmpty())
+        val out = t.update(listOf(det(Vec3(0.03f, 0f, 0f))))
+        assertEquals(1, out.size)
+        assertEquals(3, out.single().nObservations)
+    }
+
+    @Test
+    fun `suspicious detection requires the longer confirmation window`() {
+        val t = Tracker(cfg.track, RepStrategy.CENTROID)
+        repeat(cfg.track.suspiciousConfirmObservations - 1) {
+            assertTrue(t.update(listOf(det(Vec3(0f, 0f, 0f), suspicious = true))).isEmpty())
+        }
+        assertEquals(1, t.update(listOf(det(Vec3(0f, 0f, 0f), suspicious = true))).size)
+    }
+
+    @Test
+    fun `low confidence and large centroid jump reset tentative confirmation`() {
+        val t = Tracker(cfg.track, RepStrategy.CENTROID)
+        assertTrue(t.update(listOf(det(Vec3(0f, 0f, 0f)))).isEmpty())
+        assertTrue(t.update(listOf(det(Vec3(0.19f, 0f, 0f)))).isEmpty()) // stable, count=2
+        assertTrue(t.update(listOf(det(Vec3(0.39f, 0f, 0f), confidence = 0.1f))).isEmpty()) // reset
+        assertTrue(t.update(listOf(det(Vec3(0.40f, 0f, 0f)))).isEmpty())
+    }
+
+    @Test
+    fun `confirmed id survives short misses but is not output while missing`() {
+        val t = Tracker(cfg.track, RepStrategy.CENTROID)
+        val first = confirmed(t, Vec3(0f, 0f, 0f))
+        repeat(cfg.track.maxMissedUpdates) { assertTrue(t.update(emptyList()).isEmpty()) }
+        val again = t.update(listOf(det(Vec3(0.05f, 0f, 0f)))).single()
+        assertEquals(first.id, again.id)
+    }
+
+    @Test
+    fun `track is removed after too many misses`() {
+        val t = Tracker(cfg.track, RepStrategy.CENTROID)
+        val first = confirmed(t, Vec3(0f, 0f, 0f))
+        repeat(cfg.track.maxMissedUpdates + 1) { t.update(emptyList()) }
+        repeat(cfg.track.minConfirmObservations - 1) { assertTrue(t.update(listOf(det(Vec3(0f, 0f, 0f)))).isEmpty()) }
+        val replacement = t.update(listOf(det(Vec3(0f, 0f, 0f)))).single()
+        assertTrue(replacement.id != first.id)
+    }
+
+    @Test
+    fun `rep points are smoothed with emaAlpha after confirmation`() {
+        val t = Tracker(cfg.track, RepStrategy.CENTROID)
+        val initial = confirmed(t, Vec3(0f, 0f, 0f))
         val o = t.update(listOf(det(Vec3(0.2f, 0f, 0f)))).single()
         assertEquals(0.2f * cfg.track.emaAlpha, o.repPointW.x, 1e-6f)
-        assertEquals(2, o.nObservations)
+        assertEquals(initial.nObservations + 1, o.nObservations)
     }
 }
 

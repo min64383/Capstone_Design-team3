@@ -32,7 +32,25 @@
     "lostFrames": 10
   },
   "cluster": { "epsM": 0.15, "minSamples": 5, "headMinM": 1.2, "bodyMinM": 0.5 },
-  "track": { "matchRadiusM": 0.3, "emaAlpha": 0.3 },
+  "falsePositive": {
+    "enabled": true,
+    "minVoxels": 500,
+    "minLateralSpanM": 0.60,
+    "minAlongSpanM": 0.80,
+    "minAlongMinM": 1.00,
+    "minHeightSpanM": 1.40,
+    "maxHeightMinM": 0.20,
+    "minHeightMaxM": 1.70
+  },
+  "track": {
+    "matchRadiusM": 0.3,
+    "emaAlpha": 0.3,
+    "minConfirmObservations": 3,
+    "suspiciousConfirmObservations": 4,
+    "maxMissedUpdates": 3,
+    "minConfirmConfidence": 0.15,
+    "maxConfirmCentroidJumpM": 0.20
+  },
   "repPoint": { "strategy": "CORRIDOR_NEAREST" },
   "policy": {
     "stopM": 1.0,

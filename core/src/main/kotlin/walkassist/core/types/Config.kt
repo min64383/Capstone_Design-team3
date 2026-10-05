@@ -13,6 +13,7 @@ data class Config(
     val map: MapConfig,
     val floor: FloorConfig,
     val cluster: ClusterConfig,
+    val falsePositive: FalsePositiveConfig,
     val track: TrackConfig,
     val repPoint: RepPointConfig,
     val policy: PolicyConfig,
@@ -90,8 +91,29 @@ data class FloorConfig(
 /** 군집·높이 분류 설정. */
 data class ClusterConfig(val epsM: Float, val minSamples: Int, val headMinM: Float, val bodyMinM: Float)
 
-/** 추적 설정. */
-data class TrackConfig(val matchRadiusM: Float, val emaAlpha: Float)
+/** 반복적으로 생기는 큰 depth-sheet 군집을 "삭제"하지 않고 의심 군집으로 표시하기 위한 기준. */
+data class FalsePositiveConfig(
+    val enabled: Boolean,
+    val minVoxels: Int,
+    val minLateralSpanM: Float,
+    val minAlongSpanM: Float,
+    /** 사용자에게 너무 가까운 물체는 안전상 의심 군집으로 분류하지 않는다. */
+    val minAlongMinM: Float,
+    val minHeightSpanM: Float,
+    val maxHeightMinM: Float,
+    val minHeightMaxM: Float,
+)
+
+/** 추적 설정. 새 군집은 시간적으로 안정된 관측이 누적된 뒤에만 장애물로 확정한다. */
+data class TrackConfig(
+    val matchRadiusM: Float,
+    val emaAlpha: Float,
+    val minConfirmObservations: Int,
+    val suspiciousConfirmObservations: Int,
+    val maxMissedUpdates: Int,
+    val minConfirmConfidence: Float,
+    val maxConfirmCentroidJumpM: Float,
+)
 
 /** 대표점 설정. */
 data class RepPointConfig(val strategy: RepStrategy)
