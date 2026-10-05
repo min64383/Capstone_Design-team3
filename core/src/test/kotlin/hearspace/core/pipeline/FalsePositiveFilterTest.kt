@@ -1,7 +1,9 @@
 package hearspace.core.pipeline
 
 import org.junit.jupiter.api.Assertions.assertEquals
+import org.junit.jupiter.api.Assertions.assertFalse
 import org.junit.jupiter.api.Assertions.assertNull
+import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Test
 import hearspace.core.geometry.Vec3
 import hearspace.core.types.FalsePositiveFilterConfig
@@ -86,5 +88,11 @@ class FalsePositiveFilterTest {
     @Test
     fun `disabled filter keeps everything`() {
         assertNull(FalsePositiveFilter.reason(d(), cfg.copy(enabled = false)))
+    }
+
+    @Test
+    fun `shape is still matched when the filter is disabled, for longer confirmation`() {
+        assertTrue(FalsePositiveFilter.matches(d(), cfg.copy(enabled = false)))
+        assertFalse(FalsePositiveFilter.matches(d(along0 = 0.8f), cfg.copy(enabled = false)))
     }
 }

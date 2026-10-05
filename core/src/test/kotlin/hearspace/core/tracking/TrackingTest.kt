@@ -149,9 +149,48 @@ class ClusterTest {
 class TrackerUnitTest {
     private val cfg = ConfigLoader.load(File(System.getProperty("hearspace.defaultConfig")).readText())
 
-    private fun det(p: Vec3) = Detection(
-        RepStrategy.entries.associateWith { p }, p, p, HeightClass.BODY, true, 1f, 0L,
+    private fun det(p: Vec3, confidence: Float = 1f, suspicious: Boolean = false) = Detection(
+        RepStrategy.entries.associateWith { p }, p, p, HeightClass.BODY, true, confidence, 0L, suspicious,
     )
+
+    /** 확인 조건을 강화한 후보 설정(PR #30 값). 기본값은 기준선과 같다. */
+    private val strict = cfg.track.copy(
+        minConfirmObservations = 3,
+        suspiciousConfirmObservations = 4,
+        minConfirmConfidence = 0.15f,
+        maxConfirmCentroidJumpM = 0.2f,
+    )
+
+    @Test
+    fun `low confidence observations are not counted before confirmation`() {
+        val t = Tracker(strict, RepStrategy.CENTROID)
+        val p = Vec3(0f, 0f, -2f)
+        assertTrue(t.update(listOf(det(p, confidence = 0.1f))).isEmpty()) // 0
+        repeat(2) { assertTrue(t.update(listOf(det(p))).isEmpty()) } // 1, 2
+        val confirmed = t.update(listOf(det(p))).single() // 3
+        // 확인된 뒤에는 confidence가 낮아도 계속 출력한다(음원이 끊기지 않게).
+        assertEquals(confirmed.id, t.update(listOf(det(p, confidence = 0.1f))).single().id)
+    }
+
+    @Test
+    fun `centroid jump restarts the count at one but keeps the id`() {
+        val t = Tracker(strict, RepStrategy.CENTROID)
+        assertTrue(t.update(listOf(det(Vec3(0f, 0f, 0f)))).isEmpty()) // 1
+        // 0.25 m: 매칭 반경(0.3) 안이지만 점프 상한(0.2) 밖 → 1부터 다시
+        assertTrue(t.update(listOf(det(Vec3(0.25f, 0f, 0f)))).isEmpty()) // 1
+        assertTrue(t.update(listOf(det(Vec3(0.25f, 0f, 0f)))).isEmpty()) // 2
+        val o = t.update(listOf(det(Vec3(0.25f, 0f, 0f)))).single() // 3
+        assertEquals(4, o.nObservations) // 같은 track(새 id 아님)
+    }
+
+    @Test
+    fun `once suspicious, a track needs the longer confirmation window`() {
+        val t = Tracker(strict, RepStrategy.CENTROID)
+        val p = Vec3(0f, 0f, -2f)
+        assertTrue(t.update(listOf(det(p, suspicious = true))).isEmpty())
+        repeat(2) { assertTrue(t.update(listOf(det(p))).isEmpty()) } // 모양이 바뀌어도 의심은 유지
+        assertEquals(1, t.update(listOf(det(p))).size)
+    }
 
     @Test
     fun `new detections must be confirmed before output`() {

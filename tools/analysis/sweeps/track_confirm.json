@@ -1,0 +1,11 @@
+{
+  "note": "PR #30 확인 조건 강화: 기본값(기준선과 같아야 함)과 PR 값 전체, 그리고 한 번에 하나씩. 기본값은 app/src/main/assets/config/default.json",
+  "variants": [
+    { "name": "default", "overrides": {} },
+    { "name": "pr30_all", "overrides": { "track": { "minConfirmObservations": 3, "suspiciousConfirmObservations": 4, "minConfirmConfidence": 0.15, "maxConfirmCentroidJumpM": 0.2 } } },
+    { "name": "confirm_3", "overrides": { "track": { "minConfirmObservations": 3, "suspiciousConfirmObservations": 3 } } },
+    { "name": "suspicious_4", "overrides": { "track": { "suspiciousConfirmObservations": 4 } } },
+    { "name": "confidence_0.15", "overrides": { "track": { "minConfirmConfidence": 0.15 } } },
+    { "name": "jump_0.2", "overrides": { "track": { "maxConfirmCentroidJumpM": 0.2 } } }
+  ]
+}

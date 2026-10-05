@@ -36,7 +36,7 @@ class ConfigLoaderTest {
             FalsePositiveFilterConfig(false, 500, 0.60f, 0.80f, 1.00f, 1.40f, 0.20f, 1.70f),
             c.falsePositiveFilter,
         )
-        assertEquals(TrackConfig(0.3f, 0.3f, 2, 3), c.track)
+        assertEquals(TrackConfig(0.3f, 0.3f, 2, 3, 2, 0f, 0.3f), c.track)
         assertEquals(RepStrategy.CORRIDOR_NEAREST, c.repPoint.strategy)
         assertEquals(PolicyConfig(1.0f, 2.5f, 3.0f, 0.15f, 1, 300f), c.policy)
         assertEquals(StateConfig(10, 0.5f, 3.0f, 15.0f, 600f), c.state)
@@ -111,6 +111,9 @@ class ConfigLoaderTest {
         assertConfigError("track.emaAlpha", """{ "track": { "emaAlpha": 1.5 } }""")
         assertConfigError("track.minConfirmObservations", """{ "track": { "minConfirmObservations": 0 } }""")
         assertConfigError("track.maxMissedUpdates", """{ "track": { "maxMissedUpdates": -1 } }""")
+        assertConfigError("track.minConfirmConfidence", """{ "track": { "minConfirmConfidence": 1.5 } }""")
+        assertConfigError("track", """{ "track": { "suspiciousConfirmObservations": 1 } }""")
+        assertConfigError("track", """{ "track": { "maxConfirmCentroidJumpM": 0.4 } }""")
         assertConfigError("falsePositiveFilter.minVoxels", """{ "falsePositiveFilter": { "minVoxels": 0 } }""")
         assertConfigError("policy.maxSources", """{ "policy": { "maxSources": 0 } }""")
         assertConfigError("policy", """{ "policy": { "warnMaxM": 3.5 } }""")
