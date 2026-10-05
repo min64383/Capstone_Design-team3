@@ -1,0 +1,8 @@
+{
+  "variants": [
+    { "name": "default", "overrides": {} },
+    { "name": "below0.6", "overrides": { "floor": { "minBelowCameraM": 0.6 } } },
+    { "name": "below0.7", "overrides": { "floor": { "minBelowCameraM": 0.7 } } },
+    { "name": "below0.8", "overrides": { "floor": { "minBelowCameraM": 0.8 } } }
+  ]
+}

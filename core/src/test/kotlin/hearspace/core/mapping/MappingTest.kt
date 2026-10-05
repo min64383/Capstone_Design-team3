@@ -262,6 +262,18 @@ class FloorTest {
         ys.flatMap { (y, n) -> List(n) { listOf(0f, y, 0f) }.flatten() }.toFloatArray()
 
     @Test
+    fun `a nearby box top with more points is not the floor when candidates must be well below the camera`() {
+        // M13 실측: 캐리어에 다가가면 보이는 바닥보다 캐리어 윗면(카메라 아래 0.5 m) 점이 많아 바닥이 그리로 올라갔다
+        val cam = Vec3(0f, 1.1f, 0f)
+        val pts = points(0f to 300, 0.6f to 800)
+        assertEquals(0.6f, Floor(config.floor.copy(minBelowCameraM = 0f), config.map.radiusM).update(pts, cam).floorY!!, 1e-4f)
+        val f = Floor(config.floor.copy(minBelowCameraM = 0.7f), config.map.radiusM)
+        assertEquals(0f, f.update(pts, cam).floorY!!, 1e-4f)
+        // 바닥이 안 보이고 윗면만 보여도 바닥을 옮기지 않는다(직전 값 유지)
+        assertEquals(0f, f.update(points(0.6f to 800), cam).floorY!!, 1e-4f)
+    }
+
+    @Test
     fun `first estimate uses points below the camera, then the search band`() {
         val f = Floor(config.floor, config.map.radiusM)
         // 탁자면(0.7)보다 바닥(−0.3)이 많다

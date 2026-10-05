@@ -29,7 +29,8 @@
     "emaAlpha": 0.2,
     "minPoints": 200,
     "belowMarginM": 0.1,
-    "lostFrames": 10
+    "lostFrames": 10,
+    "minBelowCameraM": 0
   },
   "cluster": { "epsM": 0.15, "minSamples": 5, "headMinM": 1.2, "bodyMinM": 0.5 },
   "segment": {
