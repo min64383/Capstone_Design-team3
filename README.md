@@ -380,7 +380,7 @@ git clone <저장소>; cd capstone
 { "map": { "voxelSizeM": 0.075 } }
 { "repPoint": { "strategy": "NEAREST" } }
 { "cluster": { "epsM": 0.10 } }
-{ "floor": { "tolerancePerM": 0.04 } }
+{ "depth": { "shadowRadiusPx": 12, "shadowRatio": 0.2 } }
 { "policy": { "maxSources": 3 } }
 ```
 

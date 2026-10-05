@@ -103,27 +103,30 @@ class LocalMap(private val config: Config) {
     private fun notInShadow(c: List<ShadowCandidate>, width: Int, height: Int): BooleanArray {
         val r = config.depth.shadowRadiusPx
         val keepRatio = 1f - config.depth.shadowRatio
+        // 후보는 표본 픽셀(`depth.subsample` 간격)에만 있으므로 이웃도 그 간격으로만 본다(결과는 모든 픽셀을 보는 것과 같다)
+        val step = config.depth.subsample
+        val reach = r / step * step
         val grid = FloatArray(width * height) // 픽셀별 후보 깊이(0 = 후보 없음)
         for (x in c) grid[x.v * width + x.u] = x.zM
         val keep = BooleanArray(c.size) { true }
         for ((i, x) in c.withIndex()) {
             val limit = x.zM * keepRatio
             var shadowed = false
-            var dv = -r
-            while (dv <= r && !shadowed) {
+            var dv = -reach
+            while (dv <= reach && !shadowed) {
                 val v = x.v + dv
                 if (v in 0 until height) {
-                    var du = -r
-                    while (du <= r) {
+                    var du = -reach
+                    while (du <= reach) {
                         val u = x.u + du
                         if (u in 0 until width && du * du + dv * dv <= r * r) {
                             val z = grid[v * width + u]
                             if (z > 0f && z < limit) { shadowed = true; break }
                         }
-                        du++
+                        du += step
                     }
                 }
-                dv++
+                dv += step
             }
             keep[i] = !shadowed
         }

@@ -24,7 +24,7 @@
   "floor": {
     "searchBandM": 0.5,
     "toleranceM": 0.05,
-    "tolerancePerM": 0.08,
+    "tolerancePerM": 0.04,
     "binM": 0.02,
     "emaAlpha": 0.2,
     "minPoints": 200,

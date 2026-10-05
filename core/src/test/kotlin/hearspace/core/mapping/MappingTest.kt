@@ -275,14 +275,18 @@ class FloorTest {
 
     @Test
     fun `floor tolerance grows with horizontal distance`() {
-        val f = Floor(config.floor, config.map.radiusM) // toleranceM 0.05, tolerancePerM 0.08
+        val f = Floor(config.floor, config.map.radiusM)
         f.update(points(0f to 500), Vec3(0f, 1f, 0f))
-        assertEquals(true, f.isFloor(0.12f, 1f)) // 허용 0.13
-        assertEquals(false, f.isFloor(0.14f, 1f))
-        assertEquals(true, f.isFloor(0.25f, 3f)) // 허용 0.29: 멀리서 올라가 보이는 바닥
-        assertEquals(false, f.isFloor(0.35f, 3f))
-        assertEquals(true, f.isBelowFloor(-0.2f, 1f)) // 기준 0.18
-        assertEquals(false, f.isBelowFloor(-0.3f, 3f)) // 기준 0.34
+        // 허용 = toleranceM + tolerancePerM × 수평거리(설정값에서 계산: 0.08 → 0.04로 바뀐 M13 이후에도 같은 성질을 본다)
+        fun tol(d: Float) = config.floor.toleranceM + config.floor.tolerancePerM * d
+        fun below(d: Float) = config.floor.belowMarginM + config.floor.tolerancePerM * d
+        assertEquals(true, f.isFloor(tol(1f) - 0.01f, 1f))
+        assertEquals(false, f.isFloor(tol(1f) + 0.01f, 1f))
+        assertEquals(true, f.isFloor(tol(3f) - 0.01f, 3f)) // 멀리서 올라가 보이는 바닥: 1 m에서는 바닥이 아닐 높이
+        assertEquals(false, f.isFloor(tol(3f) - 0.01f, 1f))
+        assertEquals(false, f.isFloor(tol(3f) + 0.01f, 3f))
+        assertEquals(true, f.isBelowFloor(-below(1f) - 0.01f, 1f))
+        assertEquals(false, f.isBelowFloor(-below(1f) - 0.01f, 3f)) // 멀면 기준도 커진다
     }
 
     @Test
