@@ -55,6 +55,8 @@ object ConfigLoader {
                     subsample = atLeast1("subsample"),
                     source = enumValue<DepthSource>("source"),
                     minConfidence = intIn("minConfidence", 0, 255),
+                    shadowRadiusPx = intIn("shadowRadiusPx", 0, 64),
+                    shadowRatio = unit("shadowRatio"),
                 )
             },
             map = root.section("map") {

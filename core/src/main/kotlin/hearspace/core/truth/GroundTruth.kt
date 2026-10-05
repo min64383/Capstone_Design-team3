@@ -50,6 +50,11 @@ data class TruthObstacle(
 /** 정답 통로 안 최근접점: 보행선 방향 거리, 수평 거리, 방위각(오른쪽 +). */
 data class TruthNearest(val alongM: Float, val distanceM: Float, val azimuthDeg: Float)
 
+/** 확실히 비어 있는 공간(정답 좌표, M12). 맵 정확도에서 이 안의 점유 복셀은 헛 복셀이다. */
+data class TruthFreeBox(val name: String, val minM: Vec3, val maxM: Vec3) {
+    fun contains(p: Vec3) = p.x in minM.x..maxM.x && p.y in minM.y..maxM.y && p.z in minM.z..maxM.z
+}
+
 /** 세션의 정답 파일 `annotations/obstacles.json` (docs/FORMAT.md, IMPROVE_SPEC §9.1). */
 data class GroundTruth(
     val version: Int,
@@ -59,6 +64,8 @@ data class GroundTruth(
     val estimated: Boolean,
     val note: String,
     val obstacles: List<TruthObstacle>,
+    /** 확실히 빈 공간(`free`, M12). 없으면 빈 목록. */
+    val free: List<TruthFreeBox> = emptyList(),
 ) {
     companion object {
         /** 세션 폴더 기준 정답 파일 경로. */
@@ -88,16 +95,22 @@ data class GroundTruth(
                 estimated = (f["estimated"] as? JsonBool)?.value ?: false,
                 note = (f["note"] as? JsonString)?.value ?: "",
                 obstacles = items.map { obstacle(it as? JsonObject ?: throw IllegalArgumentException("obstacles.json: obstacle must be an object"), shift) },
+                free = ((f["free"] as? JsonArray)?.items ?: emptyList()).mapIndexed { i, it ->
+                    val o = (it as? JsonObject ?: throw IllegalArgumentException("obstacles.json: free must be an array of objects")).fields
+                    TruthFreeBox((o["name"] as? JsonString)?.value ?: "free$i", vec(o, "min", shift), vec(o, "max", shift))
+                },
             )
+        }
+
+        private fun vec(f: Map<String, hearspace.core.types.JsonValue>, key: String, shift: Vec3): Vec3 {
+            val a = (f[key] as? JsonArray)?.items?.map { (it as? JsonNumber)?.value?.toFloat() }
+            require(a != null && a.size == 3 && a.all { it != null }) { "obstacles.json: $key must be an array of 3 numbers" }
+            return Vec3(a[0]!!, a[1]!!, a[2]!!) + shift
         }
 
         private fun obstacle(o: JsonObject, shift: Vec3): TruthObstacle {
             val f = o.fields
-            fun vec(key: String): Vec3 {
-                val a = (f[key] as? JsonArray)?.items?.map { (it as? JsonNumber)?.value?.toFloat() }
-                require(a != null && a.size == 3 && a.all { it != null }) { "obstacles.json: $key must be an array of 3 numbers" }
-                return Vec3(a[0]!!, a[1]!!, a[2]!!) + shift
-            }
+            fun vec(key: String) = vec(f, key, shift)
             fun str(key: String): String? = (f[key] as? JsonString)?.value
             return TruthObstacle(
                 name = str("name") ?: throw IllegalArgumentException("obstacles.json: name is required"),

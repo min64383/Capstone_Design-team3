@@ -160,9 +160,10 @@ class MainWindow(initialSession: String?) : JFrame("HEARSPACE 평가 GUI") {
     private fun summary(r: ReplayResult): String {
         fun med(f: (hearspace.core.pipeline.StageTimes) -> Long) = r.slow.map { f(it.stageNs) }.sorted().let { if (it.isEmpty()) 0.0 else it[it.size / 2] / 1e6 }
         val truth = r.truth?.let { "정답 ${it.obstacles.size}개${if (it.estimated) "(추정)" else ""}" } ?: "정답 없음"
-        return "재실행 %.2f s · %s · 장면 %s · %.1f s · 블록 %d · 느린 경로 %d회(PC 중앙값 맵 %.1f · 군집 %.1f · 추적 %.2f ms) · %s · 설정 %s"
+        val map = r.mapEvalSummary?.let { s -> " · 헛 복셀 평균 %.1f".format(s.phantomMean) + (s.objectSeenFraction?.let { " · 물체 보임 %.0f%%".format(it * 100) } ?: "") } ?: ""
+        return "재실행 %.2f s · %s · 장면 %s · %.1f s · 블록 %d · 느린 경로 %d회(PC 중앙값 맵 %.1f · 군집 %.1f · 추적 %.2f ms) · %s%s · 설정 %s"
             .format(r.elapsedMs / 1000.0, Repo.relative(r.session), r.scene, r.durationS, r.blocks.size, r.slow.size,
-                med { it.mapNs }, med { it.clusterNs }, med { it.trackNs }, truth, Feedback.configHash(r.overridesJson))
+                med { it.mapNs }, med { it.clusterNs }, med { it.trackNs }, truth, map, Feedback.configHash(r.overridesJson))
     }
 
     private fun togglePlay() {

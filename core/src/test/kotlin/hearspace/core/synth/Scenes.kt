@@ -39,6 +39,23 @@ object Scenes {
     /** SC-01 바닥만. */
     val SC01 get() = SceneSpec("SC-01", Scene(listOf(floor)), Walk(durationS = 5f))
 
+    /**
+     * SC-21 벽 앞 상자 + 평활 깊이(M12): 보행선 위 2.4 m에 높이 0.6·깊이 0.3 상자, 그 뒤 4.2 m에 벽(구조물).
+     * 평활 깊이가 상자 윗모서리와 벽 사이를 메워 가짜 면을 만드는지·거르기가 그것을 지우고 상자는 남기는지 본다.
+     */
+    val SC21 get() = SceneSpec(
+        "SC-21",
+        Scene(
+            listOf(
+                floor,
+                boxOnLine(2.4f, heightM = 0.6f, depthM = 0.3f),
+                SceneItem("back_wall", Box(Vec3(-1.5f, 0f, -4.3f), Vec3(1.5f, 2.5f, -4.2f)), obstacle = false),
+            ),
+        ),
+        walkTo(2.4f),
+        Noise(depthSmoothPx = 4),
+    )
+
     /** SC-02 보행선 위 2 m 상자. */
     val SC02 get() = SceneSpec("SC-02", Scene(listOf(floor, boxOnLine(2f))), walkTo(2f))
 

@@ -54,6 +54,7 @@ F8(재생 모드)은 M7에서 확인한다.
 - `scene`: 장면 ID. 폴더 이름의 장면 ID보다 우선한다(M10 녹화는 폴더가 모두 `_S01`).
 - `distanceFrom`: `"start"`(기본, 시작 표시 = 머리 아래에서 잼) 또는 `"camera"`(시작 때 폰 카메라에서 잼). `"camera"`면 읽는 쪽이 `head.offsetFromCameraM`만큼 옮긴다(현재 설정이면 z + 0.39 m).
 - `kind`: `"object"`(기본) 또는 `"structure"`(벽·문 같은 큰 평면). 구조물은 물체 탐지율 분모에서 빠지고 `structureCommandFraction`(구조물을 물체처럼 경고한 비율)로 따로 잰다.
+- `free`(M13): 확실히 빈 공간 상자 목록 `[{ "name": "behind_object", "min": [...], "max": [...] }]`. 좌표 보정(`distanceFrom`)은 물체와 같다. 맵 정확도의 헛 복셀을 세는 데 쓴다(`map_eval.json`). 확실하지 않으면 적지 않는다.
 
 ## 형식 v0 (M1 스파이크, 읽기만 지원)
 

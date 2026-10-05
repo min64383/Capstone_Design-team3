@@ -1,0 +1,17 @@
+{
+  "note": "M13 맵(복셀) 정확도: 그림자 거르기(depth.shadowRadiusPx·shadowRatio, 반경은 깊이 픽셀)와 바닥 허용치 거리 비례분(floor.tolerancePerM). 기본값은 app/src/main/assets/config/default.json(거르기 꺼짐, 바닥 0.08)",
+  "variants": [
+    { "name": "default", "overrides": {} },
+    { "name": "shadow_r8_0.2", "overrides": { "depth": { "shadowRadiusPx": 8, "shadowRatio": 0.2 } } },
+    { "name": "shadow_r12_0.2", "overrides": { "depth": { "shadowRadiusPx": 12, "shadowRatio": 0.2 } } },
+    { "name": "shadow_r16_0.2", "overrides": { "depth": { "shadowRadiusPx": 16, "shadowRatio": 0.2 } } },
+    { "name": "shadow_r12_0.15", "overrides": { "depth": { "shadowRadiusPx": 12, "shadowRatio": 0.15 } } },
+    { "name": "shadow_r12_0.3", "overrides": { "depth": { "shadowRadiusPx": 12, "shadowRatio": 0.3 } } },
+    { "name": "floor0.04", "overrides": { "floor": { "tolerancePerM": 0.04 } } },
+    { "name": "shadow_r12_0.2_floor0.04", "overrides": { "depth": { "shadowRadiusPx": 12, "shadowRatio": 0.2 }, "floor": { "tolerancePerM": 0.04 } } },
+    { "name": "shadow_r16_0.2_floor0.04", "overrides": { "depth": { "shadowRadiusPx": 16, "shadowRatio": 0.2 }, "floor": { "tolerancePerM": 0.04 } } },
+    { "name": "shadow_r20_0.2_floor0.04", "overrides": { "depth": { "shadowRadiusPx": 20, "shadowRatio": 0.2 }, "floor": { "tolerancePerM": 0.04 } } },
+    { "name": "shadow_r24_0.2_floor0.04", "overrides": { "depth": { "shadowRadiusPx": 24, "shadowRatio": 0.2 }, "floor": { "tolerancePerM": 0.04 } } },
+    { "name": "shadow_r16_0.25_floor0.04", "overrides": { "depth": { "shadowRadiusPx": 16, "shadowRatio": 0.25 }, "floor": { "tolerancePerM": 0.04 } } }
+  ]
+}

@@ -1,5 +1,6 @@
 package hearspace.core.replay
 
+import hearspace.core.truth.GroundTruth
 import hearspace.core.types.ConfigLoader
 import java.io.File
 
@@ -22,6 +23,9 @@ fun main(args: Array<String>) {
         ?: File(System.getProperty("hearspace.replayOut"), "${session.name}/$tag")
     val slow = slowFrom?.let { OfflineReplay.recorded(it, slowMs) } ?: OfflineReplay.fixed(slowMs)
     val note = slowFrom?.let { "recorded:${it.path.replace('\\', '/')}" } ?: "fixed:${slowMs}ms"
-    OfflineReplay(config, slow).run(session, out, overrides, note)
+    // 정답이 있으면 맵 정확도도 잰다(map_eval.csv·json, M12)
+    val log = RunLogWriter(out, session, overrides, note)
+    val listener = if (File(session, GroundTruth.FILE).isFile) TeeListener(log, MapEvalWriter(out, session, config)) else log
+    OfflineReplay(config, slow).run(session, listener)
     println("replay log: ${out.absolutePath}")
 }

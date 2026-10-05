@@ -51,6 +51,7 @@ def load_truth(session: Path, cfg: dict):
     return obs, bool(j.get("estimated", False))
 
 
+
 def scene_of(session: Path) -> str:
     """정답 파일의 `scene`, 없으면 폴더 이름 끝(`..._S02` → S02)."""
     f = session / "annotations/obstacles.json"
@@ -161,6 +162,10 @@ def compute(session: Path, run_dir: Path) -> dict:
     pipe = (blocks.tBlockNs - blocks.poseTNs.map(arrival)) / 1e6
     out["latencyMs"] = {"a0_arcore_p50": p(a0, 50), "a_pipeline_p50": p(pipe.dropna(), 50), "a_pipeline_p95": p(pipe.dropna(), 95),
                         **out.get("latencyMs", {})}
+
+    me = run_dir / "map_eval.json"  # 맵(복셀) 정확도(core MapEvalWriter, M12)
+    if me.is_file():
+        out["mapEval"] = json.loads(me.read_text(encoding="utf-8"))
 
     truth, estimated = load_truth(session, cfg)
     if truth is None:

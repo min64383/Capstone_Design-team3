@@ -9,7 +9,7 @@
     "edgeInnerM": 0.25,
     "edgeMinLengthM": 0.8
   },
-  "depth": { "subsample": 2, "source": "SMOOTHED", "minConfidence": 0 },
+  "depth": { "subsample": 2, "source": "SMOOTHED", "minConfidence": 0, "shadowRadiusPx": 0, "shadowRatio": 0.2 },
   "map": {
     "voxelSizeM": 0.05,
     "hitGain": 0.2,

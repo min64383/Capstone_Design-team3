@@ -6,7 +6,7 @@
 |---|---|---|
 | `spike_check.py` | M1 | 녹화 세션 1개로 스파이크 F1~F7 수치 출력 (docs/FORMAT.md) |
 | `align.py` | M8 | 보행선 정렬(§10.3) → `align.json` |
-| `metrics.py` | M8, M10, M11 | 지표(§10.2) → `metrics.json`. `--run <실행 로그>`면 세션 없이(사용자 모드 T01: 1분마다 UNKNOWN·주기·발열). 정답 v2(`distanceFrom`, `kind`), 단계별 처리 시간(`stage_timing.csv` → `stageMs`) |
+| `metrics.py` | M8, M10, M11 | 지표(§10.2) → `metrics.json`. `--run <실행 로그>`면 세션 없이(사용자 모드 T01: 1분마다 UNKNOWN·주기·발열). 정답 v2(`distanceFrom`, `kind`), 단계별 처리 시간(`stage_timing.csv` → `stageMs`), 맵 정확도(`map_eval.json` → `mapEval`, M13) |
 | `report.py` | M8, M10 | 여러 `metrics.json` → Markdown 비교표. `--group`이면 장면 × 변형마다 회차 묶음 |
 | `sweep.py` | M10 | 변형 목록(`sweeps/*.json`) × 세션마다 오프라인 재생 → `metrics.json` |
 | `plots.py` | M8 | 시계열·지연·위에서 본 그림, `--at 초`로 그 시각 RGB와 나란히 |
@@ -46,3 +46,5 @@ uv venv --python 3.11 .venv
 uv pip install --python .venv\Scripts\python.exe -r tools/analysis/requirements.txt
 .venv\Scripts\python.exe tools/analysis/spike_check.py data/sessions/<세션ID>
 ```
+
+맵(복셀) 정확도(M13): 정답 파일에 `free`(확실히 빈 공간)가 있는 세션을 `:core:replay`로 돌리면 `map_eval.csv`(느린 경로마다 헛 복셀·물체 복셀)와 `map_eval.json`(요약)이 함께 나온다. 비교 변형은 `sweeps/m13_map.json`, 결과는 `docs/M13_MAP_REPORT.md`.

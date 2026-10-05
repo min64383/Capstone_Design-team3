@@ -57,6 +57,8 @@ internal object Palette {
     val text = Color(220, 220, 225)
     val truth = Color(80, 220, 120)
     val source = Color(255, 230, 80)
+    val free = Color(150, 150, 170)
+    val phantom = Color(230, 90, 90)
     fun height(h: HeightClass): Color = when (h) {
         HeightClass.FLOOR -> Color(255, 160, 40)
         HeightClass.BODY -> Color(60, 200, 255)
@@ -244,6 +246,12 @@ class TopView(private val model: ViewerModel) : JPanel() {
                 g.fillRect(sx(p.x).toInt() - 1, sy(p.z).toInt() - 1, 3, 3)
             }
         }
+        // 확실히 빈 공간(정답 free, M12): 이 안의 복셀은 헛 복셀
+        g.stroke = BasicStroke(1f, BasicStroke.CAP_BUTT, BasicStroke.JOIN_MITER, 10f, floatArrayOf(3f, 3f), 0f)
+        g.color = Palette.free
+        for (f in r.truth?.free.orEmpty()) {
+            g.drawRect(sx(f.minM.x).toInt(), sy(f.maxM.z).toInt(), ((f.maxM.x - f.minM.x) * sc).toInt(), ((f.maxM.z - f.minM.z) * sc).toInt())
+        }
         // 정답 상자
         g.stroke = BasicStroke(2f, BasicStroke.CAP_BUTT, BasicStroke.JOIN_MITER, 10f, floatArrayOf(6f, 4f), 0f)
         for (o in truthBoxes) {
@@ -336,8 +344,10 @@ class TimelineView(private val model: ViewerModel, private val onSeek: (Long) ->
         fun xOf(i: Int) = left + i.toFloat() * w / n
         val stripY = 6
         val stripH = 12
-        val plotH = (height - stripY - stripH - 44) / 2 // 아래 16 px는 범례·메모 표시
-        val distTop = stripY + stripH + 8
+        val phantomY = stripY + stripH + 3
+        val phantomH = 12
+        val plotH = (height - stripY - stripH - phantomH - 47) / 2 // 아래 16 px는 범례·메모 표시
+        val distTop = phantomY + phantomH + 8
         val azTop = distTop + plotH + 8
         val maxD = r.config.corridor.lengthM + 0.5f
         val azRange = 45f
@@ -347,6 +357,19 @@ class TimelineView(private val model: ViewerModel, private val onSeek: (Long) ->
             val i = (px.toLong() * n / w).toInt().coerceIn(0, n - 1)
             g.color = Palette.state(r.state[i])
             g.drawLine(left + px, stripY, left + px, stripY + stripH)
+        }
+        // 헛 복셀(정답 free 안 점유 복셀, M12): 막대 높이 = 그 시각 개수(최대값 기준)
+        val maxPhantom = r.phantomAtBlock.maxOrNull() ?: -1
+        if (maxPhantom >= 0) {
+            g.color = Palette.phantom
+            for (px in 0 until w) {
+                val i = (px.toLong() * n / w).toInt().coerceIn(0, n - 1)
+                val v = r.phantomAtBlock[i]
+                if (v > 0) {
+                    val h = (v.toFloat() / maxOf(1, maxPhantom) * phantomH).toInt().coerceAtLeast(1)
+                    g.drawLine(left + px, phantomY + phantomH - h, left + px, phantomY + phantomH)
+                }
+            }
         }
         // 축
         g.color = Palette.grid
@@ -365,6 +388,7 @@ class TimelineView(private val model: ViewerModel, private val onSeek: (Long) ->
         g.drawString("방위", 4, azTop + 12)
         g.drawString("±${azRange.toInt()}°", 4, azTop + 26)
         g.drawString("상태", 4, stripY + 11)
+        g.drawString("헛 ${if (maxPhantom >= 0) maxPhantom else "–"}", 4, phantomY + 11)
 
         fun yDist(d: Float) = distTop + plotH - (d.coerceIn(0f, maxD) / maxD * plotH)
         fun yAz(a: Float) = zeroAz - (a.coerceIn(-azRange, azRange) / azRange * plotH / 2)

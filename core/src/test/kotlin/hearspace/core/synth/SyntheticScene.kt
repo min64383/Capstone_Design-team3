@@ -219,6 +219,11 @@ data class Noise(
     val depthFreezeS: List<ClosedFloatingPointRange<Float>> = emptyList(),
     /** 쓰레기 깊이 구간: 이 동안 깊이 × 10, 최대 거리 제한 없음(M7 실측: 재생 시작 약 3 s 17~28 m, SC-15). */
     val depthGarbageS: List<ClosedFloatingPointRange<Float>> = emptyList(),
+    /**
+     * 평활 깊이 흉내(M12): 유효 픽셀마다 반경 이 픽셀 정사각형 안 유효 깊이의 평균으로 바꾼다. 앞 물체와 뒤 배경 경계에서
+     * 중간 깊이가 생겨 둘 사이를 잇는 가짜 면이 된다(실측: ARCore 평활 깊이가 캐리어 윗모서리와 뒤 문 사이 약 1.5 m를 메움).
+     */
+    val depthSmoothPx: Int = 0,
 )
 
 /** 합성 프레임 1개. [truthWorldFromCam]은 점프·잡음이 없는 참 자세(C_cv). */
@@ -360,7 +365,28 @@ object SyntheticGenerator {
             if (z <= 0f) continue
             mm[v * k.width + u] = min((z * 1000f).roundToInt(), 65535).toShort()
         }
-        return DepthFrame(tNs, mm, null, k, reported, "synthetic")
+        return DepthFrame(tNs, if (noise.depthSmoothPx > 0) smooth(mm, k, noise.depthSmoothPx) else mm, null, k, reported, "synthetic")
+    }
+
+    /** 유효 픽셀만, 반경 [r] 정사각형 안 유효 깊이의 평균(무효는 무효로 둔다). */
+    private fun smooth(mm: ShortArray, k: Intrinsics, r: Int): ShortArray {
+        val out = ShortArray(mm.size)
+        for (v in 0 until k.height) for (u in 0 until k.width) {
+            if (mm[v * k.width + u].toInt() == 0) continue
+            var sum = 0L
+            var n = 0
+            for (dv in -r..r) for (du in -r..r) {
+                val uu = u + du
+                val vv = v + dv
+                if (uu !in 0 until k.width || vv !in 0 until k.height) continue
+                val d = mm[vv * k.width + uu].toInt() and 0xFFFF
+                if (d == 0) continue
+                sum += d
+                n++
+            }
+            out[v * k.width + u] = (sum / n).toInt().toShort()
+        }
+        return out
     }
 
     /** 세로 파지일 때 화면 기준 자세 = 센서 자세를 카메라 Z축으로 90° 회전(F2 실측). */

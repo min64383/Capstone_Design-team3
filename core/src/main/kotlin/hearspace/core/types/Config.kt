@@ -54,6 +54,12 @@ data class DepthConfig(
     val source: DepthSource,
     /** 원시 깊이 신뢰도(0~255)가 이보다 낮은 픽셀은 무효로 본다. 일반 깊이에는 적용하지 않는다. */
     val minConfidence: Int,
+    /**
+     * 그림자 거르기(IMPROVE_SPEC §6.1, M12): 비바닥 점 주변 이 반경(깊이 픽셀) 안에 깊이가 `1 − shadowRatio`배보다
+     * 가까운 비바닥 점이 있으면, 그 점은 앞 물체의 그림자(평활 깊이가 앞·뒤 사이를 메운 가짜 면)로 보고 맵에 넣지 않는다. 0이면 끔.
+     */
+    val shadowRadiusPx: Int,
+    val shadowRatio: Float,
 )
 
 /** 로컬 복셀 맵 설정. */

@@ -56,6 +56,22 @@ class TruthTest {
     }
 
     @Test
+    fun `free boxes are read and shifted like obstacles`() {
+        val t = GroundTruth.parse(
+            """{ "version": 2, "distanceFrom": "camera", "obstacles": [],
+                 "free": [ { "name": "behind", "min": [-0.3, 0.1, 2.4], "max": [0.3, 2.0, 3.4] }, { "min": [0, 0, 0], "max": [1, 1, 1] } ] }""",
+            offset,
+        )
+        assertEquals(2, t.free.size)
+        assertEquals("behind", t.free[0].name)
+        assertEquals("free1", t.free[1].name)
+        close(2.79f, t.free[0].minM.z, what = "free z +0.39")
+        assertTrue(t.free[0].contains(Vec3(0f, 0.5f, 3f)))
+        assertFalse(t.free[0].contains(Vec3(0f, 0.05f, 3f)))
+        assertTrue(GroundTruth.parse("""{ "obstacles": [] }""", offset).free.isEmpty())
+    }
+
+    @Test
     fun `bad answer files fail loudly`() {
         assertThrows<IllegalArgumentException> { GroundTruth.parse("""{ "distanceFrom": "eye", "obstacles": [] }""", offset) }
         assertThrows<IllegalArgumentException> { GroundTruth.parse("""{ "obstacles": [ { "name": "a", "type": "FLOOR", "min": [0, 0], "max": [1, 1, 1] } ] }""", offset) }

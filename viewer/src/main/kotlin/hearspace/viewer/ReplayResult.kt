@@ -11,6 +11,9 @@ import hearspace.core.session.FrameRow
 import hearspace.core.session.SessionReader
 import hearspace.core.truth.Alignment
 import hearspace.core.truth.GroundTruth
+import hearspace.core.truth.MapEval
+import hearspace.core.truth.MapEvalStep
+import hearspace.core.truth.MapEvalSummary
 import hearspace.core.types.Band
 import hearspace.core.types.Config
 import hearspace.core.types.ConfigLoader
@@ -40,8 +43,8 @@ object Repo {
 /** 오디오 블록 하나: 그 블록이 쓴 자세·스냅샷 시각과 빠른 경로 출력. */
 class BlockRec(val tNs: Long, val pose: PoseFrame, val snapshotTNs: Long?, val g: GuidanceOutput)
 
-/** 느린 경로 결과 하나. [voxelsW]는 처리 직후 점유 복셀 중심(x, y, z 반복). */
-class SlowRec(val doneNs: Long, val snapshot: ObstacleSnapshot, val voxelsW: FloatArray, val applied: Boolean, val stageNs: StageTimes)
+/** 느린 경로 결과 하나. [voxelsW]는 처리 직후 점유 복셀 중심(x, y, z 반복), [camW]는 그 깊이를 찍은 카메라 위치. */
+class SlowRec(val doneNs: Long, val snapshot: ObstacleSnapshot, val voxelsW: FloatArray, val applied: Boolean, val stageNs: StageTimes, val camW: Vec3)
 
 /** [times](오름차순)에서 [t] 이하인 마지막 위치. 없으면 −1. 화면은 이것으로만 찾아 미래 값을 쓰지 않는다. */
 fun lastAtOrBefore(times: LongArray, t: Long): Int {
@@ -128,6 +131,24 @@ class ReplayResult(
     val truthDistM = FloatArray(blocks.size) { Float.NaN }
     val truthAzDeg = FloatArray(blocks.size) { Float.NaN }
 
+    /** 맵 정확도(M12): 반영된 느린 경로마다(정답·정렬이 있을 때). 화면 표시용이며 계산은 core `MapEval`. */
+    val mapEval: List<MapEvalStep>? = truth?.let { t ->
+        alignment?.let { al ->
+            val off = config.head.offsetFromCameraM
+            appliedSlow.map { s ->
+                val c = al.toTruth(s.camW)
+                MapEval.step(s.doneNs, s.voxelsW, t, al, Vec3(c.x + off.x, c.y, c.z + off.z), config.corridor, config.map.voxelSizeM)
+            }
+        }
+    }
+    val mapEvalSummary: MapEvalSummary? = mapEval?.let { MapEval.summary(it) }
+
+    /** 블록마다 그 시각 맵의 헛 복셀 수(없으면 −1). */
+    val phantomAtBlock = IntArray(blocks.size) { i ->
+        val k = lastAtOrBefore(slowT, blocks[i].tNs)
+        if (k < 0 || mapEval == null) -1 else mapEval[k].nPhantom
+    }
+
     init {
         val t = truth
         if (t != null && alignment != null) {
@@ -162,7 +183,7 @@ object ReplayRunner {
                 val v = step.occupiedVoxels!!
                 val xyz = FloatArray(v.size * 3)
                 v.forEachIndexed { i, vox -> xyz[3 * i] = vox.centerW.x; xyz[3 * i + 1] = vox.centerW.y; xyz[3 * i + 2] = vox.centerW.z }
-                slow += SlowRec(step.doneNs, step.snapshot, xyz, step.applied, step.stageNs)
+                slow += SlowRec(step.doneNs, step.snapshot, xyz, step.applied, step.stageNs, step.depth.worldFromCam.translation())
             }
 
             override fun onBlock(tNs: Long, pose: PoseFrame, snapshot: ObstacleSnapshot?, g: GuidanceOutput) {
