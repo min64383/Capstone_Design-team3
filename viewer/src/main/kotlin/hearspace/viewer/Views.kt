@@ -7,6 +7,8 @@ import hearspace.core.session.SessionReader
 import hearspace.core.types.Band
 import hearspace.core.types.GuidanceState
 import hearspace.core.types.HeightClass
+import hearspace.core.types.Obstacle
+import hearspace.core.types.VoxelLabel
 import java.awt.BasicStroke
 import java.awt.Color
 import java.awt.Dimension
@@ -75,6 +77,9 @@ internal object Palette {
     val source = Color(255, 230, 80)
     val free = Color(150, 150, 170)
     val phantom = Color(230, 90, 90)
+    val structure = Color(170, 170, 185)
+    /** 추적 물체 색: 구조물(분할 꼬리표, M13)은 회청색, 물체는 높이 유형 색. */
+    fun obstacle(o: Obstacle): Color = if (o.label == VoxelLabel.STRUCTURE) structure else height(o.heightClass)
     fun height(h: HeightClass): Color = when (h) {
         HeightClass.FLOOR -> Color(255, 160, 40)
         HeightClass.BODY -> Color(60, 200, 255)
@@ -158,8 +163,8 @@ class CameraView(private val model: ViewerModel) : JPanel() {
             val block = r.blockIndexAt(t).takeIf { it >= 0 }?.let { r.blocks[it] }
             val active = block?.g?.commands?.map { it.obstacleId }?.toSet() ?: emptySet()
             r.slowAt(t)?.snapshot?.obstacles?.forEach { o ->
-                drawBox(boxCorners(o.aabbMinW, o.aabbMaxW), Palette.height(o.heightClass), dashed = false)
-                    ?.let { labels += Triple(it.first, it.second, "#${o.id}" to Palette.height(o.heightClass)) }
+                drawBox(boxCorners(o.aabbMinW, o.aabbMaxW), Palette.obstacle(o), dashed = false)
+                    ?.let { labels += Triple(it.first, it.second, "#${o.id}" to Palette.obstacle(o)) }
                 if (o.id in active) px(o.repPointW)?.let { (u, v) ->
                     s.color = Palette.source
                     s.fillOval(u.toInt() - 7, v.toInt() - 7, 14, 14)
@@ -282,7 +287,7 @@ class TopView(private val model: ViewerModel) : JPanel() {
             val c = listOf(Vec3(o.aabbMinW.x, 0f, o.aabbMinW.z), Vec3(o.aabbMaxW.x, 0f, o.aabbMinW.z), Vec3(o.aabbMaxW.x, 0f, o.aabbMaxW.z), Vec3(o.aabbMinW.x, 0f, o.aabbMaxW.z))
                 .map { al.toTruth(it) }
             val poly = Path2D.Float().apply { c.forEachIndexed { i, p -> if (i == 0) moveTo(sx(p.x), sy(p.z)) else lineTo(sx(p.x), sy(p.z)) }; closePath() }
-            val col = Palette.height(o.heightClass)
+            val col = Palette.obstacle(o)
             g.color = Color(col.red, col.green, col.blue, 70); g.fill(poly)
             g.color = col; g.draw(poly)
             val rp = al.toTruth(o.repPointW)

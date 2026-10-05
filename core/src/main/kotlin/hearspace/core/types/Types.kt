@@ -14,6 +14,12 @@ enum class RepStrategy { CENTROID, NEAREST, CORRIDOR_NEAREST }
 /** 통로 안 부분의 높이 분류 (§7.4). */
 enum class HeightClass { FLOOR, BODY, HEAD }
 
+/**
+ * 분할 꼬리표(IMPROVE_SPEC §4.1, M13). 바닥 점은 맵에 들어오지 않아 FLOOR가 없다.
+ * 구조물(벽·문 같은 큰 수직 평면)도 통로 안이면 물체와 똑같이 안내한다(안전 원칙, §8.3). 소리를 다르게 낼지는 미결정(§14).
+ */
+enum class VoxelLabel { OBJECT, STRUCTURE }
+
 /** 느린 경로 입력으로 쓸 ARCore 깊이 종류(F6): 일반(평활·채움, 30 Hz) 또는 원시(+신뢰도, 10~30 Hz). */
 enum class DepthSource { SMOOTHED, RAW }
 
@@ -102,6 +108,7 @@ data class Obstacle(
     val confidence: Float,
     val lastSeenNs: Long,
     val nObservations: Int,
+    val label: VoxelLabel = VoxelLabel.OBJECT,
 )
 
 /** 느린 경로의 출력. */

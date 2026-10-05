@@ -56,6 +56,22 @@ object Scenes {
         Noise(depthSmoothPx = 4),
     )
 
+    /**
+     * SC-18 벽 + 벽에 붙은 상자(IMPROVE_SPEC §12, M13): 보행선 오른쪽 0.35 m에 벽, 2 m 앞에 벽에 붙어 보행선 안쪽으로
+     * 나온 상자(x −0.05~0.35, 높이 0.6, 깊이 0.3). 구조물 분리 뒤에도 상자가 물체로 남는지 본다.
+     */
+    val SC18 get() = SceneSpec(
+        "SC-18",
+        Scene(
+            listOf(
+                floor,
+                wall(0.35f, "wall_r"),
+                SceneItem("box", Box(Vec3(-0.05f, 0f, -2.3f), Vec3(0.35f, 0.6f, -2f)), obstacle = true, expectedClass = HeightClass.FLOOR),
+            ),
+        ),
+        walkTo(2f),
+    )
+
     /** SC-02 보행선 위 2 m 상자. */
     val SC02 get() = SceneSpec("SC-02", Scene(listOf(floor, boxOnLine(2f))), walkTo(2f))
 

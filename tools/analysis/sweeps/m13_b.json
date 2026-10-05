@@ -1,0 +1,9 @@
+{
+  "variants": [
+    { "name": "default", "overrides": {} },
+    { "name": "free0.10", "overrides": { "map": { "freeMarginM": 0.10 } } },
+    { "name": "free0.07", "overrides": { "map": { "freeMarginM": 0.07 } } },
+    { "name": "free0.05", "overrides": { "map": { "freeMarginM": 0.05 } } },
+    { "name": "free0.05_decay0.5", "overrides": { "map": { "freeMarginM": 0.05, "decayPerObservation": 0.5 } } }
+  ]
+}

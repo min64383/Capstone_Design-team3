@@ -36,7 +36,7 @@ object RunLog {
 
     val OBSTACLES_HEADER = listOf("tCaptureNs", "id", "heightClass", "inCorridor") +
         RepStrategy.entries.flatMap { s -> listOf("x", "y", "z").map { "rep${s.name}_$it" } } +
-        listOf("aabbMinX", "aabbMinY", "aabbMinZ", "aabbMaxX", "aabbMaxY", "aabbMaxZ")
+        listOf("aabbMinX", "aabbMinY", "aabbMinZ", "aabbMaxX", "aabbMaxY", "aabbMaxZ", "label")
 
     /** 느린 경로 한 번 → `slow_path.csv` 한 줄. */
     fun slowPathLine(u: MapUpdate, tStartNs: Long, tDoneNs: Long, snapshot: ObstacleSnapshot): String =
@@ -60,7 +60,7 @@ object RunLog {
         val reps = RepStrategy.entries.flatMap { st -> o.repCandidatesW[st]?.let { listOf(it.x, it.y, it.z) } ?: List(3) { null } }
         row(
             *(listOf<Any?>(s.tCaptureNs, o.id, o.heightClass, o.inCorridor) + reps +
-                listOf(o.aabbMinW.x, o.aabbMinW.y, o.aabbMinW.z, o.aabbMaxW.x, o.aabbMaxW.y, o.aabbMaxW.z)).toTypedArray(),
+                listOf(o.aabbMinW.x, o.aabbMinW.y, o.aabbMinW.z, o.aabbMaxW.x, o.aabbMaxW.y, o.aabbMaxW.z, o.label)).toTypedArray(),
         )
     }
 

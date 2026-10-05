@@ -92,6 +92,17 @@ object ConfigLoader {
                     bodyMinM = positive("bodyMinM"),
                 )
             },
+            segment = root.section("segment") {
+                SegmentConfig(
+                    method = enumValue<SegmentMethod>("method"),
+                    planeMinLengthM = positive("planeMinLengthM"),
+                    planeMinHeightM = positive("planeMinHeightM"),
+                    planeInlierM = positive("planeInlierM"),
+                    planeMaxGapM = positive("planeMaxGapM"),
+                    planeAngleStepDeg = positive("planeAngleStepDeg"),
+                    maxPlanes = atLeast1("maxPlanes"),
+                )
+            },
             falsePositiveFilter = root.section("falsePositiveFilter") {
                 FalsePositiveFilterConfig(
                     enabled = boolean("enabled"),

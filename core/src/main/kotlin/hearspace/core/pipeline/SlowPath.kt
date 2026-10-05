@@ -7,6 +7,7 @@ import hearspace.core.guidance.MapAction
 import hearspace.core.mapping.LocalMap
 import hearspace.core.mapping.MapUpdate
 import hearspace.core.mapping.VoxelView
+import hearspace.core.segment.StructurePlanes
 import hearspace.core.tracking.Cluster
 import hearspace.core.tracking.Detection
 import hearspace.core.tracking.HeightClassifier
@@ -15,9 +16,11 @@ import hearspace.core.tracking.Tracker
 import hearspace.core.types.Config
 import hearspace.core.types.DepthFrame
 import hearspace.core.types.ObstacleSnapshot
+import hearspace.core.types.SegmentMethod
+import hearspace.core.types.VoxelLabel
 
 /**
- * 느린 경로 (§7.7): 역투영 → 월드 → 바닥 → 복셀 → **통로 안 복셀만** 군집 → 높이 분류 → 대표점 → 추적.
+ * 느린 경로 (§7.7): 역투영 → 월드 → 바닥 → 복셀 → (분할: 구조물 꼬리표, M13) → **통로 안 복셀만** 꼬리표별 군집 → 높이 분류 → 대표점 → 추적.
  * 통로로 먼저 자르는 이유: 좁은 복도에서는 통로 밖 벽·천장이 수평으로 이어져 모든 물체를 한 군집으로 묶는다
  * (M4 실측, 명세 v0.2.4 §7.4). 그래서 스냅샷에는 통로 안 물체만 있다.
  * 스레드를 모르고, 입력 깊이의 `tCaptureNs`만 시각으로 쓴다.
@@ -64,15 +67,15 @@ class SlowPath(
         }
 
         val corridor = Corridor(userPosW, headingW, floorY, config.corridor)
-        val inCorridor = map.voxels.occupied().filter { corridor.contains(it.centerW) }
+        val occupied = map.voxels.occupied()
+        val inCorridor = occupied.filter { corridor.contains(it.centerW) }
         val voxels = withoutEdgeStructures(inCorridor, corridor)
-        val centers = voxels.map { it.centerW }
         val half = config.map.voxelSizeM / 2
         val debug = ArrayList<ClusterDebug>()
         val detections = ArrayList<Detection>()
-        val clusters = Cluster.dbscanXZ(centers, config.cluster.epsM, config.cluster.minSamples)
-        for ((clusterIndex, idx) in clusters.withIndex()) {
-            val clusterVoxels = idx.map { voxels[it] }
+        var clusterIndex = 0
+        for ((label, group) in segment(occupied, voxels)) for (idx in Cluster.dbscanXZ(group.map { it.centerW }, config.cluster.epsM, config.cluster.minSamples)) {
+            val clusterVoxels = idx.map { group[it] }
             val pts = clusterVoxels.map { it.centerW }
             val reps = RepPoint.candidates(pts, corridor, config.map.voxelSizeM)
             val aabbMin = Vec3(pts.minOf { it.x } - half, pts.minOf { it.y } - half, pts.minOf { it.z } - half)
@@ -87,7 +90,7 @@ class SlowPath(
 
             val rawDebug = ClusterDebug(
                 tCaptureNs = depth.tCaptureNs,
-                clusterIndex = clusterIndex,
+                clusterIndex = clusterIndex++,
                 nVoxels = pts.size,
                 heightClass = heightClass,
                 aabbMinW = aabbMin,
@@ -123,6 +126,7 @@ class SlowPath(
                     confidence = scores.average().toFloat(),
                     lastSeenNs = clusterVoxels.maxOf { it.lastSeenNs },
                     suspicious = FalsePositiveFilter.matches(rawDebug, config.falsePositiveFilter),
+                    label = label,
                 )
             }
         }
@@ -132,6 +136,28 @@ class SlowPath(
         lastStageNs = StageTimes(t1 - t0, t2 - t1, nanoTime() - t2)
         return ObstacleSnapshot(depth.tCaptureNs, obstacles, floorY, u.mapHealth)
     }
+
+    /**
+     * 분할(`segment.method`, IMPROVE_SPEC §6, M13): 군집할 [voxels]를 꼬리표별 묶음으로 나눈다. 구조물 판정은 통로 밖까지
+     * 맵 전체([occupied])로 한다(벽·문 전체의 길이·높이를 봐야 해서). 통로 안 구조물 조각 중 그 조각만의 높이 폭이
+     * `segment.planeMinHeightM`보다 작은 것은 물체로 되돌린다: 벽에 붙은 물체의 뿌리가 벽 직선의 띠에 들어가 물체가 둘로
+     * 갈라지지 않게(SC-06 벽에 붙은 머리 높이 판, SC-18). NONE이면 나누지 않는다(기준선).
+     */
+    private fun segment(occupied: List<VoxelView>, voxels: List<VoxelView>): List<Pair<VoxelLabel, List<VoxelView>>> =
+        when (config.segment.method) {
+            SegmentMethod.NONE -> listOf(VoxelLabel.OBJECT to voxels)
+            SegmentMethod.PLANES -> {
+                val flags = StructurePlanes.find(occupied, config.segment, config.map.voxelSizeM)
+                val structure = occupied.filterIndexed { i, _ -> flags[i] }.toHashSet()
+                val (st, obj) = voxels.partition { it in structure }
+                val back = HashSet<VoxelView>()
+                for (idx in Cluster.dbscanXZ(st.map { it.centerW }, config.cluster.epsM, config.cluster.minSamples)) {
+                    val ys = idx.map { st[it].centerW.y }
+                    if (ys.max() - ys.min() + config.map.voxelSizeM < config.segment.planeMinHeightM) idx.forEach { back += st[it] }
+                }
+                listOf(VoxelLabel.OBJECT to obj + st.filter { it in back }, VoxelLabel.STRUCTURE to st.filter { it !in back })
+            }
+        }
 
     /**
      * 나란한 가장자리 구조물(벽·담장·난간·길가 차량 등)의 복셀을 뺀다. 가장자리 구역(|좌우| ≥ `corridor.edgeInnerM`)의

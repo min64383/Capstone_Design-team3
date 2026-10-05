@@ -118,6 +118,41 @@ def run_metrics(run_dir: Path, cfg: dict) -> dict:
     return out
 
 
+def separation(frames, obs, truth, al, cfg):
+    """물체 분리(IMPROVE_SPEC §9.2 합쳐짐·갈라짐, M13): 스냅샷마다 정답 통로 안에 있는 정답 물체(kind object)를 덮는
+    장애물(정답 좌표 상자가 겹침, 여유 0.05 m)을 본다. 갈라짐 = 둘 이상, 꼬리 = 물체 뒷면 너머로 늘어난 길이(평활 깊이의 가짜 면·
+    뒤 배경과 합쳐짐), 구조물 = 덮는 장애물 중 STRUCTURE 꼬리표(분할이 물체를 구조물로 잘못 봄)."""
+    ox, _, oz = cfg["head"]["offsetFromCameraM"]
+    ft = frames.tNs.to_numpy()
+    label = obs["label"] if "label" in obs else pd.Series("OBJECT", index=obs.index)
+    split = tails = struct = n = 0
+    tail = []
+    for t, snap in obs.assign(label=label).groupby("tCaptureNs"):
+        k = np.searchsorted(ft, t, side="right") - 1
+        if k < 0:
+            continue
+        f = frames.iloc[k]
+        cx, _, cz = to_truth(al, f.tx, f.ty, f.tz)
+        hx, hz = float(cx) + ox, float(cz) + oz
+        xs = np.stack([snap.aabbMinX, snap.aabbMaxX, snap.aabbMinX, snap.aabbMaxX], 1)
+        zs = np.stack([snap.aabbMinZ, snap.aabbMinZ, snap.aabbMaxZ, snap.aabbMaxZ], 1)
+        bx, _, bz = to_truth(al, xs, 0.0, zs)
+        bx0, bx1, bz0, bz1 = bx.min(1), bx.max(1), bz.min(1), bz.max(1)
+        for ob in truth:
+            if ob["kind"] != "object" or truth_nearest(ob, hx, hz, cfg) is None:
+                continue
+            (x0, _, z0), (x1, _, z1) = ob["min"], ob["max"]
+            m = (bx0 <= x1 + 0.05) & (bx1 >= x0 - 0.05) & (bz0 <= z1 + 0.05) & (bz1 >= z0 - 0.05)
+            if not m.any():
+                continue
+            n += 1
+            split += int(m.sum() >= 2)
+            struct += int((snap.label.to_numpy()[m] == "STRUCTURE").any())
+            tail.append(max(0.0, float(bz1[m].max()) - z1))
+    return {"nSnapshots": n, "splitFraction": split / n if n else None, "structureFraction": struct / n if n else None,
+            "tailM": {"p50": p(tail, 50), "p90": p(tail, 90)}}
+
+
 def truth_nearest(ob, hx, hz, cfg):
     """정답 통로(머리 기준 보행선 방향) 안 최근접점 → (along, 수평거리, 방위각) 또는 None."""
     c = cfg["corridor"]
@@ -286,6 +321,7 @@ def compute(session: Path, run_dir: Path) -> dict:
         "falseAlarmFraction": fa / n_cmd if n_cmd else None,
         "structureCommandFraction": n_struct / n_cmd if n_cmd else None,  # 구조물을 물체처럼 경고한 비율
         "selectedTruth": {truth[i]["name"]: sum(1 for r in rows if r["match"] == i and r["band"] in ("WARN", "STOP")) for i in range(len(truth))},
+        "separation": separation(frames, obs, truth, al, cfg),
     })
     return out
 

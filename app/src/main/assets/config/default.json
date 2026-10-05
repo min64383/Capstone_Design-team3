@@ -32,6 +32,15 @@
     "lostFrames": 10
   },
   "cluster": { "epsM": 0.15, "minSamples": 5, "headMinM": 1.2, "bodyMinM": 0.5 },
+  "segment": {
+    "method": "NONE",
+    "planeMinLengthM": 0.8,
+    "planeMinHeightM": 1.0,
+    "planeInlierM": 0.15,
+    "planeMaxGapM": 0.2,
+    "planeAngleStepDeg": 2,
+    "maxPlanes": 16
+  },
   "falsePositiveFilter": {
     "enabled": false,
     "minVoxels": 500,

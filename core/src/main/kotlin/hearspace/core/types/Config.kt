@@ -13,6 +13,7 @@ data class Config(
     val map: MapConfig,
     val floor: FloorConfig,
     val cluster: ClusterConfig,
+    val segment: SegmentConfig,
     val falsePositiveFilter: FalsePositiveFilterConfig,
     val track: TrackConfig,
     val repPoint: RepPointConfig,
@@ -98,6 +99,29 @@ data class FloorConfig(
 
 /** 군집·높이 분류 설정. */
 data class ClusterConfig(val epsM: Float, val minSamples: Int, val headMinM: Float, val bodyMinM: Float)
+
+/** 분할 방법(IMPROVE_SPEC §6). NONE = 기준선: 통로 안 복셀을 나누지 않고 한꺼번에 군집한다. */
+enum class SegmentMethod { NONE, PLANES }
+
+/**
+ * 분할 설정 (IMPROVE_SPEC §6 C2, M13). PLANES: 점유 복셀을 위에서 본 직선(수직 평면)으로 찾아, 이어진 길이와 높이 폭이
+ * 기준 이상인 부분을 구조물(벽·문)로 본다. 물체와 구조물은 따로 군집해 서로 합쳐지지 않는다(통로 안이면 둘 다 안내).
+ */
+data class SegmentConfig(
+    val method: SegmentMethod,
+    /** 구조물로 볼 평면의 최소 길이(위에서 본 직선을 따라). */
+    val planeMinLengthM: Float,
+    /** 구조물로 볼 평면의 최소 높이 폭. */
+    val planeMinHeightM: Float,
+    /** 직선에서 이 거리 안의 복셀 기둥을 그 평면으로 본다. 위에서 본 벽은 높이마다 위치가 달라 두껍다(M13 실측 20~45 cm). */
+    val planeInlierM: Float,
+    /** 직선을 따라 이보다 큰 빈틈이 있으면 다른 조각으로 나눠 판정한다. */
+    val planeMaxGapM: Float,
+    /** 직선 방향 탐색 간격(허프 변환). */
+    val planeAngleStepDeg: Float,
+    /** 깊이 한 장에서 살펴보는 직선 수 상한(구조물이 아니었던 직선도 센다). */
+    val maxPlanes: Int,
+)
 
 /** 실측에서 반복된 '통로 전체를 채우는 깊이 sheet' 오인식 실험 필터. 기본은 꺼 둔다. */
 data class FalsePositiveFilterConfig(

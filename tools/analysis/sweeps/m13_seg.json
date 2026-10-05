@@ -1,0 +1,10 @@
+{
+  "variants": [
+    { "name": "default", "overrides": {} },
+    { "name": "planes", "overrides": { "segment": { "method": "PLANES" } } },
+    { "name": "planes_in0.10", "overrides": { "segment": { "method": "PLANES", "planeInlierM": 0.10 } } },
+    { "name": "planes_in0.20", "overrides": { "segment": { "method": "PLANES", "planeInlierM": 0.20 } } },
+    { "name": "planes_h0.8", "overrides": { "segment": { "method": "PLANES", "planeMinHeightM": 0.8 } } },
+    { "name": "planes_len1.2", "overrides": { "segment": { "method": "PLANES", "planeMinLengthM": 1.2 } } }
+  ]
+}

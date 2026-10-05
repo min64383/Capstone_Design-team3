@@ -32,6 +32,7 @@ class ConfigLoaderTest {
         assertEquals(MapConfig(0.05f, 0.2f, 6, 0.1f, 0.15f, 0.3f, 1.0f, 10f, 5.0f), c.map)
         assertEquals(FloorConfig(0.5f, 0.05f, 0.04f, 0.02f, 0.2f, 200, 0.1f, 10), c.floor)
         assertEquals(ClusterConfig(0.15f, 5, 1.2f, 0.5f), c.cluster)
+        assertEquals(SegmentConfig(SegmentMethod.NONE, 0.8f, 1.0f, 0.15f, 0.2f, 2f, 16), c.segment)
         assertEquals(
             FalsePositiveFilterConfig(false, 500, 0.60f, 0.80f, 1.00f, 1.40f, 0.20f, 1.70f),
             c.falsePositiveFilter,

@@ -5,6 +5,7 @@ import hearspace.core.types.HeightClass
 import hearspace.core.types.Obstacle
 import hearspace.core.types.RepStrategy
 import hearspace.core.types.TrackConfig
+import hearspace.core.types.VoxelLabel
 
 /** 이번 깊이에서 찾은 군집 하나(추적 전). */
 data class Detection(
@@ -17,6 +18,8 @@ data class Detection(
     val lastSeenNs: Long,
     /** depth sheet 모양이라 오인식이 의심되는 군집([hearspace.core.pipeline.FalsePositiveFilter.matches]). */
     val suspicious: Boolean = false,
+    /** 분할 꼬리표(`segment.method`, M13). 추적은 같은 꼬리표끼리만 잇는다. */
+    val label: VoxelLabel = VoxelLabel.OBJECT,
 )
 
 /**
@@ -41,6 +44,7 @@ class Tracker(private val cfg: TrackConfig, private val strategy: RepStrategy) {
 
     private class Track(
         val id: Int,
+        val label: VoxelLabel,
         var reps: Map<RepStrategy, Vec3>,
         var nObservations: Int,
         var consecutiveObservations: Int,
@@ -59,6 +63,7 @@ class Tracker(private val cfg: TrackConfig, private val strategy: RepStrategy) {
         // 이전 track과 현재 detection 사이에서 matchRadius 안의 후보를 만든다.
         val pairs = ArrayList<Triple<Float, Int, Int>>()
         for ((ti, t) in tracks.withIndex()) for ((di, d) in detections.withIndex()) {
+            if (t.label != d.label) continue
             val oldCenter = t.reps.getValue(RepStrategy.CENTROID)
             val newCenter = d.repCandidatesW.getValue(RepStrategy.CENTROID)
             val dist = (oldCenter - newCenter).norm()
@@ -99,6 +104,7 @@ class Tracker(private val cfg: TrackConfig, private val strategy: RepStrategy) {
             } else {
                 Track(
                     id = nextId++,
+                    label = d.label,
                     reps = d.repCandidatesW,
                     nObservations = 1,
                     consecutiveObservations = if (confident) 1 else 0,
@@ -124,6 +130,7 @@ class Tracker(private val cfg: TrackConfig, private val strategy: RepStrategy) {
                     confidence = d.confidence,
                     lastSeenNs = d.lastSeenNs,
                     nObservations = track.nObservations,
+                    label = track.label,
                 )
             }
         }

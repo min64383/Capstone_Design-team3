@@ -6,7 +6,7 @@
 |---|---|---|
 | `spike_check.py` | M1 | 녹화 세션 1개로 스파이크 F1~F7 수치 출력 (docs/FORMAT.md) |
 | `align.py` | M8 | 보행선 정렬(§10.3) → `align.json` |
-| `metrics.py` | M8, M10, M11 | 지표(§10.2) → `metrics.json`. `--run <실행 로그>`면 세션 없이(사용자 모드 T01: 1분마다 UNKNOWN·주기·발열). 정답 v2(`distanceFrom`, `kind`), 단계별 처리 시간(`stage_timing.csv` → `stageMs`), 맵 정확도(`map_eval.json` → `mapEval`, M13) |
+| `metrics.py` | M8, M10, M11 | 지표(§10.2) → `metrics.json`. `--run <실행 로그>`면 세션 없이(사용자 모드 T01: 1분마다 UNKNOWN·주기·발열). 정답 v2(`distanceFrom`, `kind`), 단계별 처리 시간(`stage_timing.csv` → `stageMs`), 맵 정확도(`map_eval.json` → `mapEval`, M13), 물체 분리(`separation`: 정답 물체를 덮는 장애물의 꼬리·갈라짐·구조물 꼬리표, M13) |
 | `report.py` | M8, M10 | 여러 `metrics.json` → Markdown 비교표. `--group`이면 장면 × 변형마다 회차 묶음 |
 | `sweep.py` | M10 | 변형 목록(`sweeps/*.json`) × 세션마다 오프라인 재생 → `metrics.json` |
 | `plots.py` | M8 | 시계열·지연·위에서 본 그림, `--at 초`로 그 시각 RGB와 나란히 |
@@ -48,3 +48,5 @@ uv pip install --python .venv\Scripts\python.exe -r tools/analysis/requirements.
 ```
 
 맵(복셀) 정확도(M13): 정답 파일에 `free`(확실히 빈 공간)가 있는 세션을 `:core:replay`로 돌리면 `map_eval.csv`(느린 경로마다 헛 복셀·물체 복셀)와 `map_eval.json`(요약)이 함께 나온다. 비교 변형은 `sweeps/m13_map.json`, 결과는 `docs/M13_MAP_REPORT.md`.
+
+구조물 분리(M13 C2): `segment.method` 비교는 `sweeps/m13_seg.json`. `obstacles.csv`의 `label` 열(OBJECT·STRUCTURE)로 `separation`을 잰다. 꼬리 = 정답 물체 뒷면 너머로 장애물이 늘어난 길이(가짜 면·뒤 배경과 합쳐짐), 갈라짐 = 정답 물체 하나를 장애물 둘 이상이 덮은 스냅샷 비율, 물체→구조물 = 덮는 장애물 중 STRUCTURE가 있는 비율. 결과는 `docs/M13_MAP_REPORT.md`.
