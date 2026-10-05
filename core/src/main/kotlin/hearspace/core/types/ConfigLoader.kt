@@ -108,6 +108,9 @@ object ConfigLoader {
                     emaAlpha = unit("emaAlpha"),
                     minConfirmObservations = atLeast1("minConfirmObservations"),
                     maxMissedUpdates = intIn("maxMissedUpdates", 0, Int.MAX_VALUE),
+                    suspiciousConfirmObservations = atLeast1("suspiciousConfirmObservations"),
+                    minConfirmConfidence = unit("minConfirmConfidence"),
+                    maxConfirmCentroidJumpM = positive("maxConfirmCentroidJumpM"),
                 )
             },
             repPoint = root.section("repPoint") { RepPointConfig(strategy = enumValue<RepStrategy>("strategy")) },
@@ -228,6 +231,12 @@ object ConfigLoader {
         }
         if (c.cluster.bodyMinM >= c.cluster.headMinM) {
             throw ConfigException("cluster", "must satisfy bodyMinM < headMinM")
+        }
+        if (c.track.suspiciousConfirmObservations < c.track.minConfirmObservations) {
+            throw ConfigException("track", "must satisfy minConfirmObservations <= suspiciousConfirmObservations")
+        }
+        if (c.track.maxConfirmCentroidJumpM > c.track.matchRadiusM) {
+            throw ConfigException("track", "must satisfy maxConfirmCentroidJumpM <= matchRadiusM")
         }
         if (c.audio.beepOnMs >= c.audio.nearPeriodMs) {
             throw ConfigException(

@@ -46,7 +46,10 @@
     "matchRadiusM": 0.3,
     "emaAlpha": 0.3,
     "minConfirmObservations": 2,
-    "maxMissedUpdates": 3
+    "maxMissedUpdates": 3,
+    "suspiciousConfirmObservations": 2,
+    "minConfirmConfidence": 0,
+    "maxConfirmCentroidJumpM": 0.3
   },
   "repPoint": { "strategy": "CORRIDOR_NEAREST" },
   "policy": {

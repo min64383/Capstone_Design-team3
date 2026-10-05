@@ -114,6 +114,12 @@ data class TrackConfig(
     val minConfirmObservations: Int,
     /** 군집이 잠깐 빠져도 같은 id를 복구할 수 있도록 내부 track을 유지하는 느린 경로 갱신 횟수. */
     val maxMissedUpdates: Int,
+    /** depth sheet 모양([FalsePositiveFilterConfig] 조건)인 군집의 확인 횟수. 지우지 않고 더 오래 확인한다. */
+    val suspiciousConfirmObservations: Int,
+    /** 확인 횟수로 세는 관측의 최소 confidence(군집 복셀 score 평균). 0이면 모두 센다. */
+    val minConfirmConfidence: Float,
+    /** 확인 중 이전 중심점(EMA)에서 이보다 멀리 튄 관측은 연속 횟수를 1부터 다시 센다. `matchRadiusM`이면 끈 것과 같다. */
+    val maxConfirmCentroidJumpM: Float,
 )
 
 /** 대표점 설정. */

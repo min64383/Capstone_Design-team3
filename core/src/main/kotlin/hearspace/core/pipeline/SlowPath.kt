@@ -122,6 +122,7 @@ class SlowPath(
                     inCorridor = true,
                     confidence = scores.average().toFloat(),
                     lastSeenNs = clusterVoxels.maxOf { it.lastSeenNs },
+                    suspicious = FalsePositiveFilter.matches(rawDebug, config.falsePositiveFilter),
                 )
             }
         }

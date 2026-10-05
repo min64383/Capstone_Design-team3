@@ -15,6 +15,8 @@ data class Detection(
     val inCorridor: Boolean,
     val confidence: Float,
     val lastSeenNs: Long,
+    /** depth sheet 모양이라 오인식이 의심되는 군집([hearspace.core.pipeline.FalsePositiveFilter.matches]). */
+    val suspicious: Boolean = false,
 )
 
 /**
@@ -24,6 +26,9 @@ data class Detection(
  * 1) 한 번 군집이 빠지면 id가 즉시 사라지는 문제 -> [TrackConfig.maxMissedUpdates] 동안 내부 track 유지.
  * 2) 한 번 생긴 군집이 바로 장애물로 출력되는 문제 -> [TrackConfig.minConfirmObservations]회 연속 관측 후 출력.
  *    한 번 확인된 track은 잠깐 놓쳤다 다시 잡히면 바로 출력한다(다시 확인하느라 음원이 끊기지 않게).
+ *    확인 전에는 confidence가 [TrackConfig.minConfirmConfidence] 미만인 관측을 세지 않고(0부터),
+ *    이전 중심점에서 [TrackConfig.maxConfirmCentroidJumpM]보다 튄 관측은 새 연속의 첫 관측(1)으로 센다.
+ *    한 번이라도 의심 군집([Detection.suspicious])이었던 track은 [TrackConfig.suspiciousConfirmObservations]회가 필요하다.
  *
  * 매칭 자체는 기존 결정대로 CENTROID 거리 최근접 + [TrackConfig.matchRadiusM]을 유지한다.
  * CORRIDOR_NEAREST는 물체가 통로에 들어오는 순간 튈 수 있어 id 매칭에는 쓰지 않는다.
@@ -40,6 +45,8 @@ class Tracker(private val cfg: TrackConfig, private val strategy: RepStrategy) {
         var nObservations: Int,
         var consecutiveObservations: Int,
         var missedUpdates: Int,
+        /** 확인 전에 의심 군집으로 관측된 적이 있는지. */
+        var suspicious: Boolean,
         /** 한 번이라도 연속 확인을 통과했는지. */
         var confirmed: Boolean = false,
     )
@@ -73,29 +80,38 @@ class Tracker(private val cfg: TrackConfig, private val strategy: RepStrategy) {
 
         // 현재 detection과 매칭된 track은 갱신하고, 새 detection은 tentative track으로 만든다.
         for ((di, d) in detections.withIndex()) {
+            val confident = d.confidence >= cfg.minConfirmConfidence
             val track = if (trackOf[di] >= 0) {
                 tracks[trackOf[di]].also { t ->
+                    val jump = (d.repCandidatesW.getValue(RepStrategy.CENTROID) - t.reps.getValue(RepStrategy.CENTROID)).norm()
+                    t.consecutiveObservations = when {
+                        !confident -> 0
+                        jump > cfg.maxConfirmCentroidJumpM -> 1
+                        else -> t.consecutiveObservations + 1
+                    }
                     t.reps = t.reps.mapValues { (s, old) ->
                         old + (d.repCandidatesW.getValue(s) - old) * cfg.emaAlpha
                     }
                     t.nObservations++
-                    t.consecutiveObservations++
                     t.missedUpdates = 0
+                    t.suspicious = t.suspicious || d.suspicious
                 }
             } else {
                 Track(
                     id = nextId++,
                     reps = d.repCandidatesW,
                     nObservations = 1,
-                    consecutiveObservations = 1,
+                    consecutiveObservations = if (confident) 1 else 0,
                     missedUpdates = 0,
+                    suspicious = d.suspicious,
                 )
             }
 
             next += track
 
             // 연속 관측 횟수가 기준을 넘은(또는 이미 확인된) track만 실제 장애물로 출력한다.
-            if (track.consecutiveObservations >= cfg.minConfirmObservations) track.confirmed = true
+            val required = if (track.suspicious) cfg.suspiciousConfirmObservations else cfg.minConfirmObservations
+            if (track.consecutiveObservations >= required) track.confirmed = true
             if (track.confirmed) {
                 out += Obstacle(
                     id = track.id,

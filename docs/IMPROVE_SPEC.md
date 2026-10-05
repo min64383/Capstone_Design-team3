@@ -137,6 +137,7 @@ data class SourceCmd(
 | T1 | 할당 + 위치 필터 | 비용 행렬(중심 거리·크기·높이 범위) 최적 할당, 물체마다 위치(필요하면 속도) 칼만 필터 |
 | T2 | 맵 기반 지속 | 물체를 복셀 집합으로 맵에 고정해 시야 밖에서도 같은 id 유지(MVP §2.2-6과 일치) |
 
+- T0 확인 조건 변형(2026-10-05, PR #30 재작업): 확인 전 confidence 하한(`track.minConfirmConfidence`), 중심점 점프 상한(`track.maxConfirmCentroidJumpM`, 넘으면 1부터 다시), depth sheet 모양(`falsePositiveFilter` 조건, 필터가 꺼져도 판정) 군집의 긴 확인(`track.suspiciousConfirmObservations`). 기본값(0 / `matchRadiusM` / `minConfirmObservations`)은 기준선과 같다. 비교는 `tools/analysis/sweeps/track_confirm.json`, 결과는 `docs/TRACKING_FP_FILTER_EXPERIMENT.md`.
 - 정지 물체 가정이 기본이다. 이동 물체(속도)는 T1의 선택 사항이며 실외 확장 과제(MVP §16)와 연결된다.
 - 시야 밖 물체는 감쇠하지 않는다(MVP 원칙). 대신 `unseenS`를 기록해 음원화가 이를 반영할 수 있게 한다(예: 오래 안 본 물체는 음량을 낮춤 — 끄지는 않음, STOP 범위면 그대로).
 
