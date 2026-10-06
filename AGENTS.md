@@ -5,7 +5,7 @@
 -->
 # HEARSPACE — 시각장애인 보행 보조 앱 MVP
 
-구현 기준은 M11부터 `docs/IMPROVE_SPEC.md`(v0.2.1)이고, 거기 없는 것은 `docs/MVP_SPEC.md`(v0.2.12, M0~M10 기록으로 동결)를 따른다. 작업 전 해당 마일스톤(IMPROVE_SPEC §13)과 관련 절을 읽는다.
+구현 기준은 M11부터 `docs/IMPROVE_SPEC.md`(v0.3)이고, 거기 없는 것은 `docs/MVP_SPEC.md`(v0.2.12, M0~M10 기록으로 동결)를 따른다. 작업 전 해당 마일스톤(IMPROVE_SPEC §13)과 관련 절을 읽는다.
 명세와 코드가 충돌하면 명세를 따르고, 명세가 틀렸다고 판단되면 멈추고 사용자에게 제안한다.
 
 ## 구조
