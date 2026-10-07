@@ -3,6 +3,7 @@ package hearspace.core.audio
 import hearspace.core.types.AlertKind
 import hearspace.core.types.AudioCmd
 import hearspace.core.types.Band
+import hearspace.core.types.SonifyMapping
 import hearspace.core.types.SonifyMode
 import hearspace.core.types.GuidanceState
 import hearspace.core.types.Config
@@ -22,7 +23,8 @@ import kotlin.math.min
  * - 알림음은 비공간(양쪽 같음)으로 섞고, 마지막에 주 음량과 리미터(블록 사이 선형 이득 램프).
  * 스레드를 모르고 같은 입력이면 같은 출력이다.
  */
-class BinauralRenderer(private val config: Config, private val hrtf: Hrtf) {
+class BinauralRenderer(private val config: Config, private val hrtf: Hrtf,
+    private val onSonification: ((SonificationSample) -> Unit)? = null) {
 
     private val audio = config.audio
     private val n = audio.blockSize
@@ -72,7 +74,8 @@ class BinauralRenderer(private val config: Config, private val hrtf: Hrtf) {
 
         val cmds = g.commands.filter {
             it.infoAgeMs.isFinite() && it.infoAgeMs >= 0f && it.infoAgeMs <= config.policy.maxInfoAgeMs &&
-                (!continuous || (it.distanceM.isFinite() && it.distanceM > 0f && it.azimuthDeg.isFinite()))
+                (!continuous || (it.distanceM.isFinite() && it.distanceM > 0f && it.azimuthDeg.isFinite() &&
+                    (config.sonify.mapping != SonifyMapping.DISTANCE_HEIGHT || it.heightDeltaM.isFinite())))
         }
         if (continuous) {
             if (g.state != GuidanceState.NORMAL && g.state != GuidanceState.DEGRADED) {
@@ -86,22 +89,28 @@ class BinauralRenderer(private val config: Config, private val hrtf: Hrtf) {
         fun duck(c: AudioCmd): Float =
             if (hasStop && !(c.inCorridor && c.band == Band.STOP)) Sounds.db(config.sonify.duckDb) else 1f
         for (s in sources.values) s.active = false
-        for (c in cmds) sources.getOrPut(c.obstacleId) { Source() }.let { it.active = true; renderSource(it, c, out, g.tBlockNs, duck(c)) }
+        for (c in cmds) sources.getOrPut(c.obstacleId) { Source() }.let { it.active = true; renderSource(it, c, out, g.tBlockNs, duck(c), c.obstacleId) }
         // 명령에서 빠진 음원: 새 버스트 없이 꼬리만
         val it = sources.entries.iterator()
         while (it.hasNext()) {
-            val (_, s) = it.next()
+            val (id, s) = it.next()
             if (s.active) continue
-            renderSource(s, null, out, g.tBlockNs, 1f)
+            renderSource(s, null, out, g.tBlockNs, 1f, id)
             if (s.quietBlocks * n > taps) it.remove()
         }
         mixAlerts(out)
         limit(out)
     }
 
-    private fun renderSource(s: Source, c: AudioCmd?, out: FloatArray, timeNs: Long, duckGain: Float) {
+    private fun renderSource(s: Source, c: AudioCmd?, out: FloatArray, timeNs: Long, duckGain: Float, id: Int) {
         if (continuous) {
             s.riskSound!!.render(c, timeNs, duckGain, mono)
+            onSonification?.let { emit ->
+                val v = s.riskSound!!
+                emit(SonificationSample(timeNs, id, c, v.closingMps, v.ttcS,
+                    if (c == null) null else v.risk, v.active, v.targetPitchHz,
+                    v.pitchHz, v.targetGain, v.gain, duckGain))
+            }
             s.quietBlocks = if (mono.any { it != 0f }) 0 else s.quietBlocks + 1
             spatialize(s, c?.azimuthDeg ?: s.az, mono, out)
             return

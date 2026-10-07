@@ -124,6 +124,8 @@ data class AudioCmd(
     val infoAgeMs: Float,
     /** 진행 통로 안의 물체인지. 기존 생성 코드와 호환되도록 기본값 true. */
     val inCorridor: Boolean = true,
+    /** 대표점의 월드 Y - 머리 월드 Y(m). 위가 +. 기존 호출은 같은 높이(0m)로 취급. */
+    val heightDeltaM: Float = 0f,
 )
 
 /** 오디오 블록마다 계산하는 빠른 경로의 출력. */
