@@ -92,7 +92,8 @@ object SyntheticSessionWriter {
 
     /**
      * 정답 `annotations/obstacles.json`(docs/FORMAT.md §정답): 원점 = 시작 시 머리 아래 바닥(시작 표시),
-     * +z = 보행선(진행 방향), +x = 오른쪽, +y = 위, 미터. 장애물은 월드 AABB를 이 좌표로 옮긴 것.
+     * +z = 보행선(진행 방향), +x = 오른쪽, +y = 위, 미터. 장애물은 월드 AABB를 이 좌표로 옮긴 것. 구조물([SceneItem.structure])은
+     * `kind: structure`로 함께 적는다(정답 v2).
      */
     fun writeTruth(rec: SyntheticRecording, dir: File) {
         val (_, head0) = SyntheticGenerator.cameraPose(rec.walk, 0f)
@@ -100,7 +101,7 @@ object SyntheticSessionWriter {
         val r = head0.rightW
         val o = Vec3(head0.positionW.x, 0f, head0.positionW.z) // 바닥 y = 0
         fun toTruth(p: Vec3) = Vec3((p - o) dot r, p.y, (p - o) dot f)
-        val items = rec.scene.items.filter { it.obstacle }.map { item ->
+        val items = rec.scene.items.filter { it.obstacle || it.structure }.map { item ->
             val (mn, mx) = when (val sh = item.shape) {
                 is Box -> sh.min to sh.max
                 is VerticalCylinder -> Vec3(sh.cx - sh.radiusM, sh.yMin, sh.cz - sh.radiusM) to Vec3(sh.cx + sh.radiusM, sh.yMax, sh.cz + sh.radiusM)
@@ -111,11 +112,13 @@ object SyntheticSessionWriter {
             val lo = listOf(corners.minOf { it.x }, mn.y, corners.minOf { it.z })
             val hi = listOf(corners.maxOf { it.x }, mx.y, corners.maxOf { it.z })
             val removed = item.removeAtS?.let { ", \"removeAtS\": $it" } ?: ""
-            """    { "name": "${item.name}", "type": "${item.expectedClass ?: HeightClass.FLOOR}", "min": ${arr(lo)}, "max": ${arr(hi)}$removed }"""
+            val kind = if (item.obstacle) "" else ", \"kind\": \"structure\""
+            """    { "name": "${item.name}", "type": "${item.expectedClass ?: HeightClass.FLOOR}"$kind, "min": ${arr(lo)}, "max": ${arr(hi)}$removed }"""
         }
+        val version = if (rec.scene.items.any { it.structure && !it.obstacle }) 2 else 1 // kind는 정답 v2
         File(dir, "annotations").mkdirs()
         File(dir, "annotations/obstacles.json").writeText(
-            "{\n  \"version\": 1,\n  \"estimated\": false,\n  \"obstacles\": [\n" + items.joinToString(",\n") + "\n  ]\n}\n",
+            "{\n  \"version\": $version,\n  \"estimated\": false,\n  \"obstacles\": [\n" + items.joinToString(",\n") + "\n  ]\n}\n",
         )
     }
 }

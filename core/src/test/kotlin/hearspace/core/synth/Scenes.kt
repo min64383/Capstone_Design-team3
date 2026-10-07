@@ -132,6 +132,20 @@ object Scenes {
         Walk(startCameraW = Vec3(0.2f, 1f, 0f), durationS = 2f + 2.2f),
     )
 
+    /**
+     * M12.0 오차 분해 장면(E01~E04 녹화 공간 흉내): 폭 1.04 m 복도(벽 x = ±0.52)와 시작 카메라에서 4.0 m 끝 벽은 구조물로 정답에 적고,
+     * [suitcaseM]이 있으면 카메라에서 그 거리에 앞면이 오는 캐리어(너비 0.4, 높이 0.6, 깊이 0.3)를 둔다.
+     */
+    fun corridorE(suitcaseM: Float? = null) = Scene(
+        listOfNotNull(
+            floor,
+            wall(0.52f, "wall_right").copy(structure = true),
+            wall(-0.52f, "wall_left").copy(structure = true),
+            SceneItem("wall_end", Box(Vec3(-0.62f, 0f, -4.1f), Vec3(0.62f, 2.5f, -4f)), obstacle = false, structure = true),
+            suitcaseM?.let { SceneItem("suitcase", Box(Vec3(-0.2f, 0f, -it - 0.3f), Vec3(0.2f, 0.6f, -it)), obstacle = true, expectedClass = HeightClass.FLOOR) },
+        ),
+    )
+
     /** 전체 목록. */
-    val ALL get() = listOf(SC01, SC02, SC03, SC04, SC05, SC06, SC07, SC08, SC09, SC10, SC11, SC12, SC13, SC14)
+    val ALL get() =listOf(SC01, SC02, SC03, SC04, SC05, SC06, SC07, SC08, SC09, SC10, SC11, SC12, SC13, SC14)
 }

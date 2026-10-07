@@ -86,6 +86,51 @@ class SyntheticSceneTest {
     }
 
     @Test
+    fun `round trip walk turns in place around the head and comes back`() {
+        val w = Walk(standS = 1f, legM = 2f, turnS = 2f, durationS = 9f)
+        fun at(t: Float) = SyntheticGenerator.cameraPose(w, t)
+        val h0 = at(0f).second
+        // 갈 때 끝(3 s): 머리는 보행선 2 m 앞
+        assertEquals(2f, (at(3f).second.positionW - h0.positionW).norm(), 1e-4f)
+        // 회전 중(3~5 s) 머리는 제자리, 카메라는 머리 둘레로 돌아 앞뒤 오프셋(0.3 m)의 두 배만큼 옮겨진다
+        assertEquals(0f, (at(5f).second.positionW - at(3f).second.positionW).norm(), 1e-4f)
+        assertEquals(0.6f, (at(5f).first.translation() - at(3f).first.translation()).norm(), 1e-3f)
+        // 되돌아와(7 s) 머리는 시작 자리, 방향은 반대
+        assertEquals(0f, (at(7f).second.positionW - h0.positionW).norm(), 1e-4f)
+        assertEquals(-1f, at(7f).second.headingW dot h0.headingW, 1e-4f)
+        // 걸은 거리는 회전 중에 늘지 않는다
+        assertEquals(2f, SyntheticGenerator.legState(w, 4f).walkedM, 1e-5f)
+        assertEquals(4f, SyntheticGenerator.legState(w, 7f).walkedM, 1e-4f)
+        assertTrue(!SyntheticGenerator.legState(w, 4f).moving && SyntheticGenerator.legState(w, 6f).moving)
+        // 구간 수를 다 걸으면 마지막 자리·방향으로 선다
+        val two = w.copy(legCount = 2)
+        assertEquals(0f, (SyntheticGenerator.cameraPose(two, 8.5f).second.positionW - h0.positionW).norm(), 1e-4f)
+        assertEquals(-1f, SyntheticGenerator.cameraPose(two, 8.5f).second.headingW dot h0.headingW, 1e-4f)
+        assertTrue(!SyntheticGenerator.legState(two, 8.5f).moving)
+        // legM이 없으면 기존 한 방향 보행과 같은 자세
+        val straight = Walk(standS = 1f, durationS = 4f)
+        assertEquals(SyntheticGenerator.cameraPose(straight, 2.5f).first, SyntheticGenerator.cameraPose(straight.copy(legM = null), 2.5f).first)
+    }
+
+    @Test
+    fun `cumulative drift grows with walked distance and not while standing`() {
+        val noise = Noise(yawDriftDegPerM = 2f, posDriftPerM = Vec3(0.01f, 0f, 0f))
+        val rec = SyntheticGenerator.generate(Scenes.SC01.scene, Walk(durationS = 5f), noise, depthEveryNFrames = 1000)
+        fun drift(t: Float): Pair<Float, Vec3> {
+            val f = rec.frames.minBy { abs(it.tS - t) }
+            val d = f.pose.worldFromCam * f.truthWorldFromCam.rigidInverse() // 보고 = d × 참
+            val v = d.transformDir(Vec3(0f, 0f, -1f))
+            return Math.toDegrees(kotlin.math.atan2(-v.x, -v.z).toDouble()).toFloat() to d.translation()
+        }
+        val (yaw0, p0) = drift(1f) // 정지 중
+        assertEquals(0f, yaw0, 1e-3f)
+        assertEquals(0f, p0.norm(), 1e-5f)
+        val (yaw, p) = drift(4.5f) // 2.5 m 걸음
+        assertEquals(5f, yaw, 0.1f)
+        assertEquals(0.025f, p.x, 1e-3f)
+    }
+
+    @Test
     fun `same seed gives identical output`() {
         val noisy = Scenes.SC02.copy(noise = Noise(seed = 7, depthMulStd = 0.02f, invalidRatio = 0.1f, posePosStdM = 0.01f))
         val a = noisy.generate()
