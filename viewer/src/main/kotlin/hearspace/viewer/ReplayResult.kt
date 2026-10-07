@@ -83,7 +83,7 @@ class ReplayResult(
 
     /** 보행선 좌표(정답 좌표). 바닥을 한 번도 못 잡았으면 null. */
     val alignment: Alignment? = Alignment.medianFloorY(slow.map { it.snapshot.floorY })?.let {
-        runCatching { Alignment.fit(reader.rows, config.align.fitLengthM, config.head.offsetFromCameraM, it) }.getOrNull()
+        runCatching { Alignment.fit(reader.rows, config.align, config.head.offsetFromCameraM, it) }.getOrNull()
     }
 
     /** 장면 ID: 정답 파일의 `scene`, 없으면 폴더 이름 끝(M10 녹화는 폴더 이름이 틀려 정답 파일이 우선). */

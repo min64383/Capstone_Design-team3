@@ -10,6 +10,7 @@ import pandas as pd
 
 import json
 
+from align import fit
 from metrics import compute, load_truth, run_metrics
 from report import combine
 from sweep import plan
@@ -70,6 +71,26 @@ def check_truth_v2():
         assert obs[0]["min"][2] == 2.0, obs  # v1(시작 표시 기준)은 그대로
 
 
+def check_align_heading():
+    """정지 녹화는 카메라 시선으로, 걷는 녹화는 궤적으로 정렬 (M12.0, Kotlin `Alignment`와 같은 계산)."""
+    import numpy as np
+
+    cfg = {"fitLengthM": 2.0, "minTravelM": 0.5, "headingWindowS": 3.0}
+    off = [0.0, 0.5, -0.39]
+    n = 120
+    for yaw in (0.0, 30.0, -75.0, 170.0):
+        a = np.radians(yaw) / 2
+        i = np.arange(n)
+        fr = pd.DataFrame({"tNs": 33_333_333 * i, "tracking": "TRACKING",
+                           "tx": 1 + 0.02 * np.cos(i * 2.399), "ty": 0.1, "tz": -2 + 0.02 * np.sin(i * 2.399),
+                           "qx": 0.0, "qy": np.sin(a), "qz": 0.0, "qw": np.cos(a)})
+        al = fit(fr, cfg, off, -1.0)
+        assert al["byHeading"] and abs(al["dir"][0] + np.sin(np.radians(yaw))) < 1e-6 and abs(al["dir"][1] + np.cos(np.radians(yaw))) < 1e-6, (yaw, al)
+    walk = pd.DataFrame({"tNs": 33_333_333 * np.arange(101), "tracking": "TRACKING", "tx": 0.0, "ty": 0.1,
+                         "tz": -3.0 * np.arange(101) / 100, "qx": 0.0, "qy": 0.0, "qz": 0.0, "qw": 1.0})
+    assert not fit(walk, cfg, off, -1.0)["byHeading"]
+
+
 def check_group_and_plan():
     """회차 묶기(중앙값·합계·딕셔너리)와 sweep 조합 (M10)."""
     assert combine([1.0, None, 3.0, 2.0], "median") == 2.0
@@ -106,6 +127,7 @@ def main():
 
     check_run_only()
     check_truth_v2()
+    check_align_heading()
     check_group_and_plan()
     print("analysis self-check ok")
 
