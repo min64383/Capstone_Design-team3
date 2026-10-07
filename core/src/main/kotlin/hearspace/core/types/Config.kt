@@ -214,8 +214,11 @@ data class RecordConfig(
     val deviceLogIntervalS: Float,
 )
 
-/** 분석 도구용 정답 정렬 설정. */
-data class AlignConfig(val fitLengthM: Float)
+/**
+ * 분석 도구용 정답 정렬 설정. 카메라가 [minTravelM]보다 적게 움직인 세션(정지 녹화)은 궤적 방향이 잡음이라
+ * 처음 [headingWindowS]초의 카메라 시선(수평)을 보행선 방향으로 쓴다.
+ */
+data class AlignConfig(val fitLengthM: Float, val minTravelM: Float, val headingWindowS: Float)
 
 /** 설정 파일의 키 누락·미지의 키·타입 불일치·값 범위 오류. [path]는 `map.voxelSizeM` 같은 점 표기. */
 class ConfigException(val path: String, message: String) : IllegalArgumentException("config '$path': $message")

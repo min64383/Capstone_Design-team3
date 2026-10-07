@@ -65,7 +65,7 @@ class ConfigLoaderTest {
         )
         assertEquals(HapticsConfig(40, 40, 80, 400, 600), c.haptics)
         assertEquals(RecordConfig(1, 3, 1.0f), c.record)
-        assertEquals(AlignConfig(2.0f), c.align)
+        assertEquals(AlignConfig(2.0f, 0.5f, 3.0f), c.align)
     }
 
     @Test
@@ -86,7 +86,7 @@ class ConfigLoaderTest {
 
     @Test
     fun `missing section is rejected`() {
-        val json = defaultJson.replace(""""align": { "fitLengthM": 2.0 }""", """"unused": {}""")
+        val json = defaultJson.replace(""""align": { "fitLengthM": 2.0, "minTravelM": 0.5, "headingWindowS": 3.0 }""", """"unused": {}""")
         assertThrows<ConfigException> { ConfigLoader.load(json) }
     }
 

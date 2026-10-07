@@ -2,6 +2,7 @@ package hearspace.core.truth
 
 import hearspace.core.geometry.Vec3
 import hearspace.core.session.FrameRow
+import hearspace.core.types.AlignConfig
 import hearspace.core.types.TrackingState
 import kotlin.math.atan2
 import kotlin.math.cos
@@ -15,6 +16,10 @@ import kotlin.math.sqrt
  *
  * 카메라 궤적(수평)의 처음 `align.fitLengthM`에 직선을 맞춰 그 방향을 +z(보행선)로, 시작 때 **머리**(카메라 + 오프셋)
  * 아래 바닥을 원점으로 둔다. 궤적이 짧으면 전체에 맞추고 [fitShort]로 표시한다.
+ *
+ * 카메라가 `align.minTravelM`보다 적게 움직인 세션(정지 녹화)은 궤적 방향이 손 떨림 잡음이라, 처음
+ * `align.headingWindowS`초의 카메라 시선(수평)을 +z로 쓰고 [byHeading]으로 표시한다(M12.0, E01h에서 궤적 방향이
+ * 세션마다 1.6°·48.9°·152°로 제각각이던 반면 시선은 −0.9°·−1.2°·−0.8°).
  */
 data class Alignment(
     val originX: Double,
@@ -26,6 +31,8 @@ data class Alignment(
     val floorY: Double,
     val fitLengthM: Double,
     val fitShort: Boolean,
+    /** 궤적 대신 카메라 시선으로 방향을 정했는지(정지 녹화). */
+    val byHeading: Boolean,
     val nPoints: Int,
     /** 직선에서 옆으로 벗어난 정도(RMS, m). */
     val residualRmsM: Double,
@@ -55,12 +62,16 @@ data class Alignment(
          * [rows]의 카메라 궤적으로 정렬을 맞춘다. 같은 `tNs`가 두 번 나온 행은 첫 행만, 추적 중(`TRACKING`)인 행만 쓴다.
          * [floorY]는 느린 경로 바닥 추정의 중앙값([medianFloorY]).
          */
-        fun fit(rows: List<FrameRow>, fitLengthM: Float, headOffsetFromCameraM: Vec3, floorY: Double): Alignment {
-            val xz = rows.distinctBy { it.tNs }.filter { it.tracking == TrackingState.TRACKING }
-                .map { doubleArrayOf(it.pose.tx.toDouble(), it.pose.tz.toDouble()) }
+        fun fit(rows: List<FrameRow>, cfg: AlignConfig, headOffsetFromCameraM: Vec3, floorY: Double): Alignment {
+            val fitLengthM = cfg.fitLengthM
+            val tr = rows.distinctBy { it.tNs }.filter { it.tracking == TrackingState.TRACKING }
+            val xz = tr.map { doubleArrayOf(it.pose.tx.toDouble(), it.pose.tz.toDouble()) }
             require(xz.size >= 2) { "need at least 2 tracking frames" }
             val sx = xz[0][0]
             val sz = xz[0][1]
+            if (xz.maxOf { hypot(it[0] - sx, it[1] - sz) } < cfg.minTravelM) {
+                return byHeading(tr, cfg.headingWindowS, headOffsetFromCameraM, floorY, sx, sz)
+            }
             val reach = xz.indexOfFirst { hypot(it[0] - sx, it[1] - sz) >= fitLengthM }
             val short = reach < 0
             val pts = if (short) xz else xz.subList(0, reach + 1)
@@ -94,9 +105,51 @@ data class Alignment(
                 floorY = floorY,
                 fitLengthM = if (short) span else fitLengthM.toDouble(),
                 fitShort = short,
+                byHeading = false,
                 nPoints = pts.size,
                 residualRmsM = rms,
                 angleUncertaintyDeg = Math.toDegrees(atan2(2 * rms, span)),
+            )
+        }
+
+        /** 정지 녹화: 처음 [windowS]초 카메라 시선의 수평 성분 평균을 +z로 둔다. */
+        private fun byHeading(
+            tr: List<FrameRow>, windowS: Float, headOffsetFromCameraM: Vec3, floorY: Double, sx: Double, sz: Double,
+        ): Alignment {
+            val t0 = tr.first().tNs
+            val win = tr.filter { (it.tNs - t0) / 1e9 <= windowS }
+            // ARCore GL 카메라는 −Z가 앞: 회전행렬 세 번째 열의 반대(월드 XZ 성분)
+            val fwd = win.map {
+                val q = it.pose
+                val fx = -2.0 * (q.qx * q.qz + q.qy * q.qw)
+                val fz = -(1.0 - 2.0 * (q.qx * q.qx + q.qy * q.qy))
+                val n = hypot(fx, fz)
+                require(n > 1e-3) { "camera looks straight up or down; no horizontal heading" }
+                doubleArrayOf(fx / n, fz / n)
+            }
+            val mx = fwd.sumOf { it[0] } / fwd.size
+            val mz = fwd.sumOf { it[1] } / fwd.size
+            val mn = hypot(mx, mz)
+            require(mn > 1e-3) { "camera heading is not stable in the first ${windowS}s" }
+            val dx = mx / mn
+            val dz = mz / mn
+            val rx = -dz
+            val rz = dx
+            val spreadDeg = Math.toDegrees(sqrt(fwd.sumOf { val a = atan2(it[0] * rx + it[1] * rz, it[0] * dx + it[1] * dz); a * a } / fwd.size))
+            val span = tr.maxOf { hypot(it.pose.tx - sx, it.pose.tz - sz) }
+            val ox = headOffsetFromCameraM.x.toDouble()
+            val oz = headOffsetFromCameraM.z.toDouble()
+            return Alignment(
+                originX = sx + rx * ox + dx * oz,
+                originZ = sz + rz * ox + dz * oz,
+                dirX = dx, dirZ = dz,
+                floorY = floorY,
+                fitLengthM = span,
+                fitShort = true,
+                byHeading = true,
+                nPoints = win.size,
+                residualRmsM = 0.0,
+                angleUncertaintyDeg = spreadDeg,
             )
         }
 

@@ -6,10 +6,12 @@
 import tempfile
 from pathlib import Path
 
+import numpy as np
 import pandas as pd
 
 import json
 
+from align import fit
 from metrics import compute, load_truth, run_metrics
 from report import combine
 from sweep import plan
@@ -70,6 +72,61 @@ def check_truth_v2():
         assert obs[0]["min"][2] == 2.0, obs  # v1(시작 표시 기준)은 그대로
 
 
+def check_align_heading():
+    """정지 녹화는 카메라 시선으로, 걷는 녹화는 궤적으로 정렬 (M12.0, Kotlin `Alignment`와 같은 계산)."""
+    import numpy as np
+
+    cfg = {"fitLengthM": 2.0, "minTravelM": 0.5, "headingWindowS": 3.0}
+    off = [0.0, 0.5, -0.39]
+    n = 120
+    for yaw in (0.0, 30.0, -75.0, 170.0):
+        a = np.radians(yaw) / 2
+        i = np.arange(n)
+        fr = pd.DataFrame({"tNs": 33_333_333 * i, "tracking": "TRACKING",
+                           "tx": 1 + 0.02 * np.cos(i * 2.399), "ty": 0.1, "tz": -2 + 0.02 * np.sin(i * 2.399),
+                           "qx": 0.0, "qy": np.sin(a), "qz": 0.0, "qw": np.cos(a)})
+        al = fit(fr, cfg, off, -1.0)
+        assert al["byHeading"] and abs(al["dir"][0] + np.sin(np.radians(yaw))) < 1e-6 and abs(al["dir"][1] + np.cos(np.radians(yaw))) < 1e-6, (yaw, al)
+    walk = pd.DataFrame({"tNs": 33_333_333 * np.arange(101), "tracking": "TRACKING", "tx": 0.0, "ty": 0.1,
+                         "tz": -3.0 * np.arange(101) / 100, "qx": 0.0, "qy": 0.0, "qz": 0.0, "qw": 1.0})
+    assert not fit(walk, cfg, off, -1.0)["byHeading"]
+
+
+def check_error_decomp():
+    """M12.0 오차 분해(IMPROVE_SPEC §11.1): 알고 넣은 오차를 기대 방향·크기로 읽는지. `./gradlew :core:test`의 M12SessionsTest가 세션을 쓴다."""
+    from error_decomp import analyze
+
+    m12 = ROOT.parent / "m12"
+    o = {n: analyze(m12 / n) for n in ("e01_clean", "e01_scale10", "e02_clean", "e02_jump", "e03_clean", "e03_drift1", "e03_drift2")}
+    p50 = lambda s, name: o[s]["targets"][name]["all"]["p50"]  # noqa: E731
+
+    # T1·T2: 잡음 없으면 모두 0, 깊이 +10%면 카메라에서 2.0 m 앞면 +0.2 m, 4.0 m 끝 벽 +0.4 m
+    c = o["e01_clean"]
+    assert all(abs(v["all"]["p50"]) < 0.01 for v in c["targets"].values()), c["targets"]
+    assert c["ghost"]["p50"] < 0.01 and c["floor"]["spreadM"] < 0.01 and not c["jumps"], c
+    assert c["targets"]["suitcase"]["convergence"]["convergedS"] == 0.0
+    assert 0.18 < p50("e01_scale10", "suitcase") < 0.22 and 0.36 < p50("e01_scale10", "wall_end") < 0.44
+
+    # T3: 한 방향 보행, 점프는 시각·크기로 검출하고 그 뒤 끝 벽 오차가 커진다
+    assert [l["dir"] for l in o["e02_clean"]["legs"]] == [1] and abs(p50("e02_clean", "wall_end")) < 0.01
+    j = o["e02_jump"]["jumps"]
+    assert len(j) == 1 and abs(j[0]["tS"] - 4.5) < 0.05 and abs(j[0]["rotDeg"] - 5) < 0.1, j
+    assert abs(o["e02_jump"]["walkCurve"]["wall_end"]["bins"][-1]["errM"]) > 0.1
+
+    # T4: 왕복. 머리는 시작 자리로, 카메라는 앞뒤 오프셋(0.3 m)의 두 배만큼 다른 자리로 돌아온다
+    e = o["e03_clean"]
+    assert [l["dir"] for l in e["legs"]] == [1, -1] and abs(e["turnsDeg"][0] - 180) < 1, (e["legs"], e["turnsDeg"])
+    lc = e["loopClosure"][0]
+    assert lc["headM"] < 0.02 and abs(lc["cameraM"] - 0.6) < 0.02 and abs(lc["yawFrom180Deg"]) < 0.5, lc
+    assert all(abs(g["dShiftM"]) < 0.01 and abs(g["dWidthM"]) < 0.01 for g in e["wallGap"]), e["wallGap"]
+    # 누적 요 드리프트 1°/m·2°/m(6 m): 방향 닫힘 6°·12°, 갈 때·올 때 옆 벽 이동 차는 드리프트에 비례(폭은 그대로)
+    for name, deg in (("e03_drift1", 6.0), ("e03_drift2", 12.0)):
+        assert abs(o[name]["loopClosure"][0]["yawFrom180Deg"] - deg) < 0.5, o[name]["loopClosure"]
+    dx = {n: abs(o[n]["wallGap"][0]["dShiftM"]) for n in ("e03_drift1", "e03_drift2")}
+    assert dx["e03_drift1"] > 0.02 and 1.7 < dx["e03_drift2"] / dx["e03_drift1"] < 2.3, dx
+    assert all(abs(o[n]["wallGap"][0]["dWidthM"]) < 0.02 for n in dx), [o[n]["wallGap"] for n in dx]
+
+
 def check_group_and_plan():
     """회차 묶기(중앙값·합계·딕셔너리)와 sweep 조합 (M10)."""
     assert combine([1.0, None, 3.0, 2.0], "median") == 2.0
@@ -106,6 +163,8 @@ def main():
 
     check_run_only()
     check_truth_v2()
+    check_align_heading()
+    check_error_decomp()
     check_group_and_plan()
     print("analysis self-check ok")
 

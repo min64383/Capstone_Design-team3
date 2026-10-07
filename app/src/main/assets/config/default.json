@@ -90,7 +90,7 @@
   },
   "haptics": { "readyMs": 40, "pauseMs": 40, "pauseGapMs": 80, "unknownMs": 400, "exitMs": 600 },
   "record": { "depthEveryN": 1, "rgbEveryN": 3, "deviceLogIntervalS": 1.0 },
-  "align": { "fitLengthM": 2.0 },
+  "align": { "fitLengthM": 2.0, "minTravelM": 0.5, "headingWindowS": 3.0 },
   "sonify": {
       "mode": "PULSE",
       "mapping": "LEGACY_RISK",

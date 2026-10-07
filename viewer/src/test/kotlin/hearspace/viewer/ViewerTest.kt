@@ -75,6 +75,24 @@ class ViewerTest {
         // 목표는 15초 세션 ≤ 5 s(IMPROVE_SPEC §10.4, M11 보고). PC마다 속도가 달라 여기서는 상식 범위만 본다
         assertTrue(r.elapsedMs < 30_000, "rerun took ${r.elapsedMs} ms")
 
+        // 머리 위치는 진행 방향 기준 오프셋: (머리 − 카메라)를 진행 방향(정답 좌표)에 정사영하면 오프셋 z(−0.39)이고 옆 성분은 오프셋 x(0).
+        // 되돌아오는 구간에서도 성립해야 한다(보행선 축 기준으로 더하면 부호가 뒤집힌다)
+        val off = r.config.head.offsetFromCameraM
+        val al = r.alignment!!
+        for (i in r.blocks.indices step 20) {
+            val h = r.headTruthAt(i) ?: continue
+            val hd = Math.toRadians(r.blocks[i].g.headingDeg.toDouble()).takeUnless { it.isNaN() } ?: continue
+            val fx = kotlin.math.sin(hd) // 월드 진행 방향 (fx, fz), headingDeg = atan2(x, −z)
+            val fz = -kotlin.math.cos(hd)
+            val ahead = fx * al.dirX + fz * al.dirZ // 정답 z축 성분
+            val side = fx * -al.dirZ + fz * al.dirX // 정답 x축 성분
+            val c = al.toTruth(r.blocks[i].pose.worldFromCam.translation())
+            val dx = (h.x - c.x).toDouble()
+            val dz = (h.z - c.z).toDouble()
+            assertTrue(abs((dx * side + dz * ahead) - off.z) < 0.01, "along heading at block $i")
+            assertTrue(abs(dx * ahead - dz * side) < 0.01, "across heading at block $i")
+        }
+
         // 소리: 블록마다 blockSize 프레임, 무음이 아님(경고 구간을 지나는 세션)
         assertEquals(r.blocks.size * 2 * r.blockSize, r.audio.size)
         assertTrue(r.audio.maxOf { abs(it) } > 0.01f)

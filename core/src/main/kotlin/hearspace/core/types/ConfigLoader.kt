@@ -172,7 +172,9 @@ object ConfigLoader {
                     deviceLogIntervalS = positive("deviceLogIntervalS"),
                 )
             },
-            align = root.section("align") { AlignConfig(fitLengthM = positive("fitLengthM")) },
+            align = root.section("align") {
+                AlignConfig(fitLengthM = positive("fitLengthM"), minTravelM = positive("minTravelM"), headingWindowS = positive("headingWindowS"))
+            },
             sonify = root.section("sonify") {
                 SonifyConfig(
                     mode = enumValue<SonifyMode>("mode"),
