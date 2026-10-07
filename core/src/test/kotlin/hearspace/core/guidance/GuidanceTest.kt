@@ -128,8 +128,13 @@ class GuidanceTest {
     }
 
     @Test
-    fun `SC-14 narrow corridor - side wall inside the corridor is not announced, the box ahead is`() {
-        val spec = Scenes.SC14
+    fun `SC-14 narrow corridor - side wall inside the corridor is not announced, the box ahead is`() = narrowCorridor(Scenes.SC14)
+
+    @Test
+    fun `SC-22 narrow corridor with edge smoothing - same as SC-14`() = narrowCorridor(Scenes.SC22)
+
+    /** SC-14·SC-22: 통로 안으로 들어온 오른쪽 벽은 안내하지 않고 앞 상자는 안내한다. */
+    private fun narrowCorridor(spec: SceneSpec) {
         val steps = runGuidance(spec, configFor(spec))
         val box = spec.scene.items.first { it.name == "box" }.shape
         val announced = steps.flatMap { it.out.commands }.filter { it.band != Band.SILENT }

@@ -146,6 +146,33 @@ object Scenes {
         ),
     )
 
+    /** 가장자리 평활 반경(M13.0): 경사 2 × 2 = 4픽셀. 실측 일반 깊이 경사 p50 2~4, p90 3~5픽셀(M12.0 E01h·S02 130646). */
+    const val EDGE_SMOOTH_PX = 2
+
+    /**
+     * SC-21 상자 + 뒤 2 m 벽, 가장자리 평활(M13.0): 보행선 위 2.4 m에 높이 0.6·깊이 0.3 상자, 앞면에서 2 m 뒤에 벽(구조물).
+     * 평활 깊이가 상자 가장자리와 벽 사이를 경사로 이어 빈 공간에 막을 만든다(실측 S02 130646: 캐리어–문 합쳐짐 약 36%).
+     * M13.1의 합격 조건: 상자와 벽이 따로 잡히고 둘 사이 빈 공간에 점유 복셀이 없다. 기준선은 실패해야 한다.
+     */
+    val SC21 get() = SceneSpec(
+        "SC-21",
+        Scene(
+            listOf(
+                floor,
+                boxOnLine(2.4f, heightM = 0.6f, depthM = 0.3f),
+                SceneItem("back_wall", Box(Vec3(-1.5f, 0f, -4.5f), Vec3(1.5f, 2.5f, -4.4f)), obstacle = false, structure = true),
+            ),
+        ),
+        walkTo(2.4f),
+        Noise(edgeSmoothPx = EDGE_SMOOTH_PX),
+    )
+
+    /** SC-22 SC-14 + 가장자리 평활: 비스듬히 보이는 옆 벽이 지워지지 않고, 안내도 하지 않는다(M13.1이 실제 표면을 지우지 않는지). */
+    val SC22 get() = SC14.copy(id = "SC-22", noise = Noise(edgeSmoothPx = EDGE_SMOOTH_PX))
+
+    /** SC-23 SC-08 + 가장자리 평활: 다가가며 보이는 상자 윗면이 유지되고 상자가 한 물체다. */
+    val SC23 get() = SC08.copy(id = "SC-23", noise = Noise(edgeSmoothPx = EDGE_SMOOTH_PX))
+
     /** 전체 목록. */
-    val ALL get() =listOf(SC01, SC02, SC03, SC04, SC05, SC06, SC07, SC08, SC09, SC10, SC11, SC12, SC13, SC14)
+    val ALL get() = listOf(SC01, SC02, SC03, SC04, SC05, SC06, SC07, SC08, SC09, SC10, SC11, SC12, SC13, SC14, SC21, SC22, SC23)
 }
