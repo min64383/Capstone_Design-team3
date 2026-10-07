@@ -1,5 +1,6 @@
 package hearspace.viewer
 
+import hearspace.core.frontend.EdgeDetector
 import hearspace.core.geometry.Projection
 import hearspace.core.geometry.Vec3
 import hearspace.core.session.Png16
@@ -113,7 +114,12 @@ class CameraView(private val model: ViewerModel) : JPanel() {
         rgbRow?.let { row -> rgbCache.getOrPut(row.rgbFile!!) { readImage(File(r.session, row.rgbFile!!)) }?.let { s.drawImage(it, 0, 0, sw, sh, null) } }
         val depthRow = r.depthRowAt(t)
         if (model.showDepth && depthRow != null) {
-            depthCache.getOrPut(depthRow.depthFile!!) { depthOverlay(File(r.session, depthRow.depthFile!!)) }?.let { d ->
+            // 깊이 영상 앞단(M13.1)이 켜진 설정이면 경계(막) 판정 픽셀을 자홍으로 겹친다. 설정이 바뀌면 다시 그린다
+            val fe = r.config.frontend.takeIf { it.enabled }
+            depthCache.getOrPut("${depthRow.depthFile}|$fe") { depthOverlay(File(r.session, depthRow.depthFile!!), fe?.let { cfg -> { mm: ShortArray, w: Int, h: Int ->
+                val up = SessionReader.toPoseFrame(depthRow).worldFromCam.rigidInverse().transformDir(Vec3.UP)
+                EdgeDetector.boundaryMask(mm, r.reader.depthIntrinsics(w, h), up, cfg)
+            } }) }?.let { d ->
                 // 깊이 = 영상의 세로 가운데 16:9 부분(F3·F4)
                 val ch = sw * d.height / d.width
                 s.drawImage(d, 0, (sh - ch) / 2, sw, ch, null)
@@ -176,20 +182,26 @@ class CameraView(private val model: ViewerModel) : JPanel() {
             g.drawString(lc.first, (ox + sc * (sh - v)).toInt() + 4, (oy + sc * u).toInt() - 4)
         }
         g.color = Palette.text
-        val src = if (rgbRow == null) "RGB 없음(깊이만)" else "RGB 프레임 ${rgbRow.frameIndex}"
+        val src = (if (rgbRow == null) "RGB 없음(깊이만)" else "RGB 프레임 ${rgbRow.frameIndex}") +
+            (if (model.showDepth && r.config.frontend.enabled) "  ·  자홍 = 경계(막) 판정" else "")
         g.drawString(src, 8, height - 8)
     }
 
     private fun readImage(f: File): BufferedImage? = runCatching { ImageIO.read(f) }.getOrNull()
 
-    /** 깊이(mm) → 가까움 빨강 ~ 4 m 이상 파랑, 반투명. 0(무효)은 투명. */
-    private fun depthOverlay(f: File): BufferedImage? = runCatching {
+    /** 깊이(mm) → 가까움 빨강 ~ 4 m 이상 파랑, 반투명. 0(무효)은 투명. [boundary]가 있으면 그 마스크 픽셀을 자홍(불투명)으로. */
+    private fun depthOverlay(f: File, boundary: ((ShortArray, Int, Int) -> BooleanArray)? = null): BufferedImage? = runCatching {
         val img = Png16.decode(f.readBytes())
         val mm = img.gray16 ?: return@runCatching null
+        val edge = boundary?.invoke(mm, img.width, img.height)
         val out = BufferedImage(img.width, img.height, BufferedImage.TYPE_INT_ARGB)
         for (y in 0 until img.height) for (x in 0 until img.width) {
             val d = mm[y * img.width + x].toInt() and 0xFFFF
             if (d == 0) continue
+            if (edge != null && edge[y * img.width + x]) {
+                out.setRGB(x, y, 0xFFFF00FF.toInt())
+                continue
+            }
             val f01 = (d / 4000f).coerceIn(0f, 1f)
             val c = Color.HSBtoRGB(0.66f * f01, 1f, 1f) and 0x00FFFFFF
             out.setRGB(x, y, (110 shl 24) or c)

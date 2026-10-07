@@ -21,6 +21,7 @@ import pandas as pd
 from align import align, load_config, load_frames, to_truth
 
 MATCH_MARGIN_M = 0.3  # 추정 대표점이 정답 상자에서 이만큼 안이면 그 장애물로 본다(분석 도구 파라미터)
+MERGE_BEYOND_M = 0.5  # 정답 물체와 겹치는 추정 물체가 그 물체 뒤로 이만큼 넘게 이어지면 합쳐짐(13번 계획서 표 5, M13.1)
 ACTIVE = {"NORMAL", "DEGRADED"}
 
 
@@ -60,6 +61,27 @@ def scene_of(session: Path) -> str:
             return s
     name = session.parent.name if session.name == "session" else session.name
     return name.rsplit("_", 1)[-1]
+
+
+def merged_fraction(obs: pd.DataFrame, truth: list[dict], al: dict) -> float | None:
+    """물체–구조물 합쳐짐 비율: 정답 물체(`kind: object`)와 바닥 면적이 겹치는 추정 물체가 있는 느린 경로 단계 중, 그 추정
+    물체가 물체 뒷면(정답 +z) 너머로 MERGE_BEYOND_M 넘게 이어진 단계의 비율(막이 캐리어를 뒤 문·벽까지 이은 경우)."""
+    objs = [o for o in truth if o["kind"] == "object"]
+    if not objs or obs.empty:
+        return None
+    tx, tz = [], []
+    for cx, cz in (("aabbMinX", "aabbMinZ"), ("aabbMinX", "aabbMaxZ"), ("aabbMaxX", "aabbMinZ"), ("aabbMaxX", "aabbMaxZ")):
+        x, _, z = to_truth(al, obs[cx].to_numpy(), np.zeros(len(obs)), obs[cz].to_numpy())
+        tx.append(x)
+        tz.append(z)
+    x0, x1, z0, z1 = np.min(tx, 0), np.max(tx, 0), np.min(tz, 0), np.max(tz, 0)
+    seen = merged = 0
+    for o in objs:
+        (ox0, _, oz0), (ox1, _, oz1) = o["min"], o["max"]
+        over = (x1 > ox0) & (x0 < ox1) & (z1 > oz0) & (z0 < oz1)
+        seen += obs.tCaptureNs[over].nunique()
+        merged += obs.tCaptureNs[over & (z1 > oz1 + MERGE_BEYOND_M)].nunique()
+    return merged / seen if seen else None
 
 
 def per_minute(blocks: pd.DataFrame, sp: pd.DataFrame, dev: pd.DataFrame | None) -> list[dict]:
@@ -280,6 +302,7 @@ def compute(session: Path, run_dir: Path) -> dict:
         "sourceJitterDegStd": jitter_std(),
         "falseAlarmFraction": fa / n_cmd if n_cmd else None,
         "structureCommandFraction": n_struct / n_cmd if n_cmd else None,  # 구조물을 물체처럼 경고한 비율
+        "objectMergedFraction": merged_fraction(obs, truth, al),
         "selectedTruth": {truth[i]["name"]: sum(1 for r in rows if r["match"] == i and r["band"] in ("WARN", "STOP")) for i in range(len(truth))},
     })
     return out

@@ -24,6 +24,7 @@ COLUMNS = [
     ("STOP 누락", lambda m: m.get("missedStop"), "sum"),
     ("흔들림 std(°)", lambda m: m.get("sourceJitterDegStd"), "median"),
     ("오경보 비율", lambda m: m.get("falseAlarmFraction"), "median"),
+    ("합쳐짐 비율", lambda m: m.get("objectMergedFraction"), "median"),
     ("경고 비율", lambda m: m.get("warnFraction"), "median"),
     ("UNKNOWN 비율", lambda m: (m.get("stateFraction") or {}).get("UNKNOWN", 0.0), "median"),
     ("느린 경로 Hz", lambda m: m.get("slowPathHz"), "median"),

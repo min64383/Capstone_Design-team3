@@ -10,6 +10,16 @@
     "edgeMinLengthM": 0.8
   },
   "depth": { "subsample": 2, "source": "SMOOTHED", "minConfidence": 0 },
+  "frontend": {
+    "enabled": false,
+    "edgeMaxRampPx": 6,
+    "edgeMinStepRatio": 0.1,
+    "edgeSteepRatio": 0.05,
+    "edgeFitTolRatio": 0.02,
+    "levelMaxSlope": 0.05,
+    "levelTolM": 0.02,
+    "levelMinBelowCameraM": 0.15
+  },
   "map": {
     "voxelSizeM": 0.05,
     "hitGain": 0.2,

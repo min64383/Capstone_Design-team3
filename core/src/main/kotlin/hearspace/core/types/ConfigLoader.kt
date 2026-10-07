@@ -57,6 +57,18 @@ object ConfigLoader {
                     minConfidence = intIn("minConfidence", 0, 255),
                 )
             },
+            frontend = root.section("frontend") {
+                FrontendConfig(
+                    enabled = boolean("enabled"),
+                    edgeMaxRampPx = atLeast1("edgeMaxRampPx"),
+                    edgeMinStepRatio = positive("edgeMinStepRatio"),
+                    edgeSteepRatio = positive("edgeSteepRatio"),
+                    edgeFitTolRatio = positive("edgeFitTolRatio"),
+                    levelMaxSlope = nonNegative("levelMaxSlope"),
+                    levelTolM = nonNegative("levelTolM"),
+                    levelMinBelowCameraM = nonNegative("levelMinBelowCameraM"),
+                )
+            },
             map = root.section("map") {
                 MapConfig(
                     voxelSizeM = positive("voxelSizeM"),

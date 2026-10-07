@@ -133,9 +133,12 @@ class GuidanceTest {
     @Test
     fun `SC-22 narrow corridor with edge smoothing - same as SC-14`() = narrowCorridor(Scenes.SC22)
 
+    @Test
+    fun `SC-22 with the depth front end (M13_1) - same as SC-14`() = narrowCorridor(Scenes.SC22, """ "frontend": { "enabled": true } """)
+
     /** SC-14·SC-22: 통로 안으로 들어온 오른쪽 벽은 안내하지 않고 앞 상자는 안내한다. */
-    private fun narrowCorridor(spec: SceneSpec) {
-        val steps = runGuidance(spec, configFor(spec))
+    private fun narrowCorridor(spec: SceneSpec, extra: String = "") {
+        val steps = runGuidance(spec, configFor(spec, extra))
         val box = spec.scene.items.first { it.name == "box" }.shape
         val announced = steps.flatMap { it.out.commands }.filter { it.band != Band.SILENT }
         assertTrue(announced.isNotEmpty(), "the box must be announced")

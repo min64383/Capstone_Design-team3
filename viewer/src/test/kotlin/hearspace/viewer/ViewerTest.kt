@@ -52,8 +52,13 @@ class ViewerTest {
     }
 
     @Test
-    fun `all views paint at any time without errors`() {
-        val r = ReplayRunner.run(File(Repo.sessions, "20261003_131039_S01"), "{}", ReplayRunner.loadHrtf()) // S07: 물체가 시야 밖으로
+    fun `all views paint at any time without errors`() = paintAll("{}")
+
+    @Test
+    fun `views paint with the depth front end on (boundary overlay, M13_1)`() = paintAll("""{ "frontend": { "enabled": true } }""")
+
+    private fun paintAll(overrides: String) {
+        val r = ReplayRunner.run(File(Repo.sessions, "20261003_131039_S01"), overrides, ReplayRunner.loadHrtf()) // S07: 물체가 시야 밖으로
         val m = ViewerModel().apply { setResult(r) }
         val views = listOf(CameraView(m) to Dimension(360, 480), TopView(m) to Dimension(420, 480), TimelineView(m) {} to Dimension(900, 230))
         for (k in 0..10) {

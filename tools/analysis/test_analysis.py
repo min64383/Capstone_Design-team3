@@ -127,6 +127,19 @@ def check_error_decomp():
     assert all(abs(o[n]["wallGap"][0]["dWidthM"]) < 0.02 for n in dx), [o[n]["wallGap"] for n in dx]
 
 
+def check_merged_fraction():
+    """합쳐짐 비율(M13.1): 정답 물체와 겹치는 추정 물체가 물체 뒤 0.5 m 넘게 이어진 단계만 센다."""
+    from metrics import merged_fraction
+
+    al = {"origin": [0.0, 0.0], "dir": [0.0, 1.0], "floorY": 0.0}  # 월드 +Z = 정답 +z, 정답 x = 월드 −x
+    truth = [{"name": "box", "kind": "object", "min": [-0.2, 0.0, 2.0], "max": [0.2, 0.6, 2.3]},
+             {"name": "wall", "kind": "structure", "min": [-1.0, 0.0, 4.0], "max": [1.0, 2.4, 4.1]}]
+    obs = pd.DataFrame({"tCaptureNs": [1, 2, 3, 3], "aabbMinX": -0.2, "aabbMaxX": 0.2, "aabbMinZ": [2.0, 2.0, 2.0, 3.9],
+                        "aabbMaxZ": [2.3, 4.1, 2.5, 4.1]})  # 1: 상자만, 2: 벽까지 이어짐, 3: 상자 + 따로 잡힌 벽
+    assert abs(merged_fraction(obs, truth, al) - 1 / 3) < 1e-9, merged_fraction(obs, truth, al)
+    assert merged_fraction(obs.iloc[:0], truth, al) is None
+
+
 def check_group_and_plan():
     """회차 묶기(중앙값·합계·딕셔너리)와 sweep 조합 (M10)."""
     assert combine([1.0, None, 3.0, 2.0], "median") == 2.0
@@ -148,6 +161,7 @@ def main():
     assert clean["directionErrorDeg"]["p95"] < 2.0, clean["directionErrorDeg"]
     assert clean["overestimate1p5to2p5"]["p95"] < 0.03, clean["overestimate1p5to2p5"]
     assert clean["missedStop"] == 0 and clean["falseAlarmFraction"] == 0
+    assert clean["objectMergedFraction"] == 0, clean["objectMergedFraction"]  # 뒤 벽 없는 상자: 합쳐짐 없음
     assert abs(clean["warnTimingErrorS"]["box"]) < 0.2, clean["warnTimingErrorS"]
     assert 2.3 < clean["firstWarnDistanceM"]["box"] <= 2.5, clean["firstWarnDistanceM"]  # 경고 구간 2.5 m
     assert 0.85 < clean["firstStopDistanceM"]["box"] <= 1.0, clean["firstStopDistanceM"]  # 정지 구간 1.0 m
@@ -165,6 +179,7 @@ def main():
     check_truth_v2()
     check_align_heading()
     check_error_decomp()
+    check_merged_fraction()
     check_group_and_plan()
     print("analysis self-check ok")
 

@@ -1,5 +1,6 @@
 package hearspace.core.mapping
 
+import hearspace.core.frontend.EdgeDetector
 import hearspace.core.geometry.Projection
 import hearspace.core.geometry.Vec3
 import hearspace.core.types.Config
@@ -81,13 +82,23 @@ class LocalMap(private val config: Config) {
         floor.reset()
     }
 
-    /** 신뢰도가 있는 깊이(원시 깊이)면 `depth.minConfidence` 미만 픽셀을 무효(0)로 만든 복사본. 그 외에는 원본. */
+    /**
+     * 지도·바닥에 넣을 깊이. 신뢰도가 있는 깊이(원시 깊이)면 `depth.minConfidence` 미만 픽셀을, 깊이 영상 앞단을 켜면
+     * 경계 픽셀(막, M13.1)을 무효(0)로 만든 복사본. 무효는 관측 없음이라 빈 공간 감쇠도 하지 않는다. 그 외에는 원본.
+     */
     private fun effectiveDepth(depth: DepthFrame): ShortArray {
         val conf = depth.confidence
         val min = config.depth.minConfidence
-        if (conf == null || min <= 0) return depth.depthMm
-        val out = depth.depthMm.copyOf()
-        for (i in out.indices) if ((conf[i].toInt() and 0xFF) < min) out[i] = 0
+        var out = depth.depthMm
+        if (conf != null && min > 0) {
+            out = out.copyOf()
+            for (i in out.indices) if ((conf[i].toInt() and 0xFF) < min) out[i] = 0
+        }
+        if (config.frontend.enabled) {
+            val mask = EdgeDetector.boundaryMask(depth, config.frontend, out)
+            if (out === depth.depthMm) out = out.copyOf()
+            for (i in out.indices) if (mask[i]) out[i] = 0
+        }
         return out
     }
 }

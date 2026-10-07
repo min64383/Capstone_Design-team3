@@ -10,6 +10,7 @@ data class Config(
     val heading: HeadingConfig,
     val corridor: CorridorConfig,
     val depth: DepthConfig,
+    val frontend: FrontendConfig,
     val map: MapConfig,
     val floor: FloorConfig,
     val cluster: ClusterConfig,
@@ -54,6 +55,28 @@ data class DepthConfig(
     val source: DepthSource,
     /** 원시 깊이 신뢰도(0~255)가 이보다 낮은 픽셀은 무효로 본다. 일반 깊이에는 적용하지 않는다. */
     val minConfidence: Int,
+)
+
+/**
+ * 깊이 영상 앞단(IMPROVE_SPEC §6.1.1 M13.1). ① 경계 판정: 주사선을 선형 조각으로 나눠, 긴 조각 둘 사이를 짧은 경사로 잇는
+ * 픽셀(막)을 지도·바닥 추정에 넣지 않는다. [enabled]가 false면 기준선(바이트 동일).
+ */
+data class FrontendConfig(
+    val enabled: Boolean,
+    /** 경계로 볼 경사의 최대 길이(픽셀). 이보다 긴 조각은 실제 표면(비스듬한 벽 등)으로 본다. M12.0 실측 막 경사 p90 3~5픽셀. */
+    val edgeMaxRampPx: Int,
+    /** 경사 양쪽 표면의 맞닿는 끝 깊이 차가 가까운 쪽 깊이의 이 비율을 넘어야 불연속(작은 단차는 경계가 아님). */
+    val edgeMinStepRatio: Float,
+    /** 픽셀당 깊이 변화가 깊이의 이 비율을 넘는 조각은 경사(막) 후보, 아니면 표면(M13.1a 실측: 막 9~25%, 뒤 배경 끌림 1~3%). */
+    val edgeSteepRatio: Float,
+    /** 선형 조각 맞춤 허용 오차(깊이에 대한 비율). 양쪽 조각 직선에서 이만큼 안인 경사 픽셀은 표면 끝으로 보고 남긴다. */
+    val edgeFitTolRatio: Float,
+    /** 수평면 예외(다가가며 보이는 상자 윗면, SC-23): 경사 픽셀들의 높이(중력 방향) 변화가 깊이 변화의 이 배 이하. */
+    val levelMaxSlope: Float,
+    /** 수평면 예외의 높이 잡음 허용(m). */
+    val levelTolM: Float,
+    /** 수평면 예외는 카메라보다 이만큼 이상 낮을 때만(카메라 높이의 막은 높이가 같아 보이므로, m). */
+    val levelMinBelowCameraM: Float,
 )
 
 /** 로컬 복셀 맵 설정. */
