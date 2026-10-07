@@ -3,6 +3,7 @@ package hearspace.core.truth
 import hearspace.core.geometry.Vec3
 import hearspace.core.session.FrameRow
 import hearspace.core.session.PoseGl
+import hearspace.core.types.AlignConfig
 import hearspace.core.types.HeightClass
 import hearspace.core.types.TrackingState
 import org.junit.jupiter.api.Assertions.assertEquals
@@ -17,6 +18,7 @@ import kotlin.math.sin
 /** 정답 파일 v1·v2 읽기와 정렬(align.py와 같은 계산) (IMPROVE_SPEC §9.1, M11). */
 class TruthTest {
     private val offset = Vec3(0f, 0.5f, -0.39f) // 설정 head.offsetFromCameraM
+    private val cfg = AlignConfig(fitLengthM = 2.0f, minTravelM = 0.5f, headingWindowS = 3.0f)
 
     private fun close(expected: Float, actual: Float, tol: Float = 1e-4f, what: String = "") =
         assertTrue(kotlin.math.abs(expected - actual) <= tol, "$what expected $expected, got $actual")
@@ -78,7 +80,7 @@ class TruthTest {
     fun `straight walk gives its direction and a head origin behind the start camera`() {
         val a = Math.toRadians(30.0)
         val (dx, dz) = sin(a) to -cos(a) // 대략 −Z(ARCore 앞)에서 30° 돌아간 방향
-        val al = Alignment.fit(straight(dx, dz, 3.0), 2.0f, offset, floorY = -1.1)
+        val al = Alignment.fit(straight(dx, dz, 3.0), cfg, offset, floorY = -1.1)
         assertFalse(al.fitShort)
         close(dx.toFloat(), al.dirX.toFloat(), what = "dirX")
         close(dz.toFloat(), al.dirZ.toFloat(), what = "dirZ")
@@ -96,7 +98,7 @@ class TruthTest {
 
     @Test
     fun `right is the walker's right hand and toWorld inverts toTruth`() {
-        val al = Alignment.fit(straight(0.0, -1.0, 3.0, 0f, 0f), 2.0f, Vec3(0f, 0f, 0f), floorY = 0.0)
+        val al = Alignment.fit(straight(0.0, -1.0, 3.0, 0f, 0f), cfg, Vec3(0f, 0f, 0f), floorY = 0.0)
         // −Z로 걸으면 오른쪽은 +X
         close(0.5f, al.toTruth(Vec3(0.5f, 0f, -1f)).x, what = "right = +X")
         val p = Vec3(0.3f, 1.2f, 2.5f)
@@ -107,10 +109,54 @@ class TruthTest {
     @Test
     fun `short track is fitted whole and marked, non-tracking and repeated frames are ignored`() {
         val rows = straight(0.0, -1.0, 1.0) + row(200, 50f, 50f, TrackingState.PAUSED) + row(0, 99f, 99f)
-        val al = Alignment.fit(rows, 2.0f, offset, floorY = 0.0)
+        val al = Alignment.fit(rows, cfg, offset, floorY = 0.0)
         assertTrue(al.fitShort)
         assertEquals(101, al.nPoints)
         close(1.0f, al.fitLengthM.toFloat(), 1e-4f, "fit length = walked length")
+    }
+
+    /** 30 fps, 월드 Y축 둘레로 [yawDeg]만큼 돈 카메라(GL: 앞 = −Z)가 제자리에서 [jitterM]만큼 떨리는 정지 녹화. */
+    private fun stationary(yawDeg: Double, frames: Int, jitterM: Double, yawWobbleDeg: Double = 0.0) = (0 until frames).map { i ->
+        val a = Math.toRadians(yawDeg + yawWobbleDeg * sin(i * 0.7)) / 2
+        // 떨림 방향은 프레임마다 제각각(궤적 주축이 잡음이 되도록)
+        val jx = (jitterM * cos(i * 2.399)).toFloat()
+        val jz = (jitterM * sin(i * 2.399)).toFloat()
+        FrameRow(
+            frameIndex = i.toLong(), tNs = 33_333_333L * i, sysElapsedNs = 33_333_333L * i, tracking = TrackingState.TRACKING,
+            trackingFailure = "NONE", pose = PoseGl(1f + jx, 0.1f, -2f + jz, 0f, sin(a).toFloat(), 0f, cos(a).toFloat()), displayPose = null,
+            depthTNs = null, depthFile = null, rawDepthTNs = null, rawDepthFile = null, confFile = null, rgbFile = null,
+        )
+    }
+
+    @Test
+    fun `stationary recording is aligned by camera heading, not by jitter`() {
+        for (yaw in listOf(0.0, 30.0, -75.0, 170.0)) {
+            val al = Alignment.fit(stationary(yaw, 120, jitterM = 0.02), cfg, offset, floorY = -1.0)
+            assertTrue(al.byHeading && al.fitShort)
+            val a = Math.toRadians(yaw)
+            close((-sin(a)).toFloat(), al.dirX.toFloat(), what = "dirX @ $yaw")
+            close((-cos(a)).toFloat(), al.dirZ.toFloat(), what = "dirZ @ $yaw")
+            // 시작 카메라는 정답 좌표 (0, ·, 0.39): 정지 녹화도 같은 원점 규약
+            val cam = al.toTruth(Vec3(1f + 0.02f, 0.1f, -2f))
+            close(0f, cam.x, 0.03f, "camera x"); close(0.39f, cam.z, 0.03f, "camera z")
+        }
+    }
+
+    @Test
+    fun `heading window ignores later frames and reports wobble as uncertainty`() {
+        // 3 s(90프레임)까지는 요 0° ± 2°, 이후 90°로 돌아도 방향은 처음 3 s 평균
+        val rows = stationary(0.0, 90, 0.01, yawWobbleDeg = 2.0) +
+            stationary(90.0, 60, 0.01).map { it.copy(frameIndex = it.frameIndex + 90, tNs = it.tNs + 33_333_333L * 90 + 33_333_333L, sysElapsedNs = it.tNs + 33_333_333L * 91) }
+        val al = Alignment.fit(rows, cfg, offset, floorY = -1.0)
+        assertTrue(al.byHeading)
+        close(0f, al.dirX.toFloat(), 0.05f, "dirX"); close(-1f, al.dirZ.toFloat(), 0.01f, "dirZ")
+        assertTrue(al.angleUncertaintyDeg in 0.5..3.0, "wobble ${al.angleUncertaintyDeg}")
+    }
+
+    @Test
+    fun `walking track is still fitted by trajectory`() {
+        val al = Alignment.fit(straight(0.0, -1.0, 3.0), cfg, offset, floorY = -1.1)
+        assertFalse(al.byHeading)
     }
 
     @Test
