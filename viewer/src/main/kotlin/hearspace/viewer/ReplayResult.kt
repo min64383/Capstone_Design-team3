@@ -105,12 +105,23 @@ class ReplayResult(
     fun frameOfTime(tNs: Long): Long = ((tNs - t0Ns).coerceAtLeast(0) * sampleRate / 1_000_000_000L)
     fun secondsOf(tNs: Long): Double = (tNs - t0Ns) / 1e9
 
-    /** 블록마다 머리 위치(정답 좌표): 카메라 + 오프셋(보행선 축 기준, `metrics.py`와 같음). */
+    /**
+     * 블록마다 머리 위치(정답 좌표): 카메라 + 오프셋을 **그 시각 진행 방향 기준**으로 더한다(core `HeadPose.fromCamera`와 같음).
+     * 되돌아오는 구간(E03·E04)에서 오프셋이 보행선 +z 쪽으로 가면 머리가 0.78 m 어긋난다. 방향이 없으면(NaN) 보행선 축 기준.
+     */
     fun headTruthAt(i: Int): Vec3? {
         val al = alignment ?: return null
-        val c = al.toTruth(blocks[i].pose.worldFromCam.translation())
+        val b = blocks[i]
         val o = config.head.offsetFromCameraM
-        return Vec3(c.x + o.x, c.y, c.z + o.z)
+        val cam = b.pose.worldFromCam.translation()
+        if (b.g.headingDeg.isNaN()) {
+            val c = al.toTruth(cam)
+            return Vec3(c.x + o.x, c.y, c.z + o.z)
+        }
+        val hd = Math.toRadians(b.g.headingDeg.toDouble()) // headingDeg = atan2(x, −z)
+        val f = Vec3(kotlin.math.sin(hd).toFloat(), 0f, -kotlin.math.cos(hd).toFloat())
+        val right = Vec3(-f.z, 0f, f.x)
+        return al.toTruth(cam + right * o.x + f * o.z).let { Vec3(it.x, it.y, it.z) }
     }
 
     // 타임라인용 시계열: 블록마다 첫 음원의 거리·방위·구간과, 정답 통로 안 가장 가까운 정답 물체의 거리·방위

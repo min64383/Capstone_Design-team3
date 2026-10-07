@@ -80,6 +80,9 @@ private fun Graphics2D.smooth() = setRenderingHint(RenderingHints.KEY_ANTIALIASI
 private fun boxCorners(min: Vec3, max: Vec3): List<Vec3> =
     listOf(min.x, max.x).flatMap { x -> listOf(min.y, max.y).flatMap { y -> listOf(min.z, max.z).map { z -> Vec3(x, y, z) } } }
 
+/** 상자 모서리를 이 거리(카메라 앞, m)보다 가까운 곳에서 자른다. */
+private const val NEAR_M = 0.05f
+
 private val BOX_EDGES = listOf(0 to 1, 2 to 3, 4 to 5, 6 to 7, 0 to 2, 1 to 3, 4 to 6, 5 to 7, 0 to 4, 1 to 5, 2 to 6, 3 to 7)
 
 /**
@@ -123,11 +126,17 @@ class CameraView(private val model: ViewerModel) : JPanel() {
             fun px(w: Vec3) = Projection.project(camFromWorld.transformPoint(w), k)
             fun drawBox(corners: List<Vec3>, color: Color, dashed: Boolean): Pair<Float, Float>? {
                 val p = corners.map { px(it) }
+                val pc = corners.map { camFromWorld.transformPoint(it) }
                 s.color = color
                 s.stroke = if (dashed) BasicStroke(2f, BasicStroke.CAP_BUTT, BasicStroke.JOIN_MITER, 10f, floatArrayOf(6f, 4f), 0f) else BasicStroke(2f)
                 for ((a, b) in BOX_EDGES) {
-                    val pa = p[a] ?: continue
-                    val pb = p[b] ?: continue
+                    // 카메라 뒤로 넘어간 끝은 앞 평면(NEAR_M)에서 잘라 그린다(통째로 빼면 옆 벽처럼 카메라를 지나는 상자가 사라진다)
+                    val ca = pc[a]
+                    val cb = pc[b]
+                    if (ca.z <= NEAR_M && cb.z <= NEAR_M) continue
+                    fun clip(from: Vec3, to: Vec3) = if (from.z > NEAR_M) from else from + (to - from) * ((NEAR_M - from.z) / (to.z - from.z))
+                    val pa = Projection.project(clip(ca, cb), k) ?: continue
+                    val pb = Projection.project(clip(cb, ca), k) ?: continue
                     s.drawLine(pa.first.toInt(), pa.second.toInt(), pb.first.toInt(), pb.second.toInt())
                 }
                 return p.filterNotNull().minByOrNull { it.first } // 센서 좌표 왼쪽 = 화면 위
