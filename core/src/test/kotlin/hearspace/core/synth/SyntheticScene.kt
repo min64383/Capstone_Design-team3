@@ -138,7 +138,10 @@ data class VerticalCylinder(val cx: Float, val cz: Float, val radiusM: Float, va
     override val aabbMax get() = Vec3(cx + radiusM, yMax, cz + radiusM)
 }
 
-/** 장면 요소. [obstacle]이 참이면 정답 장애물이고, [removeAtS]가 있으면 그 시각부터 사라진다(SC-04). */
+/**
+ * 장면 요소. [obstacle]이 참이면 정답 장애물이고, [removeAtS]가 있으면 그 시각부터 사라진다(SC-04).
+ * [structure]가 참이면 장애물은 아니지만 정답 파일에 구조물(`kind: structure`, 벽)로 적는다(M12.0 오차 분해의 기준 면).
+ */
 data class SceneItem(
     val name: String,
     val shape: Shape,
@@ -146,6 +149,7 @@ data class SceneItem(
     /** 정답 높이 분류(장애물일 때). */
     val expectedClass: HeightClass? = null,
     val removeAtS: Float? = null,
+    val structure: Boolean = false,
 ) {
     /** 시각 [tS]에 존재하는지. */
     fun presentAt(tS: Float) = removeAtS == null || tS < removeAtS
@@ -176,6 +180,8 @@ enum class Hold { PORTRAIT, LANDSCAPE }
  * 보행 궤적. 카메라는 [startCameraW]에서 [standS]초 정지 후 [headingDeg] 방향으로 [speedMps]로 걷는다.
  * [headingDeg]는 월드 −Z에서 +X 쪽으로 잰 각도(0이면 −Z로 걷는다).
  * 손 흔들림: 걸음 주기 상하 진폭 [bobAmpM], 손목 요 진폭 [wristYawAmpDeg](걸음 주기의 절반 주파수).
+ * 왕복(M12.0 E03·E04): [legM]가 있으면 그만큼 걸은 뒤 머리 자리에서 [turnS]초 동안 180° 돌아(카메라는 머리 둘레로 돈다)
+ * 같은 선으로 되돌아오기를 반복한다.
  */
 data class Walk(
     val startCameraW: Vec3 = Vec3(0f, 1f, 0f),
@@ -192,7 +198,16 @@ data class Walk(
     val hold: Hold = Hold.PORTRAIT,
     /** 카메라 → 머리 오프셋, 진행 방향 기준 (오른쪽, 위, 앞). */
     val gripOffsetM: Vec3 = Vec3(0f, 0.5f, -0.3f),
+    /** 한 방향으로 걷는 거리(m). null이면 계속 한 방향. */
+    val legM: Float? = null,
+    /** 제자리 180° 회전 시간(s). */
+    val turnS: Float = 2f,
+    /** 이만큼 걸은 구간(leg) 뒤에는 마지막 자리·방향으로 선다. */
+    val legCount: Int = Int.MAX_VALUE,
 )
+
+/** 시각의 보행 상태: 보행선 위 머리 위치(시작에서 m), 처음 방향에 더한 회전(rad), 걷는 중인지, 걸은 거리(회전 제외, m). */
+data class LegState(val alongM: Float, val turnRad: Float, val moving: Boolean, val walkedM: Float)
 
 /** 자세 점프: [atS]부터 ARCore가 보고하는 월드 좌표가 [shiftM] 이동·[yawDeg] 회전한 것처럼 바뀐다(SC-12). */
 data class PoseJump(val atS: Float, val shiftM: Vec3, val yawDeg: Float)
@@ -219,6 +234,12 @@ data class Noise(
     val depthFreezeS: List<ClosedFloatingPointRange<Float>> = emptyList(),
     /** 쓰레기 깊이 구간: 이 동안 깊이 × 10, 최대 거리 제한 없음(M7 실측: 재생 시작 약 3 s 17~28 m, SC-15). */
     val depthGarbageS: List<ClosedFloatingPointRange<Float>> = emptyList(),
+    /**
+     * 누적 드리프트(M12.0): 걸은 거리 s(m)에 비례해 보고 월드 좌표가 월드 원점 둘레로 s × [yawDriftDegPerM]° 돌고
+     * s × [posDriftPerM]만큼 옮겨진 것처럼 바뀐다(점프와 같은 변환을 연속으로). 제자리 회전 중에는 늘지 않는다.
+     */
+    val yawDriftDegPerM: Float = 0f,
+    val posDriftPerM: Vec3 = Vec3.ZERO,
 )
 
 /** 합성 프레임 1개. [truthWorldFromCam]은 점프·잡음이 없는 참 자세(C_cv). */
@@ -269,7 +290,7 @@ object SyntheticGenerator {
             val (truth, head) = cameraPose(walk, tS)
             if (drop) continue
             val lost = noise.trackingLossS.any { tS in it }
-            val reported = applyPoseNoise(applyJumps(truth, noise, tS), noise, rnd)
+            val reported = applyPoseNoise(applyJumps(applyDrift(truth, noise, legState(walk, tS).walkedM), noise, tS), noise, rnd)
             val worldFromGl = Conventions.cvToGl(reported)
             val depth = when {
                 lost -> null
@@ -294,17 +315,19 @@ object SyntheticGenerator {
 
     /** 시각 [tS]의 참 카메라 자세(C_cv)와 참 머리 자세. */
     fun cameraPose(w: Walk, tS: Float): Pair<Mat4, HeadPose> {
-        val h = Math.toRadians(w.headingDeg.toDouble()).toFloat()
+        val h0 = Math.toRadians(w.headingDeg.toDouble()).toFloat()
+        val line = Vec3(sin(h0), 0f, -cos(h0))
+        val leg = legState(w, tS)
+        val h = h0 + leg.turnRad
         val heading = Vec3(sin(h), 0f, -cos(h))
-        val walked = max(0f, tS - w.standS) * w.speedMps
-        val moving = tS > w.standS
+        val moving = leg.moving
         val phase = 2f * PI.toFloat() * w.stepHz * tS
         val bob = if (moving) w.bobAmpM * sin(phase) else 0f
         val yawOff = if (moving) Math.toRadians(w.wristYawAmpDeg * sin(phase / 2).toDouble()).toFloat() else 0f
-        // 머리는 진행 방향으로 곧게 걷고, 카메라는 머리 − 오프셋에서 흔들린다.
-        val right = heading.cross(Vec3.UP)
-        val offset = right * w.gripOffsetM.x + Vec3.UP * w.gripOffsetM.y + heading * w.gripOffsetM.z
-        val headPos = w.startCameraW + offset + heading * walked
+        // 머리는 보행선을 따라 곧게 걷고, 카메라는 머리 − 오프셋(지금 진행 방향 기준)에서 흔들린다.
+        fun offsetFor(f: Vec3) = f.cross(Vec3.UP) * w.gripOffsetM.x + Vec3.UP * w.gripOffsetM.y + f * w.gripOffsetM.z
+        val offset = offsetFor(heading)
+        val headPos = w.startCameraW + offsetFor(line) + line * leg.alongM
         val camPos = headPos - offset + Vec3.UP * bob
 
         val yaw = h + yawOff
@@ -319,6 +342,31 @@ object SyntheticGenerator {
         val yGl = zGl.cross(xGl)
         val worldFromGl = Mat4.fromAxes(xGl, yGl, zGl, camPos)
         return Conventions.glToCv(worldFromGl) to HeadPose(headPos, heading)
+    }
+
+    /** 시각 [tS]의 보행 상태([Walk.legM]이 없으면 한 방향으로 계속 걷는다). */
+    fun legState(w: Walk, tS: Float): LegState {
+        val walkingS = max(0f, tS - w.standS)
+        val legM = w.legM ?: return LegState(walkingS * w.speedMps, 0f, tS > w.standS, walkingS * w.speedMps)
+        val legS = legM / w.speedMps
+        if (walkingS >= w.legCount.toFloat() * legS + (w.legCount - 1).toFloat() * w.turnS) {
+            val last = w.legCount - 1
+            return LegState(if (last % 2 == 0) legM else 0f, PI.toFloat() * last, false, w.legCount * legM)
+        }
+        val cycleS = legS + w.turnS
+        val k = kotlin.math.floor(walkingS / cycleS).toInt()
+        val r = walkingS - k * cycleS
+        val inLeg = r < legS
+        val d = if (inLeg) r * w.speedMps else legM
+        val along = if (k % 2 == 0) d else legM - d
+        val turn = PI.toFloat() * (k + if (inLeg) 0f else (r - legS) / w.turnS)
+        return LegState(along, turn, tS > w.standS && inLeg, k * legM + d)
+    }
+
+    private fun applyDrift(t: Mat4, noise: Noise, walkedM: Float): Mat4 {
+        if (noise.yawDriftDegPerM == 0f && noise.posDriftPerM == Vec3.ZERO) return t
+        val q = Quaternion.fromAxisAngle(Vec3.UP, Math.toRadians((noise.yawDriftDegPerM * walkedM).toDouble()).toFloat())
+        return q.toMat4(noise.posDriftPerM * walkedM) * t
     }
 
     private fun applyJumps(t: Mat4, noise: Noise, tS: Float): Mat4 {
