@@ -427,3 +427,14 @@ M10 공간(폭 약 1 m, 길이 4~5 m)에서 찍을 수 있게 구성한다. 모�
 | duckDb | -12 | STOP 외 음원 감쇠 dB |
 
 `policy.prioritizeStop`은 기본 false, 후보 앱 설정에서 true. `policy.maxSources`는 후보 설정에서 2. 관측 범위 확대는 별도 변경이다.
+
+### 15.2 거리·방향·높이 단서 분리 (2026-10-07 사용자 요청)
+
+- `sonify.mapping=DISTANCE_HEIGHT`: 수평 거리 → 선형 진폭, 머리 기준 대표점 높이 차 → 지수 주파수, 방위각 → 기존 수평 HRTF.
+- 높이 전달: `AudioCmd.heightDeltaM = obstacle.repPointW.y - head.positionW.y`. 기본 0m는 기존 호출 호환용이며 Policy 경로는 반드시 실제 값을 전달한다.
+- 높이 기본 매핑 범위 `heightLowM=-1`, `heightHighM=1`; `minHz=250`, `maxHz=1000`. -1m 이하=250Hz, 0m=500Hz, +1m 이상=1000Hz.
+- `nearM/farM` 정규화 거리로 minGain~maxGain을 보간하고 prototypeGain과 duckGain을 적용한다. 위험도에 따른 gain/배음 변화와 HEAD 별도 주파수 배율은 이 매핑에서 사용하지 않는다.
+- closingMps/TTC/risk 계산과 관측은 계속한다. 기존 once/approaching/STOP 활성 규칙, SILENT/만료/UNKNOWN 음원 제거, STOP duck은 유지한다.
+- 기존 `LEGACY_RISK`는 A/B 비교용으로 보존한다. 기본 JSON의 PULSE/LEGACY_RISK 기준선은 유지하고 앱 override와 PC GUI/내보내기 시작 설정은 DISTANCE_HEIGHT로 선택한다.
+- CSV 끝에 heightDeltaM/mapping 열 추가. 기존 열 순서는 보존. pitch/gain은 블록 끝 값, 같은 WAV의 frameStart를 시간 기준으로 삼는다.
+- 이 높이는 물체 전체 크기나 최상단 높이가 아니라 선택된 대표점의 위치다. 머리 Y는 기존 카메라 오프셋 기반 추정이다. 새로운 고도 HRTF나 실기기 검증은 포함하지 않는다.

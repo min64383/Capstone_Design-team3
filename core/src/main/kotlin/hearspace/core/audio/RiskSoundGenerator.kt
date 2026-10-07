@@ -3,6 +3,7 @@ package hearspace.core.audio
 import hearspace.core.types.AudioCmd
 import hearspace.core.types.Band
 import hearspace.core.types.Config
+import hearspace.core.types.SonifyMapping
 import hearspace.core.types.SoundKind
 import kotlin.math.PI
 import kotlin.math.ceil
@@ -13,6 +14,7 @@ import kotlin.math.sin
 /** 물체 하나의 과거 거리 이력과 연속 복합음. 오디오 스레드 한 곳에서 사용한다. */
 class RiskSoundGenerator(config: Config) {
     private val p = config.sonify
+    private val distanceHeight = p.mapping == SonifyMapping.DISTANCE_HEIGHT
     private val sr = config.audio.sampleRate
     private val maxInfoAgeMs = config.policy.maxInfoAgeMs
     private val capacity = ceil(p.historyS * sr / config.audio.blockSize).toInt() + 3
@@ -41,6 +43,13 @@ class RiskSoundGenerator(config: Config) {
         private set
     var active = false
         private set
+    /** 블록 끝의 평활된 생성기 값(공간화/마스터/리미터 이전). */
+    val pitchHz: Float get() = frequencyHz
+    val gain: Float get() = amplitude
+    var targetPitchHz = p.minHz
+        private set
+    var targetGain = 0f
+        private set
     val quiet: Boolean get() = amplitude == 0f
 
     /** 재생 시각 역행/월드 좌표 초기화에도 사용하는 전체 상태 초기화. */
@@ -50,12 +59,14 @@ class RiskSoundGenerator(config: Config) {
         phase = 0.0; amplitude = 0f; frequencyHz = p.minHz
         secondHarmonic = p.minSecondHarmonic
         closingMps = 0f; ttcS = Float.POSITIVE_INFINITY; risk = 0f; active = false
+        targetPitchHz = p.minHz; targetGain = 0f
     }
 
     /** 물체의 최신 명령으로 모노 한 블록 생성. null은 새 소리 없이 release만 처리. */
     fun render(command: AudioCmd?, timeNs: Long, duckGain: Float, output: FloatArray) {
         if (lastNs != Long.MIN_VALUE && timeNs < lastNs) reset()
         val valid = command != null && command.distanceM.isFinite() && command.distanceM > 0f &&
+            (!distanceHeight || command.heightDeltaM.isFinite()) &&
             command.infoAgeMs.isFinite() && command.infoAgeMs >= 0f && command.infoAgeMs <= maxInfoAgeMs
         if (command != null && !valid) {
             reset(); output.fill(0f); return
@@ -87,15 +98,26 @@ class RiskSoundGenerator(config: Config) {
             if (previousBand == null || previousBand != c.band) eventUntilNs = timeNs + (p.onceS * 1e9).toLong()
             previousBand = c.band
             active = c.band != Band.SILENT && (stop || approaching || timeNs < eventUntilNs)
-            targetHz = p.minHz * (p.maxHz / p.minHz).pow(proximity)
-            if (c.sound == SoundKind.HEAD_TONE) targetHz *= p.headPitchRatio
-            targetGain = if (active) (p.minGain + (p.maxGain - p.minGain) * risk) * p.prototypeGain * duckGain else 0f
-            targetSecond = p.minSecondHarmonic + (p.maxSecondHarmonic - p.minSecondHarmonic) * risk
+            if (distanceHeight) {
+                // 고도각이 아닌 상대 Y를 사용해 거리만 바뀔 때 음높이를 유지한다.
+                val height01 = ((c.heightDeltaM - p.heightLowM) / (p.heightHighM - p.heightLowM)).coerceIn(0f, 1f)
+                targetHz = p.minHz * (p.maxHz / p.minHz).pow(height01)
+                targetGain = if (active) (p.minGain + (p.maxGain - p.minGain) * proximity) * p.prototypeGain * duckGain else 0f
+                // 거리/TTC에 따른 음색 변화도 제거해 세 단서를 분리한다.
+                targetSecond = p.minSecondHarmonic
+            } else {
+                targetHz = p.minHz * (p.maxHz / p.minHz).pow(proximity)
+                if (c.sound == SoundKind.HEAD_TONE) targetHz *= p.headPitchRatio
+                targetGain = if (active) (p.minGain + (p.maxGain - p.minGain) * risk) * p.prototypeGain * duckGain else 0f
+                targetSecond = p.minSecondHarmonic + (p.maxSecondHarmonic - p.minSecondHarmonic) * risk
+            }
         } else {
             // 명령 소실 뒤 재등장하면 새 안내가 가능하도록 이력을 버린다. 위상/진폭은 release 동안 유지.
             first = 0; count = 0; previousBand = null; approaching = false
             eventUntilNs = Long.MIN_VALUE; closingMps = 0f; ttcS = Float.POSITIVE_INFINITY
         }
+        targetPitchHz = targetHz
+        this.targetGain = targetGain
         val ampAlpha = if (targetGain > amplitude) attackAlpha else releaseAlpha
         for (i in output.indices) {
             frequencyHz += pitchAlpha * (targetHz - frequencyHz)

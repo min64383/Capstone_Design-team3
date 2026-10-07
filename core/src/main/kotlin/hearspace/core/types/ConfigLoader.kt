@@ -200,6 +200,9 @@ object ConfigLoader {
                     pitchSmoothS = positive("pitchSmoothS"),
                     prototypeGain = unit("prototypeGain"),
                     duckDb = float("duckDb"),
+                    mapping = enumValue<SonifyMapping>("mapping"),
+                    heightLowM = float("heightLowM"),
+                    heightHighM = float("heightHighM"),
                 )
             },
         )
@@ -219,6 +222,9 @@ object ConfigLoader {
             throw ConfigException("sonify", "pitch including harmonics must remain below Nyquist")
         if (s.minGain > s.maxGain || s.minSecondHarmonic > s.maxSecondHarmonic)
             throw ConfigException("sonify", "minimum must be <= maximum")
+        if (!s.heightLowM.isFinite() || !s.heightHighM.isFinite() ||
+            !(s.heightHighM - s.heightLowM).isFinite() || s.heightLowM >= s.heightHighM)
+            throw ConfigException("sonify", "heightLowM and heightHighM must be finite and low < high")
         if (s.duckDb > 0f) throw ConfigException("sonify.duckDb", "must be <= 0")
         if (s.historyS * c.audio.sampleRate / c.audio.blockSize > 1_000_000f)
             throw ConfigException("sonify.historyS", "history window is too large")

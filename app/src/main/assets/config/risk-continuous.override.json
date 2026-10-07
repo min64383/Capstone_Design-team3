@@ -1,6 +1,7 @@
 {
   "sonify": {
-    "mode": "RISK_CONTINUOUS"
+    "mode": "RISK_CONTINUOUS",
+    "mapping": "DISTANCE_HEIGHT"
   },
   "policy": {
     "maxSources": 2,

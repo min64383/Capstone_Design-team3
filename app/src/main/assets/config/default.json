@@ -93,6 +93,9 @@
   "align": { "fitLengthM": 2.0, "minTravelM": 0.5, "headingWindowS": 3.0 },
   "sonify": {
       "mode": "PULSE",
+      "mapping": "LEGACY_RISK",
+      "heightLowM": -1.0,
+      "heightHighM": 1.0,
       "historyS": 0.4,
       "minHistoryS": 0.2,
       "approachOnMps": 0.1,
