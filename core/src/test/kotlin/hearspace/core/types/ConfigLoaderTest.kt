@@ -30,7 +30,7 @@ class ConfigLoaderTest {
         assertEquals(CorridorConfig(0.8f, 2.0f, 3.5f, 0.2f, 0.25f, 0.8f), c.corridor)
         assertEquals(DepthConfig(2, DepthSource.SMOOTHED, 0), c.depth)
         assertEquals(FrontendConfig(false, 6, 0.1f, 0.05f, 0.02f, 0.05f, 0.02f, 0.15f), c.frontend)
-        assertEquals(MapConfig(0.05f, 0.2f, 6, 0.1f, 0.15f, 0.3f, 1.0f, 10f, 5.0f), c.map)
+        assertEquals(MapConfig(0.05f, 0.2f, 6, 0.1f, 0.15f, 0.3f, 1.0f, 10f, 5.0f, MapMode.HITS, 0.847f, -0.405f, -1.992f, 3.476f, 1.7f, 2.0f, 0.03f), c.map)
         assertEquals(FloorConfig(0.5f, 0.05f, 0.08f, 0.02f, 0.2f, 200, 0.1f, 10, 0f), c.floor)
         assertEquals(ClusterConfig(0.15f, 5, 1.2f, 0.5f), c.cluster)
         assertEquals(

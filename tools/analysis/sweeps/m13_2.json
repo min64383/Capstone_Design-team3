@@ -1,0 +1,8 @@
+{
+  "note": "M13.2: 로그 오즈 지도(map.mode LOG_ODDS, OctoMap 상수, 점유 기준 1.7은 합성 SC만으로 정함). 모두 바닥 후보 하한 0.8. 조정용 세션 E01h·E02·S02, 확인용 E03·E04·S03·S07·S01을 따로 본다. 기본값은 app/src/main/assets/config/default.json",
+  "variants": [
+    { "name": "hits_frontend", "overrides": { "floor": { "minBelowCameraM": 0.8 }, "frontend": { "enabled": true } } },
+    { "name": "logodds_frontend", "overrides": { "floor": { "minBelowCameraM": 0.8 }, "frontend": { "enabled": true }, "map": { "mode": "LOG_ODDS" } } },
+    { "name": "logodds", "overrides": { "floor": { "minBelowCameraM": 0.8 }, "map": { "mode": "LOG_ODDS" } } }
+  ]
+}

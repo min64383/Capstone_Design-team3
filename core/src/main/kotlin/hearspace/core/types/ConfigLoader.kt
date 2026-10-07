@@ -80,7 +80,19 @@ object ConfigLoader {
                     passedMarginM = nonNegative("passedMarginM"),
                     maxUnseenS = positive("maxUnseenS"),
                     radiusM = positive("radiusM"),
-                )
+                    mode = enumValue<MapMode>("mode"),
+                    logHit = positive("logHit"),
+                    logMiss = float("logMiss").also { if (it >= 0f) throw ConfigException(path("logMiss"), "must be < 0, got $it") },
+                    logMin = float("logMin"),
+                    logMax = positive("logMax"),
+                    logOccupied = float("logOccupied"),
+                    weightRefM = positive("weightRefM"),
+                    freeMarginRatio = nonNegative("freeMarginRatio"),
+                ).also { m ->
+                    if (!(m.logMin < m.logOccupied && m.logOccupied < m.logMax)) {
+                        throw ConfigException("map", "must satisfy logMin < logOccupied < logMax")
+                    }
+                }
             },
             floor = root.section("floor") {
                 FloorConfig(

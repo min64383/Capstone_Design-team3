@@ -29,7 +29,15 @@
     "decayPerObservation": 0.3,
     "passedMarginM": 1.0,
     "maxUnseenS": 10,
-    "radiusM": 5.0
+    "radiusM": 5.0,
+    "mode": "HITS",
+    "logHit": 0.847,
+    "logMiss": -0.405,
+    "logMin": -1.992,
+    "logMax": 3.476,
+    "logOccupied": 1.7,
+    "weightRefM": 2.0,
+    "freeMarginRatio": 0.03
   },
   "floor": {
     "searchBandM": 0.5,

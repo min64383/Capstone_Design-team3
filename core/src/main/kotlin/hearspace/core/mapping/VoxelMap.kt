@@ -4,6 +4,7 @@ import hearspace.core.geometry.Mat4
 import hearspace.core.geometry.Vec3
 import hearspace.core.types.Intrinsics
 import hearspace.core.types.MapConfig
+import hearspace.core.types.MapMode
 import kotlin.math.floor
 import kotlin.math.max
 import kotlin.math.min
@@ -19,6 +20,8 @@ data class VoxelView(
     val hits: Int,
     val score: Float,
     val lastSeenNs: Long,
+    /** 로그 오즈(`map.mode` LOG_ODDS에서만 쓰임). */
+    val logOdds: Float,
 )
 
 /** 삭제 사유별 개수(로그·테스트용). */
@@ -30,10 +33,20 @@ data class PruneCounts(val passed: Int, val unseen: Int, val outOfRadius: Int)
  * - 빈 공간 감쇠: **시야 안에서** 복셀 중심을 깊이 이미지에 투영했을 때 유효 깊이가 복셀보다 `freeMarginM` 이상 멀면
  *   score −= decayPerObservation. 시야 밖·깊이 무효·가려진(깊이가 더 가까운) 복셀은 감쇠하지 않는다(§2.2-6).
  * - 삭제: score ≤ 0, 또는 [prune]의 세 조건(지나감·오래 안 보임·반경 밖)뿐이다.
+ *
+ * `map.mode` LOG_ODDS(M13.2, OctoMap 방식): 칸마다 로그 오즈. 점이 들면 + `logHit` × 가중치, 시야 안에서 칸을 지나 더 멀리
+ * 보이면(여유 = max(복셀, `freeMarginRatio` × 칸 깊이)) + `logMiss` × 가중치, [`logMin`, `logMax`]로 묶고, `logOccupied` 이상이면
+ * 점유, 하한에 닿으면 지운다. 가중치 = min(1, (`weightRefM` / 거리)²): 먼 관측일수록 약해, 다가가며 얻는 가까운 관측이 멀리서
+ * 생긴 칸(끌림·잡음)을 덮어쓴다. 시야 밖·깊이 무효·가려진 칸은 그대로다(§2.2-6). 지나감·오래 안 보임·반경 밖 삭제는 같다.
  */
 class VoxelMap(private val cfg: MapConfig) {
 
-    private class Voxel(var hits: Int, var score: Float, var lastSeenNs: Long, var lastHitFrame: Long)
+    private class Voxel(var hits: Int, var score: Float, var lastSeenNs: Long, var lastHitFrame: Long, var logOdds: Float)
+
+    private val logOdds = cfg.mode == MapMode.LOG_ODDS
+
+    /** 관측 가중치: 거리 [distM]에서 min(1, (weightRefM / 거리)²). */
+    fun weight(distM: Float): Float = if (distM <= cfg.weightRefM) 1f else (cfg.weightRefM / distM).let { it * it }
 
     private val voxels = HashMap<Long, Voxel>()
     private var frame = 0L
@@ -46,20 +59,21 @@ class VoxelMap(private val cfg: MapConfig) {
         frame++
     }
 
-    /** 비바닥 점 하나를 관측으로 넣는다. */
-    fun insert(pW: Vec3, tNs: Long) {
+    /** 비바닥 점 하나를 관측으로 넣는다. [weight]는 LOG_ODDS의 관측 가중치([weight] 함수, HITS는 쓰지 않음). */
+    fun insert(pW: Vec3, tNs: Long, weight: Float = 1f) {
         val ix = index(pW.x)
         val iy = index(pW.y)
         val iz = index(pW.z)
         val key = key(ix, iy, iz)
         val v = voxels[key]
         if (v == null) {
-            voxels[key] = Voxel(1, min(1f, cfg.hitGain), tNs, frame)
+            voxels[key] = Voxel(1, min(1f, cfg.hitGain), tNs, frame, min(cfg.logMax, cfg.logHit * weight))
         } else if (v.lastHitFrame != frame) {
             v.hits++
             v.score = min(1f, v.score + cfg.hitGain)
             v.lastSeenNs = tNs
             v.lastHitFrame = frame
+            v.logOdds = min(cfg.logMax, v.logOdds + cfg.logHit * weight)
         }
     }
 
@@ -80,6 +94,13 @@ class VoxelMap(private val cfg: MapConfig) {
             if (u < 0 || u >= k.width || w < 0 || w >= k.height) continue // 시야 밖
             val mm = depthMm[w * k.width + u].toInt() and 0xFFFF
             if (mm == 0) continue // 관측 없음
+            if (logOdds) {
+                if (mm / 1000f < pCv.z + max(cfg.voxelSizeM, cfg.freeMarginRatio * pCv.z)) continue // 칸 자리 또는 그 앞이 관측됨
+                v.logOdds = max(cfg.logMin, v.logOdds + cfg.logMiss * weight(pCv.z))
+                decayed++
+                if (v.logOdds <= cfg.logMin) it.remove()
+                continue
+            }
             if (mm / 1000f < pCv.z + cfg.freeMarginM) continue // 복셀 자리 또는 그 앞이 관측됨(가려짐 포함)
             v.score -= cfg.decayPerObservation
             decayed++
@@ -115,16 +136,21 @@ class VoxelMap(private val cfg: MapConfig) {
         return PruneCounts(passed, unseen, far)
     }
 
-    /** 군집화 대상 복셀: hits ≥ `map.minHits`, score ≥ `map.minScore`. */
-    fun occupied(): List<VoxelView> = views().filter { it.hits >= cfg.minHits && it.score >= cfg.minScore }
+    /** 군집화 대상 복셀: HITS는 hits ≥ `map.minHits`, score ≥ `map.minScore`. LOG_ODDS는 로그 오즈 ≥ `map.logOccupied`. */
+    fun occupied(): List<VoxelView> =
+        if (logOdds) views().filter { it.logOdds >= cfg.logOccupied } else views().filter { it.hits >= cfg.minHits && it.score >= cfg.minScore }
 
     /** 모든 복셀. */
     fun views(): List<VoxelView> = voxels.map { (key, v) ->
-        VoxelView(ix(key), iy(key), iz(key), center(key), v.hits, v.score, v.lastSeenNs)
+        VoxelView(ix(key), iy(key), iz(key), center(key), v.hits, v.score, v.lastSeenNs, v.logOdds)
     }
 
-    /** 모든 score에 [factor]를 곱한다(추적 복귀 시 `state.recoverScoreScale`, §7.5). */
+    /** 모든 score에 [factor]를 곱한다(추적 복귀 시 `state.recoverScoreScale`, §7.5). LOG_ODDS는 로그 오즈를 0(모름) 쪽으로 같은 비율만큼. */
     fun scaleScores(factor: Float) {
+        if (logOdds) {
+            for (v in voxels.values) v.logOdds = max(cfg.logMin, min(cfg.logMax, v.logOdds * factor))
+            return
+        }
         for (v in voxels.values) v.score = max(0f, min(1f, v.score * factor))
         voxels.values.removeAll { it.score <= 0f }
     }

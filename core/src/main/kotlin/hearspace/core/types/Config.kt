@@ -91,6 +91,25 @@ data class MapConfig(
     val passedMarginM: Float,
     val maxUnseenS: Float,
     val radiusM: Float,
+    /** 갱신 규칙. 아래 log·weight·freeMarginRatio 값은 [MapMode.LOG_ODDS]에서만 쓴다(HITS는 위 값만, 기준선 바이트 동일). */
+    val mode: MapMode,
+    /** 점이 든 칸의 로그 오즈 증가. 기본값은 OctoMap(Hornung 2013) 적중 확률 0.7 = ln(0.7/0.3). */
+    val logHit: Float,
+    /** 시야 안에서 칸을 지나 더 멀리 보였을 때 증가(음수). OctoMap 빈 칸 확률 0.4 = ln(0.4/0.6). */
+    val logMiss: Float,
+    /** 로그 오즈 하·상한(OctoMap 0.12·0.97). 상한이 있어 오래 쌓인 칸도 바뀐 관측에 다시 반응한다. 하한에 닿은 칸은 지운다. */
+    val logMin: Float,
+    val logMax: Float,
+    /**
+     * 이 값 이상이면 점유. OctoMap 기본(확률 0.5 = 0)은 한 번 맞은 칸도 점유라 상자 둘레의 한 번짜리 점이 대표점을 밀고(SC-09)
+     * 물체를 가르고(SC-23) 막을 남겼다(SC-21). 기존 SC를 모두 통과하는 가장 낮은 후보 1.7(약 두 번 연속 관측, 확률 0.85)을 쓴다.
+     * 실제 세션이 아니라 합성 장면만으로 골랐다(M13.2, 과적합 방지).
+     */
+    val logOccupied: Float,
+    /** 관측 가중치 = min(1, (weightRefM / 거리)²): 깊이 오차가 거리 제곱으로 커지므로 먼 관측일수록 약하게(m). */
+    val weightRefM: Float,
+    /** 빈 칸 판정 여유 = max(복셀 크기, 이 비율 × 칸까지 깊이). 고정 여유(`freeMarginM`) 대신 깊이 오차에 비례. */
+    val freeMarginRatio: Float,
 )
 
 /** 바닥 추정 설정. */

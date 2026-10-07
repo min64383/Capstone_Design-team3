@@ -17,6 +17,9 @@ enum class HeightClass { FLOOR, BODY, HEAD }
 /** 느린 경로 입력으로 쓸 ARCore 깊이 종류(F6): 일반(평활·채움, 30 Hz) 또는 원시(+신뢰도, 10~30 Hz). */
 enum class DepthSource { SMOOTHED, RAW }
 
+/** 지도 갱신 규칙(IMPROVE_SPEC §6.1.1 M13.2): HITS = 관측 횟수·점수(기준선), LOG_ODDS = 로그 오즈 점유(OctoMap). */
+enum class MapMode { HITS, LOG_ODDS }
+
 /** 로컬 맵의 건강 상태. */
 enum class MapHealth { OK, DEGRADED }
 
