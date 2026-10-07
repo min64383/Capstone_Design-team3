@@ -1,0 +1,9 @@
+{
+  "note": "M12.1: M12.0 후속 대책. 바닥 후보 하한(floor.minBelowCameraM, 기준선 0)과 자세 불연속 속도 기준(state.maxSpeedMps, 기준선 15). 기본값은 app/src/main/assets/config/default.json",
+  "variants": [
+    { "name": "default", "overrides": {} },
+    { "name": "floorMinBelow_0.8", "overrides": { "floor": { "minBelowCameraM": 0.8 } } },
+    { "name": "maxSpeed_5", "overrides": { "state": { "maxSpeedMps": 5.0 } } },
+    { "name": "floor0.8_speed5", "overrides": { "floor": { "minBelowCameraM": 0.8 }, "state": { "maxSpeedMps": 5.0 } } }
+  ]
+}
