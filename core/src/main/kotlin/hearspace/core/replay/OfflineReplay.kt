@@ -67,9 +67,13 @@ class OfflineReplay(
     private val slowPathNs: (DepthFrame) -> Long,
 ) {
 
-    /** [session]을 재생해 [outDir]에 실행 로그(MVP §10.1)와 `replay_info.json`을 쓴다. */
+    /**
+     * [session]을 재생해 [outDir]에 실행 로그(MVP §10.1)와 `replay_info.json`을 쓴다. 정답 파일이 있으면 지도 평가
+     * `map_eval.json`(M13, [MapEvalWriter])도 쓴다.
+     */
     fun run(session: File, outDir: File, overridesJson: String = "{}", slowPathNote: String = "") {
-        run(session, RunLogWriter(outDir, session, overridesJson, slowPathNote))
+        val log = RunLogWriter(outDir, session, overridesJson, slowPathNote)
+        run(session, if (File(session, "annotations/obstacles.json").isFile) MapEvalWriter(log, outDir, session, config) else log)
     }
 
     /** [session]을 재생해 결과를 [listener]에 넘긴다. */

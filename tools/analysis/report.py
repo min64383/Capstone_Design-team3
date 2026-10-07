@@ -14,6 +14,12 @@ import sys
 from pathlib import Path
 
 # (머리글, 값 꺼내기, 묶을 때 합칠 방법)
+def wall_stat(m: dict, key: str, agg):
+    """지도 평가(M13)의 벽마다 값을 [agg]로 하나로(벽이 없으면 None)."""
+    w = m.get("mapWalls")
+    return agg(v[key] for v in w.values()) if w else None
+
+
 COLUMNS = [
     ("방향 오차 p95(°)", lambda m: (m.get("directionErrorDeg") or {}).get("p95"), "median"),
     ("과대추정 p95", lambda m: (m.get("overestimate1p5to2p5") or {}).get("p95"), "median"),
@@ -25,6 +31,8 @@ COLUMNS = [
     ("흔들림 std(°)", lambda m: m.get("sourceJitterDegStd"), "median"),
     ("오경보 비율", lambda m: m.get("falseAlarmFraction"), "median"),
     ("합쳐짐 비율", lambda m: m.get("objectMergedFraction"), "median"),
+    ("벽 두께 p50(m)", lambda m: wall_stat(m, "thicknessP50M", max), "median"),
+    ("벽 앞 치우침 최대(m)", lambda m: wall_stat(m, "frontOffsetP50M", max), "median"),
     ("경고 비율", lambda m: m.get("warnFraction"), "median"),
     ("UNKNOWN 비율", lambda m: (m.get("stateFraction") or {}).get("UNKNOWN", 0.0), "median"),
     ("느린 경로 Hz", lambda m: m.get("slowPathHz"), "median"),

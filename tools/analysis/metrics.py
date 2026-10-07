@@ -177,6 +177,11 @@ def compute(session: Path, run_dir: Path) -> dict:
 
     # 정답 없이 되는 지표
     out: dict = {"session": session.name if session.name != "session" else session.parent.name, "scene": scene_of(session)}
+    # 지도 평가(core `MapEvalWriter`, M13): 정답 구조물(벽)마다 마지막 지도의 두께·앞 치우침
+    me = run_dir / "map_eval.json"
+    if me.is_file():
+        walls = json.loads(me.read_text(encoding="utf-8"))["final"]
+        out["mapWalls"] = {w["name"]: {k: w[k] for k in ("thicknessP50M", "thicknessP90M", "frontOffsetP50M")} for w in walls}
     out.update(run_metrics(run_dir, cfg))
     arrival = frames.set_index("tNs").sysElapsedNs
     a0 = (frames.sysElapsedNs - frames.tNs) / 1e6
