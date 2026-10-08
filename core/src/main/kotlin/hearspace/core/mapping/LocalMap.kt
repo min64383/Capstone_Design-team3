@@ -81,6 +81,7 @@ class LocalMap(private val config: Config) {
             null
         }
         voxels.beginFrame()
+        val instOf = if (config.map.instances && segments != null) associate(pts, n, camW, userPosW, floorY, segments, depthMm, depth) else null
         var nFloor = 0
         var nBelow = 0
         var nInserted = 0
@@ -99,6 +100,7 @@ class LocalMap(private val config: Config) {
                         camW, floorY + config.floor.toleranceM,
                     )
                     nInserted++
+                    if (instOf != null) instOf.first[i].let { s -> if (s > 0) voxels.voteInstance(p, instOf.second.getValue(s)) }
                 }
             }
         }
@@ -107,6 +109,62 @@ class LocalMap(private val config: Config) {
         return MapUpdate(
             depth.tCaptureNs, n, nFloor, nBelow, nInserted, nDecayed, pruned, voxels.size, floor.floorY, MapHealth.OK, planes, segments,
         )
+    }
+
+    private var nextInstance = 1
+
+    /** 지도에 넣을 점인지(삽입 반복문과 같은 조건). */
+    private fun insertable(p: Vec3, camW: Vec3, userPosW: Vec3, floorY: Float): Boolean {
+        val camDist = (p - camW).horizontal().norm()
+        return !floor.isFloor(p.y, camDist) && !floor.isBelowFloor(p.y, camDist) && p.y >= floorY &&
+            (p - userPosW).horizontal().norm() <= config.map.radiusM
+    }
+
+    /**
+     * 인스턴스 지도(C3b): 영역마다 그 점이 든 칸의 기존 물체 번호를 세어, 번호가 붙은 점의 과반이 한 번호이고 그 수가
+     * `cluster.minSamples` 이상이면 그 번호를 이어받고, 아니면 새 번호를 낸다(Voxblox++의 겹침 연결). 한 영역이 다른 번호에도
+     * `cluster.minSamples` 이상 걸치면 같은 물체를 둘로 나눠 갖던 것으로 보고 그 번호를 이어받은 번호로 합친다(인스턴스 병합: 손목을
+     * 흔들며 본 상자의 앞면·윗면이 두 번호로 갈라졌다, SC-23). 영역은 깊이 불연속에서 끊기므로 다른 물체를 잇는 경우는 드물다.
+     * 돌려주는 값은 점마다 영역 번호와 영역 → 물체 번호.
+     */
+    private fun associate(
+        pts: FloatArray, n: Int, camW: Vec3, userPosW: Vec3, floorY: Float, segments: Segmenter.Result, depthMm: ShortArray, depth: DepthFrame,
+    ): Pair<IntArray, Map<Int, Int>> {
+        val seg = segments.pointLabels(depthMm, depth.K)
+        val votes = HashMap<Int, HashMap<Int, Int>>() // 영역 → (기존 번호 → 점 수)
+        val labeled = IntArray(segments.count + 1)
+        for (i in 0 until n) {
+            val s = seg[i]
+            if (s == 0) continue
+            val p = Vec3(pts[3 * i], pts[3 * i + 1], pts[3 * i + 2])
+            if (!insertable(p, camW, userPosW, floorY)) continue
+            val id = voxels.instanceAt(p)
+            if (id == 0) continue
+            labeled[s]++
+            votes.getOrPut(s) { HashMap() }.merge(id, 1, Int::plus)
+        }
+        val out = HashMap<Int, Int>()
+        val merged = HashMap<Int, Int>() // 합쳐진 번호 → 남는 번호
+        fun root(id: Int): Int = merged[id]?.let { root(it) } ?: id
+        for (s in 1..segments.count) {
+            val vs = votes[s]
+            val best = vs?.maxWithOrNull(compareBy({ it.value }, { -it.key }))
+            if (best == null || best.value * 2 <= labeled[s] || best.value < config.cluster.minSamples) {
+                out[s] = nextInstance++
+                continue
+            }
+            val keep = root(best.key)
+            out[s] = keep
+            for ((id, c) in vs) {
+                val r = root(id)
+                if (r != keep && c >= config.cluster.minSamples) {
+                    merged[r] = keep
+                    voxels.relabelInstance(r, keep)
+                }
+            }
+        }
+        for (s in out.keys) out[s] = root(out.getValue(s))
+        return seg to out
     }
 
     /** 맵·바닥을 모두 잊는다(자세 불연속, §7.5). */

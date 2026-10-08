@@ -36,6 +36,7 @@ COLUMNS = [
     ("STOP 누락", lambda m: m.get("missedStop"), "sum"),
     ("흔들림 std(°)", lambda m: m.get("sourceJitterDegStd"), "median"),
     ("오경보 비율", lambda m: m.get("falseAlarmFraction"), "median"),
+    ("id 전환", lambda m: m.get("idSwitches"), "sum"),
     ("합쳐짐 비율", lambda m: m.get("objectMergedFraction"), "median"),
     ("물체 앞면 오차(m)", lambda m: shape_stat(m, "frontErrorM"), "median"),
     ("물체 앞뒤 길이(m)", lambda m: shape_stat(m, "depthM"), "median"),

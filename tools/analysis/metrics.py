@@ -95,6 +95,15 @@ def object_shape(obs: pd.DataFrame, truth: list[dict], al: dict) -> dict | None:
     return out or None
 
 
+def id_switches(rows: list[dict], objects: set[int]) -> int | None:
+    """정답 물체마다 그 물체로 짝지어진 경고(WARN·STOP)의 서로 다른 추적 id 수 − 1을 더한다(id 전환, §9.2). 짝지어진 경고가 없으면 None."""
+    ids: dict[int, set[int]] = {}
+    for r in rows:
+        if r["band"] in ("WARN", "STOP") and r["match"] in objects and r.get("oid") is not None:
+            ids.setdefault(r["match"], set()).add(r["oid"])
+    return sum(len(s) - 1 for s in ids.values()) if ids else None
+
+
 def merged_fraction(obs: pd.DataFrame, truth: list[dict], al: dict) -> float | None:
     """물체–구조물 합쳐짐 비율: 정답 물체(`kind: object`)와 바닥 면적이 겹치는 추정 물체가 있는 느린 경로 단계 중, 그 추정
     물체가 물체 뒷면(정답 +z) 너머로 MERGE_BEYOND_M 넘게 이어진 단계의 비율(막이 캐리어를 뒤 문·벽까지 이은 경우)."""
@@ -259,6 +268,7 @@ def compute(session: Path, run_dir: Path) -> dict:
         if pd.notna(e.obstacleId):
             mi, mh = match(e.snapshotTNs, e.obstacleId)
         rows.append({"t": tS[k], "state": b.state, "tn": tn, "band": e.band if pd.notna(e.band) else None,
+                     "oid": int(e.obstacleId) if pd.notna(e.obstacleId) else None,
                      "az": e.azimuthDeg, "dist": e.distanceM, "match": mi, "hclass": mh, "pose": b.poseTNs})
 
     dir_err, over, jitter_src, fa, n_cmd = [], [], {}, 0, 0
@@ -333,6 +343,8 @@ def compute(session: Path, run_dir: Path) -> dict:
         "missedStop": len(stop_needed - stop_seen),
         "sourceJitterDegStd": jitter_std(),
         "falseAlarmFraction": fa / n_cmd if n_cmd else None,
+        # id 전환(명세 §9.2, C3b·T1 평가): 정답 물체마다 그 물체로 짝지어진 경고(WARN·STOP)의 서로 다른 추적 id 수 − 1의 합
+        "idSwitches": id_switches(rows, objects),
         "structureCommandFraction": n_struct / n_cmd if n_cmd else None,  # 구조물을 물체처럼 경고한 비율
         "objectMergedFraction": merged_fraction(obs, truth, al),
         "objectShape": object_shape(obs, truth, al),

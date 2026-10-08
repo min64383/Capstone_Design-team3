@@ -70,7 +70,8 @@
     "tsdfTruncMinM": 0.1,
     "tsdfTruncPerM": 0.05,
     "tsdfMaxWeight": 12,
-    "tsdfMinCosIncidence": 0.1
+    "tsdfMinCosIncidence": 0.1,
+    "instances": false
   },
   "floor": {
     "searchBandM": 0.5,
@@ -102,7 +103,8 @@
     "maxMissedUpdates": 3,
     "suspiciousConfirmObservations": 2,
     "minConfirmConfidence": 0,
-    "maxConfirmCentroidJumpM": 0.3
+    "maxConfirmCentroidJumpM": 0.3,
+    "matchByOverlap": false
   },
   "repPoint": { "strategy": "CORRIDOR_NEAREST" },
   "policy": {

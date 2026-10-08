@@ -187,6 +187,11 @@ data class MapConfig(
      * (SC-03·SC-06·SC-22). 하한 0.1 = 복도 반폭 0.5 m를 반경 5 m에서 보는 각(sin ≈ 0.1).
      */
     val tsdfMinCosIncidence: Float,
+    /**
+     * 인스턴스 지도(IMPROVE_SPEC §6 C3b, M13.3): 깊이 영상 영역(`frontend.segment` REGION 필요)을 지도 물체 번호와 복셀 겹침 투표로
+     * 잇고 복셀에 번호를 남긴다. 군집은 같은 번호끼리, 번호 없는 칸은 따로 DBSCAN. 추적은 같은 번호를 먼저 짝짓는다. false = 기준선.
+     */
+    val instances: Boolean,
 )
 
 /** 바닥 추정 설정. */
@@ -260,6 +265,12 @@ data class TrackConfig(
     val minConfirmConfidence: Float,
     /** 확인 중 이전 중심점(EMA)에서 이보다 멀리 튄 관측은 연속 횟수를 1부터 다시 센다. `matchRadiusM`이면 끈 것과 같다. */
     val maxConfirmCentroidJumpM: Float,
+    /**
+     * 중심이 `matchRadiusM` 밖으로 튀어도 위에서 본 상자(AABB)가 작은 쪽 면적의 과반 넘게 겹치면 같은 물체로 짝짓는다(M13.3 T1,
+     * SORT·AB3DMOT의 겹침 연결). 물체가 하나뿐인 세션에서도 뒤 문 쪽 칸이 붙었다 떨어지며 중심이 튀어 id가 바뀌었다(S02 id 1 → 5 → 7 …).
+     * false = 기준선.
+     */
+    val matchByOverlap: Boolean,
 )
 
 /** 대표점 설정. */

@@ -27,6 +27,8 @@ data class VoxelView(
     val logOdds: Float,
     /** 벽 평면 점(평면 추출의 WALL 라벨)으로 맞은 장 수. [hits] 중 이 비율이 `cluster.wallFraction` 이상이면 벽 칸(C2). */
     val wallHits: Int = 0,
+    /** 인스턴스 지도(C3b)의 물체 번호, 0 = 없음. */
+    val instId: Int = 0,
 )
 
 /** 삭제 사유별 개수(로그·테스트용). */
@@ -64,6 +66,7 @@ class VoxelMap(private val cfg: MapConfig) {
     private class Voxel(
         var hits: Int, var score: Float, var lastSeenNs: Long, var lastHitFrame: Long, var logOdds: Float, var weightedHits: Float,
         var wallHits: Int, var lastWallFrame: Long, var sd: Float = 0f, var sdWeight: Float = 0f,
+        var instId: Int = 0, var instVotes: Int = 0, var lastInstFrame: Long = -1,
     )
 
     private val logOdds = cfg.mode == MapMode.LOG_ODDS
@@ -196,6 +199,31 @@ class VoxelMap(private val cfg: MapConfig) {
         return false
     }
 
+    /** [pW]가 든 칸의 물체 번호(C3b), 칸이 없거나 번호가 없으면 0. */
+    fun instanceAt(pW: Vec3): Int = voxels[key(index(pW.x), index(pW.y), index(pW.z))]?.instId ?: 0
+
+    /**
+     * [pW]가 든 칸에 물체 번호 [id]를 한 표(한 장에 한 번, 다수결 투표: 같은 번호면 +1, 다르면 −1이고 0이 되면 바뀐다). 칸이 없으면 무시.
+     */
+    fun voteInstance(pW: Vec3, id: Int) {
+        val v = voxels[key(index(pW.x), index(pW.y), index(pW.z))] ?: return
+        if (v.lastInstFrame == frame) return
+        v.lastInstFrame = frame
+        when {
+            v.instId == id -> v.instVotes++
+            v.instVotes > 0 -> v.instVotes--
+            else -> {
+                v.instId = id
+                v.instVotes = 1
+            }
+        }
+    }
+
+    /** 물체 번호 [from]을 모두 [to]로 바꾼다(C3b 인스턴스 병합). */
+    fun relabelInstance(from: Int, to: Int) {
+        for (v in voxels.values) if (v.instId == from) v.instId = to
+    }
+
     /** TSDF 투영 갱신(M13.6). 돌려주는 값은 갱신한 칸 수. */
     private fun updateTsdf(depthMm: ShortArray, k: Intrinsics, camFromWorld: Mat4): Int {
         var updated = 0
@@ -301,7 +329,7 @@ class VoxelMap(private val cfg: MapConfig) {
     /** 모든 복셀. */
     fun views(): List<VoxelView> = voxels.map { (key, v) -> view(key, v) }
 
-    private fun view(key: Long, v: Voxel) = VoxelView(ix(key), iy(key), iz(key), center(key), v.hits, v.score, v.lastSeenNs, v.logOdds, v.wallHits)
+    private fun view(key: Long, v: Voxel) = VoxelView(ix(key), iy(key), iz(key), center(key), v.hits, v.score, v.lastSeenNs, v.logOdds, v.wallHits, v.instId)
 
     /** 모든 score에 [factor]를 곱한다(추적 복귀 시 `state.recoverScoreScale`, §7.5). LOG_ODDS는 로그 오즈를 0(모름) 쪽으로 같은 비율만큼. */
     fun scaleScores(factor: Float) {

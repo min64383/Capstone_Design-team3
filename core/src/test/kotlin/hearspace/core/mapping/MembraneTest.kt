@@ -21,7 +21,7 @@ class MembraneTest {
     private val base = File(System.getProperty("hearspace.defaultConfig")).readText()
 
     /** 기준선은 앞단을 명시적으로 끈다(`-PtestOverrides`로 기본값을 켠 실행에서도 기준선이 기준선이게). */
-    private val frontendOff = """ "frontend": { "enabled": false, "rgbGuide": "NONE" } """
+    private val frontendOff = """ "frontend": { "enabled": false, "rgbGuide": "NONE", "segment": "NONE" }, "map": { "instances": false } """
 
     /** 깊이 한 장마다 느린 경로 결과와 그때의 점유 복셀 중심(월드). 진행 방향은 참 머리 방향. */
     private class MapStep(val tS: Float, val snapshot: ObstacleSnapshot, val occupied: List<Vec3>)

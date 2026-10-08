@@ -17,12 +17,12 @@ import java.io.File
 
 /**
  * 벽 칸과 나머지를 따로 군집(IMPROVE_SPEC §6 C2, `cluster.separateWalls`). 기준선은 같은 장면을 끈 채로 돌린다.
- * 앞단(`frontend.enabled`)은 끄고 지도는 HITS로 고정해 C2만 본다(`-PtestOverrides`로 다른 지도를 켠 실행에서도).
+ * 앞단(`frontend.enabled`)·영역 분할·인스턴스 지도는 끄고 지도는 HITS로 고정해 C2만 본다(`-PtestOverrides`로 다른 설정을 켠 실행에서도).
  */
 class WallSeparationTest {
     private val base = File(System.getProperty("hearspace.defaultConfig")).readText()
-    private val off = """ "frontend": { "enabled": false }, "map": { "mode": "HITS" }, "cluster": { "separateWalls": false } """
-    private val on = """ "frontend": { "enabled": false, "planes": "RANSAC" }, "map": { "mode": "HITS" }, "cluster": { "separateWalls": true } """
+    private val off = """ "frontend": { "enabled": false, "segment": "NONE" }, "map": { "mode": "HITS", "instances": false }, "cluster": { "separateWalls": false } """
+    private val on = """ "frontend": { "enabled": false, "planes": "RANSAC", "segment": "NONE" }, "map": { "mode": "HITS", "instances": false }, "cluster": { "separateWalls": true } """
     private val config = ConfigLoader.load(base)
 
     /** 깊이 한 장마다 장애물 목록(진행 방향은 참 머리 방향). */

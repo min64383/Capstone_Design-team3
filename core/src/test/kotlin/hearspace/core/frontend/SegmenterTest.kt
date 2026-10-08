@@ -99,7 +99,7 @@ class SegmenterTest {
             val slow = hearspace.core.pipeline.SlowPath(ConfigLoader.load(base, overrides))
             return Scenes.SC21.generate().frames.mapNotNull { f -> f.depth?.let { slow.process(it, f.truthHead.headingW); slow.lastMapUpdate!!.segments?.count } }
         }
-        assertTrue(regions("""{ "frontend": { "segment": "NONE" } }""").all { it == null })
+        assertTrue(regions("""{ "frontend": { "segment": "NONE" }, "map": { "instances": false } }""").all { it == null })
         val on = regions("""{ "frontend": { "enabled": true, "segment": "REGION" } }""")
         // 상자(바닥 제외). 벽은 평면 추출을 켠 설정에서는 벽 평면으로 빠진다
         assertTrue(on.drop(on.size / 2).all { it != null && it >= 1 }, "regions per frame $on")

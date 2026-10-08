@@ -121,6 +121,7 @@ object ConfigLoader {
                     tsdfTruncPerM = nonNegative("tsdfTruncPerM"),
                     tsdfMaxWeight = positive("tsdfMaxWeight"),
                     tsdfMinCosIncidence = unit("tsdfMinCosIncidence"),
+                    instances = boolean("instances"),
                 ).also { m ->
                     if (!(m.logMin < m.logOccupied && m.logOccupied < m.logMax)) {
                         throw ConfigException("map", "must satisfy logMin < logOccupied < logMax")
@@ -172,6 +173,7 @@ object ConfigLoader {
                     suspiciousConfirmObservations = atLeast1("suspiciousConfirmObservations"),
                     minConfirmConfidence = unit("minConfirmConfidence"),
                     maxConfirmCentroidJumpM = positive("maxConfirmCentroidJumpM"),
+                    matchByOverlap = boolean("matchByOverlap"),
                 )
             },
             repPoint = root.section("repPoint") { RepPointConfig(strategy = enumValue<RepStrategy>("strategy")) },
@@ -303,6 +305,9 @@ object ConfigLoader {
         }
         if (c.floor.source == FloorSource.PLANE && c.frontend.planes != PlaneMode.RANSAC) {
             throw ConfigException("floor.source", "PLANE requires frontend.planes = RANSAC")
+        }
+        if (c.map.instances && c.frontend.segment != SegmentMode.REGION) {
+            throw ConfigException("map.instances", "requires frontend.segment = REGION")
         }
         if (c.cluster.separateWalls && c.frontend.planes != PlaneMode.RANSAC) {
             throw ConfigException("cluster.separateWalls", "requires frontend.planes = RANSAC")

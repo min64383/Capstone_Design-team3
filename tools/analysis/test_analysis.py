@@ -167,6 +167,17 @@ def check_object_shape():
     assert s["n"] == 2 and object_shape(obs.iloc[:0], truth, al) is None
 
 
+def check_id_switches():
+    """id 전환(§9.2): 정답 물체마다 짝지어진 경고의 서로 다른 추적 id 수 − 1, 구조물·SILENT·짝 없는 경고는 세지 않는다."""
+    from metrics import id_switches
+
+    rows = [{"band": "WARN", "match": 0, "oid": 1}, {"band": "STOP", "match": 0, "oid": 2}, {"band": "WARN", "match": 0, "oid": 2},
+            {"band": "SILENT", "match": 0, "oid": 3}, {"band": "WARN", "match": 1, "oid": 4}, {"band": "WARN", "match": None, "oid": 5},
+            {"band": "WARN", "match": 2, "oid": 6}]
+    assert id_switches(rows, {0, 2}) == 1  # 물체 0: id 1→2, 물체 2: 하나, 1은 구조물
+    assert id_switches([], {0}) is None
+
+
 def check_group_and_plan():
     """회차 묶기(중앙값·합계·딕셔너리)와 sweep 조합 (M10)."""
     assert combine([1.0, None, 3.0, 2.0], "median") == 2.0
@@ -210,6 +221,7 @@ def main():
     check_group_and_plan()
     check_depth_error()
     check_object_shape()
+    check_id_switches()
     print("analysis self-check ok")
 
 
