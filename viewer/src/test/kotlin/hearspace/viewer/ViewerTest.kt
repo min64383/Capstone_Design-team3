@@ -18,6 +18,18 @@ import kotlin.math.abs
  * 알고리즘 합격 기준은 core의 합성 장면 테스트이고, 여기서는 GUI 배관(재생·소리·찾기·평가 저장)만 확인한다.
  */
 class ViewerTest {
+
+    @Test
+    fun `variants keep the app audio override`() {
+        // 변형을 불러와도 앱의 음향 덮어쓰기(risk-continuous.override.json)가 남아 앱과 같은 소리로 재생된다
+        for (variant in listOf("{}", """{ "map": { "voxelSizeM": 0.075 } }""")) {
+            val c = Repo.loadConfig(variant)
+            assertEquals(hearspace.core.types.SonifyMode.RISK_CONTINUOUS, c.sonify.mode)
+            assertEquals(hearspace.core.types.SonifyMapping.DISTANCE_HEIGHT, c.sonify.mapping)
+        }
+        assertEquals(hearspace.core.types.SonifyMapping.LEGACY_RISK,
+            Repo.loadConfig("""{ "sonify": { "mapping": "LEGACY_RISK" } }""").sonify.mapping) // 변형이 그 위에 덮어씀
+    }
     private val s02 = File(Repo.sessions, "20261003_130815_S01") // M10 S02 2회, 앞면 정답 z 2.39
 
     @Test
@@ -141,7 +153,7 @@ class ViewerTest {
         assertTrue(r.audio.maxOf { abs(it) } > 0.01f)
 
         // 실행 로그 파일과 같은 블록
-        val config = ConfigLoader.load(Repo.defaultConfig.readText(), "{}")
+        val config = Repo.loadConfig("{}")
         OfflineReplay(config, OfflineReplay.fixed(ReplayRunner.SLOW_PATH_MS)).run(s02, dir)
         val logBlocks = File(dir, RunLog.GUIDANCE_FILE).readLines().drop(1).map { it.substringBefore(',').toLong() }.distinct()
         assertEquals(logBlocks, r.blocks.map { it.tNs })

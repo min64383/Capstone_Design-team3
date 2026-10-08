@@ -50,7 +50,7 @@ class MainWindow(initialSession: String?) : JFrame("HEARSPACE 평가 GUI") {
     private val playButton = JButton("▶ 재생")
     private val exportCheck = JCheckBox("CSV + WAV 저장(재실행)")
     private val rerunButton = JButton("재실행")
-    private val overrides = JTextArea(File(Repo.root, "app/src/main/assets/config/risk-continuous.override.json").readText(), 14, 30).apply { font = Font(Font.MONOSPACED, Font.PLAIN, 12) }
+    private val overrides = JTextArea("{}", 14, 30).apply { font = Font(Font.MONOSPACED, Font.PLAIN, 12) }
     private val variantName = JTextField("default", 12)
     private val variantBox = JComboBox<String>()
     private val ratings = RatingItem.entries.associateWith { JComboBox(arrayOf(1, 2, 3, 4, 5)).apply { selectedItem = 3 } }
@@ -97,7 +97,7 @@ class MainWindow(initialSession: String?) : JFrame("HEARSPACE 평가 GUI") {
 
     private fun configPanel(): JComponent = JPanel(BorderLayout(4, 4)).apply {
         border = BorderFactory.createEmptyBorder(6, 6, 6, 6)
-        add(JLabel("<html>기본 설정(default.json)에 덮어쓸 JSON<br>예: {\"map\": {\"voxelSizeM\": 0.075}}</html>"), BorderLayout.NORTH)
+        add(JLabel("<html>앱 설정(default.json + 앱 음향 덮어쓰기)에 덮어쓸 JSON<br>예: {\"map\": {\"voxelSizeM\": 0.075}}</html>"), BorderLayout.NORTH)
         add(JScrollPane(overrides), BorderLayout.CENTER)
         add(Box.createVerticalBox().apply {
             add(row(rerunButton.apply { addActionListener { rerun() } }, JButton("기본값({})").apply { addActionListener { overrides.text = "{}" } }))

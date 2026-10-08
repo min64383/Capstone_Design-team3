@@ -375,7 +375,7 @@ git clone <저장소>; cd capstone
 
 #### 설정 바꿔 다시 돌리기 (설정 탭)
 
-기본 설정(`app/src/main/assets/config/default.json`)에 **덮어쓸 부분만** JSON으로 적고 [재실행]을 누른다. 보던 시각은 유지되므로 같은 장면을 설정만 바꿔 바로 비교할 수 있다.
+앱 설정(`app/src/main/assets/config/default.json`에 앱의 음향 덮어쓰기 `risk-continuous.override.json`을 얹은 것, 앱과 같음)에 **덮어쓸 부분만** JSON으로 적고 [재실행]을 누른다. 보던 시각은 유지되므로 같은 장면을 설정만 바꿔 바로 비교할 수 있다.
 
 ```json
 { "map": { "voxelSizeM": 0.075 } }
@@ -386,7 +386,7 @@ git clone <저장소>; cd capstone
 ```
 
 - 여러 항목을 함께 바꾸려면 한 객체에 같이 쓴다: `{ "map": { "voxelSizeM": 0.075 }, "policy": { "maxSources": 3 } }`
-- [기본값({})]은 덮어쓰기를 지운다. JSON이 틀리면 상태 줄에 오류가 나오고 재실행하지 않는다.
+- [기본값({})]은 덮어쓰기를 지운다(앱과 같은 설정·소리). JSON이 틀리면 상태 줄에 오류가 나오고 재실행하지 않는다.
 - [변형 이름] + [저장]으로 자주 쓰는 덮어쓰기를 `data/viewer/variants/<이름>.json`에 남기고 [불러오기]로 다시 쓴다.
 - 설정 키와 기본값은 `default.json`과 [MVP_SPEC §12](docs/MVP_SPEC.md#12-설정-assetsconfigdefaultjson-실험-패널에서-덮어쓰기) 표를 본다.
 

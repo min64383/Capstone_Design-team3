@@ -26,6 +26,8 @@ import java.io.File
 object Repo {
     val root: File = File(System.getProperty("hearspace.repoRoot") ?: ".").absoluteFile
     val defaultConfig: File get() = File(root, "app/src/main/assets/config/default.json")
+    /** 앱이 항상 덮어쓰는 음향 설정(AppConfig의 SONIFY_OVERRIDE_ASSET). */
+    val appOverride: File get() = File(root, "app/src/main/assets/config/risk-continuous.override.json")
     val hrtf: File get() = File(root, "app/src/main/assets/hrtf/sadie2_d1_48k.hrir")
     val sessions: File get() = File(root, "testdata/sessions")
     val feedback: File get() = File(root, "data/feedback")
@@ -37,6 +39,10 @@ object Repo {
         val p = f.canonicalFile.toPath()
         return if (p.startsWith(r)) r.relativize(p).toString().replace(File.separatorChar, '/').ifEmpty { "." } else p.toString()
     }
+
+    /** 앱과 같은 순서로 쌓은 설정: default.json → 앱 음향 덮어쓰기 → [overridesJson](viewer 변형). */
+    fun loadConfig(overridesJson: String) =
+        ConfigLoader.load(defaultConfig.readText(), listOf(appOverride.readText(), overridesJson))
 }
 
 /** 오디오 블록 하나: 그 블록이 쓴 자세·스냅샷 시각과 빠른 경로 출력. */
@@ -171,7 +177,7 @@ object ReplayRunner {
 
     fun run(session: File, overridesJson: String, hrtf: Hrtf, exportDir: File? = null): ReplayResult {
         val start = System.nanoTime()
-        val config = ConfigLoader.load(Repo.defaultConfig.readText(), overridesJson)
+        val config = Repo.loadConfig(overridesJson)
         val reader = SessionReader(session)
         val export = exportDir?.let { SonificationExport(it, config, session, overridesJson) }
         val renderer = BinauralRenderer(config, hrtf, export?.let { e -> { sample -> e.sample(sample) } })
