@@ -14,6 +14,12 @@ import sys
 from pathlib import Path
 
 # (머리글, 값 꺼내기, 묶을 때 합칠 방법)
+def shape_stat(m: dict, key: str):
+    """형상 지표(M13)의 정답 물체마다 값의 중앙값(물체가 없으면 None)."""
+    s = m.get("objectShape")
+    return statistics.median(v[key] for v in s.values()) if s else None
+
+
 def wall_stat(m: dict, key: str, agg):
     """지도 평가(M13)의 벽마다 값을 [agg]로 하나로(벽이 없으면 None)."""
     w = m.get("mapWalls")
@@ -31,6 +37,9 @@ COLUMNS = [
     ("흔들림 std(°)", lambda m: m.get("sourceJitterDegStd"), "median"),
     ("오경보 비율", lambda m: m.get("falseAlarmFraction"), "median"),
     ("합쳐짐 비율", lambda m: m.get("objectMergedFraction"), "median"),
+    ("물체 앞면 오차(m)", lambda m: shape_stat(m, "frontErrorM"), "median"),
+    ("물체 앞뒤 길이(m)", lambda m: shape_stat(m, "depthM"), "median"),
+    ("물체 폭(m)", lambda m: shape_stat(m, "widthM"), "median"),
     ("벽 두께 p50(m)", lambda m: wall_stat(m, "thicknessP50M", max), "median"),
     ("벽 앞 치우침 최대(m)", lambda m: wall_stat(m, "frontOffsetP50M", max), "median"),
     ("경고 비율", lambda m: m.get("warnFraction"), "median"),

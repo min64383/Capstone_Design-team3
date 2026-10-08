@@ -153,6 +153,20 @@ def check_depth_error():
     assert med == 0.0 and sig == 0.0 and abs(tail - 0.2) < 1e-9
 
 
+def check_object_shape():
+    """형상 지표(M13): 겹침이 가장 큰 추정 상자의 앞면 오차·앞뒤 길이·폭 중앙값."""
+    from metrics import object_shape
+
+    al = {"origin": [0.0, 0.0], "dir": [0.0, 1.0], "floorY": 0.0}  # 월드 +Z = 정답 +z, 정답 x = 월드 −x
+    truth = [{"name": "box", "kind": "object", "min": [-0.2, 0.0, 2.0], "max": [0.2, 0.6, 2.3]}]
+    # 단계 1: 앞면 0.1 m 앞, 길이 0.5, 폭 0.4 / 단계 2: 큰 상자 + 작은 조각(겹침이 큰 쪽만)
+    obs = pd.DataFrame({"tCaptureNs": [1, 2, 2], "aabbMinX": [-0.2, -0.25, 0.1], "aabbMaxX": [0.2, 0.25, 0.15],
+                        "aabbMinZ": [1.9, 2.0, 2.2], "aabbMaxZ": [2.4, 2.6, 2.25]})
+    s = object_shape(obs, truth, al)["box"]
+    assert abs(s["frontErrorM"] - (-0.05)) < 1e-9 and abs(s["depthM"] - 0.55) < 1e-9 and abs(s["widthM"] - 0.45) < 1e-9, s
+    assert s["n"] == 2 and object_shape(obs.iloc[:0], truth, al) is None
+
+
 def check_group_and_plan():
     """회차 묶기(중앙값·합계·딕셔너리)와 sweep 조합 (M10)."""
     assert combine([1.0, None, 3.0, 2.0], "median") == 2.0
@@ -195,6 +209,7 @@ def main():
     check_merged_fraction()
     check_group_and_plan()
     check_depth_error()
+    check_object_shape()
     print("analysis self-check ok")
 
 
