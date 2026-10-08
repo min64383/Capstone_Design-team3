@@ -8,7 +8,7 @@
 .\gradlew.bat :viewer:exportSonification "-Psession=testdata/sessions/20261003_130815_S01"
 ```
 
-기본으로 앱의 risk-continuous.override.json을 사용한다. 결과는 콘솔에 출력되는
+앱과 같이 default.json에 앱의 risk-continuous.override.json을 항상 쌓고, `-PoverridesFile`은 그 위에 덮어쓴다. 결과는 콘솔에 출력되는
 `data/sonification/<세션ID>/<시각-랜덤ID>/`에 저장된다.
 
 지정 경로/설정으로 A/B 실험:
@@ -18,7 +18,7 @@
 .\gradlew.bat :viewer:exportSonification "-Psession=testdata/sessions/20261003_130815_S01" "-PoverridesFile=my-continuous.json" "-Pout=data/sonification/runB"
 ```
 
-사용자 override에도 sonify.mode=RISK_CONTINUOUS가 있어야 한다. 기존 출력 폴더는 덮어쓰지 않으므로 새 이름을 사용한다.
+기존 출력 폴더는 덮어쓰지 않으므로 새 이름을 사용한다.
 
 ## GUI에서 저장
 

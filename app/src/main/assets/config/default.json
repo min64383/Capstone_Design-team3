@@ -66,7 +66,7 @@
     "logOccupied": 1.7,
     "weightRefM": 2.0,
     "freeMarginRatio": 0.03,
-    "hitWeighting": "NONE",
+    "hitWeighting": "DISTANCE",
     "tsdfTruncMinM": 0.1,
     "tsdfTruncPerM": 0.05,
     "tsdfMaxWeight": 12,
@@ -82,7 +82,7 @@
     "minPoints": 200,
     "belowMarginM": 0.1,
     "lostFrames": 10,
-    "minBelowCameraM": 0,
+    "minBelowCameraM": 0.8,
     "source": "HISTOGRAM"
   },
   "cluster": { "epsM": 0.15, "minSamples": 5, "headMinM": 1.2, "bodyMinM": 0.5, "separateWalls": false, "wallFraction": 0.5 },
@@ -104,7 +104,7 @@
     "suspiciousConfirmObservations": 2,
     "minConfirmConfidence": 0,
     "maxConfirmCentroidJumpM": 0.3,
-    "matchByOverlap": false
+    "matchByOverlap": true
   },
   "repPoint": { "strategy": "CORRIDOR_NEAREST" },
   "policy": {
