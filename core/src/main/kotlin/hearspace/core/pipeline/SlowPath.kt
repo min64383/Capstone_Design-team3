@@ -66,13 +66,20 @@ class SlowPath(
         val corridor = Corridor(userPosW, headingW, floorY, config.corridor)
         val inCorridor = map.voxels.occupied().filter { corridor.contains(it.centerW) }
         val voxels = withoutEdgeStructures(inCorridor, corridor)
-        val centers = voxels.map { it.centerW }
+        // C2: 남은 칸을 벽 칸과 나머지로 나눠 따로 묶는다(벽도 장애물로 남는다). 끄면 한 묶음(기준선). 가장자리 구조물 규칙을 먼저 전체에
+        // 적용해야 한다: 벽 칸을 먼저 떼면 라벨 없는 옆 벽 밑동 조각이 짧은 덩어리로 남아 오경보가 됐다(S02 130646 0.11 → 0.22)
+        val groups = if (config.cluster.separateWalls) {
+            voxels.partition { it.wallHits >= config.cluster.wallFraction * it.hits }.toList()
+        } else {
+            listOf(voxels)
+        }
+        val clusters = groups.flatMap { g ->
+            Cluster.dbscanXZ(g.map { it.centerW }, config.cluster.epsM, config.cluster.minSamples).map { idx -> idx.map { g[it] } }
+        }
         val half = config.map.voxelSizeM / 2
         val debug = ArrayList<ClusterDebug>()
         val detections = ArrayList<Detection>()
-        val clusters = Cluster.dbscanXZ(centers, config.cluster.epsM, config.cluster.minSamples)
-        for ((clusterIndex, idx) in clusters.withIndex()) {
-            val clusterVoxels = idx.map { voxels[it] }
+        for ((clusterIndex, clusterVoxels) in clusters.withIndex()) {
             val pts = clusterVoxels.map { it.centerW }
             val reps = RepPoint.candidates(pts, corridor, config.map.voxelSizeM)
             val aabbMin = Vec3(pts.minOf { it.x } - half, pts.minOf { it.y } - half, pts.minOf { it.z } - half)

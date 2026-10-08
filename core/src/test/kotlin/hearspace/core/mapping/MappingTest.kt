@@ -197,6 +197,18 @@ class VoxelMapTest {
     }
 
     @Test
+    fun `wall votes count once per frame next to the hits`() {
+        val m = VoxelMap(hitsCfg)
+        val p = Vec3(0.01f, 0.01f, 0.01f)
+        m.beginFrame(); m.insert(p, 0); m.insert(p, 0, wall = true); m.insert(p, 0, wall = true)
+        m.beginFrame(); m.insert(p, 1)
+        m.beginFrame(); m.insert(p, 2, wall = true)
+        val v = m.views().single()
+        assertEquals(3, v.hits)
+        assertEquals(2, v.wallHits)
+    }
+
+    @Test
     fun `hits count once per frame and score saturates`() {
         val m = VoxelMap(hitsCfg)
         m.beginFrame()
@@ -388,7 +400,7 @@ class FloorTest {
 
     @Test
     fun `first estimate uses points below the camera, then the search band`() {
-        val f = Floor(config.floor, config.map.radiusM)
+        val f = Floor(config.floor.copy(minBelowCameraM = 0f), config.map.radiusM) // 기준선(하한 없음)을 명시: -PtestOverrides로 하한을 켠 실행에서도
         // 탁자면(0.7)보다 바닥(−0.3)이 많다
         val u = f.update(points(-0.3f to 500, 0.7f to 300, 1.5f to 1000), Vec3(0f, 1.0f, 0f))
         assertEquals(-0.3f, u.floorY!!, 1e-4f)

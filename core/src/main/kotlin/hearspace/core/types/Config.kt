@@ -113,6 +113,12 @@ data class FrontendConfig(
     /** 벽 직선의 최소 점 수·길이(m)·높이 범위(m), 한 장에서 찾을 최대 개수, RANSAC 시도 횟수. */
     val wallMinPoints: Int,
     val wallMinLengthM: Float,
+    /**
+     * 벽 직선 위 점을 따라가며 간격이 이보다 벌어지면 끊고 가장 긴 연속 구간만 벽으로 본다(m). 연속성 검사가 없으면 상자 앞면과 양쪽 옆 벽의
+     * 같은 거리 점이 한 직선으로 이어져 가짜 벽이 됐다(합성 C2 장면). 처리 해상도(`depth.subsample` 2)의 이웃 점 간격은 반경 5 m에서
+     * 약 0.08 m라 그 두 배 남짓.
+     */
+    val wallMaxGapM: Float,
     val wallMinHeightM: Float,
     val wallMaxPlanes: Int,
     val planeIterations: Int,
@@ -183,7 +189,19 @@ data class FloorConfig(
 )
 
 /** 군집·높이 분류 설정. */
-data class ClusterConfig(val epsM: Float, val minSamples: Int, val headMinM: Float, val bodyMinM: Float)
+data class ClusterConfig(
+    val epsM: Float,
+    val minSamples: Int,
+    val headMinM: Float,
+    val bodyMinM: Float,
+    /**
+     * 벽 칸과 나머지 칸을 따로 군집한다(IMPROVE_SPEC §6 C2, M13.5 뒤). 벽 칸 = 평면 추출(`frontend.planes` RANSAC 필요)의 벽 표가
+     * 맞은 장 수의 [wallFraction] 이상. 벽을 빼지 않고 따로 묶으므로 진행 방향의 벽은 그대로 장애물이다(무음 ≠ 장애물 없음).
+     * 물체가 막·벽 밑동 칸을 거쳐 벽과 한 덩어리가 되는 것을 막는다. false = 기준선.
+     */
+    val separateWalls: Boolean,
+    val wallFraction: Float,
+)
 
 /** 실측에서 반복된 '통로 전체를 채우는 깊이 sheet' 오인식 실험 필터. 기본은 꺼 둔다. */
 data class FalsePositiveFilterConfig(

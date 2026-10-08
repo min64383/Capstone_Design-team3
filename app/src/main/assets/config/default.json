@@ -38,6 +38,7 @@
     "wallBandAboveM": 0.8,
     "wallMinPoints": 80,
     "wallMinLengthM": 0.8,
+    "wallMaxGapM": 0.2,
     "wallMinHeightM": 0.3,
     "wallMaxPlanes": 3,
     "planeIterations": 120
@@ -74,7 +75,7 @@
     "minBelowCameraM": 0,
     "source": "HISTOGRAM"
   },
-  "cluster": { "epsM": 0.15, "minSamples": 5, "headMinM": 1.2, "bodyMinM": 0.5 },
+  "cluster": { "epsM": 0.15, "minSamples": 5, "headMinM": 1.2, "bodyMinM": 0.5, "separateWalls": false, "wallFraction": 0.5 },
   "falsePositiveFilter": {
     "enabled": false,
     "minVoxels": 500,

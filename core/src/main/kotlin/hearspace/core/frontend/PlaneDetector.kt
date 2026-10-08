@@ -194,6 +194,7 @@ object PlaneDetector {
             labels[it] == 0.toByte() && dist[it] <= maxDistM &&
                 p[3 * it + 1] >= cam.y - cfg.wallBandBelowM && p[3 * it + 1] <= cam.y + cfg.wallBandAboveM
         }
+        val band = pool.toList() // 높이 띠 안 점 전부(다른 벽에 쓰인 점 포함, 길이 잴 때)
         val rnd = Random(SEED)
         val walls = ArrayList<WallPlane>()
         var attempts = 0
@@ -221,7 +222,15 @@ object PlaneDetector {
                 bestIn = refined
                 line = fitLine(p, bestIn)
             }
-            val proj = bestIn.map { line.along(p[3 * it], p[3 * it + 2]) }
+            // 연속성: 직선 위 간격이 wallMaxGapM보다 벌어지면 끊고 가장 긴 구간만(떨어진 면들을 한 직선으로 잇지 않게)
+            val inliers = bestIn
+            bestIn = longestRun(p, inliers, line, cfg.wallMaxGapM)
+            if (bestIn.size >= cfg.wallMinPoints && bestIn.size < inliers.size) line = fitLine(p, bestIn)
+            if (bestIn.isEmpty()) break
+            // 길이는 이미 다른 벽에 쓰인 점까지 포함해 잰다: 모서리 점은 두 벽 모두에 속한다. 거리에 비례한 허용 오차 때문에 먼 끝 벽의
+            // 양 끝이 먼저 찾은 옆 벽에 들어가 짧아져(4 m에서 1.04 → 0.74 m) 벽으로 안 잡혔다(합성 C2 장면)
+            val span = longestRun(p, band.filter { line.offset(p[3 * it], p[3 * it + 2]) < tol(dist[it]) }, line, cfg.wallMaxGapM)
+            val proj = (if (span.size > bestIn.size) span else bestIn).map { line.along(p[3 * it], p[3 * it + 2]) }
             val lengthM = proj.max() - proj.min()
             val heightRange = bestIn.maxOf { p[3 * it + 1] } - bestIn.minOf { p[3 * it + 1] }
             val ok = bestIn.size >= cfg.wallMinPoints && lengthM >= cfg.wallMinLengthM && heightRange >= cfg.wallMinHeightM
@@ -232,11 +241,39 @@ object PlaneDetector {
                     line.cx + line.dx * proj.max(), line.cz + line.dz * proj.max(), bestIn.size, rms,
                 )
                 for (i in bestIn) labels[i] = PlaneResult.WALL
+                // 벽은 수직이므로 찾은 직선(길이 범위) 위의 점은 높이 띠 밖(벽 밑동·윗부분)도 벽이다. 군집이 벽과 물체를 가를 때(C2)
+                // 벽 밑동 칸이 라벨 없이 남아 다리가 되지 않게 한다. [WallPlane.nInliers]는 맞춤에 쓴 띠 안 점 수 그대로다.
+                val lo = proj.min()
+                val hi = proj.max()
+                for (i in 0 until dist.size) {
+                    if (labels[i] != 0.toByte() || dist[i] > maxDistM) continue
+                    val a = line.along(p[3 * i], p[3 * i + 2])
+                    if (a in lo..hi && line.offset(p[3 * i], p[3 * i + 2]) < tol(dist[i])) labels[i] = PlaneResult.WALL
+                }
             }
-            val used = bestIn.toHashSet()
+            val used = (if (ok) bestIn else inliers).toHashSet()
             pool.removeAll { it in used }
         }
         return walls
+    }
+
+    /** [idx]를 직선 위 위치로 늘어놓아 간격이 [maxGapM]보다 큰 곳에서 끊었을 때 가장 긴(길이 기준) 연속 구간. */
+    private fun longestRun(p: FloatArray, idx: List<Int>, line: Line, maxGapM: Float): List<Int> {
+        if (idx.isEmpty()) return idx
+        val sorted = idx.sortedBy { line.along(p[3 * it], p[3 * it + 2]) }
+        val a = sorted.map { line.along(p[3 * it], p[3 * it + 2]) }
+        var bestFrom = 0
+        var bestTo = 0
+        var from = 0
+        for (k in 1..sorted.size) {
+            if (k < sorted.size && a[k] - a[k - 1] <= maxGapM) continue
+            if (a[k - 1] - a[from] > a[bestTo] - a[bestFrom]) {
+                bestFrom = from
+                bestTo = k - 1
+            }
+            from = k
+        }
+        return sorted.subList(bestFrom, bestTo + 1)
     }
 
     /** 위에서 본 직선: 중심 ([cx], [cz]), 방향 ([dx], [dz]) 단위 벡터. */

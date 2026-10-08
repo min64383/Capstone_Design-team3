@@ -66,9 +66,14 @@ class PlaneDetectorTest {
         val side = r.walls.filter { abs(it.x1 - it.x0) < 0.2f }.map { (it.x0 + it.x1) / 2 }.sorted()
         assertTrue(side.size >= 2 && abs(side.first() + 0.52f) < 0.06f && abs(side.last() - 0.52f) < 0.06f, "side walls x $side")
         assertTrue(r.walls.all { it.rmsM < 0.06f }, "rms ${r.walls.map { it.rmsM }}")
-        // 평면에 든 점에 라벨이 붙는다
+        // 평면에 든 점에 라벨이 붙는다. 벽은 맞춤에 쓴 높이 띠 밖(밑동·윗부분)의 점도 벽이다(C2)
         assertTrue(r.labels.count { it == PlaneResult.FLOOR } == r.floor!!.nInliers)
-        assertTrue(r.labels.count { it == PlaneResult.WALL } == r.walls.sumOf { it.nInliers })
+        assertTrue(r.labels.count { it == PlaneResult.WALL } > r.walls.sumOf { it.nInliers })
+        val (p, cam) = frame(SceneSpec("corridor", Scenes.corridorE(), Walk(durationS = 3f)), 0.5f)
+        val rr = PlaneDetector.detect(p, cam, cfg, config.map.radiusM)
+        val wallBase = (0 until p.size / 3).filter { abs(abs(p[3 * it]) - 0.52f) < 0.02f && p[3 * it + 1] in 0.03f..cam.y - cfg.wallBandBelowM }
+        assertTrue(wallBase.isNotEmpty() && wallBase.count { rr.labels[it] == PlaneResult.WALL } >= 0.9f * wallBase.size,
+            "wall base labeled ${wallBase.count { rr.labels[it] == PlaneResult.WALL }}/${wallBase.size}")
     }
 
     @Test
@@ -81,7 +86,7 @@ class PlaneDetectorTest {
         // 이 거리에서는 가로 시야(약 ±20°)로 끝 벽이 0.7 m만, 옆 벽은 전혀 안 보여 벽 평면도 없다(`wallMinLengthM` 0.8)
         assertTrue(r.walls.isEmpty(), "walls ${r.walls}")
         // 기준선(히스토그램)은 같은 점에서 바닥을 벽 위 어딘가에 잡는다
-        val hist = Floor(config.floor, config.map.radiusM).update(p, cam)
+        val hist = Floor(config.floor.copy(minBelowCameraM = 0f), config.map.radiusM).update(p, cam) // 기준선(하한 없음) 명시
         assertTrue(hist.floorY != null && hist.floorY!! > 0.2f, "histogram floor on the wall: ${hist.floorY}")
         // 평면 바닥은 이전 값을 유지한다
         val f = Floor(config.floor, config.map.radiusM)

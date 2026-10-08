@@ -64,6 +64,7 @@ class LocalMap(private val config: Config) {
         }
 
         val floorY = f.floorY
+        val wallLabels = if (config.cluster.separateWalls) planes?.labels else null
         voxels.beginFrame()
         var nFloor = 0
         var nBelow = 0
@@ -78,7 +79,7 @@ class LocalMap(private val config: Config) {
                 p.y < floorY -> Unit // 바닥보다 낮은데 단차로도 확실하지 않은 점: 장애물일 수 없으므로 버린다
                 (p - userPosW).horizontal().norm() > radius -> Unit
                 else -> {
-                    voxels.insert(p, depth.tCaptureNs, voxels.weight((p - camW).norm()))
+                    voxels.insert(p, depth.tCaptureNs, voxels.weight((p - camW).norm()), wallLabels?.get(i) == PlaneResult.WALL)
                     nInserted++
                 }
             }

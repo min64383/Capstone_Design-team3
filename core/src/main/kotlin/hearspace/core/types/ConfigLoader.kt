@@ -86,6 +86,7 @@ object ConfigLoader {
                     wallBandAboveM = nonNegative("wallBandAboveM"),
                     wallMinPoints = atLeast1("wallMinPoints"),
                     wallMinLengthM = positive("wallMinLengthM"),
+                    wallMaxGapM = positive("wallMaxGapM"),
                     wallMinHeightM = positive("wallMinHeightM"),
                     wallMaxPlanes = atLeast1("wallMaxPlanes"),
                     planeIterations = atLeast1("planeIterations"),
@@ -137,6 +138,8 @@ object ConfigLoader {
                     minSamples = atLeast1("minSamples"),
                     headMinM = positive("headMinM"),
                     bodyMinM = positive("bodyMinM"),
+                    separateWalls = boolean("separateWalls"),
+                    wallFraction = unit("wallFraction"),
                 )
             },
             falsePositiveFilter = root.section("falsePositiveFilter") {
@@ -291,6 +294,9 @@ object ConfigLoader {
         }
         if (c.floor.source == FloorSource.PLANE && c.frontend.planes != PlaneMode.RANSAC) {
             throw ConfigException("floor.source", "PLANE requires frontend.planes = RANSAC")
+        }
+        if (c.cluster.separateWalls && c.frontend.planes != PlaneMode.RANSAC) {
+            throw ConfigException("cluster.separateWalls", "requires frontend.planes = RANSAC")
         }
         if (c.audio.beepOnMs >= c.audio.nearPeriodMs) {
             throw ConfigException(

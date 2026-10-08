@@ -23,6 +23,8 @@ data class VoxelView(
     val lastSeenNs: Long,
     /** 로그 오즈(`map.mode` LOG_ODDS에서만 쓰임). */
     val logOdds: Float,
+    /** 벽 평면 점(평면 추출의 WALL 라벨)으로 맞은 장 수. [hits] 중 이 비율이 `cluster.wallFraction` 이상이면 벽 칸(C2). */
+    val wallHits: Int = 0,
 )
 
 /** 삭제 사유별 개수(로그·테스트용). */
@@ -47,6 +49,7 @@ class VoxelMap(private val cfg: MapConfig) {
 
     private class Voxel(
         var hits: Int, var score: Float, var lastSeenNs: Long, var lastHitFrame: Long, var logOdds: Float, var weightedHits: Float,
+        var wallHits: Int, var lastWallFrame: Long,
     )
 
     private val logOdds = cfg.mode == MapMode.LOG_ODDS
@@ -66,8 +69,11 @@ class VoxelMap(private val cfg: MapConfig) {
         frame++
     }
 
-    /** 비바닥 점 하나를 관측으로 넣는다. [weight]는 관측 가중치([weight] 함수): LOG_ODDS와 HITS의 `hitWeighting` DISTANCE가 쓴다. */
-    fun insert(pW: Vec3, tNs: Long, weight: Float = 1f) {
+    /**
+     * 비바닥 점 하나를 관측으로 넣는다. [weight]는 관측 가중치([weight] 함수): LOG_ODDS와 HITS의 `hitWeighting` DISTANCE가 쓴다.
+     * [wall]이면 그 장의 벽 표로도 센다(한 장에 한 번, C2).
+     */
+    fun insert(pW: Vec3, tNs: Long, weight: Float = 1f, wall: Boolean = false) {
         val ix = index(pW.x)
         val iy = index(pW.y)
         val iz = index(pW.z)
@@ -75,8 +81,16 @@ class VoxelMap(private val cfg: MapConfig) {
         val v = voxels[key]
         val vote = if (weighted) weight else 1f
         if (v == null) {
-            voxels[key] = Voxel(1, min(1f, cfg.hitGain * vote), tNs, frame, min(cfg.logMax, cfg.logHit * weight), vote)
-        } else if (v.lastHitFrame != frame) {
+            voxels[key] = Voxel(
+                1, min(1f, cfg.hitGain * vote), tNs, frame, min(cfg.logMax, cfg.logHit * weight), vote, if (wall) 1 else 0, if (wall) frame else -1,
+            )
+            return
+        }
+        if (wall && v.lastWallFrame != frame) {
+            v.wallHits++
+            v.lastWallFrame = frame
+        }
+        if (v.lastHitFrame != frame) {
             v.hits++
             v.weightedHits += vote
             v.score = min(1f, v.score + cfg.hitGain * vote)
@@ -155,7 +169,7 @@ class VoxelMap(private val cfg: MapConfig) {
     /** 모든 복셀. */
     fun views(): List<VoxelView> = voxels.map { (key, v) -> view(key, v) }
 
-    private fun view(key: Long, v: Voxel) = VoxelView(ix(key), iy(key), iz(key), center(key), v.hits, v.score, v.lastSeenNs, v.logOdds)
+    private fun view(key: Long, v: Voxel) = VoxelView(ix(key), iy(key), iz(key), center(key), v.hits, v.score, v.lastSeenNs, v.logOdds, v.wallHits)
 
     /** 모든 score에 [factor]를 곱한다(추적 복귀 시 `state.recoverScoreScale`, §7.5). LOG_ODDS는 로그 오즈를 0(모름) 쪽으로 같은 비율만큼. */
     fun scaleScores(factor: Float) {
