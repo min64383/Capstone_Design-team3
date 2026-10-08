@@ -180,14 +180,6 @@ data class FloorConfig(
     val minBelowCameraM: Float,
     /** 바닥 추정 원천(M13.1c). PLANE이면 `frontend.planes`가 RANSAC이어야 한다. */
     val source: FloorSource,
-    /**
-     * 직전 바닥보다 `toleranceM` 넘게 아래인 후보는 카메라에서 수평 `map.weightRefM`(2 m) 안의 것만 쓴다(M13.5). 광택 바닥의 반사상은
-     * 실제 바닥보다 아래·멀리 찍힌다: E03 창문 쪽을 볼 때 카메라 아래 점의 38~45%가 바닥보다 0.1 m 넘게 아래(수평거리 중앙값 약 3 m),
-     * 바닥 추정이 0.15 m 끌려 내려가 진짜 바닥 점이 장애물로 들어갔다. 바닥보다 위 후보(가까운 물체 윗면)는 건드리지 않는다
-     * (거리 가중 시도는 가까운 낮은 캐리어 윗면을 바닥으로 잡아 S07 STOP을 놓쳤다). 실제로 내려간 바닥은 2 m 안에 들어오면 따라간다.
-     * false = 기준선.
-     */
-    val belowNearOnly: Boolean,
 )
 
 /** 군집·높이 분류 설정. */

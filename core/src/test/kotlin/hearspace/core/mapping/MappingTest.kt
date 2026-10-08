@@ -411,25 +411,6 @@ class FloorTest {
     }
 
     @Test
-    fun `far points below the floor do not pull it down but near ones and points above still count`() {
-        // M13.5 실측: 광택 바닥에 비친 창문이 바닥보다 아래·멀리(약 3 m) 찍혀 히스토그램 최빈값이 그리로 끌렸다
-        fun at(y: Float, distM: Float, n: Int) = List(n) { listOf(0f, y, -distM) }.flatten().toFloatArray()
-        val near = config.map.weightRefM * 0.75f
-        val far = config.map.weightRefM * 1.5f
-        val cfg = config.floor.copy(minBelowCameraM = 0f, belowNearOnly = true, emaAlpha = 1f)
-        val f = Floor(cfg, config.map.radiusM, config.map.weightRefM)
-        f.update(at(-1f, near, 300), Vec3.ZERO)
-        assertEquals(-1f, f.update(at(-1f, near, 200) + at(-1.2f, far, 400), Vec3.ZERO).floorY!!, 1e-4f) // 먼 아래 층 무시
-        assertEquals(-1.2f, f.update(at(-1f, near, 200) + at(-1.2f, near, 400), Vec3.ZERO).floorY!!, 1e-4f) // 가까우면 따라감
-        val g = Floor(cfg, config.map.radiusM, config.map.weightRefM)
-        g.update(at(-1f, near, 300), Vec3.ZERO)
-        assertEquals(-0.8f, g.update(at(-1f, near, 200) + at(-0.8f, far, 400), Vec3.ZERO).floorY!!, 1e-4f) // 위쪽은 기준선과 같음
-        val base = Floor(cfg.copy(belowNearOnly = false), config.map.radiusM, config.map.weightRefM)
-        base.update(at(-1f, near, 300), Vec3.ZERO)
-        assertEquals(-1.2f, base.update(at(-1f, near, 200) + at(-1.2f, far, 400), Vec3.ZERO).floorY!!, 1e-4f) // 기준선은 끌려감
-    }
-
-    @Test
     fun `too few points keeps previous estimate`() {
         val f = Floor(config.floor, config.map.radiusM)
         assertNull(f.update(points(-1f to 10), Vec3.ZERO).floorY)

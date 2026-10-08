@@ -23,9 +23,8 @@ data class FloorUpdate(
  * - 직전 바닥 근처 후보가 모자란 깊이가 `floor.lostFrames`장 이어지면 바닥을 잊고 첫 추정부터 다시(v0.2.7).
  *   잘못 잡은 바닥에 갇히지 않기 위함(M7 실측: 재생 시작 약 3 s 동안 17~28 m 깊이 → 바닥 −33.7 m 고정).
  * - 최빈 칸 주변 ± `toleranceM` 점의 평균으로 칸보다 세밀하게 잡고, `emaAlpha`로 지수 평활한다(과거 값만 사용).
- * - `floor.belowNearOnly`면 직전 바닥보다 `toleranceM` 넘게 아래인 후보는 수평 [nearM] 안의 것만 쓴다(M13.5, 광택 바닥 반사 대응).
  */
-class Floor(private val cfg: FloorConfig, private val maxDistM: Float, private val nearM: Float = Float.POSITIVE_INFINITY) {
+class Floor(private val cfg: FloorConfig, private val maxDistM: Float) {
 
     private var lostFrames = 0
 
@@ -45,10 +44,8 @@ class Floor(private val cfg: FloorConfig, private val maxDistM: Float, private v
             if (y >= cameraW.y - cfg.minBelowCameraM) continue
             val dx = pointsW[3 * i] - cameraW.x
             val dz = pointsW[3 * i + 2] - cameraW.z
-            val d2 = dx * dx + dz * dz
-            if (d2 > maxDistM * maxDistM) continue
+            if (dx * dx + dz * dz > maxDistM * maxDistM) continue
             if (prev != null && abs(y - prev) > cfg.searchBandM) continue
-            if (cfg.belowNearOnly && prev != null && y < prev - cfg.toleranceM && d2 > nearM * nearM) continue // 먼 반사상
             ys[m++] = y
         }
         if (m < cfg.minPoints) {
