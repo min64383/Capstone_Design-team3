@@ -411,6 +411,17 @@ class FloorTest {
     }
 
     @Test
+    fun `distance weighting keeps the near floor against a farther reflection layer`() {
+        // M13.5 실측: 광택 바닥에 비친 창문이 바닥보다 아래·멀리(약 3 m) 찍혀 히스토그램 최빈값이 그리로 끌렸다
+        fun at(y: Float, distM: Float, n: Int) = List(n) { listOf(0f, y, -distM) }.flatten().toFloatArray()
+        val pts = at(-1f, 1.5f, 200) + at(-1.2f, 2.5f * config.map.weightRefM, 400)
+        val base = config.floor.copy(minBelowCameraM = 0f, distanceWeighted = false)
+        assertEquals(-1.2f, Floor(base, config.map.radiusM * 10, config.map.weightRefM).update(pts, Vec3.ZERO).floorY!!, 1e-4f)
+        val weighted = base.copy(distanceWeighted = true)
+        assertEquals(-1f, Floor(weighted, config.map.radiusM * 10, config.map.weightRefM).update(pts, Vec3.ZERO).floorY!!, 1e-4f)
+    }
+
+    @Test
     fun `too few points keeps previous estimate`() {
         val f = Floor(config.floor, config.map.radiusM)
         assertNull(f.update(points(-1f to 10), Vec3.ZERO).floorY)

@@ -180,6 +180,12 @@ data class FloorConfig(
     val minBelowCameraM: Float,
     /** 바닥 추정 원천(M13.1c). PLANE이면 `frontend.planes`가 RANSAC이어야 한다. */
     val source: FloorSource,
+    /**
+     * 히스토그램 후보를 거리 가중 min(1, (`map.weightRefM` / 수평거리)²)으로 센다(M13.5). 광택 바닥의 반사상은 실제 바닥보다 아래·멀리
+     * 찍힌다: E03 창문 쪽을 볼 때 카메라 아래 점의 38~45%가 바닥보다 0.1 m 넘게 아래(수평거리 중앙값 약 3 m), 바닥 추정이 0.15 m
+     * 끌려 내려가 진짜 바닥 점이 장애물로 들어갔다. 가까운 바닥(2 m 안 σ 3~7 cm)이 반사에 밀리지 않게 한다. false = 기준선.
+     */
+    val distanceWeighted: Boolean,
 )
 
 /** 군집·높이 분류 설정. */
