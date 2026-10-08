@@ -1,0 +1,7 @@
+{
+  "note": "기본값 변경(IMPROVE_SPEC v0.3.14) 확인: 새 기본값(바닥 하한 0.8 + 거리 가중 표 + 겹침 연결, 앞단 꺼짐)과 이전 기준선을 같은 세션으로 비교. 16번 보고서 표 6의 수치.",
+  "variants": [
+    {"name": "old_baseline", "overrides": {"floor": {"minBelowCameraM": 0}, "map": {"hitWeighting": "NONE"}, "track": {"matchByOverlap": false}}},
+    {"name": "default", "overrides": {}}
+  ]
+}
