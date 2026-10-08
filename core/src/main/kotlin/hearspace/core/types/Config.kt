@@ -82,6 +82,8 @@ data class FrontendConfig(
     /** 평면 허용 오차 = planeTolM + planeTolPerM × 카메라에서 수평거리(깊이 오차가 거리에 비례, m). */
     val planeTolM: Float,
     val planeTolPerM: Float,
+    /** 바닥 허용 오차의 거리 비례분(m/m): 평활 깊이의 바닥은 곡선이라 벽보다 크다(M3 실측 0.08, `floor.tolerancePerM`과 같은 값). */
+    val floorTolPerM: Float,
     /** 바닥 후보는 카메라보다 이만큼 이상 낮은 점만(m). 가까운 물체 윗면·카메라 앞 잡음 제외. */
     val planeFloorMinBelowM: Float,
     /** 바닥에 필요한 점 수. */
@@ -93,10 +95,15 @@ data class FrontendConfig(
     val floorMinSpreadM: Float,
     /** 바닥 점의 거리 방향 폭(5~95%) 하한(m). 작은 물체 윗면은 이보다 좁다. */
     val floorMinSpanM: Float,
+    /** 바닥 추정에 쓰는 점의 수평거리 상한(m). 평활 깊이의 먼 바닥은 비선형으로 위로 휘어 쓰지 않는다. */
+    val floorMaxDistM: Float,
     /** 바닥 기울기 하한(m/m, 음수 = 잡음 허용: 깊이 잡음으로 완전한 평면의 기울기가 0 아래로 조금 나온다). */
     val floorMinLiftPerM: Float,
     /** 거리에 따라 들리는 바닥 기울기 상한(m/m). 평활 깊이의 바닥은 멀수록 위로 들려 보인다(M3 실측 약 0.08). */
     val floorMaxLiftPerM: Float,
+    /** 바닥 아래 검사: 바닥 선보다 이만큼(m) 넘게 아래인 후보 점이 바닥 점 수의 이 비율을 넘으면 바닥이 아니다(벽 띠·물체 면). */
+    val floorUnderM: Float,
+    val floorUnderFraction: Float,
     /** 바닥은 카메라보다 이 범위(m)만큼 아래(손에 든 폰 높이의 합리적 범위). */
     val floorMinDropM: Float,
     val floorMaxDropM: Float,

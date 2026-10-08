@@ -86,7 +86,7 @@ class Floor(private val cfg: FloorConfig, private val maxDistM: Float) {
 
     /**
      * 평면 추출의 바닥 높이 [planeHeightM]로 갱신한다(`floor.source` PLANE, M13.1c). 바닥이 안 보이는 프레임(null)은 갱신하지 않고
-     * 이전 값을 유지한다(벽을 따라 올라가지 않는다, M12.0). 이전 바닥에서 `searchBandM`을 넘게 벗어난 평면이 `lostFrames`장
+     * 이전 값을 유지한다(벽을 따라 올라가지 않는다, M12.0). 바닥을 한 번도 못 잡은 동안의 시작은 [LocalMap]이 히스토그램으로 한다. 이전 바닥에서 `searchBandM`을 넘게 벗어난 평면이 `lostFrames`장
      * 이어지면 높이가 실제로 달라진 것으로 보고 새 값을 받는다(계단·경사 대비).
      */
     fun updateFromPlane(planeHeightM: Float?, nCandidates: Int): FloorUpdate {

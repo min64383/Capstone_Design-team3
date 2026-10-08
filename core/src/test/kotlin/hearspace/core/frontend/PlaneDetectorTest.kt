@@ -111,8 +111,9 @@ class PlaneDetectorTest {
         }
         val r = PlaneDetector.detect(pts.toFloatArray(), Vec3(0f, 0f, 0f), cfg, config.map.radiusM)
         val fl = need(r.floor, "floor plane")
-        assertEquals(-1.1f, fl.heightM, 0.05f)
-        assertEquals(0.09f, fl.liftPerM, 0.02f)
+        // 보고 높이는 점들의 중앙 거리(d 약 2.8 m)에서의 값: −1.1 + 0.09 × 2.8
+        assertEquals(-1.1f + 0.09f * 2.8f, fl.heightM, 0.05f)
+        assertEquals(0.09f, fl.liftPerM, 0.03f)
     }
 
     @Test

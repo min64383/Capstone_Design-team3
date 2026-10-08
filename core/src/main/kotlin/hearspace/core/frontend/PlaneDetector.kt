@@ -16,7 +16,7 @@ import kotlin.math.sin
 import kotlin.math.sqrt
 
 /**
- * 바닥: 카메라 바로 아래로 외삽한 월드 높이 [heightM]와 거리에 따른 들림 기울기 [liftPerM](m/m, 평활 깊이의 바닥은 멀수록 위로
+ * 바닥: 바닥 점의 중앙 거리에서의 월드 높이 [heightM]와 거리에 따른 들림 기울기 [liftPerM](m/m, 평활 깊이의 바닥은 멀수록 위로
  * 들려 보인다), 평면에 든 점 수, 수평 퍼짐(작은 주축 표준편차, m), 거리 방향 폭(5~95%, m).
  */
 data class FloorPlane(val heightM: Float, val liftPerM: Float, val nInliers: Int, val spreadM: Float, val spanM: Float)
@@ -93,8 +93,9 @@ object PlaneDetector {
         val labels = ByteArray(n)
         val dist = FloatArray(n) { hypot(pointsW[3 * it] - cameraW.x, pointsW[3 * it + 2] - cameraW.z) }
         fun tol(d: Float) = cfg.planeTolM + cfg.planeTolPerM * d
-        val floor = findFloor(pointsW, dist, cameraW, cfg, maxDistM, ::tol, labels)
+        // 벽을 먼저 찾아 바닥 후보에서 뺀다: 복도의 양쪽 벽 점은 두 평행선이라 수평 퍼짐·폭 검사를 통과하고 높이 띠가 직선에 맞는다(S02 실측)
         val walls = findWalls(pointsW, dist, cameraW, cfg, maxDistM, ::tol, labels)
+        val floor = findFloor(pointsW, dist, cameraW, cfg, maxDistM, ::tol, labels)
         return PlaneResult(floor, walls, labels)
     }
 
@@ -102,14 +103,19 @@ object PlaneDetector {
      * 바닥: 카메라 아래 후보 점의 (수평거리 d, 높이 y)에 직선 y = a + b·d를 결정적 RANSAC으로 맞춘다. 평활 깊이의 바닥은 멀수록
      * 위로 들려 보이므로(M3 실측 약 0.08 m/m, M13.1c에서 S02 장면 확인) 수평 평면이 아니라 기울기 b ∈ [`floorMinLiftPerM`, `floorMaxLiftPerM`]를 둔다.
      * 채택 조건: 점 수 ≥ `floorMinPoints`, 거리 방향 폭(5~95%) ≥ `floorMinSpanM`(작은 물체 윗면 제외), 수평 퍼짐(작은 주축
-     * 표준편차) ≥ `floorMinSpreadM`(벽을 따라 한 줄로 모인 점 제외), 카메라보다 [`floorMinDropM`, `floorMaxDropM`] 아래.
-     * 바닥 높이는 a(카메라 바로 아래로 외삽한 높이)다.
+     * 표준편차) ≥ `floorMinSpreadM`(벽을 따라 한 줄로 모인 점 제외), 카메라보다 [`floorMinDropM`, `floorMaxDropM`] 아래, 바닥 선
+     * 아래에 큰 구조 없음. 수평거리 `floorMaxDistM`(3 m)까지의 점만 쓴다: 평활 깊이의 먼 바닥은 비선형으로 위로 휜다(E02: 1.9 m −1.28,
+     * 2.6 m −1.14, 3.5 m −0.86, 4.5 m −0.48 m, 카메라 기준). 보고 높이는 바닥 점의 중앙 거리에서의 직선 값이다.
      */
     private fun findFloor(
         p: FloatArray, dist: FloatArray, cam: Vec3, cfg: FrontendConfig, maxDistM: Float, tol: (Float) -> Float, labels: ByteArray,
     ): FloorPlane? {
-        val cand = (0 until dist.size).filter { p[3 * it + 1] <= cam.y - cfg.planeFloorMinBelowM && dist[it] <= maxDistM }
+        val cand = (0 until dist.size).filter {
+            labels[it] == 0.toByte() && p[3 * it + 1] <= cam.y - cfg.planeFloorMinBelowM && dist[it] <= min(maxDistM, cfg.floorMaxDistM)
+        }
         if (cand.size < cfg.floorMinPoints) return null
+        // 바닥 허용 오차: 거리 비례분이 벽보다 크다(평활 깊이의 바닥은 곡선이라 직선 띠가 거리에 따라 넓어져야 한다, M3 실측 0.08 m/m)
+        fun ftol(d: Float) = cfg.planeTolM + cfg.floorTolPerM * d
         val rnd = Random(SEED + 1)
         var best: List<Int> = emptyList()
         repeat(cfg.planeIterations) {
@@ -121,13 +127,13 @@ object PlaneDetector {
             if (b < cfg.floorMinLiftPerM || b > cfg.floorMaxLiftPerM) return@repeat
             val a = p[3 * i + 1] - b * dist[i]
             if (cam.y - a !in cfg.floorMinDropM..cfg.floorMaxDropM) return@repeat
-            val inl = cand.filter { abs(p[3 * it + 1] - (a + b * dist[it])) < tol(dist[it]) }
+            val inl = cand.filter { abs(p[3 * it + 1] - (a + b * dist[it])) < ftol(dist[it]) }
             if (inl.size > best.size) best = inl
         }
         if (best.size < cfg.floorMinPoints) return null
         // 최소제곱으로 다듬고 다시 센다
         var fit = fitFloor(p, dist, best)
-        val refined = cand.filter { abs(p[3 * it + 1] - (fit.first + fit.second * dist[it])) < tol(dist[it]) }
+        val refined = cand.filter { abs(p[3 * it + 1] - (fit.first + fit.second * dist[it])) < ftol(dist[it]) }
         if (refined.size >= cfg.floorMinPoints) {
             best = refined
             fit = fitFloor(p, dist, best)
@@ -138,8 +144,15 @@ object PlaneDetector {
         val span = ds[((ds.size - 1) * 0.95).toInt()] - ds[((ds.size - 1) * 0.05).toInt()]
         val spread = minorSpread(p, best)
         if (span < cfg.floorMinSpanM || spread < cfg.floorMinSpreadM) return null
+        // 바닥 아래에 큰 구조가 없어야 한다: 선보다 `floorUnderM` 넘게 아래인 후보 점이 바닥 점의 `floorUnderFraction`을 넘으면 바닥 위의 면(벽 띠·물체 면)이다
+        val inSet = best.toHashSet()
+        val under = cand.count { it !in inSet && p[3 * it + 1] < a + b * dist[it] - cfg.floorUnderM }
+        if (under > cfg.floorUnderFraction * best.size) return null
         for (i in best) labels[i] = PlaneResult.FLOOR
-        return FloorPlane(a, b, best.size, spread, span)
+        // 보고 높이는 점들의 중앙 거리(50%)에서의 직선 값 = 바닥 점 높이의 평균: 기존 "바닥 점" 판정(바닥 높이 ± 오차 + 거리 비례)이
+        // 히스토그램 최빈값(= 바닥 점이 가장 많은 높이)을 기대하므로 같은 의미로 맞춘다(가장 가까운 거리 값은 S01에서 0.2 m 낮아
+        // 바닥 점이 장애물로 넘어갔다)
+        return FloorPlane(a + b * ds[(ds.size - 1) / 2], b, best.size, spread, span)
     }
 
     /** y = a + b·d 최소제곱. */

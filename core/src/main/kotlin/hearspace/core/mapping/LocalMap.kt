@@ -52,7 +52,10 @@ class LocalMap(private val config: Config) {
         val camW = depth.worldFromCam.translation()
         val planes = if (config.frontend.planes == PlaneMode.RANSAC) PlaneDetector.detect(pts, camW, config.frontend, config.map.radiusM) else null
         val f = if (config.floor.source == FloorSource.PLANE) {
-            floor.updateFromPlane(planes?.floor?.heightM, planes?.floor?.nInliers ?: 0)
+            val pf = planes?.floor
+            // 바닥을 한 번도 못 잡았으면(시작·자세 불연속 뒤) 평면 바닥이 보일 때까지 히스토그램으로 시작한다. 안 그러면 맵이 안 갱신된다
+            // (M13.1c 실측: 시작 때 바닥 없음 프레임 S01 32%·S02 41%·E02-3 42%, S01 첫 STOP 1.26 → 0.78 m로 늦어짐)
+            if (pf == null && floor.floorY == null) floor.update(pts, camW) else floor.updateFromPlane(pf?.heightM, pf?.nInliers ?: 0)
         } else {
             floor.update(pts, camW)
         }
