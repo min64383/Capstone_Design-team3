@@ -193,9 +193,27 @@ class SyntheticSceneTest {
     }
 
     @Test
+    fun `edge smoothing turns a depth step into a short ramp and barely changes surfaces without steps`() {
+        // SC-21 첫 프레임, 가운데 행: 세로 파지라 u가 커지면 월드 아래(F2). 위에서부터 벽(약 4.3 m) → 상자 앞면(약 2.4 m) → 바닥
+        fun between(d: ShortArray) = (0 until 160).count { u -> (d[45 * 160 + u].toInt() and 0xFFFF) in 2800..4000 }
+        val clean = Scenes.SC21.copy(noise = Noise()).generate().frames[0].depth!!.depthMm
+        val smooth = Scenes.SC21.generate().frames[0].depth!!.depthMm
+        assertEquals(0, between(clean), "no depth between the box and the wall without smoothing")
+        val ramp = between(smooth)
+        assertTrue(ramp in 2..2 * Scenes.EDGE_SMOOTH_PX, "ramp $ramp px")
+        // 불연속이 없는 바닥(5 m 안): 바닥은 행마다 깊이가 빠르게 늘어 창 안 차이가 10%를 넘는 곳도 평균되지만, 깊이가 픽셀에
+        // 대해 거의 선형이라 바뀌는 양은 0.5% 이내다
+        val floorClean = Scenes.SC01.generate().frames[0].depth!!.depthMm
+        val floorSmooth = Scenes.SC01.copy(noise = Noise(edgeSmoothPx = Scenes.EDGE_SMOOTH_PX)).generate().frames[0].depth!!.depthMm
+        val near = floorClean.indices.filter { (floorClean[it].toInt() and 0xFFFF) in 1 until 5000 }
+        val maxRel = near.maxOf { kotlin.math.abs((floorSmooth[it].toInt() and 0xFFFF) - (floorClean[it].toInt() and 0xFFFF)).toFloat() / (floorClean[it].toInt() and 0xFFFF) }
+        assertTrue(near.size > 5000 && maxRel < 0.005f, "near floor max relative change $maxRel over ${near.size} px")
+    }
+
+    @Test
     fun `all appendix B scenes generate`() {
         val ids = Scenes.ALL.map { it.id }
-        assertEquals((1..14).map { "SC-%02d".format(it) }, ids)
+        assertEquals((1..14).map { "SC-%02d".format(it) } + listOf("SC-21", "SC-22", "SC-23"), ids)
         for (s in Scenes.ALL) assertTrue(s.generate().frames.any { it.depth != null }, s.id)
     }
 }

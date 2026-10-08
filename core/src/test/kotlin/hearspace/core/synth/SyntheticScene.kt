@@ -240,7 +240,17 @@ data class Noise(
      */
     val yawDriftDegPerM: Float = 0f,
     val posDriftPerM: Vec3 = Vec3.ZERO,
+    /**
+     * 가장자리 평활 모드(M13.0): ARCore 일반 깊이의 막을 흉내 낸다. 반경 이 픽셀 정사각형 안에 깊이 불연속(최대 − 최소 >
+     * 최소 × [EDGE_JUMP_RATIO])이 있는 픽셀만 그 안 유효 깊이의 평균으로 바꿔, 불연속이 2 × 반경 픽셀의 경사가 된다.
+     * 평탄·비스듬한 면은 그대로다. 실측(M12.0, 160 × 90 일반 깊이): 캐리어 윗모서리 경사 p50 2~4, p90 3~5 픽셀.
+     * 실측의 뒤 배경 끌림(경계에서 약 25픽셀 안 0.15~0.5 m)은 흉내 내지 않는다(M13.1의 짧은 경사 판정 대상이 아님).
+     */
+    val edgeSmoothPx: Int = 0,
 )
+
+/** 가장자리 평활 모드에서 깊이 불연속으로 보는 창 안 깊이 차 비율. */
+const val EDGE_JUMP_RATIO = 0.1f
 
 /** 합성 프레임 1개. [truthWorldFromCam]은 점프·잡음이 없는 참 자세(C_cv). */
 data class SynthFrame(
@@ -408,7 +418,32 @@ object SyntheticGenerator {
             if (z <= 0f) continue
             mm[v * k.width + u] = min((z * 1000f).roundToInt(), 65535).toShort()
         }
-        return DepthFrame(tNs, mm, null, k, reported, "synthetic")
+        return DepthFrame(tNs, if (noise.edgeSmoothPx > 0) edgeSmooth(mm, k, noise.edgeSmoothPx) else mm, null, k, reported, "synthetic")
+    }
+
+    /** 반경 [r] 정사각형 안에 깊이 불연속이 있는 유효 픽셀만 그 안 유효 깊이의 평균으로(무효는 무효로 둔다). */
+    private fun edgeSmooth(mm: ShortArray, k: Intrinsics, r: Int): ShortArray {
+        val out = mm.copyOf()
+        for (v in 0 until k.height) for (u in 0 until k.width) {
+            if (mm[v * k.width + u].toInt() == 0) continue
+            var sum = 0L
+            var n = 0
+            var lo = Int.MAX_VALUE
+            var hi = 0
+            for (dv in -r..r) for (du in -r..r) {
+                val uu = u + du
+                val vv = v + dv
+                if (uu !in 0 until k.width || vv !in 0 until k.height) continue
+                val d = mm[vv * k.width + uu].toInt() and 0xFFFF
+                if (d == 0) continue
+                sum += d
+                n++
+                lo = min(lo, d)
+                hi = max(hi, d)
+            }
+            if (hi - lo > EDGE_JUMP_RATIO * lo) out[v * k.width + u] = (sum / n).toInt().toShort()
+        }
+        return out
     }
 
     /** 세로 파지일 때 화면 기준 자세 = 센서 자세를 카메라 Z축으로 90° 회전(F2 실측). */
