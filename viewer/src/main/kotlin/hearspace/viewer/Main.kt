@@ -66,6 +66,7 @@ class MainWindow(initial: File?) : JFrame("HEARSPACE 평가 GUI") {
             add(JButton("⏮ 처음").apply { addActionListener { vm.result?.let { seek(it.t0Ns) } } })
             add(timeLabel)
             add(JCheckBox("깊이 겹침", true).apply { addActionListener { vm.showDepth = isSelected; vm.fire() } })
+            add(JComboBox(VoxelHeight.entries.toTypedArray()).apply { addActionListener { vm.voxelHeight = selectedItem as VoxelHeight; vm.fire() } })
         }
         val views = JSplitPane(JSplitPane.HORIZONTAL_SPLIT, CameraView(vm), TopView(vm)).apply { resizeWeight = 0.45 }
         val center = JSplitPane(JSplitPane.VERTICAL_SPLIT, views, TimelineView(vm) { seek(it) }).apply { resizeWeight = 0.72 }

@@ -34,6 +34,8 @@ class ViewerModel {
     var tNs: Long = 0
         private set
     var showDepth = true
+    /** 위에서 본 그림에 그릴 복셀 높이. 높이를 모두 겹치면 벽이 실제보다 두꺼워 보인다(M13: 한 층은 1~2칸). */
+    var voxelHeight = VoxelHeight.ALL
     /** 지금 쓰고 있는 평가의 시점 메모(타임라인에 표시). */
     val notes = mutableListOf<Note>()
     private val listeners = mutableListOf<() -> Unit>()
@@ -50,6 +52,20 @@ class ViewerModel {
 
     fun setTime(t: Long) { tNs = t; fire() }
     fun fire() = listeners.forEach { it() }
+}
+
+/** 위에서 본 그림의 복셀 높이 범위(바닥 기준 m, 아래 끝 포함·위 끝 제외). 통로는 설정의 `corridor.heightM`까지. */
+enum class VoxelHeight(private val label: String, private val loM: Float, private val hiM: Float) {
+    ALL("복셀 높이: 전체", Float.NEGATIVE_INFINITY, Float.POSITIVE_INFINITY),
+    CORRIDOR("통로 높이(설정)", 0f, Float.NaN),
+    H0("높이 0~0.5 m", 0f, 0.5f),
+    H1("높이 0.5~1.0 m", 0.5f, 1f),
+    H2("높이 1.0~1.5 m", 1f, 1.5f),
+    H3("높이 1.5~2.0 m", 1.5f, 2f),
+    H4("높이 2.0 m 이상", 2f, Float.POSITIVE_INFINITY);
+
+    fun contains(yM: Float, corridorHeightM: Float) = yM >= loM && yM < (if (hiM.isNaN()) corridorHeightM else hiM)
+    override fun toString() = label
 }
 
 internal object Palette {
@@ -260,6 +276,7 @@ class TopView(private val model: ViewerModel) : JPanel() {
         slow?.voxelsW?.let { v ->
             for (i in 0 until v.size / 3) {
                 val p = al.toTruth(Vec3(v[3 * i], v[3 * i + 1], v[3 * i + 2]))
+                if (!model.voxelHeight.contains(p.y, r.config.corridor.heightM)) continue
                 val b = (80 + 120 * (p.y / 2f).coerceIn(0f, 1f)).toInt()
                 g.color = Color(b, b, b)
                 g.fillRect(sx(p.x).toInt() - 1, sy(p.z).toInt() - 1, 3, 3)

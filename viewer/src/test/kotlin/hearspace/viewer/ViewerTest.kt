@@ -52,6 +52,16 @@ class ViewerTest {
     }
 
     @Test
+    fun `voxel height presets split at their bounds and the corridor follows the config`() {
+        assertTrue(VoxelHeight.H2.contains(1.0f, 2f))
+        assertTrue(!VoxelHeight.H2.contains(1.5f, 2f))
+        assertTrue(VoxelHeight.H3.contains(1.5f, 2f))
+        assertTrue(VoxelHeight.CORRIDOR.contains(1.9f, 2f) && !VoxelHeight.CORRIDOR.contains(2.1f, 2f))
+        assertTrue(VoxelHeight.CORRIDOR.contains(2.1f, 2.5f))
+        assertTrue(!VoxelHeight.H0.contains(-0.1f, 2f) && VoxelHeight.ALL.contains(-0.1f, 2f)) // 바닥 아래(내려가는 단차)는 전체에만
+    }
+
+    @Test
     fun `all views paint at any time without errors`() = paintAll("{}")
 
     @Test
@@ -62,6 +72,7 @@ class ViewerTest {
         val m = ViewerModel().apply { setResult(r) }
         val views = listOf(CameraView(m) to Dimension(360, 480), TopView(m) to Dimension(420, 480), TimelineView(m) {} to Dimension(900, 230))
         for (k in 0..10) {
+            m.voxelHeight = VoxelHeight.entries[k % VoxelHeight.entries.size]
             m.setTime(r.t0Ns + (k / 10.0 * r.durationS * 1e9).toLong())
             for ((v, d) in views) {
                 v.setSize(d)
