@@ -162,11 +162,12 @@ object ReplayRunner {
     /** 느린 경로 처리 시간(ms). `:core:replay` 기본값(OfflineReplayMain)과 같다. */
     const val SLOW_PATH_MS = 10f
 
-    fun run(session: File, overridesJson: String, hrtf: Hrtf): ReplayResult {
+    fun run(session: File, overridesJson: String, hrtf: Hrtf, exportDir: File? = null): ReplayResult {
         val start = System.nanoTime()
         val config = ConfigLoader.load(Repo.defaultConfig.readText(), overridesJson)
         val reader = SessionReader(session)
-        val renderer = BinauralRenderer(config, hrtf)
+        val export = exportDir?.let { SonificationExport(it, config, session, overridesJson) }
+        val renderer = BinauralRenderer(config, hrtf, export?.let { e -> { sample -> e.sample(sample) } })
         val n = config.audio.blockSize
         val blocks = ArrayList<BlockRec>()
         val slow = ArrayList<SlowRec>()
@@ -184,11 +185,18 @@ object ReplayRunner {
             override fun onBlock(tNs: Long, pose: PoseFrame, snapshot: ObstacleSnapshot?, g: GuidanceOutput) {
                 blocks += BlockRec(tNs, pose, snapshot?.tCaptureNs, g)
                 val out = FloatArray(2 * n)
+                export?.begin(g)
                 renderer.render(g, out)
+                export?.end(out)
                 chunks += out
             }
         }
-        OfflineReplay(config, OfflineReplay.fixed(SLOW_PATH_MS)).run(session, listener)
+        try {
+            OfflineReplay(config, OfflineReplay.fixed(SLOW_PATH_MS)).run(session, listener)
+            export?.complete()
+        } finally {
+            export?.close()
+        }
         require(blocks.isNotEmpty()) { "no audio blocks: session has no tracked pose" }
         val audio = FloatArray(chunks.size * 2 * n)
         chunks.forEachIndexed { i, c -> c.copyInto(audio, i * 2 * n) }

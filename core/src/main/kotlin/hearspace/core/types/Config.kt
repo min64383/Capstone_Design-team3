@@ -385,6 +385,9 @@ class ConfigException(val path: String, message: String) : IllegalArgumentExcept
 /** 기존 펄스와 접근 연속음 중 선택한다. */
 enum class SonifyMode { PULSE, RISK_CONTINUOUS }
 
+/** LEGACY_RISK: 거리→주파수, 위험도→진폭. DISTANCE_HEIGHT: 거리→진폭, 높이→주파수. */
+enum class SonifyMapping { LEGACY_RISK, DISTANCE_HEIGHT }
+
 /** 접근 연속음 설정. 수치 원본은 default.json이다. */
 data class SonifyConfig(
     val mode: SonifyMode,
@@ -410,4 +413,8 @@ data class SonifyConfig(
     val pitchSmoothS: Float,
     val prototypeGain: Float,
     val duckDb: Float,
+    val mapping: SonifyMapping,
+    /** 주파수 매핑 양 끝: 사용자 머리 기준 높이 차(m). */
+    val heightLowM: Float,
+    val heightHighM: Float,
 )

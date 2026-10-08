@@ -41,3 +41,20 @@ tasks.test {
     systemProperty("hearspace.repoRoot", rootProject.projectDir.absolutePath)
     systemProperty("java.awt.headless", "true")
 }
+
+// 같은 렌더링에서 CSV와 WAV 저장. Android 기기 불필요.
+tasks.register<JavaExec>("exportSonification") {
+    group = "hearspace"
+    description = "PC 녹화 재생의 음향 CSV와 WAV를 같은 실행에서 저장"
+    classpath = sourceSets["main"].runtimeClasspath
+    mainClass.set("hearspace.viewer.ExportSonificationMainKt")
+    workingDir = rootProject.projectDir
+    systemProperty("hearspace.repoRoot", rootProject.projectDir.absolutePath)
+    val session = project.findProperty("session") as String?
+    val overrides = project.findProperty("overridesFile") as String?
+    val out = project.findProperty("out") as String?
+    if (session != null) {
+        args(rootProject.file(session).absolutePath, overrides?.let { rootProject.file(it).absolutePath } ?: "")
+        if (out != null) args(rootProject.file(out).absolutePath)
+    }
+}

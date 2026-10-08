@@ -49,6 +49,7 @@ class Policy(private val cfg: PolicyConfig, private val behindM: Float) {
                     sound = if (o.heightClass == HeightClass.HEAD) SoundKind.HEAD_TONE else SoundKind.FLOOR_PULSE,
                     infoAgeMs = infoAgeMs,
                     inCorridor = o.inCorridor,
+                    heightDeltaM = o.repPointW.y - head.positionW.y,
                 ),
             )
         }

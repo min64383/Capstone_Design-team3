@@ -49,8 +49,9 @@ class MainWindow(initial: File?) : JFrame("HEARSPACE 평가 GUI") {
     private val status = JLabel("세션을 여세요 (기본 폴더: testdata/sessions)")
     private val timeLabel = JLabel("0.00 / 0.00 s")
     private val playButton = JButton("▶ 재생")
+    private val exportCheck = JCheckBox("CSV + WAV 저장(재실행)")
     private val rerunButton = JButton("재실행")
-    private val overrides = JTextArea("{}", 14, 30).apply { font = Font(Font.MONOSPACED, Font.PLAIN, 12) }
+    private val overrides = JTextArea(File(Repo.root, "app/src/main/assets/config/risk-continuous.override.json").readText(), 14, 30).apply { font = Font(Font.MONOSPACED, Font.PLAIN, 12) }
     private val variantName = JTextField("default", 12)
     private val variantBox = JComboBox<String>()
     private val ratings = RatingItem.entries.associateWith { JComboBox(arrayOf(1, 2, 3, 4, 5)).apply { selectedItem = 3 } }
@@ -65,6 +66,7 @@ class MainWindow(initial: File?) : JFrame("HEARSPACE 평가 GUI") {
             add(playButton.apply { addActionListener { togglePlay() } })
             add(JButton("⏮ 처음").apply { addActionListener { vm.result?.let { seek(it.t0Ns) } } })
             add(timeLabel)
+            add(exportCheck)
             add(JCheckBox("깊이 겹침", true).apply { addActionListener { vm.showDepth = isSelected; vm.fire() } })
             add(JComboBox(VoxelHeight.entries.toTypedArray()).apply { addActionListener { vm.voxelHeight = selectedItem as VoxelHeight; vm.fire() } })
         }
@@ -134,12 +136,13 @@ class MainWindow(initial: File?) : JFrame("HEARSPACE 평가 GUI") {
         val text = overrides.text.trim().ifEmpty { "{}" }
         val parseError = runCatching { MiniJson.parse(text) }.exceptionOrNull()
         if (parseError != null) { status.text = "설정 JSON 오류: ${parseError.message}"; return }
+        val exportDir = if (exportCheck.isSelected) SonificationExport.newDirectory(dir) else null
         player.pause()
         timer.stop()
         rerunButton.isEnabled = false
         status.text = "재실행 중… ${dir.name}"
         object : SwingWorker<ReplayResult, Unit>() {
-            override fun doInBackground() = ReplayRunner.run(dir, text, hrtf)
+            override fun doInBackground() = ReplayRunner.run(dir, text, hrtf, exportDir)
             override fun done() {
                 rerunButton.isEnabled = true
                 val r = runCatching { get() }.getOrElse { e ->
@@ -150,7 +153,7 @@ class MainWindow(initial: File?) : JFrame("HEARSPACE 평가 GUI") {
                 vm.setResult(r)
                 player.seek(r.frameOfTime(vm.tNs))
                 playButton.text = "▶ 재생"
-                status.text = summary(r)
+                status.text = summary(r) + (exportDir?.let { " · 저장: ${it.absolutePath}" } ?: "")
             }
         }.execute()
     }
