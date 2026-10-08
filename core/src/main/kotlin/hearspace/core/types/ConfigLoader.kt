@@ -80,6 +80,7 @@ object ConfigLoader {
                     minPoints = atLeast1("minPoints"),
                     belowMarginM = positive("belowMarginM"),
                     lostFrames = atLeast1("lostFrames"),
+                    minBelowCameraM = nonNegative("minBelowCameraM"),
                 )
             },
             cluster = root.section("cluster") {

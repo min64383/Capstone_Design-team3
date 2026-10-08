@@ -17,7 +17,8 @@ data class FloorUpdate(
 
 /**
  * 바닥 높이 추정 (§7.2). 월드 +Y가 위이므로 높이 히스토그램의 최빈값을 쓴다.
- * - 후보는 카메라보다 낮고 카메라에서 수평거리 [maxDistM](`map.radiusM`) 안의 점만(v0.2.7: 먼 쓰레기 깊이 제외).
+ * - 후보는 카메라보다 `floor.minBelowCameraM` 이상 낮고(M12.1: 물체 윗면·벽 면이 바닥으로 잡히지 않게) 카메라에서 수평거리
+ *   [maxDistM](`map.radiusM`) 안의 점만(v0.2.7: 먼 쓰레기 깊이 제외).
  * - 첫 추정: 위 후보 전체. 이후: 직전 바닥 ± `floor.searchBandM` 안의 점(사용자 결정 2026-09-28).
  * - 직전 바닥 근처 후보가 모자란 깊이가 `floor.lostFrames`장 이어지면 바닥을 잊고 첫 추정부터 다시(v0.2.7).
  *   잘못 잡은 바닥에 갇히지 않기 위함(M7 실측: 재생 시작 약 3 s 동안 17~28 m 깊이 → 바닥 −33.7 m 고정).
@@ -40,7 +41,7 @@ class Floor(private val cfg: FloorConfig, private val maxDistM: Float) {
         var m = 0
         for (i in 0 until n) {
             val y = pointsW[3 * i + 1]
-            if (y >= cameraW.y) continue
+            if (y >= cameraW.y - cfg.minBelowCameraM) continue
             val dx = pointsW[3 * i] - cameraW.x
             val dz = pointsW[3 * i + 2] - cameraW.z
             if (dx * dx + dz * dz > maxDistM * maxDistM) continue

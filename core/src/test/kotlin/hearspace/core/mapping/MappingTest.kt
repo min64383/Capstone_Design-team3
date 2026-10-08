@@ -9,6 +9,7 @@ import hearspace.core.geometry.Projection
 import hearspace.core.geometry.Vec3
 import hearspace.core.synth.Box
 import hearspace.core.synth.HorizontalPlane
+import hearspace.core.synth.Noise
 import hearspace.core.synth.Scene
 import hearspace.core.synth.SceneItem
 import hearspace.core.synth.SceneSpec
@@ -260,6 +261,38 @@ class FloorTest {
 
     private fun points(vararg ys: Pair<Float, Int>): FloatArray =
         ys.flatMap { (y, n) -> List(n) { listOf(0f, y, 0f) }.flatten() }.toFloatArray()
+
+    @Test
+    fun `a nearby box top with more points is not the floor when candidates must be well below the camera`() {
+        // M13 실측: 캐리어에 다가가면 보이는 바닥보다 캐리어 윗면(카메라 아래 0.5 m) 점이 많아 바닥이 그리로 올라갔다
+        val cam = Vec3(0f, 1.1f, 0f)
+        val pts = points(0f to 300, 0.6f to 800)
+        assertEquals(0.6f, Floor(config.floor.copy(minBelowCameraM = 0f), config.map.radiusM).update(pts, cam).floorY!!, 1e-4f)
+        val f = Floor(config.floor.copy(minBelowCameraM = 0.7f), config.map.radiusM)
+        assertEquals(0f, f.update(pts, cam).floorY!!, 1e-4f)
+        // 바닥이 안 보이고 윗면만 보여도 바닥을 옮기지 않는다(직전 값 유지)
+        assertEquals(0f, f.update(points(0.6f to 800), cam).floorY!!, 1e-4f)
+    }
+
+    @Test
+    fun `facing an end wall with the floor out of view, the floor does not climb the wall when candidates must be well below the camera`() {
+        // M12.0 실측: 끝 벽 1 m 앞에서 바닥이 시야에서 빠지면 후보가 끝 벽 면뿐이라, 최빈값이 탐색 폭 안에서 벽을 타고 약 1 m 올라갔다.
+        // 합성: 폭 1.04 m 복도에서 끝 벽 0.8 m 앞까지 걸어 선다(카메라 높이 1 m, 10° 숙임이면 바닥은 카메라에서 1.07 m부터 보인다).
+        val rec = SceneSpec(
+            "M12.1", Scenes.corridorE(), Walk(legM = 3.2f, legCount = 1, durationS = 2f + 3.2f + 3f), Noise(seed = 3, depthMulStd = 0.01f),
+        ).generate()
+        fun trace(minBelowM: Float): List<Float?> {
+            val f = Floor(config.floor.copy(minBelowCameraM = minBelowM), config.map.radiusM)
+            return rec.frames.mapNotNull { fr ->
+                fr.depth?.let { d -> f.update(Projection.backprojectToWorld(d.depthMm, d.K, d.worldFromCam, config.depth.subsample), d.worldFromCam.translation()).floorY }
+            }
+        }
+        val base = trace(0f).filterNotNull()
+        assertTrue(base.max() > 0.3f, "baseline reproduces the climb: max ${base.max()}")
+        val fixed = trace(0.8f)
+        assertEquals(0f, fixed.first()!!, 0.05f)
+        assertTrue(fixed.filterNotNull().all { it < 0.3f }, "max ${fixed.filterNotNull().max()}")
+    }
 
     @Test
     fun `first estimate uses points below the camera, then the search band`() {
