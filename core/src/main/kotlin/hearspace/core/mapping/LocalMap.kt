@@ -79,7 +79,10 @@ class LocalMap(private val config: Config) {
                 p.y < floorY -> Unit // 바닥보다 낮은데 단차로도 확실하지 않은 점: 장애물일 수 없으므로 버린다
                 (p - userPosW).horizontal().norm() > radius -> Unit
                 else -> {
-                    voxels.insert(p, depth.tCaptureNs, voxels.weight((p - camW).norm()), wallLabels?.get(i) == PlaneResult.WALL)
+                    voxels.insert(
+                        p, depth.tCaptureNs, voxels.weight((p - camW).norm()), wallLabels?.get(i) == PlaneResult.WALL,
+                        camW, floorY + config.floor.toleranceM,
+                    )
                     nInserted++
                 }
             }

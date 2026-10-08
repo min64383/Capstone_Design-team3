@@ -23,8 +23,11 @@ enum class PlaneMode { NONE, RANSAC }
 /** 바닥 높이 추정 원천(M13.1c): HISTOGRAM = 높이 히스토그램 최빈값(기준선), PLANE = 평면 추출의 바닥(없으면 갱신하지 않고 유지). */
 enum class FloorSource { HISTOGRAM, PLANE }
 
-/** 지도 갱신 규칙(IMPROVE_SPEC §6.1.1 M13.2): HITS = 관측 횟수·점수(기준선), LOG_ODDS = 로그 오즈 점유(OctoMap). */
-enum class MapMode { HITS, LOG_ODDS }
+/**
+ * 지도 갱신 규칙(IMPROVE_SPEC §6.1.1): HITS = 관측 횟수·점수(기준선), LOG_ODDS = 로그 오즈 점유(OctoMap, M13.2),
+ * TSDF = 부호 있는 거리의 가중 평균, 표면 근처 칸만 점유(M13.6).
+ */
+enum class MapMode { HITS, LOG_ODDS, TSDF }
 
 /**
  * HITS의 표 세기(M13.5): NONE = 깊이 한 장에 한 표(기준선), DISTANCE = 한 장의 표를 거리 가중치 min(1, (`map.weightRefM` / 거리)²)로.

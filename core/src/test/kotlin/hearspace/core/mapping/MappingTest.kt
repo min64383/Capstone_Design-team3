@@ -197,6 +197,28 @@ class VoxelMapTest {
     }
 
     @Test
+    fun `tsdf averages a noisy surface into a thinner layer than hits`() {
+        // 카메라 원점, 정면 2 m(월드 z −2)의 평면을 깊이 잡음 ±5 cm(1.95·2.00·2.05 m)로 18장 본다. HITS는 맞은 칸을 모두 남겨 세 층,
+        // TSDF는 평균 표면(2.0 m) 양옆 반 칸 안의 두 층만 점유다
+        fun layers(cfg: hearspace.core.types.MapConfig): Int {
+            val m = VoxelMap(cfg)
+            repeat(18) { i -> // 층마다 6장 = minHits
+                val d = listOf(1.95f, 2.0f, 2.05f)[i % 3]
+                m.beginFrame()
+                for (a in -3..3) for (b in -3..3) {
+                    m.insert(Vec3(0.01f + a * 0.02f, 0.01f + b * 0.02f, -d), i.toLong(), m.weight(d), cameraW = Vec3.ZERO)
+                }
+                m.decayFree(depthImage((d * 1000).toInt()), k, camFromWorld)
+            }
+            return m.occupied().filter { kotlin.math.abs(it.centerW.x) < 0.05f && kotlin.math.abs(it.centerW.y) < 0.05f }.map { it.iz }.distinct().size
+        }
+        val hits = layers(hitsCfg)
+        val tsdf = layers(hitsCfg.copy(mode = hearspace.core.types.MapMode.TSDF))
+        assertEquals(3, hits)
+        assertTrue(tsdf in 1..2, "tsdf layers $tsdf")
+    }
+
+    @Test
     fun `wall votes count once per frame next to the hits`() {
         val m = VoxelMap(hitsCfg)
         val p = Vec3(0.01f, 0.01f, 0.01f)

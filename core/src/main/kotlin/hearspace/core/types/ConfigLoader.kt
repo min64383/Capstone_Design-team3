@@ -112,6 +112,10 @@ object ConfigLoader {
                     weightRefM = positive("weightRefM"),
                     freeMarginRatio = nonNegative("freeMarginRatio"),
                     hitWeighting = enumValue<HitWeighting>("hitWeighting"),
+                    tsdfTruncMinM = positive("tsdfTruncMinM"),
+                    tsdfTruncPerM = nonNegative("tsdfTruncPerM"),
+                    tsdfMaxWeight = positive("tsdfMaxWeight"),
+                    tsdfMinCosIncidence = unit("tsdfMinCosIncidence"),
                 ).also { m ->
                     if (!(m.logMin < m.logOccupied && m.logOccupied < m.logMax)) {
                         throw ConfigException("map", "must satisfy logMin < logOccupied < logMax")

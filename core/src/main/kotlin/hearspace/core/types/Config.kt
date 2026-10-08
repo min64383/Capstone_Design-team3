@@ -157,6 +157,23 @@ data class MapConfig(
     val freeMarginRatio: Float,
     /** HITS의 표 세기([HitWeighting]). DISTANCE면 점유 문턱 `minHits`를 표의 가중합에 적용하고 score 증가에도 같은 가중치를 곱한다. */
     val hitWeighting: HitWeighting,
+    /**
+     * TSDF(M13.6) 잘림 폭 = max(`tsdfTruncMinM`, `tsdfTruncPerM` × 칸 깊이)(m). 최소는 복셀 두 칸(Voxblox 기본 2~4칸), 거리 비례는 조정용
+     * 세션의 깊이 한 장 앞면 퍼짐(캐리어 앞면 p90 − p10 0.06~0.17 m @ 1.5~2.5 m, σ 약 0.02~0.03 × 깊이)의 약 2σ.
+     */
+    val tsdfTruncMinM: Float,
+    val tsdfTruncPerM: Float,
+    /**
+     * TSDF 가중치 상한. 평균은 최근 관측 이만큼까지만 기억하고, 확실한 빈 곳 관측은 가중치를 `decayPerObservation` / `hitGain`(HITS의
+     * 감쇠·증가 비율, 1.5)씩 깎아 0이면 지운다. `minHits`의 두 배(12): 치운 물체가 약 8장(0.27 s) 만에 지워진다(SC-04, HITS는 4장).
+     */
+    val tsdfMaxWeight: Float,
+    /**
+     * TSDF 거리 보정의 cos(입사각) 하한. 시선 방향 거리(측정 깊이 − 칸 깊이)를 깊이 영상의 이웃 픽셀로 구한 면 법선과 시선의 cos로 곱해
+     * 면에 수직인 거리로 바꾼다(점–평면 거리). 보정 없이는 비스듬한 면(옆 벽·머리 높이 판 아래면)의 칸이 1/cos배 멀게 재져 지워졌다
+     * (SC-03·SC-06·SC-22). 하한 0.1 = 복도 반폭 0.5 m를 반경 5 m에서 보는 각(sin ≈ 0.1).
+     */
+    val tsdfMinCosIncidence: Float,
 )
 
 /** 바닥 추정 설정. */
