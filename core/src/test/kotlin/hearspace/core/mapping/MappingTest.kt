@@ -28,8 +28,8 @@ class MappingTest {
     private val voxel = config.map.voxelSizeM
 
     /** 합성 녹화를 처음부터 끝까지 맵에 넣는다. 진행 방향은 참값(진행 방향 추정은 M5). [onFrame]은 매 깊이 뒤에 불린다. */
-    private fun run(rec: SyntheticRecording, onFrame: (Float, LocalMap, MapUpdate) -> Unit = { _, _, _ -> }): LocalMap {
-        val map = LocalMap(config)
+    private fun run(rec: SyntheticRecording, cfg: Config = config, onFrame: (Float, LocalMap, MapUpdate) -> Unit = { _, _, _ -> }): LocalMap {
+        val map = LocalMap(cfg)
         for (f in rec.frames) {
             val d = f.depth ?: continue
             val u = map.update(d, d.worldFromCam.translation(), f.truthHead.headingW)
@@ -135,7 +135,10 @@ class MappingTest {
             ),
         )
         var below = 0
-        val map = run(SceneSpec("step", scene, Walk(durationS = 2f)).generate()) { _, _, u -> below += u.nBelowFloorPoints }
+        // 기준선(히스토그램 바닥)을 명시한다. 평면 바닥은 이 장면에서 가까운 바닥 띠(0.5 m)가 너무 좁아(평면 퍼짐 기준 미달) 먼 낮은
+        // 바닥을 바닥으로 잡아 내려가는 단차를 놓친다: 단차·계단은 바닥 높이 지도(M13.5)의 일이다(M13_REPORT §5)
+        val histogram = ConfigLoader.load(File(System.getProperty("hearspace.defaultConfig")).readText(), """{ "floor": { "source": "HISTOGRAM" } }""")
+        val map = run(SceneSpec("step", scene, Walk(durationS = 2f)).generate(), histogram) { _, _, u -> below += u.nBelowFloorPoints }
         assertTrue(below > 1000, "below-floor points $below")
         assertTrue(map.voxels.views().none { it.centerW.y < -0.2f }, "below-floor points must not be mapped")
         assertEquals(0f, map.floor.floorY!!, 0.02f)

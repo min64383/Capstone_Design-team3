@@ -17,6 +17,12 @@ enum class HeightClass { FLOOR, BODY, HEAD }
 /** 느린 경로 입력으로 쓸 ARCore 깊이 종류(F6): 일반(평활·채움, 30 Hz) 또는 원시(+신뢰도, 10~30 Hz). */
 enum class DepthSource { SMOOTHED, RAW }
 
+/** 깊이 영상 앞단 ③ 평면 추출(IMPROVE_SPEC §6.1.1 M13.1c): NONE = 안 함(기준선), RANSAC = 바닥·벽 평면. */
+enum class PlaneMode { NONE, RANSAC }
+
+/** 바닥 높이 추정 원천(M13.1c): HISTOGRAM = 높이 히스토그램 최빈값(기준선), PLANE = 평면 추출의 바닥(없으면 갱신하지 않고 유지). */
+enum class FloorSource { HISTOGRAM, PLANE }
+
 /** 지도 갱신 규칙(IMPROVE_SPEC §6.1.1 M13.2): HITS = 관측 횟수·점수(기준선), LOG_ODDS = 로그 오즈 점유(OctoMap). */
 enum class MapMode { HITS, LOG_ODDS }
 

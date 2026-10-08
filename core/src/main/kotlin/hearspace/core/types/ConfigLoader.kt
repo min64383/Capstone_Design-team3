@@ -67,6 +67,24 @@ object ConfigLoader {
                     levelMaxSlope = nonNegative("levelMaxSlope"),
                     levelTolM = nonNegative("levelTolM"),
                     levelMinBelowCameraM = nonNegative("levelMinBelowCameraM"),
+                    planes = enumValue<PlaneMode>("planes"),
+                    planeTolM = positive("planeTolM"),
+                    planeTolPerM = nonNegative("planeTolPerM"),
+                    planeFloorMinBelowM = nonNegative("planeFloorMinBelowM"),
+                    floorMinPoints = atLeast1("floorMinPoints"),
+                    floorMinSpreadM = positive("floorMinSpreadM"),
+                    floorMinSpanM = positive("floorMinSpanM"),
+                    floorMinLiftPerM = float("floorMinLiftPerM"),
+                    floorMaxLiftPerM = nonNegative("floorMaxLiftPerM"),
+                    floorMinDropM = positive("floorMinDropM"),
+                    floorMaxDropM = positive("floorMaxDropM"),
+                    wallBandBelowM = nonNegative("wallBandBelowM"),
+                    wallBandAboveM = nonNegative("wallBandAboveM"),
+                    wallMinPoints = atLeast1("wallMinPoints"),
+                    wallMinLengthM = positive("wallMinLengthM"),
+                    wallMinHeightM = positive("wallMinHeightM"),
+                    wallMaxPlanes = atLeast1("wallMaxPlanes"),
+                    planeIterations = atLeast1("planeIterations"),
                 )
             },
             map = root.section("map") {
@@ -105,6 +123,7 @@ object ConfigLoader {
                     belowMarginM = positive("belowMarginM"),
                     lostFrames = atLeast1("lostFrames"),
                     minBelowCameraM = nonNegative("minBelowCameraM"),
+                    source = enumValue<FloorSource>("source"),
                 )
             },
             cluster = root.section("cluster") {
@@ -264,6 +283,9 @@ object ConfigLoader {
         }
         if (c.track.maxConfirmCentroidJumpM > c.track.matchRadiusM) {
             throw ConfigException("track", "must satisfy maxConfirmCentroidJumpM <= matchRadiusM")
+        }
+        if (c.floor.source == FloorSource.PLANE && c.frontend.planes != PlaneMode.RANSAC) {
+            throw ConfigException("floor.source", "PLANE requires frontend.planes = RANSAC")
         }
         if (c.audio.beepOnMs >= c.audio.nearPeriodMs) {
             throw ConfigException(

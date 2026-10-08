@@ -82,6 +82,26 @@ class Floor(private val cfg: FloorConfig, private val maxDistM: Float) {
         return FloorUpdate(true, floorY, m)
     }
 
+    private var outOfBandFrames = 0
+
+    /**
+     * 평면 추출의 바닥 높이 [planeHeightM]로 갱신한다(`floor.source` PLANE, M13.1c). 바닥이 안 보이는 프레임(null)은 갱신하지 않고
+     * 이전 값을 유지한다(벽을 따라 올라가지 않는다, M12.0). 이전 바닥에서 `searchBandM`을 넘게 벗어난 평면이 `lostFrames`장
+     * 이어지면 높이가 실제로 달라진 것으로 보고 새 값을 받는다(계단·경사 대비).
+     */
+    fun updateFromPlane(planeHeightM: Float?, nCandidates: Int): FloorUpdate {
+        val prev = floorY
+        if (planeHeightM == null) return FloorUpdate(false, prev, nCandidates)
+        if (prev != null && abs(planeHeightM - prev) > cfg.searchBandM) {
+            if (++outOfBandFrames < cfg.lostFrames) return FloorUpdate(false, prev, nCandidates)
+            floorY = planeHeightM
+        } else {
+            floorY = if (prev == null) planeHeightM else prev + cfg.emaAlpha * (planeHeightM - prev)
+        }
+        outOfBandFrames = 0
+        return FloorUpdate(true, floorY, nCandidates)
+    }
+
     /** 바닥 점인지: |y − floorY| < toleranceM + tolerancePerM × [horizontalDistM](카메라에서 수평거리). 바닥을 모르면 false. */
     fun isFloor(y: Float, horizontalDistM: Float): Boolean =
         floorY?.let { abs(y - it) < cfg.toleranceM + cfg.tolerancePerM * horizontalDistM } ?: false
@@ -94,5 +114,6 @@ class Floor(private val cfg: FloorConfig, private val maxDistM: Float) {
     fun reset() {
         floorY = null
         lostFrames = 0
+        outOfBandFrames = 0
     }
 }

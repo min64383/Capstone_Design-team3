@@ -1,6 +1,8 @@
 package hearspace.viewer
 
 import hearspace.core.frontend.EdgeDetector
+import hearspace.core.frontend.PlaneDetector
+import hearspace.core.frontend.PlaneResult
 import hearspace.core.geometry.Projection
 import hearspace.core.geometry.Vec3
 import hearspace.core.session.Png16
@@ -8,6 +10,7 @@ import hearspace.core.session.SessionReader
 import hearspace.core.types.Band
 import hearspace.core.types.GuidanceState
 import hearspace.core.types.HeightClass
+import hearspace.core.types.PlaneMode
 import java.awt.BasicStroke
 import java.awt.Color
 import java.awt.Dimension
@@ -132,10 +135,19 @@ class CameraView(private val model: ViewerModel) : JPanel() {
         if (model.showDepth && depthRow != null) {
             // 깊이 영상 앞단(M13.1)이 켜진 설정이면 경계(막) 판정 픽셀을 자홍으로 겹친다. 설정이 바뀌면 다시 그린다
             val fe = r.config.frontend.takeIf { it.enabled }
-            depthCache.getOrPut("${depthRow.depthFile}|$fe") { depthOverlay(File(r.session, depthRow.depthFile!!), fe?.let { cfg -> { mm: ShortArray, w: Int, h: Int ->
-                val up = SessionReader.toPoseFrame(depthRow).worldFromCam.rigidInverse().transformDir(Vec3.UP)
-                EdgeDetector.boundaryMask(mm, r.reader.depthIntrinsics(w, h), up, cfg)
-            } }) }?.let { d ->
+            val planeCfg = r.config.frontend.takeIf { it.planes == PlaneMode.RANSAC }
+            depthCache.getOrPut("${depthRow.depthFile}|$fe|$planeCfg") {
+                depthOverlay(
+                    File(r.session, depthRow.depthFile!!),
+                    fe?.let { cfg -> { mm: ShortArray, w: Int, h: Int ->
+                        val up = SessionReader.toPoseFrame(depthRow).worldFromCam.rigidInverse().transformDir(Vec3.UP)
+                        EdgeDetector.boundaryMask(mm, r.reader.depthIntrinsics(w, h), up, cfg)
+                    } },
+                    planeCfg?.let { cfg -> { mm: ShortArray, w: Int, h: Int ->
+                        PlaneDetector.detectDepth(mm, r.reader.depthIntrinsics(w, h), SessionReader.toPoseFrame(depthRow).worldFromCam, r.config.depth.subsample, cfg, r.config.map.radiusM).pixelLabels
+                    } },
+                )
+            }?.let { d ->
                 // 깊이 = 영상의 세로 가운데 16:9 부분(F3·F4)
                 val ch = sw * d.height / d.width
                 s.drawImage(d, 0, (sh - ch) / 2, sw, ch, null)
@@ -199,17 +211,26 @@ class CameraView(private val model: ViewerModel) : JPanel() {
         }
         g.color = Palette.text
         val src = (if (rgbRow == null) "RGB 없음(깊이만)" else "RGB 프레임 ${rgbRow.frameIndex}") +
-            (if (model.showDepth && r.config.frontend.enabled) "  ·  자홍 = 경계(막) 판정" else "")
+            (if (model.showDepth && r.config.frontend.enabled) "  ·  자홍 = 경계(막) 판정" else "") +
+            (if (model.showDepth && r.config.frontend.planes == PlaneMode.RANSAC) "  ·  초록 = 바닥 평면, 주황 = 벽 평면" else "")
         g.drawString(src, 8, height - 8)
     }
 
     private fun readImage(f: File): BufferedImage? = runCatching { ImageIO.read(f) }.getOrNull()
 
-    /** 깊이(mm) → 가까움 빨강 ~ 4 m 이상 파랑, 반투명. 0(무효)은 투명. [boundary]가 있으면 그 마스크 픽셀을 자홍(불투명)으로. */
-    private fun depthOverlay(f: File, boundary: ((ShortArray, Int, Int) -> BooleanArray)? = null): BufferedImage? = runCatching {
+    /**
+     * 깊이(mm) → 가까움 빨강 ~ 4 m 이상 파랑, 반투명. 0(무효)은 투명. [boundary]가 있으면 그 마스크 픽셀을 자홍(불투명)으로,
+     * [planes]가 있으면 바닥 평면 점을 초록·벽 평면 점을 주황으로 칠한다(M13.1c).
+     */
+    private fun depthOverlay(
+        f: File,
+        boundary: ((ShortArray, Int, Int) -> BooleanArray)? = null,
+        planes: ((ShortArray, Int, Int) -> ByteArray)? = null,
+    ): BufferedImage? = runCatching {
         val img = Png16.decode(f.readBytes())
         val mm = img.gray16 ?: return@runCatching null
         val edge = boundary?.invoke(mm, img.width, img.height)
+        val label = planes?.invoke(mm, img.width, img.height)
         val out = BufferedImage(img.width, img.height, BufferedImage.TYPE_INT_ARGB)
         for (y in 0 until img.height) for (x in 0 until img.width) {
             val d = mm[y * img.width + x].toInt() and 0xFFFF
@@ -217,6 +238,11 @@ class CameraView(private val model: ViewerModel) : JPanel() {
             if (edge != null && edge[y * img.width + x]) {
                 out.setRGB(x, y, 0xFFFF00FF.toInt())
                 continue
+            }
+            when (label?.get(y * img.width + x)) {
+                PlaneResult.FLOOR -> { out.setRGB(x, y, (170 shl 24) or 0x20E050); continue }
+                PlaneResult.WALL -> { out.setRGB(x, y, (170 shl 24) or 0xFF9020); continue }
+                else -> Unit
             }
             val f01 = (d / 4000f).coerceIn(0f, 1f)
             val c = Color.HSBtoRGB(0.66f * f01, 1f, 1f) and 0x00FFFFFF
@@ -272,6 +298,19 @@ class TopView(private val model: ViewerModel) : JPanel() {
 
         val t = model.tNs
         val slow = r.slowAt(t)
+        // 평면(M13.1c): 벽은 위에서 본 직선, 바닥은 높이 글자(없으면 "없음")
+        slow?.planes?.let { pl ->
+            g.stroke = BasicStroke(3f)
+            g.color = Color(255, 150, 40)
+            for (w in pl.walls) {
+                val a = al.toTruth(Vec3(w.x0, al.floorY.toFloat(), w.z0))
+                val b = al.toTruth(Vec3(w.x1, al.floorY.toFloat(), w.z1))
+                g.drawLine(sx(a.x).toInt(), sy(a.z).toInt(), sx(b.x).toInt(), sy(b.z).toInt())
+            }
+            g.stroke = BasicStroke(2f)
+            g.color = Color(60, 230, 110)
+            g.drawString(pl.floor?.let { "바닥 평면 y %.2f m, 들림 %.2f m/m (점 %d)".format(it.heightM - al.floorY.toFloat(), it.liftPerM, it.nInliers) } ?: "바닥 평면 없음(유지)", 8, height - 8)
+        }
         // 점유 복셀(밝을수록 높음)
         slow?.voxelsW?.let { v ->
             for (i in 0 until v.size / 3) {

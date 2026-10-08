@@ -77,6 +77,38 @@ data class FrontendConfig(
     val levelTolM: Float,
     /** 수평면 예외는 카메라보다 이만큼 이상 낮을 때만(카메라 높이의 막은 높이가 같아 보이므로, m). */
     val levelMinBelowCameraM: Float,
+    /** ③ 평면 추출(M13.1c). NONE = 안 함(기준선). 아래 값은 RANSAC에서만 쓴다. */
+    val planes: PlaneMode,
+    /** 평면 허용 오차 = planeTolM + planeTolPerM × 카메라에서 수평거리(깊이 오차가 거리에 비례, m). */
+    val planeTolM: Float,
+    val planeTolPerM: Float,
+    /** 바닥 후보는 카메라보다 이만큼 이상 낮은 점만(m). 가까운 물체 윗면·카메라 앞 잡음 제외. */
+    val planeFloorMinBelowM: Float,
+    /** 바닥에 필요한 점 수. */
+    val floorMinPoints: Int,
+    /**
+     * 바닥 점의 수평 퍼짐(작은 주축 표준편차) 하한(m). 수직 벽의 점은 수평으로 벽 두께만큼(평활 깊이 잡음 포함 0.05 m 안팎)만
+     * 퍼지므로 이보다 작다. 바닥이 시야의 좁은 띠(가까운 1~2 m)에만 보여도(퍼짐 0.25 안팎) 통과해야 한다.
+     */
+    val floorMinSpreadM: Float,
+    /** 바닥 점의 거리 방향 폭(5~95%) 하한(m). 작은 물체 윗면은 이보다 좁다. */
+    val floorMinSpanM: Float,
+    /** 바닥 기울기 하한(m/m, 음수 = 잡음 허용: 깊이 잡음으로 완전한 평면의 기울기가 0 아래로 조금 나온다). */
+    val floorMinLiftPerM: Float,
+    /** 거리에 따라 들리는 바닥 기울기 상한(m/m). 평활 깊이의 바닥은 멀수록 위로 들려 보인다(M3 실측 약 0.08). */
+    val floorMaxLiftPerM: Float,
+    /** 바닥은 카메라보다 이 범위(m)만큼 아래(손에 든 폰 높이의 합리적 범위). */
+    val floorMinDropM: Float,
+    val floorMaxDropM: Float,
+    /** 벽 후보 점의 높이 띠: 카메라보다 이만큼 아래부터(m), 이만큼 위까지(m). 바닥·천장을 뺀다. */
+    val wallBandBelowM: Float,
+    val wallBandAboveM: Float,
+    /** 벽 직선의 최소 점 수·길이(m)·높이 범위(m), 한 장에서 찾을 최대 개수, RANSAC 시도 횟수. */
+    val wallMinPoints: Int,
+    val wallMinLengthM: Float,
+    val wallMinHeightM: Float,
+    val wallMaxPlanes: Int,
+    val planeIterations: Int,
 )
 
 /** 로컬 복셀 맵 설정. */
@@ -137,6 +169,8 @@ data class FloorConfig(
      * 빠지면 후보가 벽 면뿐이라 탐색 폭 안에서 벽을 타고 약 1 m 올라감. 0이면 카메라보다 낮은 점 전부(기준선).
      */
     val minBelowCameraM: Float,
+    /** 바닥 추정 원천(M13.1c). PLANE이면 `frontend.planes`가 RANSAC이어야 한다. */
+    val source: FloorSource,
 )
 
 /** 군집·높이 분류 설정. */

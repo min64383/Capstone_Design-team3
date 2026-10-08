@@ -18,7 +18,25 @@
     "edgeFitTolRatio": 0.02,
     "levelMaxSlope": 0.05,
     "levelTolM": 0.02,
-    "levelMinBelowCameraM": 0.15
+    "levelMinBelowCameraM": 0.15,
+    "planes": "NONE",
+    "planeTolM": 0.03,
+    "planeTolPerM": 0.02,
+    "planeFloorMinBelowM": 0.3,
+    "floorMinPoints": 150,
+    "floorMinSpreadM": 0.12,
+    "floorMinSpanM": 0.6,
+    "floorMinLiftPerM": -0.03,
+    "floorMaxLiftPerM": 0.15,
+    "floorMinDropM": 0.5,
+    "floorMaxDropM": 2.0,
+    "wallBandBelowM": 0.9,
+    "wallBandAboveM": 0.8,
+    "wallMinPoints": 80,
+    "wallMinLengthM": 0.8,
+    "wallMinHeightM": 0.3,
+    "wallMaxPlanes": 3,
+    "planeIterations": 120
   },
   "map": {
     "voxelSizeM": 0.05,
@@ -48,7 +66,8 @@
     "minPoints": 200,
     "belowMarginM": 0.1,
     "lostFrames": 10,
-    "minBelowCameraM": 0
+    "minBelowCameraM": 0,
+    "source": "HISTOGRAM"
   },
   "cluster": { "epsM": 0.15, "minSamples": 5, "headMinM": 1.2, "bodyMinM": 0.5 },
   "falsePositiveFilter": {

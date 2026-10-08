@@ -1,11 +1,15 @@
 package hearspace.core.mapping
 
 import hearspace.core.frontend.EdgeDetector
+import hearspace.core.frontend.PlaneDetector
+import hearspace.core.frontend.PlaneResult
 import hearspace.core.geometry.Projection
 import hearspace.core.geometry.Vec3
 import hearspace.core.types.Config
 import hearspace.core.types.DepthFrame
+import hearspace.core.types.FloorSource
 import hearspace.core.types.MapHealth
+import hearspace.core.types.PlaneMode
 
 /** 깊이 한 장을 맵에 반영한 결과(§10.1 `slow_path.csv`의 일부). */
 data class MapUpdate(
@@ -20,6 +24,8 @@ data class MapUpdate(
     val nVoxels: Int,
     val floorY: Float?,
     val mapHealth: MapHealth,
+    /** `frontend.planes`가 RANSAC일 때 이 깊이의 평면(M13.1c), 아니면 null. */
+    val planes: PlaneResult? = null,
 )
 
 /**
@@ -43,9 +49,15 @@ class LocalMap(private val config: Config) {
         val depthMm = effectiveDepth(depth)
         val pts = Projection.backprojectToWorld(depthMm, depth.K, depth.worldFromCam, config.depth.subsample)
         val n = pts.size / 3
-        val f = floor.update(pts, depth.worldFromCam.translation())
+        val camW = depth.worldFromCam.translation()
+        val planes = if (config.frontend.planes == PlaneMode.RANSAC) PlaneDetector.detect(pts, camW, config.frontend, config.map.radiusM) else null
+        val f = if (config.floor.source == FloorSource.PLANE) {
+            floor.updateFromPlane(planes?.floor?.heightM, planes?.floor?.nInliers ?: 0)
+        } else {
+            floor.update(pts, camW)
+        }
         if (f.floorY == null) {
-            return MapUpdate(depth.tCaptureNs, n, 0, 0, 0, 0, PruneCounts(0, 0, 0), voxels.size, null, MapHealth.DEGRADED)
+            return MapUpdate(depth.tCaptureNs, n, 0, 0, 0, 0, PruneCounts(0, 0, 0), voxels.size, null, MapHealth.DEGRADED, planes)
         }
 
         val floorY = f.floorY
@@ -54,7 +66,6 @@ class LocalMap(private val config: Config) {
         var nBelow = 0
         var nInserted = 0
         val radius = config.map.radiusM
-        val camW = depth.worldFromCam.translation()
         for (i in 0 until n) {
             val p = Vec3(pts[3 * i], pts[3 * i + 1], pts[3 * i + 2])
             val camDist = (p - camW).horizontal().norm()
@@ -72,7 +83,7 @@ class LocalMap(private val config: Config) {
         val nDecayed = voxels.decayFree(depthMm, depth.K, depth.worldFromCam.rigidInverse())
         val pruned = voxels.prune(userPosW, headingW, depth.tCaptureNs)
         return MapUpdate(
-            depth.tCaptureNs, n, nFloor, nBelow, nInserted, nDecayed, pruned, voxels.size, floor.floorY, MapHealth.OK,
+            depth.tCaptureNs, n, nFloor, nBelow, nInserted, nDecayed, pruned, voxels.size, floor.floorY, MapHealth.OK, planes,
         )
     }
 
