@@ -1,0 +1,9 @@
+{
+  "note": "M13.5: 복셀 표의 거리 가중(map.hitWeighting DISTANCE, weightRefM 2 m = 평평한 바닥 실측에서 깊이를 믿을 수 있는 거리)을 기준선과, 지금의 채택 후보(앞단 + 바닥 하한 0.8) 위에서 비교. 실제 세션으로 맞춘 값 없음. 조정용(E01h·E02·S02)/확인용(E03·E04·S03·S07·S01)을 따로 본다. 기본값은 app/src/main/assets/config/default.json",
+  "variants": [
+    { "name": "base", "overrides": {} },
+    { "name": "hitweight", "overrides": { "map": { "hitWeighting": "DISTANCE" } } },
+    { "name": "frontend_floor0.8", "overrides": { "frontend": { "enabled": true }, "floor": { "minBelowCameraM": 0.8 } } },
+    { "name": "frontend_floor0.8_hitweight", "overrides": { "frontend": { "enabled": true }, "floor": { "minBelowCameraM": 0.8 }, "map": { "hitWeighting": "DISTANCE" } } }
+  ]
+}

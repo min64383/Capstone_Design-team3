@@ -110,6 +110,7 @@ object ConfigLoader {
                     logOccupied = float("logOccupied"),
                     weightRefM = positive("weightRefM"),
                     freeMarginRatio = nonNegative("freeMarginRatio"),
+                    hitWeighting = enumValue<HitWeighting>("hitWeighting"),
                 ).also { m ->
                     if (!(m.logMin < m.logOccupied && m.logOccupied < m.logMax)) {
                         throw ConfigException("map", "must satisfy logMin < logOccupied < logMax")

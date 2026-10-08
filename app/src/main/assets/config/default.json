@@ -59,7 +59,8 @@
     "logMax": 3.476,
     "logOccupied": 1.7,
     "weightRefM": 2.0,
-    "freeMarginRatio": 0.03
+    "freeMarginRatio": 0.03,
+    "hitWeighting": "NONE"
   },
   "floor": {
     "searchBandM": 0.5,

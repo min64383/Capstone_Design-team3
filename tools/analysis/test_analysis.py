@@ -140,6 +140,19 @@ def check_merged_fraction():
     assert merged_fraction(obs.iloc[:0], truth, al) is None
 
 
+def check_depth_error():
+    """깊이 오차 모델(M13.5): 바닥 띠는 보행선 안·끝 벽 앞·물체 자리 밖만, 강건 통계는 중앙값·IQR/1.349·꼬리 비율."""
+    import numpy as np
+    from depth_error import TAIL_M, floor_mask, robust
+
+    truth = [{"name": "box", "kind": "object", "min": [-0.2, 0.0, 2.0], "max": [0.2, 0.6, 2.3]}]
+    x = np.array([0.0, 0.0, 0.5, 0.0, 0.0])
+    z = np.array([1.0, 2.1, 1.0, 3.9, 3.0])  # 바닥, 물체 자리, 보행선 밖, 끝 벽 바로 앞, 바닥
+    assert floor_mask(x, z, truth, 4.0).tolist() == [True, False, False, False, True]
+    med, sig, tail = robust(np.array([0.0] * 8 + [TAIL_M * 3] * 2))
+    assert med == 0.0 and sig == 0.0 and abs(tail - 0.2) < 1e-9
+
+
 def check_group_and_plan():
     """회차 묶기(중앙값·합계·딕셔너리)와 sweep 조합 (M10)."""
     assert combine([1.0, None, 3.0, 2.0], "median") == 2.0
@@ -181,6 +194,7 @@ def main():
     check_error_decomp()
     check_merged_fraction()
     check_group_and_plan()
+    check_depth_error()
     print("analysis self-check ok")
 
 

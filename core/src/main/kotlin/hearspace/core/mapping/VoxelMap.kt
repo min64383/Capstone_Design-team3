@@ -2,6 +2,7 @@ package hearspace.core.mapping
 
 import hearspace.core.geometry.Mat4
 import hearspace.core.geometry.Vec3
+import hearspace.core.types.HitWeighting
 import hearspace.core.types.Intrinsics
 import hearspace.core.types.MapConfig
 import hearspace.core.types.MapMode
@@ -33,6 +34,9 @@ data class PruneCounts(val passed: Int, val unseen: Int, val outOfRadius: Int)
  * - 빈 공간 감쇠: **시야 안에서** 복셀 중심을 깊이 이미지에 투영했을 때 유효 깊이가 복셀보다 `freeMarginM` 이상 멀면
  *   score −= decayPerObservation. 시야 밖·깊이 무효·가려진(깊이가 더 가까운) 복셀은 감쇠하지 않는다(§2.2-6).
  * - 삭제: score ≤ 0, 또는 [prune]의 세 조건(지나감·오래 안 보임·반경 밖)뿐이다.
+ * - `map.hitWeighting` DISTANCE(M13.5): 한 장의 표 = 거리 가중치([weight]). 점유는 표의 가중합 ≥ `minHits`, score 증가도 같은
+ *   가중치를 곱한다. 먼 관측(평활 깊이의 바닥 들림·꼬리)은 문턱까지 더 많은 장이 필요하고 score가 낮아, 다가가며 얻는 가까운
+ *   빈 공간 관측이 먼저 지운다. 감쇠는 가중하지 않는다.
  *
  * `map.mode` LOG_ODDS(M13.2, OctoMap 방식): 칸마다 로그 오즈. 점이 들면 + `logHit` × 가중치, 시야 안에서 칸을 지나 더 멀리
  * 보이면(여유 = max(복셀, `freeMarginRatio` × 칸 깊이)) + `logMiss` × 가중치, [`logMin`, `logMax`]로 묶고, `logOccupied` 이상이면
@@ -41,9 +45,12 @@ data class PruneCounts(val passed: Int, val unseen: Int, val outOfRadius: Int)
  */
 class VoxelMap(private val cfg: MapConfig) {
 
-    private class Voxel(var hits: Int, var score: Float, var lastSeenNs: Long, var lastHitFrame: Long, var logOdds: Float)
+    private class Voxel(
+        var hits: Int, var score: Float, var lastSeenNs: Long, var lastHitFrame: Long, var logOdds: Float, var weightedHits: Float,
+    )
 
     private val logOdds = cfg.mode == MapMode.LOG_ODDS
+    private val weighted = cfg.hitWeighting == HitWeighting.DISTANCE
 
     /** 관측 가중치: 거리 [distM]에서 min(1, (weightRefM / 거리)²). */
     fun weight(distM: Float): Float = if (distM <= cfg.weightRefM) 1f else (cfg.weightRefM / distM).let { it * it }
@@ -59,18 +66,20 @@ class VoxelMap(private val cfg: MapConfig) {
         frame++
     }
 
-    /** 비바닥 점 하나를 관측으로 넣는다. [weight]는 LOG_ODDS의 관측 가중치([weight] 함수, HITS는 쓰지 않음). */
+    /** 비바닥 점 하나를 관측으로 넣는다. [weight]는 관측 가중치([weight] 함수): LOG_ODDS와 HITS의 `hitWeighting` DISTANCE가 쓴다. */
     fun insert(pW: Vec3, tNs: Long, weight: Float = 1f) {
         val ix = index(pW.x)
         val iy = index(pW.y)
         val iz = index(pW.z)
         val key = key(ix, iy, iz)
         val v = voxels[key]
+        val vote = if (weighted) weight else 1f
         if (v == null) {
-            voxels[key] = Voxel(1, min(1f, cfg.hitGain), tNs, frame, min(cfg.logMax, cfg.logHit * weight))
+            voxels[key] = Voxel(1, min(1f, cfg.hitGain * vote), tNs, frame, min(cfg.logMax, cfg.logHit * weight), vote)
         } else if (v.lastHitFrame != frame) {
             v.hits++
-            v.score = min(1f, v.score + cfg.hitGain)
+            v.weightedHits += vote
+            v.score = min(1f, v.score + cfg.hitGain * vote)
             v.lastSeenNs = tNs
             v.lastHitFrame = frame
             v.logOdds = min(cfg.logMax, v.logOdds + cfg.logHit * weight)
@@ -136,14 +145,17 @@ class VoxelMap(private val cfg: MapConfig) {
         return PruneCounts(passed, unseen, far)
     }
 
-    /** 군집화 대상 복셀: HITS는 hits ≥ `map.minHits`, score ≥ `map.minScore`. LOG_ODDS는 로그 오즈 ≥ `map.logOccupied`. */
-    fun occupied(): List<VoxelView> =
-        if (logOdds) views().filter { it.logOdds >= cfg.logOccupied } else views().filter { it.hits >= cfg.minHits && it.score >= cfg.minScore }
+    /**
+     * 군집화 대상 복셀: HITS는 표 수 ≥ `map.minHits`(DISTANCE면 가중합), score ≥ `map.minScore`. LOG_ODDS는 로그 오즈 ≥ `map.logOccupied`.
+     */
+    fun occupied(): List<VoxelView> = voxels.filter { (_, v) ->
+        if (logOdds) v.logOdds >= cfg.logOccupied else (if (weighted) v.weightedHits else v.hits.toFloat()) >= cfg.minHits && v.score >= cfg.minScore
+    }.map { (key, v) -> view(key, v) }
 
     /** 모든 복셀. */
-    fun views(): List<VoxelView> = voxels.map { (key, v) ->
-        VoxelView(ix(key), iy(key), iz(key), center(key), v.hits, v.score, v.lastSeenNs, v.logOdds)
-    }
+    fun views(): List<VoxelView> = voxels.map { (key, v) -> view(key, v) }
+
+    private fun view(key: Long, v: Voxel) = VoxelView(ix(key), iy(key), iz(key), center(key), v.hits, v.score, v.lastSeenNs, v.logOdds)
 
     /** 모든 score에 [factor]를 곱한다(추적 복귀 시 `state.recoverScoreScale`, §7.5). LOG_ODDS는 로그 오즈를 0(모름) 쪽으로 같은 비율만큼. */
     fun scaleScores(factor: Float) {

@@ -149,6 +149,8 @@ data class MapConfig(
     val weightRefM: Float,
     /** 빈 칸 판정 여유 = max(복셀 크기, 이 비율 × 칸까지 깊이). 고정 여유(`freeMarginM`) 대신 깊이 오차에 비례. */
     val freeMarginRatio: Float,
+    /** HITS의 표 세기([HitWeighting]). DISTANCE면 점유 문턱 `minHits`를 표의 가중합에 적용하고 score 증가에도 같은 가중치를 곱한다. */
+    val hitWeighting: HitWeighting,
 )
 
 /** 바닥 추정 설정. */

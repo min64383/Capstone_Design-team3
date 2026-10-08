@@ -1,6 +1,7 @@
 package hearspace.core.mapping
 
 import org.junit.jupiter.api.Assertions.assertEquals
+import org.junit.jupiter.api.Assertions.assertFalse
 import org.junit.jupiter.api.Assertions.assertNull
 import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Test
@@ -159,7 +160,7 @@ class VoxelMapTest {
     private val k = Intrinsics(100f, 100f, 50f, 50f, 101, 101)
 
     /** 기준선 규칙 테스트는 HITS를 명시한다(`-PtestOverrides`로 기본 모드를 바꾼 실행에서도 기준선을 보게). */
-    private val hitsCfg = config.map.copy(mode = hearspace.core.types.MapMode.HITS)
+    private val hitsCfg = config.map.copy(mode = hearspace.core.types.MapMode.HITS, hitWeighting = hearspace.core.types.HitWeighting.NONE)
 
     /** 카메라 원점, C_cv 정면(+Z)이 월드 −Z가 되도록: C_cv (x, y, z) → 월드 (x, −y, −z). */
     private val worldFromCam = Mat4(floatArrayOf(1f, 0f, 0f, 0f, 0f, -1f, 0f, 0f, 0f, 0f, -1f, 0f, 0f, 0f, 0f, 1f))
@@ -174,6 +175,25 @@ class VoxelMapTest {
             m.insert(p, i.toLong())
         }
         return m
+    }
+
+    @Test
+    fun `distance weighting needs more far frames and keeps near votes`() {
+        val cfg = hitsCfg.copy(hitWeighting = hearspace.core.types.HitWeighting.DISTANCE)
+        fun occupiedAfter(frames: Int, distM: Float): Boolean {
+            val m = VoxelMap(cfg)
+            repeat(frames) { m.beginFrame(); m.insert(Vec3(0.01f, 0.01f, -distM), it.toLong(), m.weight(distM)) }
+            return m.occupied().isNotEmpty()
+        }
+        val near = cfg.weightRefM * 0.75f
+        val far = cfg.weightRefM * 2f // 가중치 1/4
+        assertTrue(occupiedAfter(cfg.minHits, near), "가까운 관측은 기준선과 같은 장 수")
+        assertFalse(occupiedAfter(cfg.minHits, far), "먼 관측은 같은 장 수로는 점유가 아님")
+        assertTrue(occupiedAfter(cfg.minHits * 4, far), "가중합이 문턱에 닿으면 점유")
+        // 기준선은 거리와 무관
+        val base = VoxelMap(hitsCfg)
+        repeat(cfg.minHits) { base.beginFrame(); base.insert(Vec3(0.01f, 0.01f, -far), it.toLong(), base.weight(far)) }
+        assertEquals(1, base.occupied().size)
     }
 
     @Test
