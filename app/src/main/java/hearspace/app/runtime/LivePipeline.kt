@@ -127,6 +127,8 @@ class LivePipeline(
 
     // ---- 느린 경로 워커 ----
 
+    private var lastSlowStartNs = Long.MIN_VALUE
+
     private fun slowLoop() {
         Process.setThreadPriority(Process.THREAD_PRIORITY_DISPLAY)
         while (running) {
@@ -137,11 +139,18 @@ class LivePipeline(
                 slow.apply(action)
                 Log.i(TAG, "map action $action")
             }
+            // M13.4 주기 상한: 지난 시작에서 1/maxRateHz가 지나야 꺼낸다(기다리는 동안 온 깊이는 최신 값으로 교체된다)
+            val minIntervalNs = if (config.slowPath.maxRateHz > 0f) (1e9 / config.slowPath.maxRateHz).toLong() else 0L
+            if (minIntervalNs > 0 && lastSlowStartNs != Long.MIN_VALUE) {
+                val waitNs = lastSlowStartNs + minIntervalNs - clockNs()
+                if (waitNs > 0) Thread.sleep(waitNs / 1_000_000, (waitNs % 1_000_000).toInt())
+            }
             val d = depth.getAndSet(null) ?: continue
             val h = headingW.get() ?: continue
             val resetMark = resetAfterNs.get()
             if (d.tCaptureNs < resetMark) continue
             val t0 = clockNs()
+            lastSlowStartNs = t0
             val s = slow.process(d, h)
             val t1 = clockNs()
             // 처리 중 RESET이 왔으면 이 결과는 이전 월드 좌표의 것이다

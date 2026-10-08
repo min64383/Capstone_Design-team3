@@ -10,6 +10,44 @@
     "edgeMinLengthM": 0.8
   },
   "depth": { "subsample": 2, "source": "SMOOTHED", "minConfidence": 0 },
+  "frontend": {
+    "enabled": false,
+    "edgeMaxRampPx": 6,
+    "edgeMinStepRatio": 0.1,
+    "edgeSteepRatio": 0.05,
+    "edgeFitTolRatio": 0.02,
+    "levelMaxSlope": 0.05,
+    "levelTolM": 0.02,
+    "levelMinBelowCameraM": 0.15,
+    "planes": "NONE",
+    "planeTolM": 0.03,
+    "planeTolPerM": 0.02,
+    "floorTolPerM": 0.08,
+    "planeFloorMinBelowM": 0.3,
+    "floorMinPoints": 150,
+    "floorMinSpreadM": 0.12,
+    "floorMinSpanM": 0.6,
+    "floorMaxDistM": 3.0,
+    "floorMinLiftPerM": -0.03,
+    "floorMaxLiftPerM": 0.35,
+    "floorUnderM": 0.2,
+    "floorUnderFraction": 0.1,
+    "floorMinDropM": 0.5,
+    "floorMaxDropM": 2.0,
+    "wallBandBelowM": 0.9,
+    "wallBandAboveM": 0.8,
+    "wallMinPoints": 80,
+    "wallMinLengthM": 0.8,
+    "wallMaxGapM": 0.2,
+    "wallMinHeightM": 0.3,
+    "wallMaxPlanes": 3,
+    "planeIterations": 120,
+    "rgbGuide": "NONE",
+    "rgbGuideRadiusPx": 3,
+    "rgbGuideLumaSigma": 12,
+    "rgbMaxAgeMs": 20,
+    "segment": "NONE"
+  },
   "map": {
     "voxelSizeM": 0.05,
     "hitGain": 0.2,
@@ -19,7 +57,21 @@
     "decayPerObservation": 0.3,
     "passedMarginM": 1.0,
     "maxUnseenS": 10,
-    "radiusM": 5.0
+    "radiusM": 5.0,
+    "mode": "HITS",
+    "logHit": 0.847,
+    "logMiss": -0.405,
+    "logMin": -1.992,
+    "logMax": 3.476,
+    "logOccupied": 1.7,
+    "weightRefM": 2.0,
+    "freeMarginRatio": 0.03,
+    "hitWeighting": "NONE",
+    "tsdfTruncMinM": 0.1,
+    "tsdfTruncPerM": 0.05,
+    "tsdfMaxWeight": 12,
+    "tsdfMinCosIncidence": 0.1,
+    "instances": false
   },
   "floor": {
     "searchBandM": 0.5,
@@ -30,9 +82,10 @@
     "minPoints": 200,
     "belowMarginM": 0.1,
     "lostFrames": 10,
-    "minBelowCameraM": 0
+    "minBelowCameraM": 0,
+    "source": "HISTOGRAM"
   },
-  "cluster": { "epsM": 0.15, "minSamples": 5, "headMinM": 1.2, "bodyMinM": 0.5 },
+  "cluster": { "epsM": 0.15, "minSamples": 5, "headMinM": 1.2, "bodyMinM": 0.5, "separateWalls": false, "wallFraction": 0.5 },
   "falsePositiveFilter": {
     "enabled": false,
     "minVoxels": 500,
@@ -50,7 +103,8 @@
     "maxMissedUpdates": 3,
     "suspiciousConfirmObservations": 2,
     "minConfirmConfidence": 0,
-    "maxConfirmCentroidJumpM": 0.3
+    "maxConfirmCentroidJumpM": 0.3,
+    "matchByOverlap": false
   },
   "repPoint": { "strategy": "CORRIDOR_NEAREST" },
   "policy": {
@@ -91,6 +145,7 @@
   },
   "haptics": { "readyMs": 40, "pauseMs": 40, "pauseGapMs": 80, "unknownMs": 400, "exitMs": 600 },
   "record": { "depthEveryN": 1, "rgbEveryN": 3, "deviceLogIntervalS": 1.0 },
+  "slowPath": { "maxRateHz": 0 },
   "align": { "fitLengthM": 2.0, "minTravelM": 0.5, "headingWindowS": 3.0 },
   "sonify": {
       "mode": "PULSE",

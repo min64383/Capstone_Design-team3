@@ -35,6 +35,36 @@ tasks.test {
     systemProperty("hearspace.testOutput", layout.buildDirectory.dir("test-output").get().asFile.absolutePath)
     systemProperty("hearspace.coreSrc", project.file("src").absolutePath)
     inputs.dir("src/main")
+    // M13: 기존 테스트 전부를 설정 변형으로 다시 돌린다(명세 §6.1.1 "기존 SC 전부 통과"). -PtestOverrides=<json>이면 default.json에
+    // 그 JSON을 깊게 합친 설정을 쓰고, 기본값 자체를 확인하는 ConfigLoaderTest는 뺀다.
+    // 예: ./gradlew :core:test -PtestOverrides=core/src/test/config/frontend-on.json
+    (project.findProperty("testOverrides") as String?)?.let { path ->
+        val overrides = rootProject.file(path)
+        inputs.file(overrides)
+        val mergedText = mergeJson(defaultConfig.readText(), overrides.readText())
+        val merged = layout.buildDirectory.file("test-config/default.json").get().asFile
+        doFirst {
+            merged.parentFile.mkdirs()
+            merged.writeText(mergedText)
+        }
+        systemProperty("hearspace.defaultConfig", merged.absolutePath)
+        filter { excludeTestsMatching("hearspace.core.types.ConfigLoaderTest") }
+    }
+}
+
+/** [over]의 키로 [base]를 깊게 덮어쓴 JSON(객체는 키마다 합치고 그 밖의 값은 바꾼다). */
+fun mergeJson(base: String, over: String): String {
+    @Suppress("UNCHECKED_CAST")
+    fun merge(a: Map<String, Any?>, b: Map<String, Any?>): Map<String, Any?> = a.toMutableMap().also { out ->
+        for ((k, v) in b) {
+            val old = out[k]
+            out[k] = if (old is Map<*, *> && v is Map<*, *>) merge(old as Map<String, Any?>, v as Map<String, Any?>) else v
+        }
+    }
+    val slurper = groovy.json.JsonSlurper()
+    @Suppress("UNCHECKED_CAST")
+    val merged = merge(slurper.parseText(base) as Map<String, Any?>, slurper.parseText(over) as Map<String, Any?>)
+    return groovy.json.JsonOutput.prettyPrint(groovy.json.JsonOutput.toJson(merged))
 }
 
 // M8 오프라인 재생: ./gradlew :core:replay -Psession=<세션 폴더> [-Pout=..] [-PslowMs=10 | -PslowFrom=<slow_path.csv>] [-PoverridesFile=<json>]

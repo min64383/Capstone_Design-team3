@@ -9,9 +9,12 @@ import hearspace.core.geometry.Vec3
 object ConfigLoader {
 
     /** [baseJson]을 읽고, [overrideJson]이 있으면 그 값을 덮어쓴 설정을 만든다. */
-    fun load(baseJson: String, overrideJson: String? = null): Config {
-        val base = rootObject(baseJson, "base")
-        val merged = if (overrideJson == null) base else merge(base, rootObject(overrideJson, "override"), "")
+    fun load(baseJson: String, overrideJson: String? = null): Config = load(baseJson, listOfNotNull(overrideJson))
+
+    /** [baseJson]에 [overrideJsons]를 차례로 덮어쓴 설정(앱: 연속음 선택 → 기기의 실험용 덮어쓰기). */
+    fun load(baseJson: String, overrideJsons: List<String>): Config {
+        var merged = rootObject(baseJson, "base")
+        for ((i, o) in overrideJsons.withIndex()) merged = merge(merged, rootObject(o, "override${if (i == 0) "" else "#$i"}"), "")
         return build(Section(merged, ""))
     }
 
@@ -57,6 +60,46 @@ object ConfigLoader {
                     minConfidence = intIn("minConfidence", 0, 255),
                 )
             },
+            frontend = root.section("frontend") {
+                FrontendConfig(
+                    enabled = boolean("enabled"),
+                    edgeMaxRampPx = atLeast1("edgeMaxRampPx"),
+                    edgeMinStepRatio = positive("edgeMinStepRatio"),
+                    edgeSteepRatio = positive("edgeSteepRatio"),
+                    edgeFitTolRatio = positive("edgeFitTolRatio"),
+                    levelMaxSlope = nonNegative("levelMaxSlope"),
+                    levelTolM = nonNegative("levelTolM"),
+                    levelMinBelowCameraM = nonNegative("levelMinBelowCameraM"),
+                    planes = enumValue<PlaneMode>("planes"),
+                    planeTolM = positive("planeTolM"),
+                    planeTolPerM = nonNegative("planeTolPerM"),
+                    floorTolPerM = nonNegative("floorTolPerM"),
+                    planeFloorMinBelowM = nonNegative("planeFloorMinBelowM"),
+                    floorMinPoints = atLeast1("floorMinPoints"),
+                    floorMinSpreadM = positive("floorMinSpreadM"),
+                    floorMinSpanM = positive("floorMinSpanM"),
+                    floorMaxDistM = positive("floorMaxDistM"),
+                    floorMinLiftPerM = float("floorMinLiftPerM"),
+                    floorMaxLiftPerM = nonNegative("floorMaxLiftPerM"),
+                    floorUnderM = positive("floorUnderM"),
+                    floorUnderFraction = nonNegative("floorUnderFraction"),
+                    floorMinDropM = positive("floorMinDropM"),
+                    floorMaxDropM = positive("floorMaxDropM"),
+                    wallBandBelowM = nonNegative("wallBandBelowM"),
+                    wallBandAboveM = nonNegative("wallBandAboveM"),
+                    wallMinPoints = atLeast1("wallMinPoints"),
+                    wallMinLengthM = positive("wallMinLengthM"),
+                    wallMaxGapM = positive("wallMaxGapM"),
+                    wallMinHeightM = positive("wallMinHeightM"),
+                    wallMaxPlanes = atLeast1("wallMaxPlanes"),
+                    planeIterations = atLeast1("planeIterations"),
+                    rgbGuide = enumValue<RgbGuideMode>("rgbGuide"),
+                    rgbGuideRadiusPx = atLeast1("rgbGuideRadiusPx"),
+                    rgbGuideLumaSigma = positive("rgbGuideLumaSigma"),
+                    rgbMaxAgeMs = nonNegative("rgbMaxAgeMs"),
+                    segment = enumValue<SegmentMode>("segment"),
+                )
+            },
             map = root.section("map") {
                 MapConfig(
                     voxelSizeM = positive("voxelSizeM"),
@@ -68,7 +111,25 @@ object ConfigLoader {
                     passedMarginM = nonNegative("passedMarginM"),
                     maxUnseenS = positive("maxUnseenS"),
                     radiusM = positive("radiusM"),
-                )
+                    mode = enumValue<MapMode>("mode"),
+                    logHit = positive("logHit"),
+                    logMiss = float("logMiss").also { if (it >= 0f) throw ConfigException(path("logMiss"), "must be < 0, got $it") },
+                    logMin = float("logMin"),
+                    logMax = positive("logMax"),
+                    logOccupied = float("logOccupied"),
+                    weightRefM = positive("weightRefM"),
+                    freeMarginRatio = nonNegative("freeMarginRatio"),
+                    hitWeighting = enumValue<HitWeighting>("hitWeighting"),
+                    tsdfTruncMinM = positive("tsdfTruncMinM"),
+                    tsdfTruncPerM = nonNegative("tsdfTruncPerM"),
+                    tsdfMaxWeight = positive("tsdfMaxWeight"),
+                    tsdfMinCosIncidence = unit("tsdfMinCosIncidence"),
+                    instances = boolean("instances"),
+                ).also { m ->
+                    if (!(m.logMin < m.logOccupied && m.logOccupied < m.logMax)) {
+                        throw ConfigException("map", "must satisfy logMin < logOccupied < logMax")
+                    }
+                }
             },
             floor = root.section("floor") {
                 FloorConfig(
@@ -81,6 +142,7 @@ object ConfigLoader {
                     belowMarginM = positive("belowMarginM"),
                     lostFrames = atLeast1("lostFrames"),
                     minBelowCameraM = nonNegative("minBelowCameraM"),
+                    source = enumValue<FloorSource>("source"),
                 )
             },
             cluster = root.section("cluster") {
@@ -89,6 +151,8 @@ object ConfigLoader {
                     minSamples = atLeast1("minSamples"),
                     headMinM = positive("headMinM"),
                     bodyMinM = positive("bodyMinM"),
+                    separateWalls = boolean("separateWalls"),
+                    wallFraction = unit("wallFraction"),
                 )
             },
             falsePositiveFilter = root.section("falsePositiveFilter") {
@@ -112,6 +176,7 @@ object ConfigLoader {
                     suspiciousConfirmObservations = atLeast1("suspiciousConfirmObservations"),
                     minConfirmConfidence = unit("minConfirmConfidence"),
                     maxConfirmCentroidJumpM = positive("maxConfirmCentroidJumpM"),
+                    matchByOverlap = boolean("matchByOverlap"),
                 )
             },
             repPoint = root.section("repPoint") { RepPointConfig(strategy = enumValue<RepStrategy>("strategy")) },
@@ -176,6 +241,7 @@ object ConfigLoader {
             align = root.section("align") {
                 AlignConfig(fitLengthM = positive("fitLengthM"), minTravelM = positive("minTravelM"), headingWindowS = positive("headingWindowS"))
             },
+            slowPath = root.section("slowPath") { SlowPathConfig(maxRateHz = nonNegative("maxRateHz")) },
             sonify = root.section("sonify") {
                 SonifyConfig(
                     mode = enumValue<SonifyMode>("mode"),
@@ -246,6 +312,15 @@ object ConfigLoader {
         }
         if (c.track.maxConfirmCentroidJumpM > c.track.matchRadiusM) {
             throw ConfigException("track", "must satisfy maxConfirmCentroidJumpM <= matchRadiusM")
+        }
+        if (c.floor.source == FloorSource.PLANE && c.frontend.planes != PlaneMode.RANSAC) {
+            throw ConfigException("floor.source", "PLANE requires frontend.planes = RANSAC")
+        }
+        if (c.map.instances && c.frontend.segment != SegmentMode.REGION) {
+            throw ConfigException("map.instances", "requires frontend.segment = REGION")
+        }
+        if (c.cluster.separateWalls && c.frontend.planes != PlaneMode.RANSAC) {
+            throw ConfigException("cluster.separateWalls", "requires frontend.planes = RANSAC")
         }
         if (c.audio.beepOnMs >= c.audio.nearPeriodMs) {
             throw ConfigException(

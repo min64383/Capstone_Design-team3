@@ -18,6 +18,8 @@ class RunLogWriter(outDir: File, session: File, overridesJson: String, slowPathN
     private val obsOut: Writer
     private val clusterOut: Writer
     private val stageOut: Writer
+    private var planesOut: Writer? = null
+    private val outDir = outDir
 
     init {
         outDir.mkdirs()
@@ -42,6 +44,10 @@ class RunLogWriter(outDir: File, session: File, overridesJson: String, slowPathN
         RunLog.obstacleLines(step.snapshot).forEach { obsOut.line(it) }
         RunLog.clusterDebugLines(step.clusterDebug).forEach { clusterOut.line(it) }
         stageOut.line(RunLog.stageTimingLine(step.depth.tCaptureNs, step.stageNs))
+        step.mapUpdate.planes?.let { p ->
+            val w = planesOut ?: File(outDir, RunLog.PLANES_FILE).bufferedWriter().also { it.line(RunLog.header(RunLog.PLANES_HEADER)); planesOut = it }
+            w.line(RunLog.planesLine(step.depth.tCaptureNs, p))
+        }
     }
 
     override fun onBlock(tNs: Long, pose: PoseFrame, snapshot: ObstacleSnapshot?, g: GuidanceOutput) {
@@ -49,7 +55,7 @@ class RunLogWriter(outDir: File, session: File, overridesJson: String, slowPathN
     }
 
     override fun onEnd() {
-        listOf(slowOut, guidOut, obsOut, clusterOut, stageOut).forEach { it.close() }
+        listOfNotNull(slowOut, guidOut, obsOut, clusterOut, stageOut, planesOut).forEach { it.close() }
     }
 
     private fun Writer.line(s: String) {

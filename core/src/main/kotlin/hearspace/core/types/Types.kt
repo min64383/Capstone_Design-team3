@@ -17,6 +17,33 @@ enum class HeightClass { FLOOR, BODY, HEAD }
 /** 느린 경로 입력으로 쓸 ARCore 깊이 종류(F6): 일반(평활·채움, 30 Hz) 또는 원시(+신뢰도, 10~30 Hz). */
 enum class DepthSource { SMOOTHED, RAW }
 
+/** 깊이 영상 앞단 ③ 평면 추출(IMPROVE_SPEC §6.1.1 M13.1c): NONE = 안 함(기준선), RANSAC = 바닥·벽 평면. */
+enum class PlaneMode { NONE, RANSAC }
+
+/** 깊이 영상 영역 분할(IMPROVE_SPEC §6 C3, M13.1 ②): NONE = 끔(기준선), REGION = 깊이 연속 영역 키우기. */
+enum class SegmentMode { NONE, REGION }
+
+/** RGB 안내 깊이 보정(M13.7): NONE = 끔(기준선), WEIGHTED_MEDIAN = 막 후보 픽셀을 밝기 가중 중앙값으로. */
+enum class RgbGuideMode { NONE, WEIGHTED_MEDIAN }
+
+/** RGB 안내 깊이 보정(M13.7)에 쓰는 같은 카메라의 밝기 영상. [K]는 이 영상의 내부 파라미터, [luma]는 행 우선 0~255. */
+class GuideImage(val tCaptureNs: Long, val luma: ByteArray, val K: Intrinsics)
+
+/** 바닥 높이 추정 원천(M13.1c): HISTOGRAM = 높이 히스토그램 최빈값(기준선), PLANE = 평면 추출의 바닥(없으면 갱신하지 않고 유지). */
+enum class FloorSource { HISTOGRAM, PLANE }
+
+/**
+ * 지도 갱신 규칙(IMPROVE_SPEC §6.1.1): HITS = 관측 횟수·점수(기준선), LOG_ODDS = 로그 오즈 점유(OctoMap, M13.2),
+ * TSDF = 부호 있는 거리의 가중 평균, 표면 근처 칸만 점유(M13.6).
+ */
+enum class MapMode { HITS, LOG_ODDS, TSDF }
+
+/**
+ * HITS의 표 세기(M13.5): NONE = 깊이 한 장에 한 표(기준선), DISTANCE = 한 장의 표를 거리 가중치 min(1, (`map.weightRefM` / 거리)²)로.
+ * 근거: 평평한 바닥 실측(`tools/analysis/depth_error.py`)에서 1.5~2 m 바닥 σ 3~7 cm, 2 m 밖은 꼬리(10 cm 넘게 벗어난 점) 50~60%.
+ */
+enum class HitWeighting { NONE, DISTANCE }
+
 /** 로컬 맵의 건강 상태. */
 enum class MapHealth { OK, DEGRADED }
 
@@ -65,6 +92,8 @@ data class DepthFrame(
     val worldFromCam: Mat4,
     /** "arcore_depth" | "arcore_raw_depth" | "synthetic" */
     val source: String,
+    /** RGB 안내 보정용 밝기 영상(과거 것만, M13.7). 없으면 null. 같음 비교에는 넣지 않는다. */
+    val guide: GuideImage? = null,
 ) {
     override fun equals(other: Any?): Boolean {
         if (this === other) return true

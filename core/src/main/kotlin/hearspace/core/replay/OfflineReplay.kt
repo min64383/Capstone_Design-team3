@@ -16,6 +16,7 @@ import hearspace.core.types.DepthFrame
 import hearspace.core.types.GuidanceOutput
 import hearspace.core.types.ObstacleSnapshot
 import hearspace.core.types.PoseFrame
+import hearspace.core.types.RgbGuideMode
 import java.io.File
 
 /** 느린 경로 한 번의 결과(재생 가상 시계 기준). */
@@ -67,15 +68,25 @@ class OfflineReplay(
     private val slowPathNs: (DepthFrame) -> Long,
 ) {
 
-    /** [session]을 재생해 [outDir]에 실행 로그(MVP §10.1)와 `replay_info.json`을 쓴다. */
+    /**
+     * [session]을 재생해 [outDir]에 실행 로그(MVP §10.1)와 `replay_info.json`을 쓴다. 정답 파일이 있으면 지도 평가
+     * `map_eval.json`(M13, [MapEvalWriter])도 쓴다.
+     */
     fun run(session: File, outDir: File, overridesJson: String = "{}", slowPathNote: String = "") {
-        run(session, RunLogWriter(outDir, session, overridesJson, slowPathNote))
+        val log = RunLogWriter(outDir, session, overridesJson, slowPathNote)
+        run(session, if (File(session, "annotations/obstacles.json").isFile) MapEvalWriter(log, outDir, session, config) else log)
     }
 
     /** [session]을 재생해 결과를 [listener]에 넘긴다. */
     fun run(session: File, listener: ReplayListener) {
         val reader = SessionReader(session)
         val sysOf = reader.rows.associate { it.frameIndex to it.sysElapsedNs }
+        // M13.7: RGB 안내 보정을 켜면 깊이 장마다 과거 RGB를 붙인다
+        val rgb = if (config.frontend.rgbGuide != RgbGuideMode.NONE) {
+            RgbFrames(session, reader.rows, reader.meta.camera.imageIntrinsics, (config.frontend.rgbMaxAgeMs * 1e6).toLong())
+        } else {
+            null
+        }
 
         val fast = FastPath(config)
         val slow = SlowPath(config)
@@ -87,9 +98,13 @@ class OfflineReplay(
         var pending: DepthFrame? = null
         // 처리 중인 작업(끝 시각, 결과, 시작 시 RESET 표시)
         var job: Job? = null
+        // M13.4: 느린 경로 주기 상한(앱 LivePipeline과 같은 규칙: 시작 간격이 1/maxRateHz 이상)
+        val minIntervalNs = if (config.slowPath.maxRateHz > 0f) (1e9 / config.slowPath.maxRateHz).toLong() else 0L
+        var lastStartNs = Long.MIN_VALUE
 
         fun startIfIdle(atNs: Long) {
             if (job != null) return
+            if (minIntervalNs > 0 && lastStartNs != Long.MIN_VALUE && atNs - lastStartNs < minIntervalNs) return // 깊이는 최신 값으로 기다림
             if (mapAction != MapAction.NONE) {
                 slow.apply(mapAction)
                 mapAction = MapAction.NONE
@@ -98,6 +113,7 @@ class OfflineReplay(
             pending = null
             val h = heading ?: return // 앱과 같이: 진행 방향을 모르면 그 깊이는 버린다
             if (d.tCaptureNs < resetAfterNs) return
+            lastStartNs = atNs
             val s = slow.process(d, h)
             val voxels = if (listener.captureVoxels) slow.map.voxels.occupied() else null
             job = Job(d, atNs, atNs + slowPathNs(d), s, resetAfterNs, slow.lastMapUpdate!!, slow.lastClusterDebug, slow.lastStageNs, voxels)
@@ -136,13 +152,14 @@ class OfflineReplay(
                     when (val e = next!!.second) {
                         is PoseEvent -> pose = e.pose
                         is DepthEvent -> {
-                            pending = e.depth
+                            pending = rgb?.attach(e.depth) ?: e.depth
                             startIfIdle(arrival)
                         }
                     }
                     next = if (events.hasNext()) events.next() else null
                 }
             }
+            if (minIntervalNs > 0) startIfIdle(t) // 주기 상한으로 미뤄 둔 깊이를 간격이 지나면 시작
             val p = pose
             if (p != null) {
                 val snap = snapshot

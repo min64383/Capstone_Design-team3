@@ -127,6 +127,57 @@ def check_error_decomp():
     assert all(abs(o[n]["wallGap"][0]["dWidthM"]) < 0.02 for n in dx), [o[n]["wallGap"] for n in dx]
 
 
+def check_merged_fraction():
+    """합쳐짐 비율(M13.1): 정답 물체와 겹치는 추정 물체가 물체 뒤 0.5 m 넘게 이어진 단계만 센다."""
+    from metrics import merged_fraction
+
+    al = {"origin": [0.0, 0.0], "dir": [0.0, 1.0], "floorY": 0.0}  # 월드 +Z = 정답 +z, 정답 x = 월드 −x
+    truth = [{"name": "box", "kind": "object", "min": [-0.2, 0.0, 2.0], "max": [0.2, 0.6, 2.3]},
+             {"name": "wall", "kind": "structure", "min": [-1.0, 0.0, 4.0], "max": [1.0, 2.4, 4.1]}]
+    obs = pd.DataFrame({"tCaptureNs": [1, 2, 3, 3], "aabbMinX": -0.2, "aabbMaxX": 0.2, "aabbMinZ": [2.0, 2.0, 2.0, 3.9],
+                        "aabbMaxZ": [2.3, 4.1, 2.5, 4.1]})  # 1: 상자만, 2: 벽까지 이어짐, 3: 상자 + 따로 잡힌 벽
+    assert abs(merged_fraction(obs, truth, al) - 1 / 3) < 1e-9, merged_fraction(obs, truth, al)
+    assert merged_fraction(obs.iloc[:0], truth, al) is None
+
+
+def check_depth_error():
+    """깊이 오차 모델(M13.5): 바닥 띠는 보행선 안·끝 벽 앞·물체 자리 밖만, 강건 통계는 중앙값·IQR/1.349·꼬리 비율."""
+    import numpy as np
+    from depth_error import TAIL_M, floor_mask, robust
+
+    truth = [{"name": "box", "kind": "object", "min": [-0.2, 0.0, 2.0], "max": [0.2, 0.6, 2.3]}]
+    x = np.array([0.0, 0.0, 0.5, 0.0, 0.0])
+    z = np.array([1.0, 2.1, 1.0, 3.9, 3.0])  # 바닥, 물체 자리, 보행선 밖, 끝 벽 바로 앞, 바닥
+    assert floor_mask(x, z, truth, 4.0).tolist() == [True, False, False, False, True]
+    med, sig, tail = robust(np.array([0.0] * 8 + [TAIL_M * 3] * 2))
+    assert med == 0.0 and sig == 0.0 and abs(tail - 0.2) < 1e-9
+
+
+def check_object_shape():
+    """형상 지표(M13): 겹침이 가장 큰 추정 상자의 앞면 오차·앞뒤 길이·폭 중앙값."""
+    from metrics import object_shape
+
+    al = {"origin": [0.0, 0.0], "dir": [0.0, 1.0], "floorY": 0.0}  # 월드 +Z = 정답 +z, 정답 x = 월드 −x
+    truth = [{"name": "box", "kind": "object", "min": [-0.2, 0.0, 2.0], "max": [0.2, 0.6, 2.3]}]
+    # 단계 1: 앞면 0.1 m 앞, 길이 0.5, 폭 0.4 / 단계 2: 큰 상자 + 작은 조각(겹침이 큰 쪽만)
+    obs = pd.DataFrame({"tCaptureNs": [1, 2, 2], "aabbMinX": [-0.2, -0.25, 0.1], "aabbMaxX": [0.2, 0.25, 0.15],
+                        "aabbMinZ": [1.9, 2.0, 2.2], "aabbMaxZ": [2.4, 2.6, 2.25]})
+    s = object_shape(obs, truth, al)["box"]
+    assert abs(s["frontErrorM"] - (-0.05)) < 1e-9 and abs(s["depthM"] - 0.55) < 1e-9 and abs(s["widthM"] - 0.45) < 1e-9, s
+    assert s["n"] == 2 and object_shape(obs.iloc[:0], truth, al) is None
+
+
+def check_id_switches():
+    """id 전환(§9.2): 정답 물체마다 짝지어진 경고의 서로 다른 추적 id 수 − 1, 구조물·SILENT·짝 없는 경고는 세지 않는다."""
+    from metrics import id_switches
+
+    rows = [{"band": "WARN", "match": 0, "oid": 1}, {"band": "STOP", "match": 0, "oid": 2}, {"band": "WARN", "match": 0, "oid": 2},
+            {"band": "SILENT", "match": 0, "oid": 3}, {"band": "WARN", "match": 1, "oid": 4}, {"band": "WARN", "match": None, "oid": 5},
+            {"band": "WARN", "match": 2, "oid": 6}]
+    assert id_switches(rows, {0, 2}) == 1  # 물체 0: id 1→2, 물체 2: 하나, 1은 구조물
+    assert id_switches([], {0}) is None
+
+
 def check_group_and_plan():
     """회차 묶기(중앙값·합계·딕셔너리)와 sweep 조합 (M10)."""
     assert combine([1.0, None, 3.0, 2.0], "median") == 2.0
@@ -148,6 +199,7 @@ def main():
     assert clean["directionErrorDeg"]["p95"] < 2.0, clean["directionErrorDeg"]
     assert clean["overestimate1p5to2p5"]["p95"] < 0.03, clean["overestimate1p5to2p5"]
     assert clean["missedStop"] == 0 and clean["falseAlarmFraction"] == 0
+    assert clean["objectMergedFraction"] == 0, clean["objectMergedFraction"]  # 뒤 벽 없는 상자: 합쳐짐 없음
     assert abs(clean["warnTimingErrorS"]["box"]) < 0.2, clean["warnTimingErrorS"]
     assert 2.3 < clean["firstWarnDistanceM"]["box"] <= 2.5, clean["firstWarnDistanceM"]  # 경고 구간 2.5 m
     assert 0.85 < clean["firstStopDistanceM"]["box"] <= 1.0, clean["firstStopDistanceM"]  # 정지 구간 1.0 m
@@ -165,7 +217,11 @@ def main():
     check_truth_v2()
     check_align_heading()
     check_error_decomp()
+    check_merged_fraction()
     check_group_and_plan()
+    check_depth_error()
+    check_object_shape()
+    check_id_switches()
     print("analysis self-check ok")
 
 

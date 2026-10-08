@@ -1,0 +1,1 @@
+{ "frontend": { "enabled": true, "segment": "REGION" }, "map": { "instances": true } }

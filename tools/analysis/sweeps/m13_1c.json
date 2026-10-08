@@ -1,0 +1,49 @@
+{
+  "note": "M13.1c: 평면 바닥(floor.source PLANE, frontend.planes RANSAC)을 기준선·바닥 하한 0.8과 비교. 허용 오차 등은 기하에서 정했고 실제 세션으로 맞추지 않음. 조정용(E01h·E02·S02)/확인용(E03·E04·S03·S07·S01)을 따로 본다. 기본값은 app/src/main/assets/config/default.json",
+  "variants": [
+    {
+      "name": "base",
+      "overrides": {}
+    },
+    {
+      "name": "floor0.8",
+      "overrides": {
+        "floor": {
+          "minBelowCameraM": 0.8
+        }
+      }
+    },
+    {
+      "name": "planefloor",
+      "overrides": {
+        "frontend": {
+          "planes": "RANSAC"
+        },
+        "floor": {
+          "source": "PLANE"
+        }
+      }
+    },
+    {
+      "name": "planefloor_frontend",
+      "overrides": {
+        "frontend": {
+          "enabled": true,
+          "planes": "RANSAC"
+        },
+        "floor": {
+          "source": "PLANE"
+        }
+      }
+    },
+    {
+      "name": "floor0.8_hold",
+      "overrides": {
+        "floor": {
+          "minBelowCameraM": 0.8,
+          "lostFrames": 100000
+        }
+      }
+    }
+  ]
+}

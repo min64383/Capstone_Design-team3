@@ -1,0 +1,1 @@
+{ "frontend": { "enabled": true, "segment": "REGION" }, "floor": { "minBelowCameraM": 0.8 }, "map": { "hitWeighting": "DISTANCE", "instances": true } }

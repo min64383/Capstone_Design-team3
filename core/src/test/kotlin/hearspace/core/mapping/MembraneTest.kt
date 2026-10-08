@@ -20,6 +20,9 @@ import java.io.File
 class MembraneTest {
     private val base = File(System.getProperty("hearspace.defaultConfig")).readText()
 
+    /** 기준선은 앞단을 명시적으로 끈다(`-PtestOverrides`로 기본값을 켠 실행에서도 기준선이 기준선이게). */
+    private val frontendOff = """ "frontend": { "enabled": false, "rgbGuide": "NONE", "segment": "NONE" }, "map": { "instances": false } """
+
     /** 깊이 한 장마다 느린 경로 결과와 그때의 점유 복셀 중심(월드). 진행 방향은 참 머리 방향. */
     private class MapStep(val tS: Float, val snapshot: ObstacleSnapshot, val occupied: List<Vec3>)
 
@@ -52,13 +55,32 @@ class MembraneTest {
 
     @Test
     fun `SC-21 without smoothing keeps the space between box and wall empty`() {
-        val clean = run(Scenes.SC21.copy(noise = Noise()))
+        val clean = run(Scenes.SC21.copy(noise = Noise()), frontendOff)
         assertTrue(sc21Passes(clean), "control: ${sc21(clean)}")
+    }
+
+    /** SC-21에 물체별 밝기를 준다(상자 220, 벽 60, 바닥 120): RGB 안내 보정(M13.7)이 쓸 대비. */
+    private fun sc21WithContrast() = Scenes.SC21.let { s ->
+        s.copy(scene = s.scene.copy(items = s.scene.items.map { it.copy(luma = when (it.name) { "box" -> 220; "back_wall" -> 60; else -> 120 }) }))
+    }
+
+    @Test
+    fun `SC-21 RGB guide with colour contrast removes most membrane voxels and passes with the edge detector`() {
+        // 단독: 막 후보(경계 마스크)를 색이 같은 쪽 면 깊이로 옮겨 지우지 않고도 막 칸이 사라진다(31 → 0칸).
+        // 경계 판정과 함께 켜도 M13.1 합격 조건(빈 공간 0칸·합쳐짐 0)
+        val rgbOn = """ "frontend": { "enabled": false, "rgbGuide": "WEIGHTED_MEDIAN" } """
+        val both = """ "frontend": { "enabled": true, "rgbGuide": "WEIGHTED_MEDIAN" } """
+        val (baseGap, _) = sc21(run(sc21WithContrast(), frontendOff))
+        val (gap, merged) = sc21(run(sc21WithContrast(), rgbOn))
+        val withEdges = sc21(run(sc21WithContrast(), both))
+        println("SC-21 RGB guide: gap voxels baseline $baseGap -> $gap (merged $merged), with edge detector $withEdges")
+        assertTrue(baseGap > 0 && gap <= baseGap / 3 && merged == 0f, "baseline $baseGap guided $gap merged $merged")
+        assertTrue(withEdges.first == 0 && withEdges.second == 0f, "with edge detector $withEdges")
     }
 
     @Test
     fun `SC-21 baseline reproduces the membrane - fails until the depth front end (M13_1)`() {
-        val (gap, merged) = sc21(run(Scenes.SC21))
+        val (gap, merged) = sc21(run(Scenes.SC21, frontendOff))
         println("SC-21 baseline: gap voxels max $gap, box-wall merged fraction $merged")
         assertTrue(gap > 0, "membrane voxels between box and wall: $gap")
     }
@@ -69,8 +91,8 @@ class MembraneTest {
     @Test
     fun `SC-22 baseline keeps the oblique side wall in the map`() {
         // 생성기의 평활이 비스듬한 벽의 먼 끝(깊이가 빠르게 늘어나는 곳)도 조금 바꾸므로 평활 없을 때보다 적다(실측 약 76%)
-        val clean = rightWall(run(Scenes.SC14))
-        val smoothed = rightWall(run(Scenes.SC22))
+        val clean = rightWall(run(Scenes.SC14, frontendOff))
+        val smoothed = rightWall(run(Scenes.SC22, frontendOff))
         println("SC-22 right-wall voxels: clean $clean, smoothed baseline $smoothed")
         assertTrue(clean > 50 && smoothed >= 0.6f * clean, "clean $clean smoothed $smoothed")
     }
@@ -93,10 +115,36 @@ class MembraneTest {
     fun `SC-23 baseline keeps the box top and the box is one object`() {
         // 평활 없는 SC-08 기준선은 상자가 앞면과 비스듬히 보이는 윗면 뒤 모서리, 두 물체로 갈라진다(약 88% 프레임).
         // 평활이 둘 사이를 이어 SC-23 기준선은 한 물체다. 윗면 칸은 평활 때 줄어든다(실측 약 68%)
-        val clean = run(Scenes.SC08)
-        val smoothed = run(Scenes.SC23)
+        val clean = run(Scenes.SC08, frontendOff)
+        val smoothed = run(Scenes.SC23, frontendOff)
         println("SC-23 box-top voxels: clean ${boxTop(clean)}, smoothed baseline ${boxTop(smoothed)}; split fraction clean ${boxSplit(clean)}, smoothed ${boxSplit(smoothed)}")
         assertTrue(boxTop(smoothed) >= 0.5f * boxTop(clean), "box top kept")
         assertEquals(0f, boxSplit(smoothed), 0.05f, "box is one object")
+    }
+    // ---- M13.1 깊이 영상 앞단(경계 판정)을 켠 경우: SC-21 통과로 뒤집히고, SC-22·SC-23은 평활 기준선의 80% 이상 ----
+    private val frontendOn = """ "frontend": { "enabled": true } """
+
+    @Test
+    fun `SC-21 passes with the depth front end`() {
+        val steps = run(Scenes.SC21, frontendOn)
+        println("SC-21 front end: ${sc21(steps)}")
+        assertTrue(sc21Passes(steps), "gap voxels, merged fraction: ${sc21(steps)}")
+    }
+
+    @Test
+    fun `SC-22 front end keeps the oblique side wall`() {
+        val baseline = rightWall(run(Scenes.SC22, frontendOff))
+        val on = rightWall(run(Scenes.SC22, frontendOn))
+        println("SC-22 right-wall voxels: baseline $baseline, front end $on")
+        assertTrue(on >= 0.8f * baseline, "baseline $baseline front end $on")
+    }
+
+    @Test
+    fun `SC-23 front end keeps the box top and the box is one object`() {
+        val baseline = run(Scenes.SC23, frontendOff)
+        val on = run(Scenes.SC23, frontendOn)
+        println("SC-23 box-top voxels: baseline ${boxTop(baseline)}, front end ${boxTop(on)}; split fraction front end ${boxSplit(on)}")
+        assertTrue(boxTop(on) >= 0.8f * boxTop(baseline), "box top kept")
+        assertEquals(0f, boxSplit(on), 0.05f, "box is one object")
     }
 }

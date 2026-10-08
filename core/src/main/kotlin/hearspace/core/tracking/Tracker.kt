@@ -17,6 +17,8 @@ data class Detection(
     val lastSeenNs: Long,
     /** depth sheet 모양이라 오인식이 의심되는 군집([hearspace.core.pipeline.FalsePositiveFilter.matches]). */
     val suspicious: Boolean = false,
+    /** 인스턴스 지도(C3b)의 물체 번호, 0 = 없음. 매칭 반경 안에서 같은 번호의 track과 먼저 짝짓는다. */
+    val instanceId: Int = 0,
 )
 
 /**
@@ -49,10 +51,17 @@ class Tracker(private val cfg: TrackConfig, private val strategy: RepStrategy) {
         var suspicious: Boolean,
         /** 한 번이라도 연속 확인을 통과했는지. */
         var confirmed: Boolean = false,
+        /** 마지막으로 짝지은 군집의 물체 번호(C3b). */
+        var instanceId: Int = 0,
+        /** 마지막으로 짝지은 군집의 상자(겹침 연결, T1). */
+        var aabbMin: Vec3 = Vec3.ZERO,
+        var aabbMax: Vec3 = Vec3.ZERO,
     )
 
     private var tracks = listOf<Track>()
     private var nextId = 1
+    /** 물체 번호(C3b) → 마지막으로 그 번호였던 track id. 놓쳤다가 같은 번호로 다시 나타나면 그 id를 다시 쓴다(재식별). */
+    private val idOfInstance = HashMap<Int, Int>()
 
     /** 이번 군집들로 물체 목록을 갱신한다. */
     fun update(detections: List<Detection>): List<Obstacle> {
@@ -62,7 +71,10 @@ class Tracker(private val cfg: TrackConfig, private val strategy: RepStrategy) {
             val oldCenter = t.reps.getValue(RepStrategy.CENTROID)
             val newCenter = d.repCandidatesW.getValue(RepStrategy.CENTROID)
             val dist = (oldCenter - newCenter).norm()
-            if (dist <= cfg.matchRadiusM) pairs += Triple(dist, ti, di)
+            // 같은 물체 번호(C3b)는 매칭 반경 안에서 먼저 짝짓는다. 반경 밖까지 허용했더니 한 번호가 DBSCAN으로 상자와 1.6 m 떨어진
+            // 벽 조각으로 나뉜 장에서 상자 track이 벽 조각과 짝지어져 안내가 엉뚱한 곳을 가리켰다(SC-22)
+            if (dist <= cfg.matchRadiusM) pairs += Triple(if (d.instanceId != 0 && d.instanceId == t.instanceId) -1f else dist, ti, di)
+            else if (cfg.matchByOverlap && overlapsMajority(t.aabbMin, t.aabbMax, d.aabbMinW, d.aabbMaxW)) pairs += Triple(dist, ti, di)
         }
 
         // 가까운 후보부터 탐욕적으로 1:1 매칭한다.
@@ -95,15 +107,24 @@ class Tracker(private val cfg: TrackConfig, private val strategy: RepStrategy) {
                     t.nObservations++
                     t.missedUpdates = 0
                     t.suspicious = t.suspicious || d.suspicious
+                    t.instanceId = d.instanceId
+                    t.aabbMin = d.aabbMinW
+                    t.aabbMax = d.aabbMaxW
                 }
             } else {
+                // 재식별(C3b): 같은 물체 번호의 예전 id가 살아 있는 track에 없으면 다시 쓴다. 물체가 하나뿐인 세션에서도 잠깐 놓쳤다가
+                // 다시 잡을 때마다 새 id가 붙어 id 전환이 생겼다(S02 회차 합 7회)
+                val reuse = d.instanceId.takeIf { it != 0 }?.let { idOfInstance[it] }?.takeIf { id -> tracks.none { it.id == id } && next.none { it.id == id } }
                 Track(
-                    id = nextId++,
+                    id = reuse ?: nextId++,
                     reps = d.repCandidatesW,
                     nObservations = 1,
                     consecutiveObservations = if (confident) 1 else 0,
                     missedUpdates = 0,
                     suspicious = d.suspicious,
+                    instanceId = d.instanceId,
+                    aabbMin = d.aabbMinW,
+                    aabbMax = d.aabbMaxW,
                 )
             }
 
@@ -138,11 +159,23 @@ class Tracker(private val cfg: TrackConfig, private val strategy: RepStrategy) {
         }
 
         tracks = next
+        for (t in next) if (t.instanceId != 0) idOfInstance[t.instanceId] = t.id
         return out
+    }
+
+    /** 위에서 본 두 상자(x, z)가 작은 쪽 면적의 과반 넘게 겹치는지. */
+    private fun overlapsMajority(aMin: Vec3, aMax: Vec3, bMin: Vec3, bMax: Vec3): Boolean {
+        val ox = minOf(aMax.x, bMax.x) - maxOf(aMin.x, bMin.x)
+        val oz = minOf(aMax.z, bMax.z) - maxOf(aMin.z, bMin.z)
+        if (ox <= 0f || oz <= 0f) return false
+        val areaA = (aMax.x - aMin.x) * (aMax.z - aMin.z)
+        val areaB = (bMax.x - bMin.x) * (bMax.z - bMin.z)
+        return ox * oz * 2 > minOf(areaA, areaB)
     }
 
     /** 모든 물체를 잊는다(자세 불연속, §7.5). id는 계속 증가한다. */
     fun reset() {
         tracks = emptyList()
+        idOfInstance.clear()
     }
 }

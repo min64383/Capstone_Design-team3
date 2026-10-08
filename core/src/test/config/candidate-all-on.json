@@ -1,0 +1,1 @@
+{ "frontend": { "enabled": true, "planes": "RANSAC", "segment": "REGION" }, "floor": { "minBelowCameraM": 0.8 }, "map": { "hitWeighting": "DISTANCE", "instances": true }, "cluster": { "separateWalls": true }, "track": { "matchByOverlap": true } }

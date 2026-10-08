@@ -153,6 +153,32 @@ class TrackerUnitTest {
         RepStrategy.entries.associateWith { p }, p, p, HeightClass.BODY, true, confidence, 0L, suspicious,
     )
 
+    @Test
+    fun `a lost object that reappears with the same instance number gets its old id back`() {
+        // 인스턴스 지도(C3b) 재식별: 같은 물체 번호면 예전 id를 다시 쓰고, 번호가 없거나 다르면 새 id
+        val t = Tracker(cfg.track, RepStrategy.CENTROID)
+        fun d(p: Vec3, inst: Int) = det(p).copy(instanceId = inst)
+        val first = (1..cfg.track.minConfirmObservations).map { t.update(listOf(d(Vec3(0f, 0f, -2f), 7))) }.last().single().id
+        repeat(cfg.track.maxMissedUpdates + 1) { t.update(emptyList()) } // track이 지워짐
+        val again = (1..cfg.track.minConfirmObservations).map { t.update(listOf(d(Vec3(0.5f, 0f, -2.5f), 7))) }.last().single().id
+        assertEquals(first, again)
+        repeat(cfg.track.maxMissedUpdates + 1) { t.update(emptyList()) }
+        val other = (1..cfg.track.minConfirmObservations).map { t.update(listOf(d(Vec3(0f, 0f, -2f), 0))) }.last().single().id
+        assertTrue(other != first)
+    }
+
+    @Test
+    fun `with overlap matching a box whose centre jumps keeps its id while its footprint overlaps`() {
+        // 뒤쪽 칸이 붙어 상자가 0.8 m 길어져 중심이 0.4 m 튄다(S02, 매칭 반경 0.3 m 밖). 중심 거리만 보면 새 id, 겹침 연결이면 같은 id
+        fun box(z0: Float, z1: Float) = det(Vec3(0f, 0.3f, (z0 + z1) / 2)).copy(aabbMinW = Vec3(-0.2f, 0f, z0), aabbMaxW = Vec3(0.2f, 0.6f, z1))
+        for ((overlap, same) in listOf(false to false, true to true)) {
+            val t = Tracker(cfg.track.copy(matchByOverlap = overlap), RepStrategy.CENTROID)
+            val first = (1..cfg.track.minConfirmObservations).map { t.update(listOf(box(-2.3f, -2.0f))) }.last().single().id
+            val after = (1..cfg.track.minConfirmObservations).map { t.update(listOf(box(-3.1f, -2.0f))) }.last().single().id
+            assertEquals(same, first == after, "overlap $overlap: $first -> $after")
+        }
+    }
+
     /** 확인 조건을 강화한 후보 설정(PR #30 값). 기본값은 기준선과 같다. */
     private val strict = cfg.track.copy(
         minConfirmObservations = 3,

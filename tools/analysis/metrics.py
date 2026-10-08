@@ -21,6 +21,7 @@ import pandas as pd
 from align import align, load_config, load_frames, to_truth
 
 MATCH_MARGIN_M = 0.3  # 추정 대표점이 정답 상자에서 이만큼 안이면 그 장애물로 본다(분석 도구 파라미터)
+MERGE_BEYOND_M = 0.5  # 정답 물체와 겹치는 추정 물체가 그 물체 뒤로 이만큼 넘게 이어지면 합쳐짐(13번 계획서 표 5, M13.1)
 ACTIVE = {"NORMAL", "DEGRADED"}
 
 
@@ -60,6 +61,63 @@ def scene_of(session: Path) -> str:
             return s
     name = session.parent.name if session.name == "session" else session.name
     return name.rsplit("_", 1)[-1]
+
+
+def truth_boxes(obs: pd.DataFrame, al: dict) -> tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
+    """추정 물체 상자(월드)의 네 모서리를 정답 좌표로 옮긴 바닥 사각형 (x0, x1, z0, z1)."""
+    tx, tz = [], []
+    for cx, cz in (("aabbMinX", "aabbMinZ"), ("aabbMinX", "aabbMaxZ"), ("aabbMaxX", "aabbMinZ"), ("aabbMaxX", "aabbMaxZ")):
+        x, _, z = to_truth(al, obs[cx].to_numpy(), np.zeros(len(obs)), obs[cz].to_numpy())
+        tx.append(x)
+        tz.append(z)
+    return np.min(tx, 0), np.max(tx, 0), np.min(tz, 0), np.max(tz, 0)
+
+
+def object_shape(obs: pd.DataFrame, truth: list[dict], al: dict) -> dict | None:
+    """형상 지표(M13 형상 정제): 정답 물체마다 바닥 면적이 겹치는 추정 물체 상자(느린 경로 단계마다 겹침이 가장 큰 것)의
+    앞면 위치 오차(추정 앞면 − 정답 앞면, + = 멀리), 앞뒤 길이, 폭의 단계 중앙값. 정답 +z가 걷는 방향이라 앞면 = 작은 z."""
+    objs = [o for o in truth if o["kind"] == "object"]
+    if not objs or obs.empty:
+        return None
+    x0, x1, z0, z1 = truth_boxes(obs, al)
+    out = {}
+    for o in objs:
+        (ox0, _, oz0), (ox1, _, oz1) = o["min"], o["max"]
+        area = np.clip(np.minimum(x1, ox1) - np.maximum(x0, ox0), 0, None) * np.clip(np.minimum(z1, oz1) - np.maximum(z0, oz0), 0, None)
+        df = pd.DataFrame({"t": obs.tCaptureNs.to_numpy(), "a": area, "front": z0 - oz0, "depth": z1 - z0, "width": x1 - x0})
+        df = df[df.a > 0]
+        if df.empty:
+            continue
+        best = df.loc[df.groupby("t").a.idxmax()]
+        out[o["name"]] = {"frontErrorM": float(best.front.median()), "depthM": float(best.depth.median()),
+                          "widthM": float(best.width.median()), "truthDepthM": float(oz1 - oz0), "truthWidthM": float(ox1 - ox0),
+                          "n": int(len(best))}
+    return out or None
+
+
+def id_switches(rows: list[dict], objects: set[int]) -> int | None:
+    """정답 물체마다 그 물체로 짝지어진 경고(WARN·STOP)의 서로 다른 추적 id 수 − 1을 더한다(id 전환, §9.2). 짝지어진 경고가 없으면 None."""
+    ids: dict[int, set[int]] = {}
+    for r in rows:
+        if r["band"] in ("WARN", "STOP") and r["match"] in objects and r.get("oid") is not None:
+            ids.setdefault(r["match"], set()).add(r["oid"])
+    return sum(len(s) - 1 for s in ids.values()) if ids else None
+
+
+def merged_fraction(obs: pd.DataFrame, truth: list[dict], al: dict) -> float | None:
+    """물체–구조물 합쳐짐 비율: 정답 물체(`kind: object`)와 바닥 면적이 겹치는 추정 물체가 있는 느린 경로 단계 중, 그 추정
+    물체가 물체 뒷면(정답 +z) 너머로 MERGE_BEYOND_M 넘게 이어진 단계의 비율(막이 캐리어를 뒤 문·벽까지 이은 경우)."""
+    objs = [o for o in truth if o["kind"] == "object"]
+    if not objs or obs.empty:
+        return None
+    x0, x1, z0, z1 = truth_boxes(obs, al)
+    seen = merged = 0
+    for o in objs:
+        (ox0, _, oz0), (ox1, _, oz1) = o["min"], o["max"]
+        over = (x1 > ox0) & (x0 < ox1) & (z1 > oz0) & (z0 < oz1)
+        seen += obs.tCaptureNs[over].nunique()
+        merged += obs.tCaptureNs[over & (z1 > oz1 + MERGE_BEYOND_M)].nunique()
+    return merged / seen if seen else None
 
 
 def per_minute(blocks: pd.DataFrame, sp: pd.DataFrame, dev: pd.DataFrame | None) -> list[dict]:
@@ -155,6 +213,11 @@ def compute(session: Path, run_dir: Path) -> dict:
 
     # 정답 없이 되는 지표
     out: dict = {"session": session.name if session.name != "session" else session.parent.name, "scene": scene_of(session)}
+    # 지도 평가(core `MapEvalWriter`, M13): 정답 구조물(벽)마다 마지막 지도의 두께·앞 치우침
+    me = run_dir / "map_eval.json"
+    if me.is_file():
+        walls = json.loads(me.read_text(encoding="utf-8"))["final"]
+        out["mapWalls"] = {w["name"]: {k: w[k] for k in ("thicknessP50M", "thicknessP90M", "frontOffsetP50M")} for w in walls}
     out.update(run_metrics(run_dir, cfg))
     arrival = frames.set_index("tNs").sysElapsedNs
     a0 = (frames.sysElapsedNs - frames.tNs) / 1e6
@@ -205,6 +268,7 @@ def compute(session: Path, run_dir: Path) -> dict:
         if pd.notna(e.obstacleId):
             mi, mh = match(e.snapshotTNs, e.obstacleId)
         rows.append({"t": tS[k], "state": b.state, "tn": tn, "band": e.band if pd.notna(e.band) else None,
+                     "oid": int(e.obstacleId) if pd.notna(e.obstacleId) else None,
                      "az": e.azimuthDeg, "dist": e.distanceM, "match": mi, "hclass": mh, "pose": b.poseTNs})
 
     dir_err, over, jitter_src, fa, n_cmd = [], [], {}, 0, 0
@@ -279,7 +343,11 @@ def compute(session: Path, run_dir: Path) -> dict:
         "missedStop": len(stop_needed - stop_seen),
         "sourceJitterDegStd": jitter_std(),
         "falseAlarmFraction": fa / n_cmd if n_cmd else None,
+        # id 전환(명세 §9.2, C3b·T1 평가): 정답 물체마다 그 물체로 짝지어진 경고(WARN·STOP)의 서로 다른 추적 id 수 − 1의 합
+        "idSwitches": id_switches(rows, objects),
         "structureCommandFraction": n_struct / n_cmd if n_cmd else None,  # 구조물을 물체처럼 경고한 비율
+        "objectMergedFraction": merged_fraction(obs, truth, al),
+        "objectShape": object_shape(obs, truth, al),
         "selectedTruth": {truth[i]["name"]: sum(1 for r in rows if r["match"] == i and r["band"] in ("WARN", "STOP")) for i in range(len(truth))},
     })
     return out

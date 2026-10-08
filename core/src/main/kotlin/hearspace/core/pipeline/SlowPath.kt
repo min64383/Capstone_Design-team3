@@ -66,13 +66,25 @@ class SlowPath(
         val corridor = Corridor(userPosW, headingW, floorY, config.corridor)
         val inCorridor = map.voxels.occupied().filter { corridor.contains(it.centerW) }
         val voxels = withoutEdgeStructures(inCorridor, corridor)
-        val centers = voxels.map { it.centerW }
+        // C2: 남은 칸을 벽 칸과 나머지로 나눠 따로 묶는다(벽도 장애물로 남는다). 끄면 한 묶음(기준선). 가장자리 구조물 규칙을 먼저 전체에
+        // 적용해야 한다: 벽 칸을 먼저 떼면 라벨 없는 옆 벽 밑동 조각이 짧은 덩어리로 남아 오경보가 됐다(S02 130646 0.11 → 0.22)
+        val groups = if (config.cluster.separateWalls) {
+            voxels.partition { it.hits > 0 && it.wallHits >= config.cluster.wallFraction * it.hits }.toList() // TSDF 표면 칸은 맞은 장이 0일 수 있다
+        } else {
+            listOf(voxels)
+        }
+        fun dbscan(g: List<VoxelView>) = Cluster.dbscanXZ(g.map { it.centerW }, config.cluster.epsM, config.cluster.minSamples).map { idx -> idx.map { g[it] } }
+        // C3b: 같은 물체 번호끼리(번호 없는 칸은 한 묶음) 묶고 그 안에서 떨어진 조각은 DBSCAN으로 나눈 뒤, 위에서 본 면적이 겹치는
+        // 조각은 합친다(같은 물체의 앞면·윗면이 다른 번호가 된 경우). 벽 묶음과 나머지는 서로 합치지 않는다
+        val clusters = if (config.map.instances) {
+            groups.flatMap { g -> mergeOverlapping(g.groupBy { it.instId }.values.flatMap { dbscan(it) }) }
+        } else {
+            groups.flatMap { dbscan(it) }
+        }
         val half = config.map.voxelSizeM / 2
         val debug = ArrayList<ClusterDebug>()
         val detections = ArrayList<Detection>()
-        val clusters = Cluster.dbscanXZ(centers, config.cluster.epsM, config.cluster.minSamples)
-        for ((clusterIndex, idx) in clusters.withIndex()) {
-            val clusterVoxels = idx.map { voxels[it] }
+        for ((clusterIndex, clusterVoxels) in clusters.withIndex()) {
             val pts = clusterVoxels.map { it.centerW }
             val reps = RepPoint.candidates(pts, corridor, config.map.voxelSizeM)
             val aabbMin = Vec3(pts.minOf { it.x } - half, pts.minOf { it.y } - half, pts.minOf { it.z } - half)
@@ -123,6 +135,7 @@ class SlowPath(
                     confidence = scores.average().toFloat(),
                     lastSeenNs = clusterVoxels.maxOf { it.lastSeenNs },
                     suspicious = FalsePositiveFilter.matches(rawDebug, config.falsePositiveFilter),
+                    instanceId = clusterVoxels.groupingBy { it.instId }.eachCount().maxByOrNull { it.value }!!.key,
                 )
             }
         }
@@ -149,6 +162,29 @@ class SlowPath(
             if (along.max() - along.min() >= config.corridor.edgeMinLengthM) idx.forEach { removed += edge[it] }
         }
         return if (removed.isEmpty()) voxels else voxels.filter { it !in removed }
+    }
+
+    /**
+     * 위에서 본 바닥 사각형(복셀 중심 ± 반 칸)이 작은 쪽 면적의 과반 넘게 겹치는 군집을 합친다(C3b). 같은 물체의 앞면과 윗면은
+     * 위에서 보면 겹치고(SC-22: 경계 판정이 윗면 일부를 지워 매번 다른 영역이 되어 두 번호로 갈라졌다), 서로 다른 물체는 거의 겹치지 않는다
+     * (엇갈린 두 상자, 벽 앞 물체). 과반은 영역 → 번호 연결의 과반과 같은 정의다.
+     */
+    private fun mergeOverlapping(clusters: List<List<VoxelView>>): List<List<VoxelView>> {
+        if (clusters.size < 2) return clusters
+        val half = config.map.voxelSizeM / 2
+        val box = clusters.map { c ->
+            floatArrayOf(c.minOf { it.centerW.x } - half, c.maxOf { it.centerW.x } + half, c.minOf { it.centerW.z } - half, c.maxOf { it.centerW.z } + half)
+        }
+        fun area(b: FloatArray) = (b[1] - b[0]) * (b[3] - b[2])
+        val parent = IntArray(clusters.size) { it }
+        fun find(i: Int): Int = if (parent[i] == i) i else find(parent[i]).also { parent[i] = it }
+        for (a in clusters.indices) for (b in a + 1 until clusters.size) {
+            val ox = minOf(box[a][1], box[b][1]) - maxOf(box[a][0], box[b][0])
+            val oz = minOf(box[a][3], box[b][3]) - maxOf(box[a][2], box[b][2])
+            if (ox <= 0f || oz <= 0f) continue
+            if (ox * oz * 2 > minOf(area(box[a]), area(box[b]))) parent[find(a)] = find(b)
+        }
+        return clusters.indices.groupBy { find(it) }.values.map { ids -> ids.flatMap { clusters[it] } }
     }
 
     /** 빠른 경로의 맵 명령을 적용한다(§7.5): SCALE = 추적 복귀 시 score × `state.recoverScoreScale`, RESET = 초기화. */

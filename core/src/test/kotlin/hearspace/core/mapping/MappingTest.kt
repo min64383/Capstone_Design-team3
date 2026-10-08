@@ -1,6 +1,7 @@
 package hearspace.core.mapping
 
 import org.junit.jupiter.api.Assertions.assertEquals
+import org.junit.jupiter.api.Assertions.assertFalse
 import org.junit.jupiter.api.Assertions.assertNull
 import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Test
@@ -28,8 +29,8 @@ class MappingTest {
     private val voxel = config.map.voxelSizeM
 
     /** 합성 녹화를 처음부터 끝까지 맵에 넣는다. 진행 방향은 참값(진행 방향 추정은 M5). [onFrame]은 매 깊이 뒤에 불린다. */
-    private fun run(rec: SyntheticRecording, onFrame: (Float, LocalMap, MapUpdate) -> Unit = { _, _, _ -> }): LocalMap {
-        val map = LocalMap(config)
+    private fun run(rec: SyntheticRecording, cfg: Config = config, onFrame: (Float, LocalMap, MapUpdate) -> Unit = { _, _, _ -> }): LocalMap {
+        val map = LocalMap(cfg)
         for (f in rec.frames) {
             val d = f.depth ?: continue
             val u = map.update(d, d.worldFromCam.translation(), f.truthHead.headingW)
@@ -135,7 +136,10 @@ class MappingTest {
             ),
         )
         var below = 0
-        val map = run(SceneSpec("step", scene, Walk(durationS = 2f)).generate()) { _, _, u -> below += u.nBelowFloorPoints }
+        // 기준선(히스토그램 바닥)을 명시한다. 평면 바닥은 이 장면에서 가까운 바닥 띠(0.5 m)가 너무 좁아(평면 퍼짐 기준 미달) 먼 낮은
+        // 바닥을 바닥으로 잡아 내려가는 단차를 놓친다: 단차·계단은 바닥 높이 지도(M13.5)의 일이다(M13_REPORT §5)
+        val histogram = ConfigLoader.load(File(System.getProperty("hearspace.defaultConfig")).readText(), """{ "floor": { "source": "HISTOGRAM" } }""")
+        val map = run(SceneSpec("step", scene, Walk(durationS = 2f)).generate(), histogram) { _, _, u -> below += u.nBelowFloorPoints }
         assertTrue(below > 1000, "below-floor points $below")
         assertTrue(map.voxels.views().none { it.centerW.y < -0.2f }, "below-floor points must not be mapped")
         assertEquals(0f, map.floor.floorY!!, 0.02f)
@@ -155,6 +159,9 @@ class VoxelMapTest {
     private val config: Config = ConfigLoader.load(File(System.getProperty("hearspace.defaultConfig")).readText())
     private val k = Intrinsics(100f, 100f, 50f, 50f, 101, 101)
 
+    /** 기준선 규칙 테스트는 HITS를 명시한다(`-PtestOverrides`로 기본 모드를 바꾼 실행에서도 기준선을 보게). */
+    private val hitsCfg = config.map.copy(mode = hearspace.core.types.MapMode.HITS, hitWeighting = hearspace.core.types.HitWeighting.NONE)
+
     /** 카메라 원점, C_cv 정면(+Z)이 월드 −Z가 되도록: C_cv (x, y, z) → 월드 (x, −y, −z). */
     private val worldFromCam = Mat4(floatArrayOf(1f, 0f, 0f, 0f, 0f, -1f, 0f, 0f, 0f, 0f, -1f, 0f, 0f, 0f, 0f, 1f))
     private val camFromWorld = worldFromCam.rigidInverse()
@@ -162,7 +169,7 @@ class VoxelMapTest {
     private fun depthImage(mm: Int) = ShortArray(k.width * k.height) { mm.toShort() }
 
     private fun mapWithVoxelAt(p: Vec3, hits: Int = 3): VoxelMap {
-        val m = VoxelMap(config.map)
+        val m = VoxelMap(hitsCfg)
         repeat(hits) { i ->
             m.beginFrame()
             m.insert(p, i.toLong())
@@ -171,8 +178,61 @@ class VoxelMapTest {
     }
 
     @Test
+    fun `distance weighting needs more far frames and keeps near votes`() {
+        val cfg = hitsCfg.copy(hitWeighting = hearspace.core.types.HitWeighting.DISTANCE)
+        fun occupiedAfter(frames: Int, distM: Float): Boolean {
+            val m = VoxelMap(cfg)
+            repeat(frames) { m.beginFrame(); m.insert(Vec3(0.01f, 0.01f, -distM), it.toLong(), m.weight(distM)) }
+            return m.occupied().isNotEmpty()
+        }
+        val near = cfg.weightRefM * 0.75f
+        val far = cfg.weightRefM * 2f // 가중치 1/4
+        assertTrue(occupiedAfter(cfg.minHits, near), "가까운 관측은 기준선과 같은 장 수")
+        assertFalse(occupiedAfter(cfg.minHits, far), "먼 관측은 같은 장 수로는 점유가 아님")
+        assertTrue(occupiedAfter(cfg.minHits * 4, far), "가중합이 문턱에 닿으면 점유")
+        // 기준선은 거리와 무관
+        val base = VoxelMap(hitsCfg)
+        repeat(cfg.minHits) { base.beginFrame(); base.insert(Vec3(0.01f, 0.01f, -far), it.toLong(), base.weight(far)) }
+        assertEquals(1, base.occupied().size)
+    }
+
+    @Test
+    fun `tsdf averages a noisy surface into a thinner layer than hits`() {
+        // 카메라 원점, 정면 2 m(월드 z −2)의 평면을 깊이 잡음 ±5 cm(1.95·2.00·2.05 m)로 18장 본다. HITS는 맞은 칸을 모두 남겨 세 층,
+        // TSDF는 평균 표면(2.0 m) 양옆 반 칸 안의 두 층만 점유다
+        fun layers(cfg: hearspace.core.types.MapConfig): Int {
+            val m = VoxelMap(cfg)
+            repeat(18) { i -> // 층마다 6장 = minHits
+                val d = listOf(1.95f, 2.0f, 2.05f)[i % 3]
+                m.beginFrame()
+                for (a in -3..3) for (b in -3..3) {
+                    m.insert(Vec3(0.01f + a * 0.02f, 0.01f + b * 0.02f, -d), i.toLong(), m.weight(d), cameraW = Vec3.ZERO)
+                }
+                m.decayFree(depthImage((d * 1000).toInt()), k, camFromWorld)
+            }
+            return m.occupied().filter { kotlin.math.abs(it.centerW.x) < 0.05f && kotlin.math.abs(it.centerW.y) < 0.05f }.map { it.iz }.distinct().size
+        }
+        val hits = layers(hitsCfg)
+        val tsdf = layers(hitsCfg.copy(mode = hearspace.core.types.MapMode.TSDF))
+        assertEquals(3, hits)
+        assertTrue(tsdf in 1..2, "tsdf layers $tsdf")
+    }
+
+    @Test
+    fun `wall votes count once per frame next to the hits`() {
+        val m = VoxelMap(hitsCfg)
+        val p = Vec3(0.01f, 0.01f, 0.01f)
+        m.beginFrame(); m.insert(p, 0); m.insert(p, 0, wall = true); m.insert(p, 0, wall = true)
+        m.beginFrame(); m.insert(p, 1)
+        m.beginFrame(); m.insert(p, 2, wall = true)
+        val v = m.views().single()
+        assertEquals(3, v.hits)
+        assertEquals(2, v.wallHits)
+    }
+
+    @Test
     fun `hits count once per frame and score saturates`() {
-        val m = VoxelMap(config.map)
+        val m = VoxelMap(hitsCfg)
         m.beginFrame()
         repeat(10) { m.insert(Vec3(0.01f, 0.01f, 0.01f), 0) }
         assertEquals(1, m.views().single().hits)
@@ -186,7 +246,7 @@ class VoxelMapTest {
 
     @Test
     fun `negative coordinates floor to the correct voxel`() {
-        val m = VoxelMap(config.map)
+        val m = VoxelMap(hitsCfg)
         assertEquals(-1, m.index(-0.001f))
         assertEquals(0, m.index(0f))
         assertEquals(-2, m.index(-0.05f - 1e-4f))
@@ -229,7 +289,7 @@ class VoxelMapTest {
 
     @Test
     fun `prune removes passed, unseen and far voxels only`() {
-        val m = VoxelMap(config.map)
+        val m = VoxelMap(hitsCfg)
         val heading = Vec3(0f, 0f, -1f)
         m.beginFrame()
         m.insert(Vec3(0f, 0.5f, -1f), 0) // 앞: 유지
@@ -253,6 +313,72 @@ class VoxelMapTest {
         assertEquals(0.5f, m.views().single().score, 1e-6f)
         m.clear()
         assertEquals(0, m.size)
+    }
+
+    // ---- M13.2 로그 오즈: 규칙 자체를 보므로 값은 명시(OctoMap 적중 0.7, 빈 칸 0.4, 0.12~0.97, 점유 0.5, 기준 거리 2 m, 여유 3%) ----
+    private val logCfg = config.map.copy(
+        mode = hearspace.core.types.MapMode.LOG_ODDS, logHit = 0.847f, logMiss = -0.405f, logMin = -1.992f, logMax = 3.476f,
+        logOccupied = 0f, weightRefM = 2f, freeMarginRatio = 0.03f,
+    )
+
+    private fun logMapWithVoxelAt(p: Vec3, hits: Int, weight: Float = 1f) = VoxelMap(logCfg).also { m ->
+        repeat(hits) { i ->
+            m.beginFrame()
+            m.insert(p, i.toLong(), weight)
+        }
+    }
+
+    @Test
+    fun `log odds - hits make a voxel occupied, the upper clamp keeps it responsive, misses remove it`() {
+        val p = Vec3(0f, 0f, -2f)
+        val m = logMapWithVoxelAt(p, hits = 1)
+        assertEquals(1, m.occupied().size, "one hit = p 0.7 > 0.5")
+        repeat(20) { m.beginFrame(); m.insert(p, 0) }
+        assertEquals(logCfg.logMax, m.views().single().logOdds, 1e-6f) // 상한에서 멈춤
+        // 상한(3.476)에서 빈 칸 관측(−0.405) 9번이면 점유가 풀리고 하한까지 가면 지워진다
+        var n = 0
+        while (m.occupied().isNotEmpty()) { m.beginFrame(); m.decayFree(depthImage(3000), k, camFromWorld); n++ }
+        assertEquals(9, n)
+        while (m.size > 0 && n < 100) { m.beginFrame(); m.decayFree(depthImage(3000), k, camFromWorld); n++ }
+        assertEquals(0, m.size)
+    }
+
+    @Test
+    fun `log odds - out of view, occluded and invalid depth leave the voxel unchanged`() {
+        for ((q, mm) in listOf(Vec3(0f, 0f, 2f) to 3000, Vec3(5f, 0f, -1f) to 3000, Vec3(0f, 0f, -2f) to 1000, Vec3(0f, 0f, -2f) to 0)) {
+            val m = logMapWithVoxelAt(q, hits = 2)
+            val before = m.views().single().logOdds
+            m.beginFrame()
+            m.decayFree(depthImage(mm), k, camFromWorld)
+            assertEquals(before, m.views().single().logOdds, 1e-6f, "voxel $q depth $mm")
+        }
+    }
+
+    @Test
+    fun `log odds - free margin grows with depth`() {
+        // 칸 중심 깊이 1.975 m: 여유 max(0.05, 0.03 × 1.975) ≈ 0.059 m → 2.03 m 관측은 칸 자리, 2.10 m는 지나침
+        // (HITS의 고정 여유 0.15 m면 2.10 m도 칸 자리로 봐서 지우지 않는다)
+        for ((mm, decays) in listOf(2030 to 0, 2100 to 1)) {
+            val m = logMapWithVoxelAt(Vec3(0f, 0f, -2f), hits = 2)
+            m.beginFrame()
+            assertEquals(decays, m.decayFree(depthImage(mm), k, camFromWorld), "depth $mm mm")
+        }
+    }
+
+    @Test
+    fun `log odds - far observations weigh less, so near views overwrite a far phantom`() {
+        val m = VoxelMap(logCfg)
+        assertEquals(1f, m.weight(1.5f), 1e-6f)
+        assertEquals(0.25f, m.weight(4f), 1e-6f) // (2 / 4)²
+        // 4 m 밖에서 20번 본 가짜 칸(가중치 0.25 → 로그 오즈 3.476 상한)을 2 m 안 가까운 빈 칸 관측이 지운다: HITS보다 빨리
+        val phantom = Vec3(0f, 0f, -2f)
+        val far = logMapWithVoxelAt(phantom, hits = 20, weight = 0.25f)
+        val hits = mapWithVoxelAt(phantom, hits = 20)
+        var nLog = 0
+        while (far.occupied().isNotEmpty()) { far.beginFrame(); far.decayFree(depthImage(3000), k, camFromWorld); nLog++ }
+        var nHits = 0
+        while (hits.occupied().isNotEmpty()) { hits.beginFrame(); hits.decayFree(depthImage(3000), k, camFromWorld); nHits++ }
+        assertTrue(nLog <= nHits * 3, "log odds $nLog vs hits $nHits frames")
     }
 }
 
@@ -296,7 +422,7 @@ class FloorTest {
 
     @Test
     fun `first estimate uses points below the camera, then the search band`() {
-        val f = Floor(config.floor, config.map.radiusM)
+        val f = Floor(config.floor.copy(minBelowCameraM = 0f), config.map.radiusM) // 기준선(하한 없음)을 명시: -PtestOverrides로 하한을 켠 실행에서도
         // 탁자면(0.7)보다 바닥(−0.3)이 많다
         val u = f.update(points(-0.3f to 500, 0.7f to 300, 1.5f to 1000), Vec3(0f, 1.0f, 0f))
         assertEquals(-0.3f, u.floorY!!, 1e-4f)

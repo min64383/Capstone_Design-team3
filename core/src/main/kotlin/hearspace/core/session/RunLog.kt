@@ -28,6 +28,20 @@ object RunLog {
 
     val STAGE_TIMING_HEADER = listOf("tCaptureNs", "mapNs", "clusterNs", "trackNs")
 
+    /** 평면 추출 결과(M13.1c, `frontend.planes`가 RANSAC일 때만). 벽은 `x0:z0:x1:z1:점수`를 `;`로 이은 칸. 바닥이 없으면 floorY가 빈 칸. */
+    const val PLANES_FILE = "planes.csv"
+
+    val PLANES_HEADER = listOf("tCaptureNs", "floorY", "floorLiftPerM", "floorInliers", "floorSpreadM", "nWalls", "walls")
+
+    fun planesLine(tCaptureNs: Long, p: hearspace.core.frontend.PlaneResult): String {
+        val f = p.floor
+        val walls = p.walls.joinToString(";") { "%.3f:%.3f:%.3f:%.3f:%d".format(java.util.Locale.ROOT, it.x0, it.z0, it.x1, it.z1, it.nInliers) }
+        return listOf(
+            tCaptureNs, f?.heightM?.let { "%.4f".format(java.util.Locale.ROOT, it) } ?: "", f?.liftPerM?.let { "%.3f".format(java.util.Locale.ROOT, it) } ?: "", f?.nInliers ?: 0,
+            f?.spreadM?.let { "%.3f".format(java.util.Locale.ROOT, it) } ?: "", p.walls.size, walls,
+        ).joinToString(",")
+    }
+
     val SLOW_PATH_HEADER = listOf("tCaptureNs", "tStartNs", "tDoneNs", "nPoints", "nVoxels", "nObstacles", "floorY", "mapHealth")
 
     val GUIDANCE_HEADER = listOf(
