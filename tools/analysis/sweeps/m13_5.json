@@ -1,5 +1,5 @@
 {
-  "note": "M13.5: 복셀 표의 거리 가중(map.hitWeighting DISTANCE, weightRefM 2 m = 평평한 바닥 실측에서 깊이를 믿을 수 있는 거리)을 기준선과, 지금의 채택 후보(앞단 + 바닥 하한 0.8) 위에서 비교. 실제 세션으로 맞춘 값 없음. 조정용(E01h·E02·S02)/확인용(E03·E04·S03·S07·S01)을 따로 본다. 기본값은 app/src/main/assets/config/default.json floor.distanceWeighted 변형은 커밋 4e4e82e에서 돌렸고 제거됨. floor.belowNearOnly 변형은 커밋 17ae449에서 돌렸고 제거됨(둘 다 S07 STOP 누락, M13_REPORT §6.3). C2(cluster.separateWalls): 벽 칸과 나머지를 따로 군집, 평면 추출의 벽 판정에 연속성(wallMaxGapM)과 모서리 점 공유 길이를 더함. M13.6 TSDF(map.mode TSDF): 잘림 폭·가중치 상한·입사각 하한은 기하와 조정용 세션 깊이 퍼짐에서.",
+  "note": "M13.5: 복셀 표의 거리 가중(map.hitWeighting DISTANCE, weightRefM 2 m = 평평한 바닥 실측에서 깊이를 믿을 수 있는 거리)을 기준선과, 지금의 채택 후보(앞단 + 바닥 하한 0.8) 위에서 비교. 실제 세션으로 맞춘 값 없음. 조정용(E01h·E02·S02)/확인용(E03·E04·S03·S07·S01)을 따로 본다. 기본값은 app/src/main/assets/config/default.json floor.distanceWeighted 변형은 커밋 4e4e82e에서 돌렸고 제거됨. floor.belowNearOnly 변형은 커밋 17ae449에서 돌렸고 제거됨(둘 다 S07 STOP 누락, M13_REPORT §6.3). C2(cluster.separateWalls): 벽 칸과 나머지를 따로 군집, 평면 추출의 벽 판정에 연속성(wallMaxGapM)과 모서리 점 공유 길이를 더함. M13.6 TSDF(map.mode TSDF): 잘림 폭·가중치 상한·입사각 하한은 기하와 조정용 세션 깊이 퍼짐에서. M13.7 RGB 안내 보정(frontend.rgbGuide): 막 후보(경계 마스크)를 밝기 가중 중앙값으로 앞·뒤 면에 붙임. 지금 녹화는 RGB가 3장마다라 같은 장 RGB가 있는 깊이(약 1/3)만 보정된다. rgb100 변형은 민감도 확인용(과거 RGB 100 ms까지 허용, 걸을 때 몇 픽셀 어긋남): 채택 근거로 쓰지 않는다.",
   "variants": [
     {
       "name": "base",
@@ -86,6 +86,45 @@
         },
         "map": {
           "mode": "TSDF"
+        }
+      }
+    },
+    {
+      "name": "rgbguide",
+      "overrides": {
+        "frontend": {
+          "rgbGuide": "WEIGHTED_MEDIAN"
+        }
+      }
+    },
+    {
+      "name": "frontend_floor0.8_hitweight_rgb",
+      "overrides": {
+        "frontend": {
+          "enabled": true,
+          "rgbGuide": "WEIGHTED_MEDIAN"
+        },
+        "floor": {
+          "minBelowCameraM": 0.8
+        },
+        "map": {
+          "hitWeighting": "DISTANCE"
+        }
+      }
+    },
+    {
+      "name": "frontend_floor0.8_hitweight_rgb100",
+      "overrides": {
+        "frontend": {
+          "enabled": true,
+          "rgbGuide": "WEIGHTED_MEDIAN",
+          "rgbMaxAgeMs": 100
+        },
+        "floor": {
+          "minBelowCameraM": 0.8
+        },
+        "map": {
+          "hitWeighting": "DISTANCE"
         }
       }
     }

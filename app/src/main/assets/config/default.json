@@ -41,7 +41,11 @@
     "wallMaxGapM": 0.2,
     "wallMinHeightM": 0.3,
     "wallMaxPlanes": 3,
-    "planeIterations": 120
+    "planeIterations": 120,
+    "rgbGuide": "NONE",
+    "rgbGuideRadiusPx": 3,
+    "rgbGuideLumaSigma": 12,
+    "rgbMaxAgeMs": 20
   },
   "map": {
     "voxelSizeM": 0.05,

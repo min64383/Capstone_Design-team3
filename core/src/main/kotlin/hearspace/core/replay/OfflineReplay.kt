@@ -16,6 +16,7 @@ import hearspace.core.types.DepthFrame
 import hearspace.core.types.GuidanceOutput
 import hearspace.core.types.ObstacleSnapshot
 import hearspace.core.types.PoseFrame
+import hearspace.core.types.RgbGuideMode
 import java.io.File
 
 /** 느린 경로 한 번의 결과(재생 가상 시계 기준). */
@@ -80,6 +81,12 @@ class OfflineReplay(
     fun run(session: File, listener: ReplayListener) {
         val reader = SessionReader(session)
         val sysOf = reader.rows.associate { it.frameIndex to it.sysElapsedNs }
+        // M13.7: RGB 안내 보정을 켜면 깊이 장마다 과거 RGB를 붙인다
+        val rgb = if (config.frontend.rgbGuide != RgbGuideMode.NONE) {
+            RgbFrames(session, reader.rows, reader.meta.camera.imageIntrinsics, (config.frontend.rgbMaxAgeMs * 1e6).toLong())
+        } else {
+            null
+        }
 
         val fast = FastPath(config)
         val slow = SlowPath(config)
@@ -140,7 +147,7 @@ class OfflineReplay(
                     when (val e = next!!.second) {
                         is PoseEvent -> pose = e.pose
                         is DepthEvent -> {
-                            pending = e.depth
+                            pending = rgb?.attach(e.depth) ?: e.depth
                             startIfIdle(arrival)
                         }
                     }

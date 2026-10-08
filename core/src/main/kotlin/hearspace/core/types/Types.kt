@@ -20,6 +20,12 @@ enum class DepthSource { SMOOTHED, RAW }
 /** 깊이 영상 앞단 ③ 평면 추출(IMPROVE_SPEC §6.1.1 M13.1c): NONE = 안 함(기준선), RANSAC = 바닥·벽 평면. */
 enum class PlaneMode { NONE, RANSAC }
 
+/** RGB 안내 깊이 보정(M13.7): NONE = 끔(기준선), WEIGHTED_MEDIAN = 막 후보 픽셀을 밝기 가중 중앙값으로. */
+enum class RgbGuideMode { NONE, WEIGHTED_MEDIAN }
+
+/** RGB 안내 깊이 보정(M13.7)에 쓰는 같은 카메라의 밝기 영상. [K]는 이 영상의 내부 파라미터, [luma]는 행 우선 0~255. */
+class GuideImage(val tCaptureNs: Long, val luma: ByteArray, val K: Intrinsics)
+
 /** 바닥 높이 추정 원천(M13.1c): HISTOGRAM = 높이 히스토그램 최빈값(기준선), PLANE = 평면 추출의 바닥(없으면 갱신하지 않고 유지). */
 enum class FloorSource { HISTOGRAM, PLANE }
 
@@ -83,6 +89,8 @@ data class DepthFrame(
     val worldFromCam: Mat4,
     /** "arcore_depth" | "arcore_raw_depth" | "synthetic" */
     val source: String,
+    /** RGB 안내 보정용 밝기 영상(과거 것만, M13.7). 없으면 null. 같음 비교에는 넣지 않는다. */
+    val guide: GuideImage? = null,
 ) {
     override fun equals(other: Any?): Boolean {
         if (this === other) return true

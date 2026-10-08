@@ -90,6 +90,10 @@ object ConfigLoader {
                     wallMinHeightM = positive("wallMinHeightM"),
                     wallMaxPlanes = atLeast1("wallMaxPlanes"),
                     planeIterations = atLeast1("planeIterations"),
+                    rgbGuide = enumValue<RgbGuideMode>("rgbGuide"),
+                    rgbGuideRadiusPx = atLeast1("rgbGuideRadiusPx"),
+                    rgbGuideLumaSigma = positive("rgbGuideLumaSigma"),
+                    rgbMaxAgeMs = nonNegative("rgbMaxAgeMs"),
                 )
             },
             map = root.section("map") {

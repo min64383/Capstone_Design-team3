@@ -21,7 +21,7 @@ class MembraneTest {
     private val base = File(System.getProperty("hearspace.defaultConfig")).readText()
 
     /** 기준선은 앞단을 명시적으로 끈다(`-PtestOverrides`로 기본값을 켠 실행에서도 기준선이 기준선이게). */
-    private val frontendOff = """ "frontend": { "enabled": false } """
+    private val frontendOff = """ "frontend": { "enabled": false, "rgbGuide": "NONE" } """
 
     /** 깊이 한 장마다 느린 경로 결과와 그때의 점유 복셀 중심(월드). 진행 방향은 참 머리 방향. */
     private class MapStep(val tS: Float, val snapshot: ObstacleSnapshot, val occupied: List<Vec3>)
@@ -57,6 +57,25 @@ class MembraneTest {
     fun `SC-21 without smoothing keeps the space between box and wall empty`() {
         val clean = run(Scenes.SC21.copy(noise = Noise()), frontendOff)
         assertTrue(sc21Passes(clean), "control: ${sc21(clean)}")
+    }
+
+    /** SC-21에 물체별 밝기를 준다(상자 220, 벽 60, 바닥 120): RGB 안내 보정(M13.7)이 쓸 대비. */
+    private fun sc21WithContrast() = Scenes.SC21.let { s ->
+        s.copy(scene = s.scene.copy(items = s.scene.items.map { it.copy(luma = when (it.name) { "box" -> 220; "back_wall" -> 60; else -> 120 }) }))
+    }
+
+    @Test
+    fun `SC-21 RGB guide with colour contrast removes most membrane voxels and passes with the edge detector`() {
+        // 단독: 막 후보(경계 마스크)를 색이 같은 쪽 면 깊이로 옮겨 지우지 않고도 막 칸이 사라진다(31 → 0칸).
+        // 경계 판정과 함께 켜도 M13.1 합격 조건(빈 공간 0칸·합쳐짐 0)
+        val rgbOn = """ "frontend": { "enabled": false, "rgbGuide": "WEIGHTED_MEDIAN" } """
+        val both = """ "frontend": { "enabled": true, "rgbGuide": "WEIGHTED_MEDIAN" } """
+        val (baseGap, _) = sc21(run(sc21WithContrast(), frontendOff))
+        val (gap, merged) = sc21(run(sc21WithContrast(), rgbOn))
+        val withEdges = sc21(run(sc21WithContrast(), both))
+        println("SC-21 RGB guide: gap voxels baseline $baseGap -> $gap (merged $merged), with edge detector $withEdges")
+        assertTrue(baseGap > 0 && gap <= baseGap / 3 && merged == 0f, "baseline $baseGap guided $gap merged $merged")
+        assertTrue(withEdges.first == 0 && withEdges.second == 0f, "with edge detector $withEdges")
     }
 
     @Test

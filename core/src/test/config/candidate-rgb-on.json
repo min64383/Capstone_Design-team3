@@ -1,0 +1,1 @@
+{ "frontend": { "enabled": true, "rgbGuide": "WEIGHTED_MEDIAN" }, "floor": { "minBelowCameraM": 0.8 }, "map": { "hitWeighting": "DISTANCE" } }

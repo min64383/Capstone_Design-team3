@@ -122,6 +122,14 @@ data class FrontendConfig(
     val wallMinHeightM: Float,
     val wallMaxPlanes: Int,
     val planeIterations: Int,
+    /** RGB 안내 깊이 보정(M13.7, [RgbGuideMode]). */
+    val rgbGuide: RgbGuideMode,
+    /** 보정 창 반경(깊이 픽셀). 실측 막 경사 폭 p50 2~4·p90 3~5픽셀(M13.0)을 덮는 3. */
+    val rgbGuideRadiusPx: Int,
+    /** 밝기 유사도 σ(0~255). 정지 세션 RGB의 장 간 밝기 잡음 p90 약 4(E01h 151747, 평평한 픽셀)의 3배. */
+    val rgbGuideLumaSigma: Float,
+    /** 깊이보다 이만큼 이전(ms)의 RGB까지만 쓴다(과거만). 1 m/s·2 m에서 깊이 한 픽셀(약 1.5 cm)이 약 15 ms라 같은 장만 쓰는 20. */
+    val rgbMaxAgeMs: Float,
 )
 
 /** 로컬 복셀 맵 설정. */

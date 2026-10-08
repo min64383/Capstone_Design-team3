@@ -7,6 +7,7 @@ import hearspace.core.geometry.Quaternion
 import hearspace.core.geometry.Vec3
 import hearspace.core.session.PoseGl
 import hearspace.core.types.DepthFrame
+import hearspace.core.types.GuideImage
 import hearspace.core.types.HeightClass
 import hearspace.core.types.Intrinsics
 import hearspace.core.types.PoseFrame
@@ -150,6 +151,8 @@ data class SceneItem(
     val expectedClass: HeightClass? = null,
     val removeAtS: Float? = null,
     val structure: Boolean = false,
+    /** RGB 안내 보정(M13.7) 시험용 밝기 0~255. 기본은 모두 같아 대비가 없다. */
+    val luma: Int = 128,
 ) {
     /** 시각 [tS]에 존재하는지. */
     fun presentAt(tS: Float) = removeAtS == null || tS < removeAtS
@@ -407,10 +410,12 @@ object SyntheticGenerator {
         val o = truth.translation()
         val garbage = noise.depthGarbageS.any { tS in it }
         val mm = ShortArray(k.width * k.height)
+        val luma = ByteArray(k.width * k.height)
         for (v in 0 until k.height) for (u in 0 until k.width) {
             // C_cv 광선 (Z = 1) → 월드. 교차 t가 곧 C_cv 깊이 Z다.
             val dCv = Vec3((u - k.cx) / k.fx, (v - k.cy) / k.fy, 1f)
             val hit = scene.raycast(o, truth.transformDir(dCv), tS) ?: continue
+            luma[v * k.width + u] = hit.second.luma.toByte() // RGB는 선명하다(평활은 깊이에만)
             var z = hit.first * (1f + noise.depthScaleBias)
             if (noise.depthMulStd > 0f) z *= 1f + noise.depthMulStd * gauss(rnd)
             if (noise.invalidRatio > 0f && rnd.nextFloat() < noise.invalidRatio) continue
@@ -418,7 +423,9 @@ object SyntheticGenerator {
             if (z <= 0f) continue
             mm[v * k.width + u] = min((z * 1000f).roundToInt(), 65535).toShort()
         }
-        return DepthFrame(tNs, if (noise.edgeSmoothPx > 0) edgeSmooth(mm, k, noise.edgeSmoothPx) else mm, null, k, reported, "synthetic")
+        return DepthFrame(
+            tNs, if (noise.edgeSmoothPx > 0) edgeSmooth(mm, k, noise.edgeSmoothPx) else mm, null, k, reported, "synthetic", GuideImage(tNs, luma, k),
+        )
     }
 
     /** 반경 [r] 정사각형 안에 깊이 불연속이 있는 유효 픽셀만 그 안 유효 깊이의 평균으로(무효는 무효로 둔다). */

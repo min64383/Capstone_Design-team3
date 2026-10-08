@@ -3,6 +3,7 @@ package hearspace.core.mapping
 import hearspace.core.frontend.EdgeDetector
 import hearspace.core.frontend.PlaneDetector
 import hearspace.core.frontend.PlaneResult
+import hearspace.core.frontend.RgbGuide
 import hearspace.core.geometry.Projection
 import hearspace.core.geometry.Vec3
 import hearspace.core.types.Config
@@ -10,6 +11,7 @@ import hearspace.core.types.DepthFrame
 import hearspace.core.types.FloorSource
 import hearspace.core.types.MapHealth
 import hearspace.core.types.PlaneMode
+import hearspace.core.types.RgbGuideMode
 
 /** 깊이 한 장을 맵에 반영한 결과(§10.1 `slow_path.csv`의 일부). */
 data class MapUpdate(
@@ -112,10 +114,20 @@ class LocalMap(private val config: Config) {
             out = out.copyOf()
             for (i in out.indices) if ((conf[i].toInt() and 0xFF) < min) out[i] = 0
         }
-        if (config.frontend.enabled) {
-            val mask = EdgeDetector.boundaryMask(depth, config.frontend, out)
+        // 막 후보 = 경계 마스크. RGB 보정(M13.7)을 켜면 후보를 색이 같은 쪽 면의 깊이로 옮기고(윤곽을 살림), 경계 판정을 켜면 옮기지
+        // 못한 후보만 지운다(둘 다 켜도 경계 판정 단독보다 막이 늘지 않음)
+        val guide = depth.guide
+        val rgb = config.frontend.rgbGuide == RgbGuideMode.WEIGHTED_MEDIAN && guide != null
+        val mask = if (config.frontend.enabled || rgb) EdgeDetector.boundaryMask(depth, config.frontend, out) else null
+        var snapped: BooleanArray? = null
+        if (rgb && mask != null) {
+            val r = RgbGuide.snap(out, depth.K, guide!!, config.frontend, mask)
+            out = r.depthMm
+            snapped = r.snapped
+        }
+        if (config.frontend.enabled && mask != null) {
             if (out === depth.depthMm) out = out.copyOf()
-            for (i in out.indices) if (mask[i]) out[i] = 0
+            for (i in out.indices) if (mask[i] && snapped?.get(i) != true) out[i] = 0
         }
         return out
     }
