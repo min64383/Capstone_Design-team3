@@ -73,7 +73,7 @@
     "lostFrames": 10,
     "minBelowCameraM": 0,
     "source": "HISTOGRAM",
-    "distanceWeighted": false
+    "belowNearOnly": false
   },
   "cluster": { "epsM": 0.15, "minSamples": 5, "headMinM": 1.2, "bodyMinM": 0.5 },
   "falsePositiveFilter": {

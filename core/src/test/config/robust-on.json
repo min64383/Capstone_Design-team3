@@ -1,1 +1,1 @@
-{ "map": { "hitWeighting": "DISTANCE" }, "floor": { "distanceWeighted": true } }
+{ "map": { "hitWeighting": "DISTANCE" }, "floor": { "belowNearOnly": true } }

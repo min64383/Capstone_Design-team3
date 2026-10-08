@@ -129,7 +129,7 @@ object ConfigLoader {
                     lostFrames = atLeast1("lostFrames"),
                     minBelowCameraM = nonNegative("minBelowCameraM"),
                     source = enumValue<FloorSource>("source"),
-                    distanceWeighted = boolean("distanceWeighted"),
+                    belowNearOnly = boolean("belowNearOnly"),
                 )
             },
             cluster = root.section("cluster") {

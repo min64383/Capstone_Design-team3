@@ -23,9 +23,9 @@ data class FloorUpdate(
  * - 직전 바닥 근처 후보가 모자란 깊이가 `floor.lostFrames`장 이어지면 바닥을 잊고 첫 추정부터 다시(v0.2.7).
  *   잘못 잡은 바닥에 갇히지 않기 위함(M7 실측: 재생 시작 약 3 s 동안 17~28 m 깊이 → 바닥 −33.7 m 고정).
  * - 최빈 칸 주변 ± `toleranceM` 점의 평균으로 칸보다 세밀하게 잡고, `emaAlpha`로 지수 평활한다(과거 값만 사용).
- * - `floor.distanceWeighted`면 칸 개수와 평균을 거리 가중 min(1, ([weightRefM] / 수평거리)²)으로 센다(M13.5, 광택 바닥 반사 대응).
+ * - `floor.belowNearOnly`면 직전 바닥보다 `toleranceM` 넘게 아래인 후보는 수평 [nearM] 안의 것만 쓴다(M13.5, 광택 바닥 반사 대응).
  */
-class Floor(private val cfg: FloorConfig, private val maxDistM: Float, private val weightRefM: Float = Float.POSITIVE_INFINITY) {
+class Floor(private val cfg: FloorConfig, private val maxDistM: Float, private val nearM: Float = Float.POSITIVE_INFINITY) {
 
     private var lostFrames = 0
 
@@ -37,19 +37,18 @@ class Floor(private val cfg: FloorConfig, private val maxDistM: Float, private v
     fun update(pointsW: FloatArray, cameraW: Vec3): FloorUpdate {
         val prev = floorY
         val n = pointsW.size / 3
-        // 후보 높이와 가중치 모으기
+        // 후보 높이 모으기
         val ys = FloatArray(n)
-        val ws = FloatArray(n)
         var m = 0
         for (i in 0 until n) {
             val y = pointsW[3 * i + 1]
             if (y >= cameraW.y - cfg.minBelowCameraM) continue
             val dx = pointsW[3 * i] - cameraW.x
             val dz = pointsW[3 * i + 2] - cameraW.z
-            if (dx * dx + dz * dz > maxDistM * maxDistM) continue
-            if (prev != null && abs(y - prev) > cfg.searchBandM) continue
             val d2 = dx * dx + dz * dz
-            ws[m] = if (cfg.distanceWeighted && d2 > weightRefM * weightRefM) weightRefM * weightRefM / d2 else 1f
+            if (d2 > maxDistM * maxDistM) continue
+            if (prev != null && abs(y - prev) > cfg.searchBandM) continue
+            if (cfg.belowNearOnly && prev != null && y < prev - cfg.toleranceM && d2 > nearM * nearM) continue // 먼 반사상
             ys[m++] = y
         }
         if (m < cfg.minPoints) {
@@ -59,12 +58,12 @@ class Floor(private val cfg: FloorConfig, private val maxDistM: Float, private v
         lostFrames = 0
 
         // 최빈 칸
-        val counts = HashMap<Int, Float>()
+        val counts = HashMap<Int, Int>()
         var bestBin = 0
-        var bestCount = -1f
+        var bestCount = -1
         for (i in 0 until m) {
             val b = floor(ys[i] / cfg.binM).toInt()
-            val c = (counts[b] ?: 0f) + ws[i]
+            val c = (counts[b] ?: 0) + 1
             counts[b] = c
             // 같은 개수면 더 낮은 칸(바닥이 가장 아래 넓은 면이라는 가정)
             if (c > bestCount || (c == bestCount && b < bestBin)) {
@@ -74,11 +73,11 @@ class Floor(private val cfg: FloorConfig, private val maxDistM: Float, private v
         }
         val center = (bestBin + 0.5f) * cfg.binM
         var sum = 0.0
-        var k = 0.0
+        var k = 0
         for (i in 0 until m) {
             if (abs(ys[i] - center) < cfg.toleranceM) {
-                sum += ys[i] * ws[i]
-                k += ws[i]
+                sum += ys[i]
+                k++
             }
         }
         val estimate = (sum / k).toFloat()

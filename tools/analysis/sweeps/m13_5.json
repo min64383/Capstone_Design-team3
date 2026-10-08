@@ -1,5 +1,5 @@
 {
-  "note": "M13.5: 복셀 표의 거리 가중(map.hitWeighting DISTANCE, weightRefM 2 m = 평평한 바닥 실측에서 깊이를 믿을 수 있는 거리)을 기준선과, 지금의 채택 후보(앞단 + 바닥 하한 0.8) 위에서 비교. 실제 세션으로 맞춘 값 없음. 조정용(E01h·E02·S02)/확인용(E03·E04·S03·S07·S01)을 따로 본다. 기본값은 app/src/main/assets/config/default.json 바닥 가중(floor.distanceWeighted)은 광택 바닥 반사(E03 창문 방향, 바닥 아래 점 38~45%)에 바닥 추정이 끌려 내려가는 것 대응.",
+  "note": "M13.5: 복셀 표의 거리 가중(map.hitWeighting DISTANCE, weightRefM 2 m = 평평한 바닥 실측에서 깊이를 믿을 수 있는 거리)을 기준선과, 지금의 채택 후보(앞단 + 바닥 하한 0.8) 위에서 비교. 실제 세션으로 맞춘 값 없음. 조정용(E01h·E02·S02)/확인용(E03·E04·S03·S07·S01)을 따로 본다. 기본값은 app/src/main/assets/config/default.json 바닥 아래 먼 후보 제외(floor.belowNearOnly)는 광택 바닥 반사(E03 창문 방향, 바닥 아래 점 38~45%)에 바닥 추정이 끌려 내려가는 것 대응. floor.distanceWeighted 변형은 커밋 4e4e82e에서 돌렸고 제거됨.",
   "variants": [
     {
       "name": "base",
@@ -39,25 +39,25 @@
       }
     },
     {
-      "name": "hitweight_floorweight",
+      "name": "hitweight_floorbelow",
       "overrides": {
         "map": {
           "hitWeighting": "DISTANCE"
         },
         "floor": {
-          "distanceWeighted": true
+          "belowNearOnly": true
         }
       }
     },
     {
-      "name": "frontend_floor0.8_hitweight_floorweight",
+      "name": "frontend_floor0.8_hitweight_floorbelow",
       "overrides": {
         "frontend": {
           "enabled": true
         },
         "floor": {
           "minBelowCameraM": 0.8,
-          "distanceWeighted": true
+          "belowNearOnly": true
         },
         "map": {
           "hitWeighting": "DISTANCE"
