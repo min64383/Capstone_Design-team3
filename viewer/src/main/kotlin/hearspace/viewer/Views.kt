@@ -3,6 +3,7 @@ package hearspace.viewer
 import hearspace.core.frontend.EdgeDetector
 import hearspace.core.frontend.PlaneDetector
 import hearspace.core.frontend.PlaneResult
+import hearspace.core.frontend.Segmenter
 import hearspace.core.geometry.Projection
 import hearspace.core.geometry.Vec3
 import hearspace.core.session.Png16
@@ -11,6 +12,7 @@ import hearspace.core.types.Band
 import hearspace.core.types.GuidanceState
 import hearspace.core.types.HeightClass
 import hearspace.core.types.PlaneMode
+import hearspace.core.types.SegmentMode
 import java.awt.BasicStroke
 import java.awt.Color
 import java.awt.Dimension
@@ -136,7 +138,9 @@ class CameraView(private val model: ViewerModel) : JPanel() {
             // 깊이 영상 앞단(M13.1)이 켜진 설정이면 경계(막) 판정 픽셀을 자홍으로 겹친다. 설정이 바뀌면 다시 그린다
             val fe = r.config.frontend.takeIf { it.enabled }
             val planeCfg = r.config.frontend.takeIf { it.planes == PlaneMode.RANSAC }
-            depthCache.getOrPut("${depthRow.depthFile}|$fe|$planeCfg") {
+            // 영역 분할(C3a)은 그 시각 직전에 느린 경로가 처리한 깊이 장의 결과를 그대로 칠한다
+            val seg = if (r.config.frontend.segment == SegmentMode.REGION) r.slowAt(t)?.segments else null
+            depthCache.getOrPut("${depthRow.depthFile}|$fe|$planeCfg|${seg?.let { System.identityHashCode(it) }}") {
                 depthOverlay(
                     File(r.session, depthRow.depthFile!!),
                     fe?.let { cfg -> { mm: ShortArray, w: Int, h: Int ->
@@ -146,6 +150,7 @@ class CameraView(private val model: ViewerModel) : JPanel() {
                     planeCfg?.let { cfg -> { mm: ShortArray, w: Int, h: Int ->
                         PlaneDetector.detectDepth(mm, r.reader.depthIntrinsics(w, h), SessionReader.toPoseFrame(depthRow).worldFromCam, r.config.depth.subsample, cfg, r.config.map.radiusM).pixelLabels
                     } },
+                    seg,
                 )
             }?.let { d ->
                 // 깊이 = 영상의 세로 가운데 16:9 부분(F3·F4)
@@ -212,7 +217,8 @@ class CameraView(private val model: ViewerModel) : JPanel() {
         g.color = Palette.text
         val src = (if (rgbRow == null) "RGB 없음(깊이만)" else "RGB 프레임 ${rgbRow.frameIndex}") +
             (if (model.showDepth && r.config.frontend.enabled) "  ·  자홍 = 경계(막) 판정" else "") +
-            (if (model.showDepth && r.config.frontend.planes == PlaneMode.RANSAC) "  ·  초록 = 바닥 평면, 주황 = 벽 평면" else "")
+            (if (model.showDepth && r.config.frontend.planes == PlaneMode.RANSAC) "  ·  초록 = 바닥 평면, 주황 = 벽 평면" else "") +
+            (if (model.showDepth && r.config.frontend.segment == SegmentMode.REGION) "  ·  색 = 영역(C3a, 직전 처리한 깊이)" else "")
         g.drawString(src, 8, height - 8)
     }
 
@@ -220,12 +226,13 @@ class CameraView(private val model: ViewerModel) : JPanel() {
 
     /**
      * 깊이(mm) → 가까움 빨강 ~ 4 m 이상 파랑, 반투명. 0(무효)은 투명. [boundary]가 있으면 그 마스크 픽셀을 자홍(불투명)으로,
-     * [planes]가 있으면 바닥 평면 점을 초록·벽 평면 점을 주황으로 칠한다(M13.1c).
+     * [planes]가 있으면 바닥 평면 점을 초록·벽 평면 점을 주황으로 칠한다(M13.1c). [segments]가 있으면 영역마다 다른 색(C3a).
      */
     private fun depthOverlay(
         f: File,
         boundary: ((ShortArray, Int, Int) -> BooleanArray)? = null,
         planes: ((ShortArray, Int, Int) -> ByteArray)? = null,
+        segments: Segmenter.Result? = null,
     ): BufferedImage? = runCatching {
         val img = Png16.decode(f.readBytes())
         val mm = img.gray16 ?: return@runCatching null
@@ -243,6 +250,11 @@ class CameraView(private val model: ViewerModel) : JPanel() {
                 PlaneResult.FLOOR -> { out.setRGB(x, y, (170 shl 24) or 0x20E050); continue }
                 PlaneResult.WALL -> { out.setRGB(x, y, (170 shl 24) or 0xFF9020); continue }
                 else -> Unit
+            }
+            val sl = segments?.labelAt(x, y) ?: 0
+            if (sl > 0) {
+                out.setRGB(x, y, (170 shl 24) or (Color.HSBtoRGB((sl * 0.618034f) % 1f, 0.8f, 1f) and 0x00FFFFFF))
+                continue
             }
             val f01 = (d / 4000f).coerceIn(0f, 1f)
             val c = Color.HSBtoRGB(0.66f * f01, 1f, 1f) and 0x00FFFFFF

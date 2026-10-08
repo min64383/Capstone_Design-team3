@@ -71,6 +71,9 @@ class ViewerTest {
     fun `views paint with planes and plane floor on (M13_1c)`() =
         paintAll("""{ "frontend": { "enabled": true, "planes": "RANSAC" }, "floor": { "source": "PLANE" } }""")
 
+    @Test
+    fun `views paint with depth segmentation on (C3a)`() = paintAll("""{ "frontend": { "enabled": true, "segment": "REGION" } }""")
+
     private fun paintAll(overrides: String) {
         val r = ReplayRunner.run(File(Repo.sessions, "20261003_131039_S01"), overrides, ReplayRunner.loadHrtf()) // S07: 물체가 시야 밖으로
         val m = ViewerModel().apply { setResult(r) }

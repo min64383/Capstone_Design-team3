@@ -3,6 +3,7 @@ package hearspace.viewer
 import hearspace.core.audio.BinauralRenderer
 import hearspace.core.audio.Hrtf
 import hearspace.core.frontend.PlaneResult
+import hearspace.core.frontend.Segmenter
 import hearspace.core.geometry.Vec3
 import hearspace.core.pipeline.StageTimes
 import hearspace.core.replay.OfflineReplay
@@ -43,6 +44,8 @@ class SlowRec(
     val stageNs: StageTimes,
     /** `frontend.planes`가 RANSAC일 때 이 깊이의 바닥·벽 평면(M13.1c). */
     val planes: PlaneResult? = null,
+    /** `frontend.segment`가 REGION일 때 이 깊이의 영역 분할(C3a). */
+    val segments: Segmenter.Result? = null,
 )
 
 /** [times](오름차순)에서 [t] 이하인 마지막 위치. 없으면 −1. 화면은 이것으로만 찾아 미래 값을 쓰지 않는다. */
@@ -175,7 +178,7 @@ object ReplayRunner {
                 val v = step.occupiedVoxels!!
                 val xyz = FloatArray(v.size * 3)
                 v.forEachIndexed { i, vox -> xyz[3 * i] = vox.centerW.x; xyz[3 * i + 1] = vox.centerW.y; xyz[3 * i + 2] = vox.centerW.z }
-                slow += SlowRec(step.doneNs, step.snapshot, xyz, step.applied, step.stageNs, step.mapUpdate.planes)
+                slow += SlowRec(step.doneNs, step.snapshot, xyz, step.applied, step.stageNs, step.mapUpdate.planes, step.mapUpdate.segments)
             }
 
             override fun onBlock(tNs: Long, pose: PoseFrame, snapshot: ObstacleSnapshot?, g: GuidanceOutput) {

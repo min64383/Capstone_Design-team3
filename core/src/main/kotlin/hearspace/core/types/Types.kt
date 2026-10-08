@@ -20,6 +20,9 @@ enum class DepthSource { SMOOTHED, RAW }
 /** 깊이 영상 앞단 ③ 평면 추출(IMPROVE_SPEC §6.1.1 M13.1c): NONE = 안 함(기준선), RANSAC = 바닥·벽 평면. */
 enum class PlaneMode { NONE, RANSAC }
 
+/** 깊이 영상 영역 분할(IMPROVE_SPEC §6 C3, M13.1 ②): NONE = 끔(기준선), REGION = 깊이 연속 영역 키우기. */
+enum class SegmentMode { NONE, REGION }
+
 /** RGB 안내 깊이 보정(M13.7): NONE = 끔(기준선), WEIGHTED_MEDIAN = 막 후보 픽셀을 밝기 가중 중앙값으로. */
 enum class RgbGuideMode { NONE, WEIGHTED_MEDIAN }
 

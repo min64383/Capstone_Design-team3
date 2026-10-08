@@ -94,6 +94,7 @@ object ConfigLoader {
                     rgbGuideRadiusPx = atLeast1("rgbGuideRadiusPx"),
                     rgbGuideLumaSigma = positive("rgbGuideLumaSigma"),
                     rgbMaxAgeMs = nonNegative("rgbMaxAgeMs"),
+                    segment = enumValue<SegmentMode>("segment"),
                 )
             },
             map = root.section("map") {

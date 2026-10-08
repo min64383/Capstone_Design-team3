@@ -130,6 +130,11 @@ data class FrontendConfig(
     val rgbGuideLumaSigma: Float,
     /** 깊이보다 이만큼 이전(ms)의 RGB까지만 쓴다(과거만). 1 m/s·2 m에서 깊이 한 픽셀(약 1.5 cm)이 약 15 ms라 같은 장만 쓰는 20. */
     val rgbMaxAgeMs: Float,
+    /**
+     * 깊이 영상 영역 분할(C3a, [SegmentMode]). 이웃 깊이 차 기준은 `edgeMinStepRatio`(경계 판정의 단차 기준), 최소 영역 크기는
+     * `cluster.minSamples`(격자 픽셀)를 쓴다(새 수치 없음).
+     */
+    val segment: SegmentMode,
 )
 
 /** 로컬 복셀 맵 설정. */

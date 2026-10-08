@@ -4,6 +4,7 @@ import hearspace.core.frontend.EdgeDetector
 import hearspace.core.frontend.PlaneDetector
 import hearspace.core.frontend.PlaneResult
 import hearspace.core.frontend.RgbGuide
+import hearspace.core.frontend.Segmenter
 import hearspace.core.geometry.Projection
 import hearspace.core.geometry.Vec3
 import hearspace.core.types.Config
@@ -12,6 +13,7 @@ import hearspace.core.types.FloorSource
 import hearspace.core.types.MapHealth
 import hearspace.core.types.PlaneMode
 import hearspace.core.types.RgbGuideMode
+import hearspace.core.types.SegmentMode
 
 /** 깊이 한 장을 맵에 반영한 결과(§10.1 `slow_path.csv`의 일부). */
 data class MapUpdate(
@@ -28,6 +30,8 @@ data class MapUpdate(
     val mapHealth: MapHealth,
     /** `frontend.planes`가 RANSAC일 때 이 깊이의 평면(M13.1c), 아니면 null. */
     val planes: PlaneResult? = null,
+    /** `frontend.segment`가 REGION일 때 이 깊이의 영역 분할(C3a), 아니면 null. 바닥·바닥 아래·벽 평면 점은 영역에 넣지 않는다. */
+    val segments: Segmenter.Result? = null,
 )
 
 /**
@@ -67,6 +71,15 @@ class LocalMap(private val config: Config) {
 
         val floorY = f.floorY
         val wallLabels = if (config.cluster.separateWalls) planes?.labels else null
+        val segments = if (config.frontend.segment == SegmentMode.REGION) {
+            Segmenter.segment(depthMm, depth.K, depth.worldFromCam, config.depth.subsample, config.frontend.edgeMinStepRatio, config.frontend.edgeFitTolRatio, config.cluster.minSamples,
+            ) { i, p ->
+                val camDist = (p - camW).horizontal().norm()
+                p.y < floorY || floor.isFloor(p.y, camDist) || planes?.labels?.get(i) == PlaneResult.WALL
+            }
+        } else {
+            null
+        }
         voxels.beginFrame()
         var nFloor = 0
         var nBelow = 0
@@ -92,7 +105,7 @@ class LocalMap(private val config: Config) {
         val nDecayed = voxels.decayFree(depthMm, depth.K, depth.worldFromCam.rigidInverse())
         val pruned = voxels.prune(userPosW, headingW, depth.tCaptureNs)
         return MapUpdate(
-            depth.tCaptureNs, n, nFloor, nBelow, nInserted, nDecayed, pruned, voxels.size, floor.floorY, MapHealth.OK, planes,
+            depth.tCaptureNs, n, nFloor, nBelow, nInserted, nDecayed, pruned, voxels.size, floor.floorY, MapHealth.OK, planes, segments,
         )
     }
 
