@@ -29,11 +29,11 @@ application {
     mainClass.set("hearspace.viewer.MainKt")
 }
 
-// ./gradlew :viewer:run [-Psession=testdata/sessions/<세션ID>]
+// ./gradlew :viewer:run [-Psession=<세션 ID | ID 일부 | testdata/sessions 기준 경로 | 저장소 기준 경로>] — 찾기는 GUI가 한다(Sessions.resolve)
 tasks.named<JavaExec>("run") {
     workingDir = rootProject.projectDir
     systemProperty("hearspace.repoRoot", rootProject.projectDir.absolutePath)
-    (project.findProperty("session") as String?)?.let { args(rootProject.file(it).absolutePath) }
+    (project.findProperty("session") as String?)?.let { args(it) }
 }
 
 tasks.test {

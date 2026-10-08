@@ -14,7 +14,7 @@
 ## 명령 (PowerShell)
 - core 테스트: `./gradlew :core:test`
 - 앱 설치: `./gradlew :app:installDebug`
-- 평가 GUI: `./gradlew :viewer:run "-Psession=testdata/sessions/<세션ID>"`
+- 평가 GUI: `./gradlew :viewer:run -Psession=<세션ID 또는 그 일부>` (testdata/sessions → data/sessions 순으로 찾음)
 - 로그: `adb logcat -s HEARSPACE`
 
 ## 반드시 지킬 원칙

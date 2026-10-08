@@ -177,4 +177,4 @@ if ($bad.Count) {
     else { Write-Host '준비되지 않은 항목이 있다. 위 표를 확인하라.' -ForegroundColor Yellow }
     exit 1
 }
-Write-Host "viewer 준비 완료. 실행:`n  .\gradlew.bat :viewer:run `"-Psession=testdata/sessions/20261003_130815_S01`"" -ForegroundColor Green
+Write-Host "viewer 준비 완료. 실행:`n  .\gradlew.bat :viewer:run -Psession=20261003_130815_S01" -ForegroundColor Green

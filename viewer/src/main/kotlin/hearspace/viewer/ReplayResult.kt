@@ -30,6 +30,13 @@ object Repo {
     val sessions: File get() = File(root, "testdata/sessions")
     val feedback: File get() = File(root, "data/feedback")
     val variants: File get() = File(root, "data/viewer/variants")
+
+    /** 저장소 기준 상대경로(`/` 구분, 예: `testdata/sessions/<ID>`). 저장소 밖이면 절대경로. */
+    fun relative(f: File): String {
+        val r = root.canonicalFile.toPath()
+        val p = f.canonicalFile.toPath()
+        return if (p.startsWith(r)) r.relativize(p).toString().replace(File.separatorChar, '/').ifEmpty { "." } else p.toString()
+    }
 }
 
 /** 오디오 블록 하나: 그 블록이 쓴 자세·스냅샷 시각과 빠른 경로 출력. */

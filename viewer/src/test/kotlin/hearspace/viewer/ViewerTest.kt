@@ -33,7 +33,7 @@ class ViewerTest {
 
     @Test
     fun `feedback round trips and the config hash ignores formatting`() {
-        val fb = Feedback("sid", "S02", "v1", """{ "map": { "voxelSizeM": 0.075 } }""",
+        val fb = Feedback("sid", "testdata/sessions/sid", "S02", "v1", """{ "map": { "voxelSizeM": 0.075 } }""",
             RatingItem.entries.associateWith { 4 }, listOf(Note(1.5, "왼쪽 상자가 오른쪽에서 들림")), "2026-10-03T12:00:00")
         val back = Feedback.parse(fb.toJson())
         assertEquals(fb.copy(overridesJson = back.overridesJson), back)
@@ -44,8 +44,28 @@ class ViewerTest {
     }
 
     @Test
+    fun `sessions resolve by id, partial id or repo-relative path and display relative paths`() {
+        val want = s02.canonicalFile
+        assertEquals(want, Sessions.resolve("20261003_130815_S01"))          // ID (같은 ID가 data/에 있어도 git 쪽이 먼저)
+        assertEquals(want, Sessions.resolve("testdata/sessions/20261003_130815_S01"))
+        assertEquals(want, Sessions.resolve("""testdata\sessions\20261003_130815_S01\""")) // Windows 구분자, 끝 구분자
+        assertEquals(want, Sessions.resolve("130815"))                       // 한 세션에만 맞는 일부
+        assertEquals(want, Sessions.resolve(want.path))                      // 절대경로도 그대로
+        assertThrows<IllegalArgumentException> { Sessions.resolve("20261003_13") }  // 여럿에 맞음
+        assertThrows<IllegalArgumentException> { Sessions.resolve("no_such_session") }
+        assertEquals("testdata/sessions/20261003_130815_S01", Repo.relative(s02))
+        val list = Sessions.list()
+        val e = list.first { it.id == "20261003_130815_S01" }
+        assertEquals("testdata/sessions/20261003_130815_S01", e.path)
+        assertEquals("S02", e.scene)
+        assertEquals("실측 1개", e.truth)
+        assertEquals("추정 1개", list.first { it.id == "20260928_190833_S01" }.truth)
+        assertTrue(list.indexOfFirst { it.path.startsWith("testdata/") } == 0, "git sessions first")
+    }
+
+    @Test
     fun `feedback is saved under the session id`(@TempDir dir: File) {
-        val fb = Feedback("20261003_130815_S01", "S02", "", "{}", mapOf(RatingItem.DIRECTION to 3), emptyList(), "2026-10-03T12:34:56")
+        val fb = Feedback("20261003_130815_S01", "testdata/sessions/20261003_130815_S01", "S02", "", "{}", mapOf(RatingItem.DIRECTION to 3), emptyList(), "2026-10-03T12:34:56")
         val f = fb.save(dir)
         assertEquals(File(dir, "20261003_130815_S01/20261003T123456.json"), f)
         assertEquals(fb, Feedback.parse(f.readText()))
