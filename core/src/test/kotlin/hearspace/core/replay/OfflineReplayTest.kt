@@ -47,12 +47,12 @@ class OfflineReplayTest {
         return """{ "head": { "offsetFromCameraM": [${g.x}, ${g.y}, ${g.z}] } }"""
     }
 
-    private fun replay(name: String, spec: SceneSpec, slowMs: Float = 10f, runName: String = "run"): File {
+    private fun replay(name: String, spec: SceneSpec, slowMs: Float = 10f, runName: String = "run", extra: String = ""): File {
         val dir = File(root, name)
         val session = File(dir, "session")
         session.deleteRecursively()
         SyntheticSessionWriter.write(spec.generate(), session, "SYN")
-        val overrides = overridesFor(spec)
+        val overrides = overridesFor(spec).let { o -> if (extra.isBlank()) o else o.removeSuffix(" }") + ", $extra }" }
         val out = File(dir, runName)
         OfflineReplay(ConfigLoader.load(base, overrides), OfflineReplay.fixed(slowMs)).run(session, out, overrides, "fixed:${slowMs}ms")
         return out
@@ -107,6 +107,18 @@ class OfflineReplayTest {
         assertTrue(warns.isNotEmpty())
         val maxAz = warns.maxOf { abs(it[5].toFloat()) }
         assertTrue(maxAz < 3f, "max |az| $maxAz")
+    }
+
+    @Test
+    fun `slow path rate cap limits the slow path frequency and still warns`() {
+        // M13.4: 깊이 30 Hz, 처리 10 ms면 느린 경로가 약 30 Hz로 돈다. 상한 10 Hz면 시작 간격이 0.1 s 이상이고 안내는 그대로 난다.
+        // 상한은 1/상한 + 파이프라인 지연(이 합성 세션의 정보 나이 중앙값 약 160 ms) ≤ `policy.maxInfoAgeMs`(300 ms)여야 한다:
+        // 5 Hz(200 ms)면 정보 나이가 허용치를 넘어 안내 상태가 내내 UNKNOWN이었다(무음 = 원칙대로)
+        val run = replay("clean", variants.getValue("clean"), 10f, "run_cap10", """ "slowPath": { "maxRateHz": 10 } """)
+        val starts = File(run, RunLog.SLOW_PATH_FILE).readLines().drop(1).map { it.split(',')[1].toLong() }
+        val gaps = starts.zipWithNext { a, b -> (b - a) / 1e9 }
+        assertTrue(gaps.isNotEmpty() && gaps.min() >= 0.1 - 1e-6, "min start gap ${gaps.minOrNull()} s")
+        assertTrue(guidance(run).any { it[7] == "WARN" }, "still warns")
     }
 
     @Test

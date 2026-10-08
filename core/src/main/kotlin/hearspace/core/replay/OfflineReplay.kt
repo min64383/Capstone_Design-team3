@@ -98,9 +98,13 @@ class OfflineReplay(
         var pending: DepthFrame? = null
         // 처리 중인 작업(끝 시각, 결과, 시작 시 RESET 표시)
         var job: Job? = null
+        // M13.4: 느린 경로 주기 상한(앱 LivePipeline과 같은 규칙: 시작 간격이 1/maxRateHz 이상)
+        val minIntervalNs = if (config.slowPath.maxRateHz > 0f) (1e9 / config.slowPath.maxRateHz).toLong() else 0L
+        var lastStartNs = Long.MIN_VALUE
 
         fun startIfIdle(atNs: Long) {
             if (job != null) return
+            if (minIntervalNs > 0 && lastStartNs != Long.MIN_VALUE && atNs - lastStartNs < minIntervalNs) return // 깊이는 최신 값으로 기다림
             if (mapAction != MapAction.NONE) {
                 slow.apply(mapAction)
                 mapAction = MapAction.NONE
@@ -109,6 +113,7 @@ class OfflineReplay(
             pending = null
             val h = heading ?: return // 앱과 같이: 진행 방향을 모르면 그 깊이는 버린다
             if (d.tCaptureNs < resetAfterNs) return
+            lastStartNs = atNs
             val s = slow.process(d, h)
             val voxels = if (listener.captureVoxels) slow.map.voxels.occupied() else null
             job = Job(d, atNs, atNs + slowPathNs(d), s, resetAfterNs, slow.lastMapUpdate!!, slow.lastClusterDebug, slow.lastStageNs, voxels)
@@ -154,6 +159,7 @@ class OfflineReplay(
                     next = if (events.hasNext()) events.next() else null
                 }
             }
+            if (minIntervalNs > 0) startIfIdle(t) // 주기 상한으로 미뤄 둔 깊이를 간격이 지나면 시작
             val p = pose
             if (p != null) {
                 val snap = snapshot

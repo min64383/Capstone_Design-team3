@@ -69,3 +69,40 @@
 측정값(촬영일, 측정자): 끝 벽까지 L = ___ m, 폭 = ___ m, 캐리어 앞면(카메라 기준) = ___ m, 카메라 높이(대략) = ___ m
 
 E09~E11 배치(카메라 기준): 상자 크기(너비 × 높이 × 깊이) = ___, E09 상자 앞면 = ___ m·좌우 ___ m, E10 캐리어·상자 좌우 위치 = ___, E11 캐리어 앞면 = ___ m
+
+## 6. 기기 설정 덮어쓰기 (녹화·M13.4 공통, 다시 설치 없이)
+
+앱은 시작할 때 `/sdcard/Android/data/hearspace.app/files/config.override.json`이 있으면 그 위에 덮어쓴다(`AppConfig`, 팀 기본값은 그대로). 설정은 앱을 시작할 때 한 번 읽으므로 파일을 바꾼 뒤에는 앱을 강제 종료하고 다시 연다.
+
+```powershell
+./gradlew :app:installDebug                                   # 이 브랜치 앱(모든 새 기능은 기본 꺼짐)
+adb push tools/device/<파일>.json /sdcard/Android/data/hearspace.app/files/config.override.json
+adb shell am force-stop hearspace.app                          # 다음 실행에 반영
+adb shell rm /sdcard/Android/data/hearspace.app/files/config.override.json   # 덮어쓰기 없애기
+```
+
+| 파일(`tools/device/`) | 용도 |
+|---|---|
+| `rec_rgb_every_frame.json` | E05~E11 녹화: RGB를 매 장 저장(`record.rgbEveryN` 1, RGB 안내 보정 M13.7 평가용) |
+| `m13_4_a_candidate.json` | M13.4 ①: 후보 조합(앞단 + 바닥 0.8 + 거리 가중 + 겹침 연결), 주기 상한 없음 |
+| `m13_4_b_cap10.json` | M13.4 ②: ① + 느린 경로 상한 10 Hz |
+| `m13_4_c_cap10_voxel075.json` | M13.4 ③: ② + 복셀 0.075 m |
+
+녹화 뒤에는 RGB를 매 장 저장해도 프레임이 빠지지 않았는지(`frames.csv`의 시각 간격, `meta.json`의 `nRgbSaved`) PC에서 먼저 확인한다.
+
+## 7. M13.4 기기 측정 (T01(b) 10분 × 3)
+
+`docs/M10_RECORDING.md` 4절(T01(b) 사용자 모드 10분, 거치)과 같은 절차를 ①·②·③ 설정으로 한 번씩 한다. 사이에 5분 이상 쉬어 기기 온도를 가라앉힌다(총 약 45분).
+
+- [ ] 폰을 거치대(가슴 높이 약 1 m)에, 캐리어는 S02 배치(앞면 2.0 m)
+- [ ] 위 표의 파일을 push → 강제 종료 → 사용자 모드 시작 → 10분 이상(3·5·7분에 ±30° 천천히 회전) → 길게 눌러 종료
+- [ ] 실행 로그를 가져온다: `adb pull /storage/emulated/0/Android/data/hearspace.app/files/runs/<시각> data/runs/`
+- [ ] 기록표에 ①·②·③과 실행 로그 이름을 적는다
+
+PC에서 `metrics.py --run`으로 느린 경로 주기, 처리 시간 p50·p95, 확인 불가(UNKNOWN) 비율, 정보 나이, 온도 변화를 M10(확인 불가 28%, 처리 20 → 82 ms)과 비교한다. **상한 조건**: 1/상한 + 파이프라인 지연 ≤ `policy.maxInfoAgeMs`(300 ms). 합성 재생에서 5 Hz는 정보 나이가 허용치를 넘어 안내가 꺼졌고, 10 Hz는 정보 나이 중앙값 163 → 195 ms·p95 178 → 242 ms였다.
+
+| 측정 | 설정 | 실행 로그 | 메모 |
+|---|---|---|---|
+| ① | 후보 조합 | | |
+| ② | + 상한 10 Hz | | |
+| ③ | + 복셀 0.075 m | | |

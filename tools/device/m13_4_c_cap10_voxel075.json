@@ -1,0 +1,1 @@
+{ "frontend": { "enabled": true }, "floor": { "minBelowCameraM": 0.8 }, "map": { "hitWeighting": "DISTANCE", "voxelSizeM": 0.075 }, "track": { "matchByOverlap": true }, "slowPath": { "maxRateHz": 10 } }

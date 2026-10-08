@@ -9,9 +9,12 @@ import hearspace.core.geometry.Vec3
 object ConfigLoader {
 
     /** [baseJson]을 읽고, [overrideJson]이 있으면 그 값을 덮어쓴 설정을 만든다. */
-    fun load(baseJson: String, overrideJson: String? = null): Config {
-        val base = rootObject(baseJson, "base")
-        val merged = if (overrideJson == null) base else merge(base, rootObject(overrideJson, "override"), "")
+    fun load(baseJson: String, overrideJson: String? = null): Config = load(baseJson, listOfNotNull(overrideJson))
+
+    /** [baseJson]에 [overrideJsons]를 차례로 덮어쓴 설정(앱: 연속음 선택 → 기기의 실험용 덮어쓰기). */
+    fun load(baseJson: String, overrideJsons: List<String>): Config {
+        var merged = rootObject(baseJson, "base")
+        for ((i, o) in overrideJsons.withIndex()) merged = merge(merged, rootObject(o, "override${if (i == 0) "" else "#$i"}"), "")
         return build(Section(merged, ""))
     }
 
@@ -238,6 +241,7 @@ object ConfigLoader {
             align = root.section("align") {
                 AlignConfig(fitLengthM = positive("fitLengthM"), minTravelM = positive("minTravelM"), headingWindowS = positive("headingWindowS"))
             },
+            slowPath = root.section("slowPath") { SlowPathConfig(maxRateHz = nonNegative("maxRateHz")) },
             sonify = root.section("sonify") {
                 SonifyConfig(
                     mode = enumValue<SonifyMode>("mode"),

@@ -24,6 +24,7 @@ data class Config(
     val record: RecordConfig,
     val align: AlignConfig,
     val sonify: SonifyConfig,
+    val slowPath: SlowPathConfig,
 )
 
 /** 머리 좌표계 설정. */
@@ -364,6 +365,12 @@ data class RecordConfig(
     /** device.csv(발열·배터리) 기록 주기. */
     val deviceLogIntervalS: Float,
 )
+
+/**
+ * 느린 경로 주기 상한(IMPROVE_SPEC §6.1.1 M13.4, 발열). [maxRateHz] > 0이면 느린 경로를 시작한 뒤 1/[maxRateHz] 초가 지나야 다음
+ * 깊이를 꺼낸다(그동안 온 깊이는 최신 값으로 교체). 0 = 제한 없음(기준선). 선행 시스템은 융합을 카메라보다 낮은 주기로 돌린다.
+ */
+data class SlowPathConfig(val maxRateHz: Float)
 
 /**
  * 분석 도구용 정답 정렬 설정. 카메라가 [minTravelM]보다 적게 움직인 세션(정지 녹화)은 궤적 방향이 잡음이라
