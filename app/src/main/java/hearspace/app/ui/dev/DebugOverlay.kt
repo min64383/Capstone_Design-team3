@@ -166,6 +166,7 @@ class DebugOverlay(context: Context, config: Config) : View(context) {
             RepStrategy.CENTROID to Color.BLUE,
             RepStrategy.NEAREST to Color.RED,
             RepStrategy.CORRIDOR_NEAREST to Color.YELLOW,
+            RepStrategy.CORRIDOR_BAND to Color.GREEN,
         )
     }
 }

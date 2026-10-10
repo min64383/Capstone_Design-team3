@@ -103,8 +103,9 @@ class SlowPath(
         val detections = ArrayList<Detection>()
         for ((clusterIndex, clusterVoxels) in clusters.withIndex()) {
             val pts = clusterVoxels.map { it.centerW }
-            val reps = RepPoint.candidates(pts, corridor, config.map.voxelSizeM)
-            val repVoxel = reps.getValue(config.repPoint.strategy).let { r -> clusterVoxels.firstOrNull { it.centerW == r } }
+            val reps = RepPoint.candidates(pts, corridor, config.map.voxelSizeM, config.repPoint.bandM, config.repPoint.bandQ)
+            // CORRIDOR_BAND는 만든 점이라 칸 중심과 다르다: 그 점에 가장 가까운 칸을 기록한다
+            val repVoxel = reps.getValue(config.repPoint.strategy).let { r -> clusterVoxels.minBy { (it.centerW - r).norm() } }
             val repDepth = if (fm == null) map.lastDepthMm else null
             val aabbMin = Vec3(pts.minOf { it.x } - half, pts.minOf { it.y } - half, pts.minOf { it.z } - half)
             val aabbMax = Vec3(pts.maxOf { it.x } + half, pts.maxOf { it.y } + half, pts.maxOf { it.z } + half)

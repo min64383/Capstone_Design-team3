@@ -21,6 +21,12 @@ class Corridor(val originW: Vec3, headingW: Vec3, val floorY: Float, private val
     /** 좌우 거리(오른쪽 +). */
     fun lateralM(pW: Vec3): Float = (pW - originW).horizontal() dot rightW
 
+    /** 진행 방향 거리 [alongM]·좌우 [lateralM] 자리의 높이 [yW] 월드 점([alongM]·[lateralM]의 역). */
+    fun pointW(alongM: Float, lateralM: Float, yW: Float): Vec3 {
+        val h = originW + headingW * alongM + rightW * lateralM
+        return Vec3(h.x, yW, h.z)
+    }
+
     /** 통로 안인지. */
     fun contains(pW: Vec3): Boolean {
         val along = alongM(pW)

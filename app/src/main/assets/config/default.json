@@ -118,7 +118,7 @@
     "maxConfirmCentroidJumpM": 0.3,
     "matchByOverlap": true
   },
-  "repPoint": { "strategy": "CORRIDOR_NEAREST" },
+  "repPoint": { "strategy": "CORRIDOR_NEAREST", "bandM": 0.20, "bandQ": 0.1 },
   "policy": {
     "stopM": 1.0,
     "warnMaxM": 2.5,

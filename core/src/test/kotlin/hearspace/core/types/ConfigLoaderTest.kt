@@ -39,7 +39,7 @@ class ConfigLoaderTest {
             c.falsePositiveFilter,
         )
         assertEquals(TrackConfig(0.3f, 0.3f, 2, 3, 2, 0f, 0.3f, true), c.track)
-        assertEquals(RepStrategy.CORRIDOR_NEAREST, c.repPoint.strategy)
+        assertEquals(RepPointConfig(RepStrategy.CORRIDOR_NEAREST, 0.20f, 0.1f), c.repPoint)
         assertEquals(PolicyConfig(1.0f, 2.5f, 3.0f, 0.15f, 1, 300f), c.policy)
         assertEquals(StateConfig(10, 0.5f, 3.0f, 15.0f, 600f), c.state)
         assertEquals(
@@ -105,6 +105,7 @@ class ConfigLoaderTest {
         assertConfigError("depth.subsample", """{ "depth": { "subsample": 1.5 } }""")
         assertConfigError("head.offsetFromCameraM", """{ "head": { "offsetFromCameraM": [0, 0] } }""")
         assertConfigError("repPoint.strategy", """{ "repPoint": { "strategy": "MIDDLE" } }""")
+        assertConfigError("repPoint.bandQ", """{ "repPoint": { "bandQ": 0.5 } }""")
         assertConfigError("corridor", """{ "corridor": 1 }""")
     }
 

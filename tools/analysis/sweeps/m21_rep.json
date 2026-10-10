@@ -1,0 +1,8 @@
+{
+  "note": "M21 강건한 대표점 방향(IMPROVE_SPEC v0.3.21). F1W = 지금 기본값(CORRIDOR_BAND는 계산·기록만, M20 F1W와 안내 지표가 같아야 함). BW = 띠(가장 앞 칸 + 0.20 m)의 최소·최대 범위, BQ = 띠의 p10~p90 범위. 거리는 셋 다 통로 안 가장 앞 칸",
+  "variants": [
+    {"name": "F1W", "overrides": {}, "replay": {"alignFrom": "data/sweeps/m13_defaults/default/{session}/align.json"}},
+    {"name": "BW", "overrides": {"repPoint": {"strategy": "CORRIDOR_BAND", "bandQ": 0}}, "replay": {"alignFrom": "data/sweeps/m13_defaults/default/{session}/align.json"}},
+    {"name": "BQ", "overrides": {"repPoint": {"strategy": "CORRIDOR_BAND"}}, "replay": {"alignFrom": "data/sweeps/m13_defaults/default/{session}/align.json"}}
+  ]
+}
