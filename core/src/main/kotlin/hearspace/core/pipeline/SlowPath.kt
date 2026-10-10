@@ -103,7 +103,7 @@ class SlowPath(
         val detections = ArrayList<Detection>()
         for ((clusterIndex, clusterVoxels) in clusters.withIndex()) {
             val pts = clusterVoxels.map { it.centerW }
-            val reps = RepPoint.candidates(pts, corridor, config.map.voxelSizeM, config.repPoint.bandM, config.repPoint.bandQ)
+            val reps = RepPoint.candidates(pts, corridor, config.map.voxelSizeM, config.repPoint.bandM)
             // CORRIDOR_BAND는 만든 점이라 칸 중심과 다르다: 그 점에 가장 가까운 칸을 기록한다
             val repVoxel = reps.getValue(config.repPoint.strategy).let { r -> clusterVoxels.minBy { (it.centerW - r).norm() } }
             val repDepth = if (fm == null) map.lastDepthMm else null
@@ -133,6 +133,7 @@ class SlowPath(
                 centroidW = reps.getValue(hearspace.core.types.RepStrategy.CENTROID),
                 nearestW = reps.getValue(hearspace.core.types.RepStrategy.NEAREST),
                 corridorNearestW = reps.getValue(hearspace.core.types.RepStrategy.CORRIDOR_NEAREST),
+                corridorBandW = reps.getValue(hearspace.core.types.RepStrategy.CORRIDOR_BAND),
                 scoreMin = scores.min(),
                 scoreMean = scores.average().toFloat(),
                 scoreMax = scores.max(),

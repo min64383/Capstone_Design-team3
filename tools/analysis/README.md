@@ -88,6 +88,15 @@ cd tools/analysis
 ..\..\.venv\Scripts\python.exe front_diag.py front ../../data/sessions/<세션ID> ...
 ```
 
+M21 강건한 대표점 방향(F1W·BN = `CORRIDOR_BAND`):
+
+```
+cd tools/analysis
+..\..\.venv\Scripts\python.exe sweep.py sweeps/m21_rep.json ../../data/sweeps/m21 ../../data/sessions/<세션ID> ...
+..\..\.venv\Scripts\python.exe scorecard.py --compare direction,firstWarn,firstStop,falseAlarm ../../data/sweeps/m21/F1W/* ../../data/sweeps/m21/BN/*
+..\..\.venv\Scripts\python.exe front_diag.py causes ../../data/sweeps/m21/BN/*
+```
+
 M12.0 흐름 (오차 분해, 지도 없이 세션만 읽음. `--runs`는 선택: core 바닥 추정 흔들림도 적는다):
 
 ```powershell

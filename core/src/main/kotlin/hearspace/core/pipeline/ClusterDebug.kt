@@ -26,6 +26,8 @@ data class ClusterDebug(
     val centroidW: Vec3,
     val nearestW: Vec3,
     val corridorNearestW: Vec3,
+    /** 평활 전 CORRIDOR_BAND 대표점(M21). */
+    val corridorBandW: Vec3,
     val scoreMin: Float,
     val scoreMean: Float,
     val scoreMax: Float,
@@ -59,7 +61,7 @@ object ClusterDebugCsv {
             "lateralMinM,lateralMaxM,lateralSpanM,alongMinM,alongMaxM,alongSpanM," +
             "heightMinM,heightMaxM,heightSpanM," +
             "centroidX,centroidY,centroidZ,nearestX,nearestY,nearestZ," +
-            "corridorNearestX,corridorNearestY,corridorNearestZ," +
+            "corridorNearestX,corridorNearestY,corridorNearestZ,corridorBandX,corridorBandY,corridorBandZ," +
             "scoreMin,scoreMean,scoreMax,hitsMin,hitsMean,hitsMax,oldestVoxelAgeMs,newestVoxelAgeMs,filtered,filterReason," +
             "repVoxelState,repVoxelAgeMs,repVoxelHits"
 
@@ -76,6 +78,7 @@ object ClusterDebugCsv {
         d.centroidW.x, d.centroidW.y, d.centroidW.z,
         d.nearestW.x, d.nearestW.y, d.nearestW.z,
         d.corridorNearestW.x, d.corridorNearestW.y, d.corridorNearestW.z,
+        d.corridorBandW.x, d.corridorBandW.y, d.corridorBandW.z,
         d.scoreMin, d.scoreMean, d.scoreMax,
         d.hitsMin, d.hitsMean, d.hitsMax,
         d.oldestVoxelAgeMs, d.newestVoxelAgeMs,

@@ -309,8 +309,6 @@ data class RepPointConfig(
     val strategy: RepStrategy,
     /** CORRIDOR_BAND 띠 폭: 가장 앞 칸에서 이만큼 안의 통로 안 칸으로 좌우를 낸다(M21, 실측 꼬리 p90에서). */
     val bandM: Float,
-    /** CORRIDOR_BAND 좌우 분위수: 띠 칸 좌우의 [bandQ, 1 − bandQ] 범위에 보행선(0)을 가둔다. 0 = 최소·최대. */
-    val bandQ: Float,
 )
 
 /** 거리 구간·음원 선택 설정. */

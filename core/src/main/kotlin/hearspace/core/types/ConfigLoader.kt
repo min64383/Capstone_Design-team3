@@ -195,7 +195,7 @@ object ConfigLoader {
                 )
             },
             repPoint = root.section("repPoint") {
-                RepPointConfig(strategy = enumValue<RepStrategy>("strategy"), bandM = positive("bandM"), bandQ = unit("bandQ").also { if (it >= 0.5f) throw ConfigException(path("bandQ"), "must be < 0.5, got $it") })
+                RepPointConfig(strategy = enumValue<RepStrategy>("strategy"), bandM = positive("bandM"))
             },
             policy = root.section("policy") {
                 PolicyConfig(

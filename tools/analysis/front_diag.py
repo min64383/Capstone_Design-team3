@@ -30,7 +30,7 @@ SPEED_BINS = [-9.0, 0.2, 0.5, 9.0]  # 접근 속도 구간(m/s), 0.2 아래는 �
 SPEED_WINDOW_S = 0.5
 MIN_FRAMES = 100  # 이보다 적은 구간은 결론에 쓰지 않는다(설계 위험 표)
 SESSIONS = Path(__file__).resolve().parents[2] / "data" / "sessions"
-REP_COLS = {"CORRIDOR_NEAREST": "corridorNearest", "NEAREST": "nearest", "CENTROID": "centroid"}
+REP_COLS = {"CORRIDOR_NEAREST": "corridorNearest", "CORRIDOR_BAND": "corridorBand", "NEAREST": "nearest", "CENTROID": "centroid"}
 CAUSES = ["추적 평활", "시야 밖", "확인 못 함", "감쇠 중", "지금 앞면 당김", "지금 다른 위치", "짝 없음"]
 STATE_CAUSE = {"OUT_OF_VIEW": "시야 밖", "OCCLUDED": "확인 못 함", "NO_DEPTH": "확인 못 함", "FREE": "감쇠 중"}
 

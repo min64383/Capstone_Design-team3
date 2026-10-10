@@ -45,6 +45,7 @@ class FalsePositiveFilterTest {
         centroidW = Vec3(0f, 0f, 0f),
         nearestW = Vec3(0f, 0f, 0f),
         corridorNearestW = Vec3(0f, 0f, 0f),
+        corridorBandW = Vec3(0f, 0f, 0f),
         scoreMin = 0.8f,
         scoreMean = 0.9f,
         scoreMax = 1f,
