@@ -7,7 +7,8 @@
   `"scene"`이 있으면 장면 ID로 쓴다(폴더 이름의 장면 ID가 틀린 녹화, M10).
 - 실행 로그: 같은 세션의 PC 오프라인 재생(`:core:replay`) 또는 그 세션을 녹화하며 돌린 실시간 로그.
   ARCore 재생 모드 로그는 월드 좌표가 녹화와 달라(F8) 정답 지표를 낼 수 없다.
-- 정답 머리 = 카메라 + 파지 오프셋(보행선 방향 기준), 정답 방향 = 보행선(+z). 정답 통로 = 머리에서 보행선 방향 폭·길이.
+- 정답 머리 = 카메라 + 파지 오프셋(보행선 방향 기준), 정답 방향 = 보행선 ±z 중 최근 이동 쪽(`walk_sign`, 왕복 세션, M12.2).
+  정답 통로 = 머리에서 그 방향으로 폭·길이.
 """
 from __future__ import annotations
 
@@ -22,6 +23,7 @@ from align import align, load_config, load_frames, to_truth
 
 MATCH_MARGIN_M = 0.3  # 추정 대표점이 정답 상자에서 이만큼 안이면 그 장애물로 본다(분석 도구 파라미터)
 MERGE_BEYOND_M = 0.5  # 정답 물체와 겹치는 추정 물체가 그 물체 뒤로 이만큼 넘게 이어지면 합쳐짐(13번 계획서 표 5, M13.1)
+OVER_LO_M = 1.5  # 과대추정 지표의 정답 거리 하한(명세 §9.2 "1.5~2.5 m"), 부호 있는 거리 오차의 구간 경계로도 쓴다(M12.2)
 ACTIVE = {"NORMAL", "DEGRADED"}
 
 
@@ -175,21 +177,92 @@ def run_metrics(run_dir: Path, cfg: dict) -> dict:
     return out
 
 
-def truth_nearest(ob, hx, hz, cfg):
-    """정답 통로(머리 기준 보행선 방향) 안 최근접점 → (along, 수평거리, 방위각) 또는 None."""
+def walk_sign(t, hz, window_s: float, min_travel_m: float) -> np.ndarray:
+    """정답 진행 방향(M12.2): 블록마다 보행선 ±z 중 최근 이동 쪽(+1 / −1). 앱 `Heading`과 같은 창 — 창 시작 이전의 가장
+    최근 블록부터의 머리 z 이동이 `min_travel_m` 이상이면 그 부호, 아니면 직전 부호(처음 +1). 과거 블록만 쓴다.
+    정답 장면이 곧은 복도라 ±z로만 둔다(앱 진행 방향의 흔들림은 방향 오차에 남는다)."""
+    t, hz = np.asarray(t, dtype=float), np.asarray(hz, dtype=float)
+    ref = np.maximum(np.searchsorted(t, t - window_s, side="right") - 1, 0)
+    out, s = np.empty(len(t)), 1.0
+    for k in range(len(t)):
+        d = hz[k] - hz[ref[k]]
+        if abs(d) >= min_travel_m:
+            s = float(np.sign(d))
+        out[k] = s
+    return out
+
+
+def truth_nearest(ob, hx, hz, cfg, sgn=1.0):
+    """정답 통로(머리 기준 진행 방향 `sgn`·z) 안 최근접점 → (along, 수평거리, 방위각) 또는 None. 방위는 오른쪽 +.
+    −z로 걸으면 앞 = −z, 오른쪽 = −x라 상자를 사용자 기준(앞·오른쪽)으로 옮겨 같은 계산을 한다."""
     c = cfg["corridor"]
     (x0, y0, z0), (x1, _, z1) = ob["min"], ob["max"]
     if y0 >= c["heightM"]:
         return None
-    lo, hi = max(x0, hx - c["widthM"] / 2), min(x1, hx + c["widthM"] / 2)
+    l0, l1 = sorted((sgn * (x0 - hx), sgn * (x1 - hx)))
+    a0, a1 = sorted((sgn * (z0 - hz), sgn * (z1 - hz)))
+    lo, hi = max(l0, -c["widthM"] / 2), min(l1, c["widthM"] / 2)
     if lo > hi:
         return None
-    zn = max(z0, hz - c["behindM"])
-    if zn > z1 or zn - hz > c["lengthM"]:
+    along = max(a0, -c["behindM"])
+    if along > a1 or along > c["lengthM"]:
         return None
-    xn = min(max(hx, lo), hi)
-    along = zn - hz
-    return along, float(np.hypot(xn - hx, along)), float(np.degrees(np.arctan2(xn - hx, along)))
+    ln = min(max(0.0, lo), hi)
+    return along, float(np.hypot(ln, along)), float(np.degrees(np.arctan2(ln, along)))
+
+
+def zone_stats(rows: list[dict], truth: list[dict], pol: dict) -> dict:
+    """통로 안팎 판정과 거리 오차(M12.2 안내 성적표).
+    - distanceErrorM: 짝지은 경고의 추정 − 정답 거리(m), 정답 거리 구간 [0, stopM), [stopM, 1.5), [1.5, ∞)마다 p05·p50·p95
+    - missedWarnFraction: 정상 상태에서 정답 구간이 WARN·STOP인 블록 중 추정이 WARN·STOP이 아닌 비율
+    - outsideCorridorFraction: 경고(WARN·STOP) 중 짝지은 정답이 그 블록에서 정답 통로 밖인 비율(옆 벽 등)
+    - startDistanceM: 정상 상태에서 처음 정답 통로 안에 든 순간의 정답 거리(첫 경고 거리 판정의 분모)
+    - warnZoneS·stopZoneS: 정상 상태에서 정답이 WARN·STOP 구간 안에 있던 시간(s, 명세 탐지율의 "1 s 이상" 판정용)"""
+    t = np.array([r["t"] for r in rows], dtype=float)
+    dt = np.diff(t, append=t[-1] + (np.median(np.diff(t)) if len(t) > 1 else 0.0)) if len(t) else t
+    edges = [0.0, pol["stopM"], OVER_LO_M, np.inf]
+    err: list[list[float]] = [[] for _ in edges[:-1]]
+    zone_n = miss = n_cmd = outside = 0
+    start: dict[int, float] = {}
+    warn_s: dict[int, float] = {}
+    stop_s: dict[int, float] = {}
+    for r, d in zip(rows, dt):
+        warned = r["band"] in ("WARN", "STOP")
+        if r["state"] in ACTIVE:
+            cands = [(v[0], i) for i, v in enumerate(r["tn"]) if v is not None]
+            for i, v in enumerate(r["tn"]):
+                if v is None:
+                    continue
+                start.setdefault(i, v[1])
+                if v[0] < pol["warnMaxM"]:
+                    warn_s[i] = warn_s.get(i, 0.0) + d
+                if v[0] < pol["stopM"]:
+                    stop_s[i] = stop_s.get(i, 0.0) + d
+            if cands and band_of(min(cands)[0], pol) in ("WARN", "STOP"):
+                zone_n += 1
+                miss += not warned
+        if warned:
+            n_cmd += 1
+            if r["match"] is not None:
+                v = r["tn"][r["match"]]
+                if v is None:
+                    outside += 1
+                else:
+                    err[int(np.searchsorted(edges, v[1], side="right")) - 1].append(r["dist"] - v[1])
+
+    def label(lo, hi):
+        return f"{lo:g}-{hi:g}" if np.isfinite(hi) else f"{lo:g}-"
+
+    name = lambda d: {truth[i]["name"]: round(float(v), 3) for i, v in sorted(d.items())}  # noqa: E731
+    return {
+        "distanceErrorM": {label(lo, hi): {"p05": p(e, 5), "p50": p(e, 50), "p95": p(e, 95), "n": len(e)}
+                           for lo, hi, e in zip(edges[:-1], edges[1:], err)},
+        "missedWarnFraction": miss / zone_n if zone_n else None,
+        "outsideCorridorFraction": outside / n_cmd if n_cmd else None,
+        "startDistanceM": name(start),
+        "warnZoneS": name(warn_s),
+        "stopZoneS": name(stop_s),
+    }
 
 
 def band_of(along, pol):
@@ -239,6 +312,9 @@ def compute(session: Path, run_dir: Path) -> dict:
     ox, _, oz = cfg["head"]["offsetFromCameraM"]
     hx, hz = cx + ox, cz + oz
     tS = (blocks.tBlockNs.to_numpy() - t0) / 1e9
+    sgn = walk_sign(tS, hz, cfg["heading"]["windowS"], cfg["heading"]["minTravelM"])
+    out["walkSignFlips"] = int((np.diff(sgn) != 0).sum())
+    out["config"].update({"stopM": pol["stopM"], "warnMaxM": pol["warnMaxM"]})
 
     # 추정 음원 → 대표점(정답 좌표) → 정답 장애물
     strat = cfg["repPoint"]["strategy"]
@@ -261,7 +337,7 @@ def compute(session: Path, run_dir: Path) -> dict:
 
     rows = []
     for k, (_, b) in enumerate(blocks.iterrows()):
-        tn = [truth_nearest(ob, hx[k], hz[k], cfg) for ob in truth]
+        tn = [truth_nearest(ob, hx[k], hz[k], cfg, sgn[k]) for ob in truth]
         est = g[g.tBlockNs == b.tBlockNs] if len(blocks) != len(g) else g.iloc[[k]]
         e = est.iloc[0]
         mi = mh = None
@@ -271,7 +347,7 @@ def compute(session: Path, run_dir: Path) -> dict:
                      "oid": int(e.obstacleId) if pd.notna(e.obstacleId) else None,
                      "az": e.azimuthDeg, "dist": e.distanceM, "match": mi, "hclass": mh, "pose": b.poseTNs})
 
-    dir_err, over, jitter_src, fa, n_cmd = [], [], {}, 0, 0
+    dir_err, dir_ahead, n_beside, over, jitter_src, fa, n_cmd = [], [], 0, [], {}, 0, 0
     band_ok = band_n = 0
     first_truth_warn, first_est_warn = {}, {}
     first_warn_dist, first_stop_dist = {}, {}  # 처음 WARN·STOP을 낸 순간의 정답 거리(출발부터 경고 구간 안인 장면용, M10)
@@ -308,7 +384,11 @@ def compute(session: Path, run_dir: Path) -> dict:
                         first_stop_dist.setdefault(i, round(v[1], 3))
                 if v is not None:
                     dir_err.append(abs(r["az"] - v[2]))
-                    if 1.5 <= v[1] <= 2.5:
+                    if v[0] > 0:  # 정답 최근접점이 머리 앞(M12.2): 옆·뒤(통로 뒤 여유 안)는 카메라가 못 보는 곳이라 방향 판정에서 뺀다
+                        dir_ahead.append(dir_err[-1])
+                    else:
+                        n_beside += 1
+                    if OVER_LO_M <= v[1] <= pol["warnMaxM"]:
                         over.append(max(0.0, (r["dist"] - v[1]) / v[1]))
                 jitter_src.setdefault(i, {})[r["pose"]] = r["az"]
                 if truth[i]["type"] == "HEAD":
@@ -328,6 +408,8 @@ def compute(session: Path, run_dir: Path) -> dict:
     n_struct = sum(1 for r in rows if r["match"] is not None and r["match"] not in objects and r["band"] in ("WARN", "STOP"))
     out.update({
         "directionErrorDeg": {"p50": p(dir_err, 50), "p95": p(dir_err, 95), "n": len(dir_err)},
+        "directionErrorAheadDeg": {"p50": p(dir_ahead, 50), "p95": p(dir_ahead, 95), "n": len(dir_ahead)},
+        "besideFraction": n_beside / len(dir_err) if dir_err else None,  # 방향을 잰 경고 중 정답 최근접점이 머리 옆·뒤인 비율
         "overestimate1p5to2p5": {"p95": p(over, 95), "n": len(over)},
         "bandAgreement": band_ok / band_n if band_n else None,
         "detectionRateByType": {
@@ -348,6 +430,7 @@ def compute(session: Path, run_dir: Path) -> dict:
         "structureCommandFraction": n_struct / n_cmd if n_cmd else None,  # 구조물을 물체처럼 경고한 비율
         "objectMergedFraction": merged_fraction(obs, truth, al),
         "objectShape": object_shape(obs, truth, al),
+        **zone_stats(rows, truth, pol),
         "selectedTruth": {truth[i]["name"]: sum(1 for r in rows if r["match"] == i and r["band"] in ("WARN", "STOP")) for i in range(len(truth))},
     })
     return out

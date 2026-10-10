@@ -194,11 +194,85 @@ def check_group_and_plan():
         pass
 
 
+CORRIDOR = {"corridor": {"widthM": 0.8, "heightM": 2.0, "lengthM": 3.5, "behindM": 0.2}}
+
+
+def check_round_trip_corridor():
+    """T1 왕복 통로(M12.2): +z로 갈 때는 끝 벽만, −z로 돌아올 때는 출발 뒤 상자만 통로 안. 돌아올 때 x +0.2 상자는 사용자 왼쪽(방위 −)."""
+    from metrics import truth_nearest
+
+    wall = {"min": [-0.62, 0.0, 4.0], "max": [0.62, 2.4, 4.1]}
+    box = {"min": [0.1, 0.0, -1.2], "max": [0.3, 0.5, -1.0]}
+    a = truth_nearest(wall, 0.0, 1.0, CORRIDOR, 1.0)
+    assert a is not None and abs(a[0] - 3.0) < 1e-9 and abs(a[2]) < 1e-9, a
+    assert truth_nearest(box, 0.0, 1.0, CORRIDOR, 1.0) is None
+    assert truth_nearest(wall, 0.0, 1.0, CORRIDOR, -1.0) is None
+    b = truth_nearest(box, 0.0, 1.0, CORRIDOR, -1.0)
+    assert b is not None and abs(b[0] - 2.0) < 1e-9 and b[2] < 0 and abs(b[2] - np.degrees(np.arctan2(-0.1, 2.0))) < 1e-9, b
+    assert truth_nearest(box, 0.0, 1.0, CORRIDOR) == truth_nearest(box, 0.0, 1.0, CORRIDOR, 1.0)  # 기본값 +z(기존 호출)
+
+
+def check_walk_sign():
+    """T2 방향 유지(M12.2): 1 s에 0.15 m 미만이면 직전 부호, 뒤 블록을 바꿔도 앞 블록 부호는 같다(과거만 사용)."""
+    from metrics import walk_sign
+
+    t = np.arange(0, 14, 0.1)
+    hz = np.where(t < 6, 0.5 * t, np.where(t < 8, 3.0 - 0.1 * (t - 6), 2.8 - 0.5 * (t - 8)))  # 갈 때 0.5 m/s, 돌아섬 0.1 m/s, 올 때
+    s = walk_sign(t, hz, 1.0, 0.15)
+    assert (s[t < 8] == 1).all() and s[-1] == -1, s
+    flip = t[np.nonzero(s < 0)[0][0]]
+    assert 8.0 < flip < 9.0, flip
+    hz2 = hz.copy()
+    hz2[t > 10] += 5.0  # 미래를 바꿈
+    k = int(np.searchsorted(t, 10.0, side="right"))
+    assert (walk_sign(t, hz2, 1.0, 0.15)[:k] == s[:k]).all()
+
+
+def check_zone_stats():
+    """T3 거리 오차·T4 통로 안팎(M12.2): 구간별 부호 있는 오차, 경고 놓침, 통로 밖 경고, 출발 거리·구간 시간."""
+    from metrics import zone_stats
+
+    pol = {"stopM": 1.0, "warnMaxM": 2.5, "silentMaxM": 3.0}
+    truth = [{"name": "box", "kind": "object"}, {"name": "wall", "kind": "structure"}]
+    row = lambda t, tn, band, match, dist=None: {"t": t, "state": "NORMAL", "tn": tn, "band": band, "match": match, "dist": dist}  # noqa: E731
+    # T3: 정답 0.8·1.2·2.0 m, 추정은 0.10 m 멀게
+    rows = [row(i * 0.1, [(d, d, 0.0), None], "WARN" if d >= 1 else "STOP", 0, d + 0.1) for i, d in enumerate((2.0, 1.2, 0.8))]
+    de = zone_stats(rows, truth, pol)["distanceErrorM"]
+    assert list(de) == ["0-1", "1-1.5", "1.5-"] and all(abs(v["p50"] - 0.1) < 1e-9 and v["n"] == 1 for v in de.values()), de
+    # T4: 통로 안 상자 경고 6, 옆 벽(통로 밖)과 짝지은 경고 4, 정답은 WARN인데 경고 없음 2
+    rows = ([row(i * 0.1, [(2.0, 2.0, 0.0), None], "WARN", 0, 2.0) for i in range(6)] +
+            [row(0.6 + i * 0.1, [None, None], "WARN", 1, 0.5) for i in range(4)] +
+            [row(1.0 + i * 0.1, [(1.8, 1.8, 0.0), None], None, None) for i in range(2)])
+    z = zone_stats(rows, truth, pol)
+    assert abs(z["outsideCorridorFraction"] - 0.4) < 1e-9 and abs(z["missedWarnFraction"] - 0.25) < 1e-9, z
+    assert z["startDistanceM"] == {"box": 2.0} and abs(z["warnZoneS"]["box"] - 0.8) < 1e-9 and z["stopZoneS"] == {}, z
+    assert zone_stats([], truth, pol)["missedWarnFraction"] is None
+
+
+def check_scorecard():
+    """T5 판정(M12.2): 합격·경계·불합격·해당 없음, 첫 경고는 0.9 × min(출발 거리, warnMaxM) ± 줄자 여유, 구간 1 s 미만은 판정 안 함."""
+    from scorecard import BORDER, FAIL, NA, PASS, judge, verdict
+
+    assert [verdict(v, "<=", 6.0, 1.0) for v in (4.5, 6.5, 7.5, None)] == [PASS, BORDER, FAIL, NA]
+    assert verdict(0, "<=", 0) == PASS and verdict(1, "<=", 0) == FAIL
+    cfg = {"tapeM": 0.03, "zoneMinS": 1.0}
+    item = {"key": "firstWarn", "kind": "firstWarn", "op": ">=", "target": 0.9}
+    base = {"config": {"warnMaxM": 2.5, "stopM": 1.0}, "startDistanceM": {"box": 3.0}, "warnZoneS": {"box": 2.0}}
+    j = lambda d, **kw: judge({**base, "firstWarnDistanceM": {"box": d}, **kw}, item, cfg)  # noqa: E731
+    assert j(2.4)[0] == PASS and j(2.24)[0] == BORDER and j(2.0)[0] == FAIL and j(None) == (FAIL, "없음/2.25"), (j(2.24), j(None))
+    assert j(2.1, startDistanceM={"box": 2.2})[0] == PASS  # 출발이 경고 구간 안: 분모 2.2 m → 기준 1.98 m
+    assert j(2.0, warnZoneS={"box": 0.5}) == (NA, "–")
+    angle = {"key": "direction", "metric": "directionErrorDeg.p95", "op": "<=", "target": 6.0, "margin": "angle"}
+    m = {"directionErrorDeg": {"p95": 6.8}, "truth": {"align": {"angleUncertaintyDeg": 1.0}}}
+    assert judge(m, angle, cfg)[0] == BORDER
+
+
 def main():
     clean = run("clean")
     assert clean["directionErrorDeg"]["p95"] < 2.0, clean["directionErrorDeg"]
+    assert clean["directionErrorAheadDeg"] == clean["directionErrorDeg"] and clean["besideFraction"] == 0, clean["besideFraction"]
     assert clean["overestimate1p5to2p5"]["p95"] < 0.03, clean["overestimate1p5to2p5"]
-    assert clean["missedStop"] == 0 and clean["falseAlarmFraction"] == 0
+    assert clean["missedStop"] == 0 and clean["falseAlarmFraction"] == 0 and clean["walkSignFlips"] == 0
     assert clean["objectMergedFraction"] == 0, clean["objectMergedFraction"]  # 뒤 벽 없는 상자: 합쳐짐 없음
     assert abs(clean["warnTimingErrorS"]["box"]) < 0.2, clean["warnTimingErrorS"]
     assert 2.3 < clean["firstWarnDistanceM"]["box"] <= 2.5, clean["firstWarnDistanceM"]  # 경고 구간 2.5 m
@@ -222,6 +296,10 @@ def main():
     check_depth_error()
     check_object_shape()
     check_id_switches()
+    check_round_trip_corridor()
+    check_walk_sign()
+    check_zone_stats()
+    check_scorecard()
     print("analysis self-check ok")
 
 
