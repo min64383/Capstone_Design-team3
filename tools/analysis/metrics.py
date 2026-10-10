@@ -19,12 +19,13 @@ from pathlib import Path
 import numpy as np
 import pandas as pd
 
-from align import align, load_config, load_frames, to_truth
+from align import DEFAULT_CONFIG, align, load_config, load_frames, to_truth
 
 MATCH_MARGIN_M = 0.3  # 추정 대표점이 정답 상자에서 이만큼 안이면 그 장애물로 본다(분석 도구 파라미터)
 MERGE_BEYOND_M = 0.5  # 정답 물체와 겹치는 추정 물체가 그 물체 뒤로 이만큼 넘게 이어지면 합쳐짐(13번 계획서 표 5, M13.1)
 OVER_LO_M = 1.5  # 과대추정 지표의 정답 거리 하한(명세 §9.2 "1.5~2.5 m"), 부호 있는 거리 오차의 구간 경계로도 쓴다(M12.2)
 ACTIVE = {"NORMAL", "DEGRADED"}
+WALK_SIGN_WINDOW_S = 1.0  # 정답 진행 부호의 창: 앱 heading.windowS(M18에서 2.0으로)와 떼어 M12.2 정답을 그대로 둔다
 
 
 def p(v, q):
@@ -192,6 +193,34 @@ def walk_sign(t, hz, window_s: float, min_travel_m: float) -> np.ndarray:
     return out
 
 
+WALKING_MPS = 0.25  # 진행 방향 오차를 재는 블록: 최근 1 s 보행선 방향 속도가 이보다 큼(M18, 서 있거나 돌아서는 구간 제외)
+
+
+def heading_error(heading_deg, t, cz, sgn, al) -> dict | None:
+    """앱 진행 방향 − 정답 보행 방향(정렬의 ±z, `sgn`)의 절댓값(°), 걷는 블록만(M18 진단). 방향 규약은 core `Heading.toDeg`."""
+    d = np.asarray(al["dir"])
+    truth = np.degrees(np.arctan2(d[0], -d[1])) + np.where(np.asarray(sgn) > 0, 0.0, 180.0)
+    ref = np.maximum(np.searchsorted(t, t - 1.0, side="right") - 1, 0)
+    speed = np.abs(cz - cz[ref]) / np.maximum(t - t[ref], 1e-3)
+    ok = (speed > WALKING_MPS) & ~np.isnan(heading_deg)
+    if not ok.any():
+        return None
+    e = np.abs((heading_deg[ok] - truth[ok] + 180.0) % 360.0 - 180.0)
+    return {"p50": p(e, 50), "p95": p(e, 95), "n": int(ok.sum())}
+
+
+def floor_error(run_dir: Path, al: dict) -> dict | None:
+    """느린 경로 바닥 추정 − 정렬 바닥(m)의 p05·p95와 첫 추정 뒤 바닥 없음 비율(M18 진단: 벽을 타고 오름·잃음)."""
+    sp = pd.read_csv(run_dir / "slow_path.csv")
+    f = sp.floorY.to_numpy(dtype=float)
+    known = ~np.isnan(f)
+    if not known.any():
+        return None
+    after = f[np.argmax(known):]
+    e = after[~np.isnan(after)] - al["floorY"]
+    return {"p05": p(e, 5), "p95": p(e, 95), "max": float(e.max()), "lostFraction": float(np.isnan(after).mean())}
+
+
 def truth_nearest(ob, hx, hz, cfg, sgn=1.0):
     """정답 통로(머리 기준 진행 방향 `sgn`·z) 안 최근접점 → (along, 수평거리, 방위각) 또는 None. 방위는 오른쪽 +.
     −z로 걸으면 앞 = −z, 오른쪽 = −x라 상자를 사용자 기준(앞·오른쪽)으로 옮겨 같은 계산을 한다."""
@@ -346,10 +375,14 @@ def compute(session: Path, run_dir: Path) -> dict:
     cx, _, cz = to_truth(al, cam.tx.to_numpy(), cam.ty.to_numpy(), cam.tz.to_numpy())
     ox, _, oz = cfg["head"]["offsetFromCameraM"]
     tS = (blocks.tBlockNs.to_numpy() - t0) / 1e9
-    # 진행 방향은 카메라 이동으로 정하고, 파지 오프셋(진행 방향 기준)도 그 방향으로 돌린다: 돌아선 뒤 머리는 카메라의 −z 쪽이 아니라 +z 쪽
-    sgn = walk_sign(tS, cz, cfg["heading"]["windowS"], cfg["heading"]["minTravelM"])
+    # 진행 방향은 카메라 이동으로 정하고, 파지 오프셋(진행 방향 기준)도 그 방향으로 돌린다: 돌아선 뒤 머리는 카메라의 −z 쪽이 아니라 +z 쪽.
+    # 창은 앱 설정이 아니라 고정 값(M18: 진행 방향 창을 바꾼 변형·기본값에서 정답이 같이 바뀌지 않게)
+    h0 = json.loads(DEFAULT_CONFIG.read_text(encoding="utf-8"))["heading"]
+    sgn = walk_sign(tS, cz, WALK_SIGN_WINDOW_S, h0["minTravelM"])
     hx, hz = cx + sgn * ox, cz + sgn * oz
     out["walkSignFlips"] = int((np.diff(sgn) != 0).sum())
+    out["headingErrorDeg"] = heading_error(blocks.headingDeg.to_numpy(dtype=float), tS, cz, sgn, al)
+    out["floorErrorM"] = floor_error(run_dir, al)
     out["config"].update({"stopM": pol["stopM"], "warnMaxM": pol["warnMaxM"]})
 
     # 추정 음원 → 대표점(정답 좌표) → 정답 장애물

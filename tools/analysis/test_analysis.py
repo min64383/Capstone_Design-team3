@@ -273,6 +273,26 @@ def check_miss_reasons():
     assert abs(z["missedWarnFraction"] - 9 / 10) < 1e-9 and abs(sum(z["missedWarnReasons"].values()) - 9.0) < 1e-9
 
 
+def check_heading_floor_error():
+    """S6 진단 지표(M18): 진행 방향 오차는 걷는 블록만, 정렬 ±z 기준. 바닥 오차는 첫 추정 뒤만."""
+    from metrics import floor_error, heading_error
+
+    al = {"dir": [0.0, -1.0], "floorY": -1.0}  # 정답 +z = 월드 −z → toDeg 0°
+    t = np.arange(0, 4.0, 0.5)
+    cz = np.array([0, 0, 0, 0.5, 1.0, 1.5, 2.0, 2.5])  # 1.5 s부터 1 m/s(처음 세 블록은 서 있음)
+    sgn = np.ones_like(t)
+    hd = np.array([50, 50, 50, 2, -2, 10, -10, 2], dtype=float)
+    e = heading_error(hd, t, cz, sgn, al)
+    assert e["n"] == 5 and abs(e["p50"] - 2.0) < 1e-9 and abs(e["p95"] - 10.0) < 1e-9, e
+    e = heading_error(hd + 180, t, cz, -sgn, al)  # 돌아오는 방향
+    assert abs(e["p50"] - 2.0) < 1e-9, e
+    with tempfile.TemporaryDirectory() as tmp:
+        d = Path(tmp)
+        pd.DataFrame({"tCaptureNs": range(6), "floorY": [None, -0.9, -0.9, None, None, -1.0]}).to_csv(d / "slow_path.csv", index=False)
+        f = floor_error(d, al)
+    assert abs(f["max"] - 0.1) < 1e-6 and abs(f["lostFraction"] - 2 / 5) < 1e-9 and abs(f["p05"] - 0.0) < 0.02, f
+
+
 def check_scorecard():
     """T5 판정(M12.2): 합격·경계·불합격·해당 없음, 첫 경고는 0.9 × min(출발 거리, warnMaxM) ± 줄자 여유, 구간 1 s 미만은 판정 안 함."""
     from scorecard import BORDER, FAIL, NA, PASS, judge, verdict
@@ -324,6 +344,7 @@ def main():
     check_walk_sign()
     check_zone_stats()
     check_miss_reasons()
+    check_heading_floor_error()
     check_scorecard()
     print("analysis self-check ok")
 

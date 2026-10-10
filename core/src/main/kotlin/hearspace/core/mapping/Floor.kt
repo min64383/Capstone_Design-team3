@@ -22,11 +22,15 @@ data class FloorUpdate(
  * - 첫 추정: 위 후보 전체. 이후: 직전 바닥 ± `floor.searchBandM` 안의 점(사용자 결정 2026-09-28).
  * - 직전 바닥 근처 후보가 모자란 깊이가 `floor.lostFrames`장 이어지면 바닥을 잊고 첫 추정부터 다시(v0.2.7).
  *   잘못 잡은 바닥에 갇히지 않기 위함(M7 실측: 재생 시작 약 3 s 동안 17~28 m 깊이 → 바닥 −33.7 m 고정).
+ *   `floor.holdWhenLost`면 잊지 않고 마지막 값을 쓰면서 탐색 폭 없이 다시 찾는다(M18).
  * - 최빈 칸 주변 ± `toleranceM` 점의 평균으로 칸보다 세밀하게 잡고, `emaAlpha`로 지수 평활한다(과거 값만 사용).
  */
 class Floor(private val cfg: FloorConfig, private val maxDistM: Float) {
 
     private var lostFrames = 0
+
+    /** 바닥을 유지한 채 탐색 폭 없이 다시 찾는 중(`floor.holdWhenLost`). */
+    private var searching = false
 
     /** 현재 바닥 높이. 아직 모르면 null. */
     var floorY: Float? = null
@@ -45,14 +49,18 @@ class Floor(private val cfg: FloorConfig, private val maxDistM: Float) {
             val dx = pointsW[3 * i] - cameraW.x
             val dz = pointsW[3 * i + 2] - cameraW.z
             if (dx * dx + dz * dz > maxDistM * maxDistM) continue
-            if (prev != null && abs(y - prev) > cfg.searchBandM) continue
+            if (prev != null && !searching && abs(y - prev) > cfg.searchBandM) continue
             ys[m++] = y
         }
         if (m < cfg.minPoints) {
-            if (prev != null && ++lostFrames >= cfg.lostFrames) reset()
+            if (prev != null && ++lostFrames >= cfg.lostFrames) {
+                if (cfg.holdWhenLost) searching = true else reset()
+            }
             return FloorUpdate(false, floorY, m)
         }
         lostFrames = 0
+        val wasSearching = searching
+        searching = false
 
         // 최빈 칸
         val counts = HashMap<Int, Int>()
@@ -78,7 +86,8 @@ class Floor(private val cfg: FloorConfig, private val maxDistM: Float) {
             }
         }
         val estimate = (sum / k).toFloat()
-        floorY = if (prev == null) estimate else prev + cfg.emaAlpha * (estimate - prev)
+        // 재탐색으로 찾은 값은 다른 높이일 수 있으므로 평활하지 않고 받는다(잊고 다시 찾는 기준선과 같은 결과)
+        floorY = if (prev == null || wasSearching) estimate else prev + cfg.emaAlpha * (estimate - prev)
         return FloorUpdate(true, floorY, m)
     }
 
@@ -114,6 +123,7 @@ class Floor(private val cfg: FloorConfig, private val maxDistM: Float) {
     fun reset() {
         floorY = null
         lostFrames = 0
+        searching = false
         outOfBandFrames = 0
     }
 }

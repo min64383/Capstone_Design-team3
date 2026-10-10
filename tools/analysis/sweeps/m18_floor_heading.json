@@ -1,0 +1,65 @@
+{
+  "note": "M18 바닥 유지·진행 방향 창(IMPROVE_SPEC v0.3.17). M18 기본값(유지 켬, 창 2.0) = F1W. B = M18 전 기본값(M12.3 B와 같아야 함). B 밖은 기준 재생의 align.json을 같이 쓴다. 기둥 검사 변형(F2·F·FW·DF·DFW)은 커밋 2feef40에서 돌렸고 키를 지워 여기서 뺐다",
+  "variants": [
+    {
+      "name": "B",
+      "overrides": {
+        "floor": {
+          "holdWhenLost": false
+        },
+        "heading": {
+          "windowS": 1.0
+        }
+      }
+    },
+    {
+      "name": "F1",
+      "overrides": {
+        "heading": {
+          "windowS": 1.0
+        }
+      },
+      "replay": {
+        "alignFrom": "data/sweeps/m13_defaults/default/{session}/align.json"
+      }
+    },
+    {
+      "name": "W",
+      "overrides": {
+        "floor": {
+          "holdWhenLost": false
+        }
+      },
+      "replay": {
+        "alignFrom": "data/sweeps/m13_defaults/default/{session}/align.json"
+      }
+    },
+    {
+      "name": "F1W",
+      "overrides": {},
+      "replay": {
+        "alignFrom": "data/sweeps/m13_defaults/default/{session}/align.json"
+      }
+    },
+    {
+      "name": "DF1",
+      "overrides": {
+        "heading": {
+          "windowS": 1.0
+        }
+      },
+      "replay": {
+        "substitute": "depth",
+        "alignFrom": "data/sweeps/m13_defaults/default/{session}/align.json"
+      }
+    },
+    {
+      "name": "DF1W",
+      "overrides": {},
+      "replay": {
+        "substitute": "depth",
+        "alignFrom": "data/sweeps/m13_defaults/default/{session}/align.json"
+      }
+    }
+  ]
+}

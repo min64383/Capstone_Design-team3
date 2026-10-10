@@ -182,7 +182,8 @@ enum class Hold { PORTRAIT, LANDSCAPE }
 /**
  * 보행 궤적. 카메라는 [startCameraW]에서 [standS]초 정지 후 [headingDeg] 방향으로 [speedMps]로 걷는다.
  * [headingDeg]는 월드 −Z에서 +X 쪽으로 잰 각도(0이면 −Z로 걷는다).
- * 손 흔들림: 걸음 주기 상하 진폭 [bobAmpM], 손목 요 진폭 [wristYawAmpDeg](걸음 주기의 절반 주파수).
+ * 손 흔들림: 걸음 주기 상하 진폭 [bobAmpM], 손목 요 진폭 [wristYawAmpDeg](걸음 주기의 절반 주파수), 좌우 진폭 [swayAmpM]
+ * (걸음 두 개 = 한 주기, 절반 주파수. M18 실측: 손에 든 폰이 1.3~1.9 s 주기로 ±2~5 cm).
  * 왕복(M12.0 E03·E04): [legM]가 있으면 그만큼 걸은 뒤 머리 자리에서 [turnS]초 동안 180° 돌아(카메라는 머리 둘레로 돈다)
  * 같은 선으로 되돌아오기를 반복한다.
  */
@@ -196,6 +197,7 @@ data class Walk(
     val stepHz: Float = 1.8f,
     val bobAmpM: Float = 0f,
     val wristYawAmpDeg: Float = 0f,
+    val swayAmpM: Float = 0f,
     /** 카메라 아래로 숙인 각(+이면 바닥 쪽). */
     val pitchDownDeg: Float = 10f,
     val hold: Hold = Hold.PORTRAIT,
@@ -341,7 +343,8 @@ object SyntheticGenerator {
         fun offsetFor(f: Vec3) = f.cross(Vec3.UP) * w.gripOffsetM.x + Vec3.UP * w.gripOffsetM.y + f * w.gripOffsetM.z
         val offset = offsetFor(heading)
         val headPos = w.startCameraW + offsetFor(line) + line * leg.alongM
-        val camPos = headPos - offset + Vec3.UP * bob
+        val sway = if (moving) w.swayAmpM * sin(phase / 2) else 0f
+        val camPos = headPos - offset + Vec3.UP * bob + heading.cross(Vec3.UP) * sway
 
         val yaw = h + yawOff
         val pitch = Math.toRadians(w.pitchDownDeg.toDouble()).toFloat()
