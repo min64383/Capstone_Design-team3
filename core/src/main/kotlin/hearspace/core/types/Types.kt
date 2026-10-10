@@ -47,6 +47,47 @@ enum class HitWeighting { NONE, DISTANCE }
 /** 로컬 맵의 건강 상태. */
 enum class MapHealth { OK, DEGRADED }
 
+/** RGB 의미 인식 없이 Depth/복셀 기하로 분류한 실내 보행 공간 형태. */
+enum class IndoorGeometryType {
+    FLAT,
+    OCCUPIED,
+    WALL,
+    OVERHANG,
+    STEP_UP,
+    STEP_DOWN,
+    STAIRS_UP,
+    STAIRS_DOWN,
+    SLOPE_UP,
+    SLOPE_DOWN,
+    FLOOR_LOSS,
+    NARROW_PASSAGE,
+    OPENING,
+    UNKNOWN,
+}
+
+/** 거리 bin 하나의 지면 높이 추정. heightM=null이면 신뢰 가능한 지면 관측이 없었다. */
+data class GroundProfileBin(
+    val alongStartM: Float,
+    val alongEndM: Float,
+    val heightM: Float?,
+    val nPoints: Int,
+)
+
+/** 한 형태 후보. distanceM은 사용자 진행방향 기준 가장 가까운 위치. */
+data class GeometryFinding(
+    val type: IndoorGeometryType,
+    val distanceM: Float,
+    val confidence: Float,
+    val detail: String = "",
+)
+
+/** 한 깊이 프레임에서 얻은 실내 기하 분석 결과. 사용자 안내에는 아직 직접 연결하지 않는다. */
+data class IndoorGeometryResult(
+    val primary: IndoorGeometryType,
+    val findings: List<GeometryFinding>,
+    val groundProfile: List<GroundProfileBin>,
+)
+
 /** 진행 방향 거리 구간 (§7.5). */
 enum class Band { STOP, WARN, SILENT }
 

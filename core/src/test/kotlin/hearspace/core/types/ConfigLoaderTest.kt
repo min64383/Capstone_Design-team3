@@ -30,9 +30,10 @@ class ConfigLoaderTest {
         assertEquals(CorridorConfig(0.8f, 2.0f, 3.5f, 0.2f, 0.25f, 0.8f), c.corridor)
         assertEquals(DepthConfig(2, DepthSource.SMOOTHED, 0), c.depth)
         assertEquals(FrontendConfig(false, 6, 0.1f, 0.05f, 0.02f, 0.05f, 0.02f, 0.15f, PlaneMode.NONE, 0.03f, 0.02f, 0.08f, 0.3f, 150, 0.12f, 0.6f, 3.0f, -0.03f, 0.35f, 0.2f, 0.1f, 0.5f, 2.0f, 0.9f, 0.8f, 80, 0.8f, 0.2f, 0.3f, 3, 120, RgbGuideMode.NONE, 3, 12f, 20f, SegmentMode.NONE), c.frontend)
-        assertEquals(MapConfig(0.05f, 0.2f, 6, 0.1f, 0.15f, 0.3f, 1.0f, 10f, 5.0f, MapMode.HITS, 0.847f, -0.405f, -1.992f, 3.476f, 1.7f, 2.0f, 0.03f, HitWeighting.DISTANCE, 0.1f, 0.05f, 12f, 0.1f, false), c.map)
+        assertEquals(MapConfig(0.05f, 0.2f, 6, 0.1f, 0.15f, 0.3f, 1.0f, 10f, 5.0f, MapMode.HITS, 0.847f, -0.405f, -1.992f, 3.476f, 1.7f, 2.0f, 0.03f, HitWeighting.DISTANCE, 0.1f, 0.05f, 12f, 0.1f, false, 0f), c.map)
         assertEquals(FloorConfig(0.5f, 0.05f, 0.08f, 0.02f, 0.2f, 200, 0.1f, 10, 0.8f, FloorSource.HISTOGRAM, holdWhenLost = true), c.floor)
-        assertEquals(ClusterConfig(0.15f, 5, 1.2f, 0.5f, false, 0.5f), c.cluster)
+        assertEquals(ClusterConfig(0.15f, 5, 1.2f, 0.5f, false, 0.5f, 1.0f), c.cluster)
+        assertEquals(GeometryConfig(false, 0.20f, 6, 0.12f, 2, 6.0f, 0.40f, 0.65f), c.geometry)
         assertEquals(
             FalsePositiveFilterConfig(false, 500, 0.60f, 0.80f, 1.00f, 1.40f, 0.20f, 1.70f),
             c.falsePositiveFilter,

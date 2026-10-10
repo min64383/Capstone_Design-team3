@@ -81,7 +81,15 @@ class SlowPath(
         } else {
             listOf(voxels)
         }
-        fun dbscan(g: List<VoxelView>) = Cluster.dbscanXZ(g.map { it.centerW }, config.cluster.epsM, config.cluster.minSamples).map { idx -> idx.map { g[it] } }
+        fun dbscan(g: List<VoxelView>): List<List<VoxelView>> {
+            val multiplier = config.cluster.coreEvidenceMultiplier
+            val coreMask = if (multiplier <= 1f || config.map.mode != hearspace.core.types.MapMode.HITS) null else {
+                val minCoreEvidence = config.map.minHits * multiplier
+                BooleanArray(g.size) { i -> g[i].evidence >= minCoreEvidence }
+            }
+            return Cluster.dbscanXZ(g.map { it.centerW }, config.cluster.epsM, config.cluster.minSamples, coreMask)
+                .map { idx -> idx.map { g[it] } }
+        }
         // C3b: 같은 물체 번호끼리(번호 없는 칸은 한 묶음) 묶고 그 안에서 떨어진 조각은 DBSCAN으로 나눈 뒤, 위에서 본 면적이 겹치는
         // 조각은 합친다(같은 물체의 앞면·윗면이 다른 번호가 된 경우). 벽 묶음과 나머지는 서로 합치지 않는다
         val clusters = if (config.map.instances) {

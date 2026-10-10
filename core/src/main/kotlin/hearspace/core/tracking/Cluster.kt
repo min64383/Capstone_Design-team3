@@ -10,8 +10,12 @@ import kotlin.math.floor
  */
 object Cluster {
 
-    /** [pointsW]를 군집으로 나눈다. 이웃 수(자기 포함)가 [minSamples] 이상인 점이 핵심점. */
-    fun dbscanXZ(pointsW: List<Vec3>, epsM: Float, minSamples: Int): List<List<Int>> {
+    /** [pointsW]를 군집으로 나눈다. 이웃 수(자기 포함)가 [minSamples] 이상인 점이 핵심점.
+     * [canExpand]가 있으면 false인 점은 경계점으로 군집에 붙을 수는 있지만 다른 점으로 군집을 확장하지 못한다.
+     * 낮은 신뢰도의 얇은 bridge가 두 강한 물체를 한 덩어리로 잇는 것을 막는 실험 옵션이다.
+     */
+    fun dbscanXZ(pointsW: List<Vec3>, epsM: Float, minSamples: Int, canExpand: BooleanArray? = null): List<List<Int>> {
+        require(canExpand == null || canExpand.size == pointsW.size)
         val eps2 = epsM * epsM
         val grid = HashMap<Long, MutableList<Int>>()
         fun cell(v: Float) = floor(v / epsM).toInt()
@@ -39,7 +43,7 @@ object Cluster {
         for (i in pointsW.indices) {
             if (label[i] != UNVISITED) continue
             val nb = neighbors(i)
-            if (nb.size < minSamples) {
+            if (nb.size < minSamples || canExpand?.get(i) == false) {
                 label[i] = NOISE
                 continue
             }
@@ -58,7 +62,7 @@ object Cluster {
                 label[j] = id
                 members += j
                 val nb2 = neighbors(j)
-                if (nb2.size >= minSamples) queue.addAll(nb2)
+                if (nb2.size >= minSamples && canExpand?.get(j) != false) queue.addAll(nb2)
             }
             clusters += members
         }
