@@ -1,0 +1,8 @@
+{
+  "note": "PR #58 복셀 옵션 평가: 지금 기본값(= M19 F1W, data/sweeps/m19/F1W)에 빈 공간 증거 감쇠(E)·약한 다리 막기(C)·둘 다(EC)를 더한다. 값은 PR의 실험 override와 같다. 모두 기준 재생의 align.json을 같이 쓴다",
+  "variants": [
+    {"name": "E", "overrides": {"map": {"freeEvidenceDecay": 0.5}}, "replay": {"alignFrom": "data/sweeps/m13_defaults/default/{session}/align.json"}},
+    {"name": "C", "overrides": {"cluster": {"coreEvidenceMultiplier": 1.5}}, "replay": {"alignFrom": "data/sweeps/m13_defaults/default/{session}/align.json"}},
+    {"name": "EC", "overrides": {"map": {"freeEvidenceDecay": 0.5}, "cluster": {"coreEvidenceMultiplier": 1.5}}, "replay": {"alignFrom": "data/sweeps/m13_defaults/default/{session}/align.json"}}
+  ]
+}
