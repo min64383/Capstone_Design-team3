@@ -16,6 +16,7 @@
 | matplotlib | 3.11.2 (venv 기준, 미고정) | tools/analysis | Matplotlib License (PSF 계열) | 2026-09-26 (M0) |
 | h5py | 3.16.0 (venv 기준, 미고정) | tools/analysis: SOFA(HDF5) 읽기(extract_hrir.py) | BSD-3-Clause | 2026-09-29 (M6) |
 | Pillow | 12.3.0 (matplotlib 전이 의존성) | tools/analysis: PNG·JPEG 읽기(spike_check.py) | MIT-CMU (HPND) | 2026-09-26 (M1, 전이 의존성 사용) |
+| PyAV (`av`) | 18.1.0 (venv 기준, 미고정) | tools/analysis: ARCore 녹화 MP4의 H.264 영상 디코딩(mp4_rgb.py). 앱에는 들어가지 않음 | BSD-3-Clause. 휠에 FFmpeg 8.1.2 라이브러리 동봉: **LGPL v3 이상** 빌드(`--enable-version3`, GPL·nonfree 아님, `av._core.library_meta`로 확인) | 2026-10-10 (M19) |
 
 ### ARCore 약관 메모
 
