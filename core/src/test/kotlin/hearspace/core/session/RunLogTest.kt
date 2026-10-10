@@ -19,7 +19,7 @@ class RunLogTest {
             "tBlockNs,poseTNs,snapshotTNs,state,obstacleId,azimuthDeg,distanceM,band,sound,infoAgeMs,headingDeg",
             RunLog.header(RunLog.GUIDANCE_HEADER),
         )
-        assertEquals(4 + 9 + 6, RunLog.OBSTACLES_HEADER.size)
+        assertEquals(4 + 12 + 6, RunLog.OBSTACLES_HEADER.size) // 대표점 4방식 × xyz (M21)
     }
 
     /** SC-02를 돌려 세 로그의 줄을 만든다(앱과 같은 순서, 시각은 가상). */

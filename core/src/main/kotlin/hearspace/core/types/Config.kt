@@ -307,11 +307,8 @@ data class TrackConfig(
 /** 대표점 설정. */
 data class RepPointConfig(
     val strategy: RepStrategy,
-    /**
-     * M20 진단용(기본 false): 대표점 후보를 군집 중 이번 깊이 장에서 관측된 칸으로 좁힌다(없으면 군집 전체). 시야 밖에 남은 칸이
-     * 대표점이 되는 몫을 재생으로 재는 용도이며, 가까운 물체를 멀게 낼 수 있어 기본값 후보가 아니다.
-     */
-    val freshOnly: Boolean,
+    /** CORRIDOR_BAND 띠 폭: 가장 앞 칸에서 이만큼 안의 통로 안 칸으로 좌우를 낸다(M21, 실측 꼬리 p90에서). */
+    val bandM: Float,
 )
 
 /** 거리 구간·음원 선택 설정. */

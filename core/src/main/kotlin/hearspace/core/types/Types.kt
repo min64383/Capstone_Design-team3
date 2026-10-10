@@ -9,7 +9,7 @@ import hearspace.core.geometry.Vec3
 enum class TrackingState { TRACKING, PAUSED, STOPPED }
 
 /** 대표점 계산 방식 (§7.4). */
-enum class RepStrategy { CENTROID, NEAREST, CORRIDOR_NEAREST }
+enum class RepStrategy { CENTROID, NEAREST, CORRIDOR_NEAREST, CORRIDOR_BAND }
 
 /** 통로 안 부분의 높이 분류 (§7.4). */
 enum class HeightClass { FLOOR, BODY, HEAD }
