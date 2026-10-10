@@ -71,7 +71,8 @@
     "tsdfTruncPerM": 0.05,
     "tsdfMaxWeight": 12,
     "tsdfMinCosIncidence": 0.1,
-    "instances": false
+    "instances": false,
+    "freeEvidenceDecay": 0.0
   },
   "floor": {
     "searchBandM": 0.5,
@@ -86,7 +87,17 @@
     "source": "HISTOGRAM",
     "holdWhenLost": true
   },
-  "cluster": { "epsM": 0.15, "minSamples": 5, "headMinM": 1.2, "bodyMinM": 0.5, "separateWalls": false, "wallFraction": 0.5 },
+  "cluster": { "epsM": 0.15, "minSamples": 5, "headMinM": 1.2, "bodyMinM": 0.5, "separateWalls": false, "wallFraction": 0.5, "coreEvidenceMultiplier": 1.0 },
+  "geometry": {
+    "enabled": false,
+    "profileBinM": 0.20,
+    "minBinPoints": 6,
+    "stepHeightM": 0.12,
+    "stairMinSteps": 2,
+    "slopeMinDeg": 6.0,
+    "floorLossMinGapM": 0.40,
+    "narrowPassageM": 0.65
+  },
   "falsePositiveFilter": {
     "enabled": false,
     "minVoxels": 500,

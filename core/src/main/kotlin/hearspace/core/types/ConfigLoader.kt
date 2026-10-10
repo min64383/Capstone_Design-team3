@@ -125,6 +125,7 @@ object ConfigLoader {
                     tsdfMaxWeight = positive("tsdfMaxWeight"),
                     tsdfMinCosIncidence = unit("tsdfMinCosIncidence"),
                     instances = boolean("instances"),
+                    freeEvidenceDecay = nonNegative("freeEvidenceDecay"),
                 ).also { m ->
                     if (!(m.logMin < m.logOccupied && m.logOccupied < m.logMax)) {
                         throw ConfigException("map", "must satisfy logMin < logOccupied < logMax")
@@ -154,6 +155,19 @@ object ConfigLoader {
                     bodyMinM = positive("bodyMinM"),
                     separateWalls = boolean("separateWalls"),
                     wallFraction = unit("wallFraction"),
+                    coreEvidenceMultiplier = positive("coreEvidenceMultiplier"),
+                )
+            },
+            geometry = root.section("geometry") {
+                GeometryConfig(
+                    enabled = boolean("enabled"),
+                    profileBinM = positive("profileBinM"),
+                    minBinPoints = atLeast1("minBinPoints"),
+                    stepHeightM = positive("stepHeightM"),
+                    stairMinSteps = atLeast1("stairMinSteps"),
+                    slopeMinDeg = positive("slopeMinDeg"),
+                    floorLossMinGapM = positive("floorLossMinGapM"),
+                    narrowPassageM = positive("narrowPassageM"),
                 )
             },
             falsePositiveFilter = root.section("falsePositiveFilter") {

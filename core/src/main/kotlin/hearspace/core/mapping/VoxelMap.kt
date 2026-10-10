@@ -29,6 +29,8 @@ data class VoxelView(
     val wallHits: Int = 0,
     /** 인스턴스 지도(C3b)의 물체 번호, 0 = 없음. */
     val instId: Int = 0,
+    /** 현재 점유 증거(hit-equivalent). `freeEvidenceDecay`가 0이면 기존 누적 hit와 같은 의미. */
+    val evidence: Float = hits.toFloat(),
 )
 
 /** 삭제 사유별 개수(로그·테스트용). */
@@ -67,6 +69,7 @@ class VoxelMap(private val cfg: MapConfig) {
         var hits: Int, var score: Float, var lastSeenNs: Long, var lastHitFrame: Long, var logOdds: Float, var weightedHits: Float,
         var wallHits: Int, var lastWallFrame: Long, var sd: Float = 0f, var sdWeight: Float = 0f,
         var instId: Int = 0, var instVotes: Int = 0, var lastInstFrame: Long = -1,
+        var currentEvidence: Float = weightedHits,
     )
 
     private val logOdds = cfg.mode == MapMode.LOG_ODDS
@@ -111,6 +114,7 @@ class VoxelMap(private val cfg: MapConfig) {
         if (v == null) {
             voxels[key] = Voxel(
                 1, min(1f, cfg.hitGain * vote), tNs, frame, min(cfg.logMax, cfg.logHit * weight), vote, if (wall) 1 else 0, if (wall) frame else -1,
+                currentEvidence = vote,
             )
             return
         }
@@ -121,6 +125,7 @@ class VoxelMap(private val cfg: MapConfig) {
         if (v.lastHitFrame != frame) {
             v.hits++
             v.weightedHits += vote
+            v.currentEvidence += vote
             v.score = min(1f, v.score + cfg.hitGain * vote)
             v.lastSeenNs = tNs
             v.lastHitFrame = frame
@@ -282,6 +287,7 @@ class VoxelMap(private val cfg: MapConfig) {
             }
             if (mm / 1000f < pCv.z + cfg.freeMarginM) continue // 복셀 자리 또는 그 앞이 관측됨(가려짐 포함)
             v.score -= cfg.decayPerObservation
+            if (cfg.freeEvidenceDecay > 0f) v.currentEvidence = max(0f, v.currentEvidence - cfg.freeEvidenceDecay)
             decayed++
             if (v.score <= 0f) it.remove()
         }
@@ -322,14 +328,27 @@ class VoxelMap(private val cfg: MapConfig) {
         when {
             tsdf -> v.sdWeight >= cfg.minHits && abs(v.sd) <= surfaceBandM && v.hits > 0 // 측정점이 지난 적 없는 칸은 평균만으로 표면이 아님(윤곽 부풀림)
             logOdds -> v.logOdds >= cfg.logOccupied
-            else -> (if (weighted) v.weightedHits else v.hits.toFloat()) >= cfg.minHits && v.score >= cfg.minScore
+            else -> {
+                val historical = if (weighted) v.weightedHits else v.hits.toFloat()
+                val evidence = if (cfg.freeEvidenceDecay > 0f) v.currentEvidence else historical
+                evidence >= cfg.minHits && v.score >= cfg.minScore
+            }
         }
     }.map { (key, v) -> view(key, v) }
 
     /** 모든 복셀. */
     fun views(): List<VoxelView> = voxels.map { (key, v) -> view(key, v) }
 
-    private fun view(key: Long, v: Voxel) = VoxelView(ix(key), iy(key), iz(key), center(key), v.hits, v.score, v.lastSeenNs, v.logOdds, v.wallHits, v.instId)
+    private fun view(key: Long, v: Voxel): VoxelView {
+        val historical = if (weighted) v.weightedHits else v.hits.toFloat()
+        val evidence = when {
+            tsdf -> v.sdWeight
+            logOdds -> v.logOdds
+            cfg.freeEvidenceDecay > 0f -> v.currentEvidence
+            else -> historical
+        }
+        return VoxelView(ix(key), iy(key), iz(key), center(key), v.hits, v.score, v.lastSeenNs, v.logOdds, v.wallHits, v.instId, evidence)
+    }
 
     /** 모든 score에 [factor]를 곱한다(추적 복귀 시 `state.recoverScoreScale`, §7.5). LOG_ODDS는 로그 오즈를 0(모름) 쪽으로 같은 비율만큼. */
     fun scaleScores(factor: Float) {

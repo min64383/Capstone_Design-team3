@@ -14,6 +14,7 @@ data class Config(
     val map: MapConfig,
     val floor: FloorConfig,
     val cluster: ClusterConfig,
+    val geometry: GeometryConfig,
     val falsePositiveFilter: FalsePositiveFilterConfig,
     val track: TrackConfig,
     val repPoint: RepPointConfig,
@@ -193,6 +194,8 @@ data class MapConfig(
      * 잇고 복셀에 번호를 남긴다. 군집은 같은 번호끼리, 번호 없는 칸은 따로 DBSCAN. 추적은 같은 번호를 먼저 짝짓는다. false = 기준선.
      */
     val instances: Boolean,
+    /** HITS 모드에서 현재 점유 증거(hit-equivalent)를 빈 공간 관측 한 번에 얼마나 깎을지. 0이면 기존 누적 hits 동작. */
+    val freeEvidenceDecay: Float,
 )
 
 /** 바닥 추정 설정. */
@@ -243,6 +246,27 @@ data class ClusterConfig(
      */
     val separateWalls: Boolean,
     val wallFraction: Float,
+    /** 1보다 크면 점유 문턱보다 이 배 이상 강한 복셀만 DBSCAN core로 확장하고 약한 복셀은 border로만 붙인다. */
+    val coreEvidenceMultiplier: Float,
+)
+
+/** Depth/복셀 기하만으로 실내 보행 형태를 분기하는 실험 모듈 설정. */
+data class GeometryConfig(
+    val enabled: Boolean,
+    /** 진행방향 지면 프로파일의 거리 bin 크기(m). */
+    val profileBinM: Float,
+    /** 한 bin을 유효 지면으로 볼 최소 점 수. */
+    val minBinPoints: Int,
+    /** 단차로 볼 인접 지면 높이 차(m). */
+    val stepHeightM: Float,
+    /** 계단으로 볼 같은 방향 단차의 최소 반복 횟수. */
+    val stairMinSteps: Int,
+    /** 경사로로 볼 최소 절대 경사각(deg). */
+    val slopeMinDeg: Float,
+    /** 노면 소실 후보의 최소 연속 길이(m). */
+    val floorLossMinGapM: Float,
+    /** 통로 유효 폭이 이보다 작으면 좁은 통로(m). */
+    val narrowPassageM: Float,
 )
 
 /** 실측에서 반복된 '통로 전체를 채우는 깊이 sheet' 오인식 실험 필터. 기본은 꺼 둔다. */

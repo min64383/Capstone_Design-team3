@@ -11,6 +11,7 @@ import hearspace.core.types.Config
 import hearspace.core.types.DepthFrame
 import hearspace.core.types.FloorSource
 import hearspace.core.types.MapHealth
+import hearspace.core.types.IndoorGeometryResult
 import hearspace.core.types.PlaneMode
 import hearspace.core.types.RgbGuideMode
 import hearspace.core.types.SegmentMode
@@ -32,6 +33,8 @@ data class MapUpdate(
     val planes: PlaneResult? = null,
     /** `frontend.segment`가 REGION일 때 이 깊이의 영역 분할(C3a), 아니면 null. 바닥·바닥 아래·벽 평면 점은 영역에 넣지 않는다. */
     val segments: Segmenter.Result? = null,
+    /** Depth/복셀 기하만으로 얻은 실내 공간 형태(실험용, guidance에는 아직 미연결). */
+    val geometry: IndoorGeometryResult? = null,
 )
 
 /**
@@ -106,8 +109,22 @@ class LocalMap(private val config: Config) {
         }
         val nDecayed = voxels.decayFree(depthMm, depth.K, depth.worldFromCam.rigidInverse())
         val pruned = voxels.prune(userPosW, headingW, depth.tCaptureNs)
+        val geometry = if (config.geometry.enabled) {
+            IndoorGeometryAnalyzer.analyze(
+                pointsW = pts,
+                occupied = voxels.occupied(),
+                userPosW = userPosW,
+                headingW = headingW,
+                floorY = floorY,
+                corridorWidthM = config.corridor.widthM,
+                maxAlongM = config.policy.silentMaxM,
+                floorToleranceM = config.floor.toleranceM,
+                cluster = config.cluster,
+                cfg = config.geometry,
+            )
+        } else null
         return MapUpdate(
-            depth.tCaptureNs, n, nFloor, nBelow, nInserted, nDecayed, pruned, voxels.size, floor.floorY, MapHealth.OK, planes, segments,
+            depth.tCaptureNs, n, nFloor, nBelow, nInserted, nDecayed, pruned, voxels.size, floor.floorY, MapHealth.OK, planes, segments, geometry,
         )
     }
 

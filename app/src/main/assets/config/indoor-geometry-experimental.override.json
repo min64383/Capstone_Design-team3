@@ -1,0 +1,15 @@
+{
+  "frontend": {
+    "enabled": true,
+    "planes": "RANSAC"
+  },
+  "map": {
+    "freeEvidenceDecay": 0.5
+  },
+  "cluster": {
+    "coreEvidenceMultiplier": 1.5
+  },
+  "geometry": {
+    "enabled": true
+  }
+}
