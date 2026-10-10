@@ -1,7 +1,6 @@
 {
-  "note": "M20 앞면 오차 진단(IMPROVE_SPEC v0.3.20). F1W = 지금 기본값(대표점 칸 기록만 더함, M19 F1W와 안내 지표가 같아야 함), FR = 진단용 repPoint.freshOnly(대표점을 이번 장에 관측된 칸에서만). 모두 기준 재생의 align.json을 같이 쓴다",
+  "note": "M20 앞면 오차 진단(IMPROVE_SPEC v0.3.20). F1W = 지금 기본값(대표점 칸 기록만 더함, M19 F1W와 안내 지표가 같아야 함). 진단 변형 FR(repPoint.freshOnly: 대표점을 이번 장에 관측된 칸에서만)은 커밋 1ba6ec7에서 돌렸고 키를 지워 여기서 뺐다",
   "variants": [
-    {"name": "F1W", "overrides": {}, "replay": {"alignFrom": "data/sweeps/m13_defaults/default/{session}/align.json"}},
-    {"name": "FR", "overrides": {"repPoint": {"freshOnly": true}}, "replay": {"alignFrom": "data/sweeps/m13_defaults/default/{session}/align.json"}}
+    {"name": "F1W", "overrides": {}, "replay": {"alignFrom": "data/sweeps/m13_defaults/default/{session}/align.json"}}
   ]
 }
