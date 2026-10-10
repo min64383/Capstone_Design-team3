@@ -78,7 +78,7 @@ cd tools/analysis
 ..\..\.venv\Scripts\python.exe sweep.py sweeps/m19_depth.json ../../data/sweeps/m19 ../../data/sessions/<세션ID> ...
 ```
 
-M20 흐름 (앞면 오차 진단: 대표점 칸 원인 몫, 진단용 freshOnly, 평활·원시 앞면 오차):
+M20 흐름 (앞면 오차 진단: 대표점 칸 원인 몫, 평활·원시 앞면 오차):
 
 ```powershell
 cd tools/analysis
