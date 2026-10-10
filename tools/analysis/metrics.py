@@ -7,7 +7,7 @@
   `"scene"`이 있으면 장면 ID로 쓴다(폴더 이름의 장면 ID가 틀린 녹화, M10).
 - 실행 로그: 같은 세션의 PC 오프라인 재생(`:core:replay`) 또는 그 세션을 녹화하며 돌린 실시간 로그.
   ARCore 재생 모드 로그는 월드 좌표가 녹화와 달라(F8) 정답 지표를 낼 수 없다.
-- 정답 머리 = 카메라 + 파지 오프셋(보행선 방향 기준), 정답 방향 = 보행선 ±z 중 최근 이동 쪽(`walk_sign`, 왕복 세션, M12.2).
+- 정답 방향 = 보행선 ±z 중 카메라의 최근 이동 쪽(`walk_sign`, 왕복 세션, M12.2), 정답 머리 = 카메라 + 파지 오프셋(그 방향 기준).
   정답 통로 = 머리에서 그 방향으로 폭·길이.
 """
 from __future__ import annotations
@@ -310,9 +310,10 @@ def compute(session: Path, run_dir: Path) -> dict:
     cam = pose.loc[blocks.poseTNs]
     cx, _, cz = to_truth(al, cam.tx.to_numpy(), cam.ty.to_numpy(), cam.tz.to_numpy())
     ox, _, oz = cfg["head"]["offsetFromCameraM"]
-    hx, hz = cx + ox, cz + oz
     tS = (blocks.tBlockNs.to_numpy() - t0) / 1e9
-    sgn = walk_sign(tS, hz, cfg["heading"]["windowS"], cfg["heading"]["minTravelM"])
+    # 진행 방향은 카메라 이동으로 정하고, 파지 오프셋(진행 방향 기준)도 그 방향으로 돌린다: 돌아선 뒤 머리는 카메라의 −z 쪽이 아니라 +z 쪽
+    sgn = walk_sign(tS, cz, cfg["heading"]["windowS"], cfg["heading"]["minTravelM"])
+    hx, hz = cx + sgn * ox, cz + sgn * oz
     out["walkSignFlips"] = int((np.diff(sgn) != 0).sum())
     out["config"].update({"stopM": pol["stopM"], "warnMaxM": pol["warnMaxM"]})
 
