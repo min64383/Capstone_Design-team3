@@ -252,6 +252,13 @@ data class Noise(
      * 실측의 뒤 배경 끌림(경계에서 약 25픽셀 안 0.15~0.5 m)은 흉내 내지 않는다(M13.1의 짧은 경사 판정 대상이 아님).
      */
     val edgeSmoothPx: Int = 0,
+    /**
+     * 옆 번짐(M19): 평활 깊이가 앞 물체의 깊이를 옆·위 배경 화소로 퍼뜨리는 것을 흉내 낸다. 반경 이 픽셀 정사각형 안에 자기보다
+     * [EDGE_JUMP_RATIO] 넘게 가까운 **장애물** 화소가 있으면 그중 가장 가까운 깊이로 바꾼다(물체가 이만큼 굵어진다). 원천을 장애물로
+     * 한정한 것은 먼 바닥의 이웃 줄끼리도 10% 넘게 차이 나 바닥이 바닥 위로 번지기 때문이다. 가장자리 평활보다 먼저 한다.
+     * RGB는 그대로라 번진 화소는 배경색에 물체 깊이다. 실측: 물체 옆 번짐 점이 원시 깊이의 3~10배(M19 설계 표 4).
+     */
+    val edgeSpillPx: Int = 0,
 )
 
 /** 가장자리 평활 모드에서 깊이 불연속으로 보는 창 안 깊이 차 비율. */
@@ -414,11 +421,13 @@ object SyntheticGenerator {
         val garbage = noise.depthGarbageS.any { tS in it }
         val mm = ShortArray(k.width * k.height)
         val luma = ByteArray(k.width * k.height)
+        val obstacle = BooleanArray(k.width * k.height)
         for (v in 0 until k.height) for (u in 0 until k.width) {
             // C_cv 광선 (Z = 1) → 월드. 교차 t가 곧 C_cv 깊이 Z다.
             val dCv = Vec3((u - k.cx) / k.fx, (v - k.cy) / k.fy, 1f)
             val hit = scene.raycast(o, truth.transformDir(dCv), tS) ?: continue
             luma[v * k.width + u] = hit.second.luma.toByte() // RGB는 선명하다(평활은 깊이에만)
+            obstacle[v * k.width + u] = hit.second.obstacle
             var z = hit.first * (1f + noise.depthScaleBias)
             if (noise.depthMulStd > 0f) z *= 1f + noise.depthMulStd * gauss(rnd)
             if (noise.invalidRatio > 0f && rnd.nextFloat() < noise.invalidRatio) continue
@@ -426,9 +435,30 @@ object SyntheticGenerator {
             if (z <= 0f) continue
             mm[v * k.width + u] = min((z * 1000f).roundToInt(), 65535).toShort()
         }
+        val spilled = if (noise.edgeSpillPx > 0) edgeSpill(mm, obstacle, k, noise.edgeSpillPx) else mm
         return DepthFrame(
-            tNs, if (noise.edgeSmoothPx > 0) edgeSmooth(mm, k, noise.edgeSmoothPx) else mm, null, k, reported, "synthetic", GuideImage(tNs, luma, k),
+            tNs, if (noise.edgeSmoothPx > 0) edgeSmooth(spilled, k, noise.edgeSmoothPx) else spilled, null, k, reported, "synthetic", GuideImage(tNs, luma, k),
         )
+    }
+
+    /** 반경 [r] 정사각형 안에 자기보다 [EDGE_JUMP_RATIO] 넘게 가까운 장애물 화소([obstacle])가 있으면 그중 가장 가까운 것으로(무효는 무효로). */
+    private fun edgeSpill(mm: ShortArray, obstacle: BooleanArray, k: Intrinsics, r: Int): ShortArray {
+        val out = mm.copyOf()
+        for (v in 0 until k.height) for (u in 0 until k.width) {
+            val d0 = mm[v * k.width + u].toInt() and 0xFFFF
+            if (d0 == 0) continue
+            var lo = d0
+            for (dv in -r..r) for (du in -r..r) {
+                val uu = u + du
+                val vv = v + dv
+                if (uu !in 0 until k.width || vv !in 0 until k.height) continue
+                val j = vv * k.width + uu
+                val d = mm[j].toInt() and 0xFFFF
+                if (obstacle[j] && d != 0 && d < lo) lo = d
+            }
+            if (lo < d0 * (1f - EDGE_JUMP_RATIO)) out[v * k.width + u] = lo.toShort()
+        }
+        return out
     }
 
     /** 반경 [r] 정사각형 안에 깊이 불연속이 있는 유효 픽셀만 그 안 유효 깊이의 평균으로(무효는 무효로 둔다). */

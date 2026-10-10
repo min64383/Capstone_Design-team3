@@ -71,6 +71,8 @@ class OfflineReplay(
     private val substitution: Substitution? = null,
     /** 대입에 쓴 정렬 파일 경로(`replay_info.json` 기록용). */
     private val alignFrom: String = "",
+    /** RGB 안내 보정에 붙일 RGB 원천(M19). */
+    private val rgbSource: RgbSource = RgbSource.RECORDED,
 ) {
 
     /**
@@ -78,7 +80,7 @@ class OfflineReplay(
      * `map_eval.json`(M13, [MapEvalWriter])도 쓴다.
      */
     fun run(session: File, outDir: File, overridesJson: String = "{}", slowPathNote: String = "") {
-        val log = RunLogWriter(outDir, session, overridesJson, slowPathNote, substitution?.infoJson(alignFrom))
+        val log = RunLogWriter(outDir, session, overridesJson, slowPathNote, substitution?.infoJson(alignFrom), rgbSource.name)
         run(session, if (File(session, "annotations/obstacles.json").isFile) MapEvalWriter(log, outDir, session, config) else log)
     }
 
@@ -86,9 +88,9 @@ class OfflineReplay(
     fun run(session: File, listener: ReplayListener) {
         val reader = SessionReader(session)
         val sysOf = reader.rows.associate { it.frameIndex to it.sysElapsedNs }
-        // M13.7: RGB 안내 보정을 켜면 깊이 장마다 과거 RGB를 붙인다
+        // M13.7: RGB 안내 보정을 켜면 깊이 장마다 그 깊이를 전달한 프레임의 RGB를 붙인다(M19)
         val rgb = if (config.frontend.rgbGuide != RgbGuideMode.NONE) {
-            RgbFrames(session, reader.rows, reader.meta.camera.imageIntrinsics, (config.frontend.rgbMaxAgeMs * 1e6).toLong())
+            RgbFrames(session, reader.rows, reader.meta.camera.imageIntrinsics, (config.frontend.rgbMaxAgeMs * 1e6).toLong(), rgbSource)
         } else {
             null
         }
@@ -158,7 +160,7 @@ class OfflineReplay(
                         is PoseEvent -> pose = e.pose
                         is DepthEvent -> {
                             val d = substitution?.depthOf(e.depth) ?: e.depth
-                            pending = rgb?.attach(d) ?: d
+                            pending = rgb?.attach(d, e.frameIndex) ?: d
                             startIfIdle(arrival)
                         }
                     }

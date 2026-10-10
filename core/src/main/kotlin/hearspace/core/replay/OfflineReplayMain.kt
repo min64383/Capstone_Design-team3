@@ -12,6 +12,7 @@ import java.io.File
  * 기본 출력: `core/build/replay/<세션ID>/<overrides 요약 또는 default>/`.
  * 정답 대입(M12.3 원인 분해, 평가 전용): `-Psubstitute=depth,map,heading`(쉼표로 조합) `-PalignFrom=<기준 재생의 align.json>`
  * [`-PdepthNoisePerM=0.03`]. 정답은 세션의 `annotations/obstacles.json`. `-PalignFrom`만 주면 대입 없이 그 정렬만 기록한다(M18).
+ * RGB 안내 보정의 RGB 원천(M19): `-PrgbFrom=mp4`(`tools/analysis/mp4_rgb.py`가 꺼낸 매 프레임 밝기) | `recorded`(기본, 녹화 JPEG).
  */
 fun main(args: Array<String>) {
     val opts = args.associate { a -> a.substringBefore('=') to a.substringAfter('=', "") }
@@ -38,6 +39,11 @@ fun main(args: Array<String>) {
             depthNoisePerM = opts["depthNoisePerM"]?.takeIf { it.isNotBlank() }?.toFloat() ?: 0f,
         )
     }
-    OfflineReplay(config, slow, sub?.second, sub?.first?.path ?: "").run(session, out, overrides, note)
+    val rgbSource = when (opts["rgbFrom"]?.takeIf { it.isNotBlank() } ?: "recorded") {
+        "mp4" -> RgbSource.MP4
+        "recorded" -> RgbSource.RECORDED
+        else -> error("rgbFrom must be mp4 or recorded: ${opts["rgbFrom"]}")
+    }
+    OfflineReplay(config, slow, sub?.second, sub?.first?.path ?: "", rgbSource).run(session, out, overrides, note)
     println("replay log: ${out.absolutePath}")
 }

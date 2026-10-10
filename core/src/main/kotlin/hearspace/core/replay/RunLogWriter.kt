@@ -19,6 +19,8 @@ class RunLogWriter(
     slowPathNote: String,
     /** 정답 대입 내용(JSON 객체, M12.3). 없으면 null. */
     substitutionJson: String? = null,
+    /** RGB 안내 보정의 RGB 원천(M19, [RgbSource] 이름). */
+    rgbSource: String = RgbSource.RECORDED.name,
 ) : ReplayListener {
     private val slowOut: Writer
     private val guidOut: Writer
@@ -32,6 +34,7 @@ class RunLogWriter(
         outDir.mkdirs()
         File(outDir, OfflineReplay.INFO_FILE).writeText(
             "{\n  \"session\": \"${session.absolutePath.replace("\\", "/")}\",\n  \"slowPath\": \"$slowPathNote\",\n" +
+                "  \"rgbSource\": \"$rgbSource\",\n" +
                 "  \"configOverrides\": $overridesJson" + (substitutionJson?.let { ",\n  \"substitution\": $it" } ?: "") + "\n}\n",
         )
         slowOut = File(outDir, RunLog.SLOW_PATH_FILE).bufferedWriter()

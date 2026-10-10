@@ -1,0 +1,15 @@
+{
+  "note": "M19 깊이 개선(IMPROVE_SPEC v0.3.18). F1W = 지금 기본값(M18 F1W 재현 확인), G = RGB 안내 보정(MP4 매 프레임 밝기, 막 경사만), FG = G + 경계 판정, GB = G + 번짐 띠 13화소(tools/analysis/spill.py 조정용 세션 실측 p90), DF1W = 정답 깊이(상한). 모두 기준 재생의 align.json을 같이 쓴다. RGB는 tools/analysis/mp4_rgb.py로 먼저 꺼낸다",
+  "variants": [
+    { "name": "F1W", "overrides": {},
+      "replay": { "alignFrom": "data/sweeps/m13_defaults/default/{session}/align.json" } },
+    { "name": "G", "overrides": { "frontend": { "rgbGuide": "WEIGHTED_MEDIAN" } },
+      "replay": { "alignFrom": "data/sweeps/m13_defaults/default/{session}/align.json", "rgbFrom": "mp4" } },
+    { "name": "FG", "overrides": { "frontend": { "enabled": true, "rgbGuide": "WEIGHTED_MEDIAN" } },
+      "replay": { "alignFrom": "data/sweeps/m13_defaults/default/{session}/align.json", "rgbFrom": "mp4" } },
+    { "name": "GB", "overrides": { "frontend": { "rgbGuide": "WEIGHTED_MEDIAN", "rgbGuideBandPx": 13 } },
+      "replay": { "alignFrom": "data/sweeps/m13_defaults/default/{session}/align.json", "rgbFrom": "mp4" } },
+    { "name": "DF1W", "overrides": {},
+      "replay": { "substitute": "depth", "alignFrom": "data/sweeps/m13_defaults/default/{session}/align.json" } }
+  ]
+}
