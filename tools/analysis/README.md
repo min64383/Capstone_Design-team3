@@ -13,7 +13,7 @@
 | `scorecard.py` | M12.2, M12.3 | 안내 성적표: 여러 `metrics.json` → 세션별 항목 판정(합격·경계·불합격·해당 없음)과 조정용·확인용 요약. 항목·목표·세션 구분은 `scorecard.json`. `--compare <항목>`이면 세션 × 변형 표(정답 대입)와 경고 놓침 사유 |
 | `worldpts.py` | M12.0 | 프레임별 월드 점(깊이 PNG + 깊이 K + 그 프레임 자세, core 역투영과 같은 규약) |
 | `mp4_rgb.py` | M19 | `arcore.mp4`의 매 프레임 밝기(Y 평면) → `<세션>/rgb_mp4/`(JPEG·`index.csv`·`extract.json`). 재생 `-PrgbFrom=mp4`가 읽는다. PyAV 필요 |
-| `spill.py` | M19 | 평활 깊이 옆 번짐 거리 실측(원시–평활 같은 시각 장): 번짐 띠 폭의 근거 |
+| `spill.py` | M19 | 평활 깊이 옆 번짐 거리 실측(원시–평활 같은 시각 장). M19 번짐 띠(채택 안 함)의 근거였다 |
 | `error_decomp.py` | M12.0 | 오차 분해(IMPROVE_SPEC §11.1): 면 위치 오차·헛 점·바닥 흔들림·수렴·자세 점프·구간별 옆 벽·회전·루프 닫힘 → `<세션>/error_decomp.json`·`error_decomp_frames.csv` |
 | `test_analysis.py` | M8, M12.0 | 합성 오프라인 재생·합성 세션으로 분석 도구 자체 점검 |
 | `extract_hrir.py` | M6 | SOFA HRTF → 앱용 수평면 HRIR 바이너리(`assets/hrtf/`) |

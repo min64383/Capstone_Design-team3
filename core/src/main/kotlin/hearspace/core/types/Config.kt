@@ -129,12 +129,6 @@ data class FrontendConfig(
     val rgbGuideRadiusPx: Int,
     /** 밝기 유사도 σ(0~255). 정지 세션 RGB의 장 간 밝기 잡음 p90 약 4(E01h 151747, 평평한 픽셀)의 3배. */
     val rgbGuideLumaSigma: Float,
-    /**
-     * 번짐 띠(M19, 깊이 픽셀): 0이면 막 경사(경계 마스크)만 보정하고, b > 0이면 마스크에서 b화소 안까지 후보로 넓히고 창 반경을
-     * `rgbGuideRadiusPx` + 2b로 키워 평활 깊이의 옆 번짐(물체 깊이가 옆 배경 화소로 퍼진 것)을 배경 깊이로 옮긴다([RgbGuide]).
-     * 값은 원시–평활 비교의 번짐 폭 실측 p90(`tools/analysis/spill.py`)으로 정한다.
-     */
-    val rgbGuideBandPx: Int,
     /** 깊이보다 이만큼 이전(ms)의 RGB까지만 쓴다(과거만). 1 m/s·2 m에서 깊이 한 픽셀(약 1.5 cm)이 약 15 ms라 같은 장만 쓰는 20. */
     val rgbMaxAgeMs: Float,
     /**

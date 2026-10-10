@@ -45,7 +45,6 @@
     "rgbGuide": "NONE",
     "rgbGuideRadiusPx": 3,
     "rgbGuideLumaSigma": 12,
-    "rgbGuideBandPx": 0,
     "rgbMaxAgeMs": 20,
     "segment": "NONE"
   },
