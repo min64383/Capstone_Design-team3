@@ -23,3 +23,6 @@ __pycache__/
 # OS
 .DS_Store
 Thumbs.db
+
+# milepost 플러그인 산출물(검토 문서·상태)은 올리지 않는다(2026-10-10 사용자)
+docs/reports/

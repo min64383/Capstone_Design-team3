@@ -211,18 +211,48 @@ def truth_nearest(ob, hx, hz, cfg, sgn=1.0):
     return along, float(np.hypot(ln, along)), float(np.degrees(np.arctan2(ln, along)))
 
 
-def zone_stats(rows: list[dict], truth: list[dict], pol: dict) -> dict:
+def miss_reason(run_dir: Path):
+    """경고 놓침 블록의 사유(M12.3, 기존 실행 로그만 씀): 블록이 쓴 스냅샷 시각으로 느린 경로 로그를 찾아, 위에서부터 처음 맞는 것.
+    silent(음원은 있으나 SILENT로 안내) → noSnapshot → outOfBand(장애물은 있으나 명령 없음: 3.0 m 밖·머리 뒤) → noFloor(바닥 모름 →
+    빈 스냅샷) → noCluster(통로 안 군집 없음) → allFiltered(오경보 거르개) → unconfirmed(추적 확인 대기)."""
+    sp = pd.read_csv(run_dir / "slow_path.csv")
+    no_floor = set(sp.tCaptureNs[sp.floorY.isna()])
+    obs_t = set(pd.read_csv(run_dir / "obstacles.csv").tCaptureNs)
+    cdf = run_dir / "cluster_debug.csv"
+    cd = pd.read_csv(cdf) if cdf.is_file() else pd.DataFrame(columns=["tCaptureNs", "filtered"])
+    clusters = {int(t): (len(g), int(g.filtered.astype(bool).sum())) for t, g in cd.groupby("tCaptureNs")}
+
+    def why(r: dict) -> str:
+        s = r.get("snap")
+        if r["band"] == "SILENT":
+            return "silent"
+        if s is None:
+            return "noSnapshot"
+        if s in obs_t:
+            return "outOfBand"
+        if s in no_floor:
+            return "noFloor"
+        if s not in clusters:
+            return "noCluster"
+        n, f = clusters[s]
+        return "allFiltered" if f == n else "unconfirmed"
+    return why
+
+
+def zone_stats(rows: list[dict], truth: list[dict], pol: dict, why=None) -> dict:
     """통로 안팎 판정과 거리 오차(M12.2 안내 성적표).
     - distanceErrorM: 짝지은 경고의 추정 − 정답 거리(m), 정답 거리 구간 [0, stopM), [stopM, 1.5), [1.5, ∞)마다 p05·p50·p95
     - missedWarnFraction: 정상 상태에서 정답 구간이 WARN·STOP인 블록 중 추정이 WARN·STOP이 아닌 비율
     - outsideCorridorFraction: 경고(WARN·STOP) 중 짝지은 정답이 그 블록에서 정답 통로 밖인 비율(옆 벽 등)
     - startDistanceM: 정상 상태에서 처음 정답 통로 안에 든 순간의 정답 거리(첫 경고 거리 판정의 분모)
-    - warnZoneS·stopZoneS: 정상 상태에서 정답이 WARN·STOP 구간 안에 있던 시간(s, 명세 탐지율의 "1 s 이상" 판정용)"""
+    - warnZoneS·stopZoneS: 정상 상태에서 정답이 WARN·STOP 구간 안에 있던 시간(s, 명세 탐지율의 "1 s 이상" 판정용)
+    - missedWarnReasons: 경고 놓침 시간(s)을 사유별로(`why` = `miss_reason(실행 로그)`가 있을 때, M12.3)"""
     t = np.array([r["t"] for r in rows], dtype=float)
     dt = np.diff(t, append=t[-1] + (np.median(np.diff(t)) if len(t) > 1 else 0.0)) if len(t) else t
     edges = [0.0, pol["stopM"], OVER_LO_M, np.inf]
     err: list[list[float]] = [[] for _ in edges[:-1]]
     zone_n = miss = n_cmd = outside = 0
+    reasons: dict[str, float] = {}
     start: dict[int, float] = {}
     warn_s: dict[int, float] = {}
     stop_s: dict[int, float] = {}
@@ -240,7 +270,11 @@ def zone_stats(rows: list[dict], truth: list[dict], pol: dict) -> dict:
                     stop_s[i] = stop_s.get(i, 0.0) + d
             if cands and band_of(min(cands)[0], pol) in ("WARN", "STOP"):
                 zone_n += 1
-                miss += not warned
+                if not warned:
+                    miss += 1
+                    if why is not None:
+                        k = why(r)
+                        reasons[k] = reasons.get(k, 0.0) + d
         if warned:
             n_cmd += 1
             if r["match"] is not None:
@@ -262,6 +296,7 @@ def zone_stats(rows: list[dict], truth: list[dict], pol: dict) -> dict:
         "startDistanceM": name(start),
         "warnZoneS": name(warn_s),
         "stopZoneS": name(stop_s),
+        "missedWarnReasons": {k: round(float(v), 3) for k, v in sorted(reasons.items())},
     }
 
 
@@ -346,7 +381,8 @@ def compute(session: Path, run_dir: Path) -> dict:
             mi, mh = match(e.snapshotTNs, e.obstacleId)
         rows.append({"t": tS[k], "state": b.state, "tn": tn, "band": e.band if pd.notna(e.band) else None,
                      "oid": int(e.obstacleId) if pd.notna(e.obstacleId) else None,
-                     "az": e.azimuthDeg, "dist": e.distanceM, "match": mi, "hclass": mh, "pose": b.poseTNs})
+                     "az": e.azimuthDeg, "dist": e.distanceM, "match": mi, "hclass": mh, "pose": b.poseTNs,
+                     "snap": int(e.snapshotTNs) if pd.notna(e.snapshotTNs) else None})
 
     dir_err, dir_ahead, n_beside, over, jitter_src, fa, n_cmd = [], [], 0, [], {}, 0, 0
     band_ok = band_n = 0
@@ -431,7 +467,7 @@ def compute(session: Path, run_dir: Path) -> dict:
         "structureCommandFraction": n_struct / n_cmd if n_cmd else None,  # 구조물을 물체처럼 경고한 비율
         "objectMergedFraction": merged_fraction(obs, truth, al),
         "objectShape": object_shape(obs, truth, al),
-        **zone_stats(rows, truth, pol),
+        **zone_stats(rows, truth, pol, miss_reason(run_dir)),
         "selectedTruth": {truth[i]["name"]: sum(1 for r in rows if r["match"] == i and r["band"] in ("WARN", "STOP")) for i in range(len(truth))},
     })
     return out

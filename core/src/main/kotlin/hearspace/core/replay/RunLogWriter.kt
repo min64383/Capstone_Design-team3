@@ -12,7 +12,14 @@ import java.io.Writer
  * 재생 결과를 실행 로그(MVP §10.1, 앱과 같은 형식)로 [outDir]에 쓴다. 단계별 처리 시간은 `stage_timing.csv`에 따로.
  * `replay_info.json`에는 세션 경로·느린 경로 시간 방식·설정 덮어쓰기를 남긴다(분석 도구가 같은 설정을 쓰도록).
  */
-class RunLogWriter(outDir: File, session: File, overridesJson: String, slowPathNote: String) : ReplayListener {
+class RunLogWriter(
+    outDir: File,
+    session: File,
+    overridesJson: String,
+    slowPathNote: String,
+    /** 정답 대입 내용(JSON 객체, M12.3). 없으면 null. */
+    substitutionJson: String? = null,
+) : ReplayListener {
     private val slowOut: Writer
     private val guidOut: Writer
     private val obsOut: Writer
@@ -25,7 +32,7 @@ class RunLogWriter(outDir: File, session: File, overridesJson: String, slowPathN
         outDir.mkdirs()
         File(outDir, OfflineReplay.INFO_FILE).writeText(
             "{\n  \"session\": \"${session.absolutePath.replace("\\", "/")}\",\n  \"slowPath\": \"$slowPathNote\",\n" +
-                "  \"configOverrides\": $overridesJson\n}\n",
+                "  \"configOverrides\": $overridesJson" + (substitutionJson?.let { ",\n  \"substitution\": $it" } ?: "") + "\n}\n",
         )
         slowOut = File(outDir, RunLog.SLOW_PATH_FILE).bufferedWriter()
         guidOut = File(outDir, RunLog.GUIDANCE_FILE).bufferedWriter()

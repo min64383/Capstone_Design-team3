@@ -113,6 +113,14 @@ def to_truth(al: dict, x, y, z):
 
 
 def align(session: Path, run_dir: Path) -> dict:
+    """정렬을 맞춰 `align.json`에 쓴다. 정답 대입 재생(M12.3)이면 맞추지 않고 그 재생이 쓴 기준 정렬(`substitution.alignFrom`)을
+    그대로 쓴다: 정렬은 재생의 바닥 추정에 기대므로, 변형마다 맞추면 정답이 변형마다 달라진다."""
+    info = run_dir / "replay_info.json"
+    src = json.loads(info.read_text(encoding="utf-8")).get("substitution", {}).get("alignFrom") if info.is_file() else None
+    if src:
+        al = json.loads(Path(src).read_text(encoding="utf-8"))
+        (run_dir / "align.json").write_text(json.dumps(al, indent=2), encoding="utf-8")
+        return al
     cfg = load_config(run_dir)
     sp = pd.read_csv(run_dir / "slow_path.csv")
     floor = sp.floorY.dropna()

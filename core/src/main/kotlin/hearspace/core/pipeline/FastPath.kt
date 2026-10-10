@@ -21,7 +21,11 @@ import kotlin.math.min
  * 스레드를 모르고, 입력 자세와 스냅샷, 현재 시각만 쓴다(미래 값 없음).
  * 느린 경로 맵에 대한 명령(복귀 시 SCALE, 자세 불연속 시 RESET)은 [takeMapAction]으로 꺼낸다(M7: 최신 값 슬롯으로 전달).
  */
-class FastPath(private val config: Config) {
+class FastPath(
+    private val config: Config,
+    /** 진행 방향 대입(정답 대입 H, M12.3 평가 전용): 추정한 진행 방향을 바꿔 쓴다. 앱은 넘기지 않는다(null = 그대로). */
+    private val headingOverride: ((Vec3) -> Vec3)? = null,
+) {
 
     private val heading = Heading(config.heading)
     private val stateMachine = StateMachine(config.state, config.policy.maxInfoAgeMs)
@@ -34,7 +38,7 @@ class FastPath(private val config: Config) {
     var paused = false
 
     /** 현재 진행 방향(느린 경로의 통로·삭제 기준으로 넘긴다). 모르면 null. */
-    val headingW: Vec3? get() = heading.headingW
+    val headingW: Vec3? get() = adjusted(heading.headingW)
 
     /** 마지막 머리 자세. */
     var head: HeadPose? = null
@@ -54,7 +58,7 @@ class FastPath(private val config: Config) {
         if (discontinuity) heading.reset()
         if (pose.tracking == TrackingState.TRACKING) lastTracked = pose
 
-        val h = if (newFrame) heading.update(pose) else heading.headingW
+        val h = adjusted(if (newFrame) heading.update(pose) else heading.headingW)
         head = h?.let { HeadPose.fromCamera(pose.worldFromCam.translation(), it, config.head.offsetFromCameraM) }
         val infoAgeMs = snapshot?.let { (nowNs - it.tCaptureNs) / 1e6f }
         val step = stateMachine.step(nowNs, newFrame, pose.tracking, discontinuity, infoAgeMs, snapshot?.mapHealth, paused)
@@ -72,6 +76,8 @@ class FastPath(private val config: Config) {
         }
         return GuidanceOutput(nowNs, step.state, commands, h?.let { Heading.toDeg(it) } ?: Float.NaN, step.alert)
     }
+
+    private fun adjusted(h: Vec3?): Vec3? = h?.let { headingOverride?.invoke(it) ?: it }
 
     /** 직전 TRACKING 자세와 비교해 속도·각속도가 한계를 넘으면 자세 불연속(§7.5, v0.2.1). */
     private fun isDiscontinuous(pose: PoseFrame): Boolean {

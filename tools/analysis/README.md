@@ -6,11 +6,11 @@
 |---|---|---|
 | `spike_check.py` | M1 | 녹화 세션 1개로 스파이크 F1~F7 수치 출력 (docs/FORMAT.md) |
 | `align.py` | M8 | 보행선 정렬(§10.3) → `align.json` |
-| `metrics.py` | M8, M10, M11 | 지표(§10.2) → `metrics.json`. `--run <실행 로그>`면 세션 없이(사용자 모드 T01: 1분마다 UNKNOWN·주기·발열). 정답 v2(`distanceFrom`, `kind`), 단계별 처리 시간(`stage_timing.csv` → `stageMs`) |
+| `metrics.py` | M8, M10, M11 | 지표(§10.2) → `metrics.json`. `--run <실행 로그>`면 세션 없이(사용자 모드 T01: 1분마다 UNKNOWN·주기·발열). 정답 v2(`distanceFrom`, `kind`), 단계별 처리 시간(`stage_timing.csv` → `stageMs`), 경고 놓침 사유(`missedWarnReasons`, M12.3) |
 | `report.py` | M8, M10 | 여러 `metrics.json` → Markdown 비교표. `--group`이면 장면 × 변형마다 회차 묶음 |
-| `sweep.py` | M10 | 변형 목록(`sweeps/*.json`) × 세션마다 오프라인 재생 → `metrics.json` |
+| `sweep.py` | M10, M12.3 | 변형 목록(`sweeps/*.json`) × 세션마다 오프라인 재생 → `metrics.json`. 변형의 `replay`는 재생 인자(정답 대입 `substitute`·`alignFrom`, `{session}` 자리표시) |
 | `plots.py` | M8 | 시계열·지연·위에서 본 그림, `--at 초`로 그 시각 RGB와 나란히 |
-| `scorecard.py` | M12.2 | 안내 성적표: 여러 `metrics.json` → 세션별 항목 판정(합격·경계·불합격·해당 없음)과 조정용·확인용 요약. 항목·목표·세션 구분은 `scorecard.json` |
+| `scorecard.py` | M12.2, M12.3 | 안내 성적표: 여러 `metrics.json` → 세션별 항목 판정(합격·경계·불합격·해당 없음)과 조정용·확인용 요약. 항목·목표·세션 구분은 `scorecard.json`. `--compare <항목>`이면 세션 × 변형 표(정답 대입)와 경고 놓침 사유 |
 | `worldpts.py` | M12.0 | 프레임별 월드 점(깊이 PNG + 깊이 K + 그 프레임 자세, core 역투영과 같은 규약) |
 | `error_decomp.py` | M12.0 | 오차 분해(IMPROVE_SPEC §11.1): 면 위치 오차·헛 점·바닥 흔들림·수렴·자세 점프·구간별 옆 벽·회전·루프 닫힘 → `<세션>/error_decomp.json`·`error_decomp_frames.csv` |
 | `test_analysis.py` | M8, M12.0 | 합성 오프라인 재생·합성 세션으로 분석 도구 자체 점검 |
@@ -48,6 +48,14 @@ M12.2 흐름 (안내 성적표, IMPROVE_SPEC §9.2):
 cd tools/analysis
 ..\..\.venv\Scripts\python.exe sweep.py sweeps/m13_defaults.json ../../data/sweeps/m13_defaults ../../data/sessions/<세션ID> ...   # 재생·지표
 ..\..\.venv\Scripts\python.exe scorecard.py ../../data/sweeps/m13_defaults/default/*   # 판정표(Markdown)
+```
+
+M12.3 흐름 (원인 분해: 정답 대입 재생, IMPROVE_SPEC §9.2). 대입 변형은 기준 재생(`m13_defaults/default`)의 `align.json`을 쓴다:
+
+```powershell
+cd tools/analysis
+..\..\.venv\Scripts\python.exe sweep.py sweeps/m12_3_substitution.json ../../data/sweeps/m12_3 ../../data/sessions/<세션ID> ...
+..\..\.venv\Scripts\python.exe scorecard.py --compare direction,missedWarn,outsideCorridor ../../data/sweeps/m12_3/B/* ../../data/sweeps/m12_3/D/* ...
 ```
 
 M12.0 흐름 (오차 분해, 지도 없이 세션만 읽음. `--runs`는 선택: core 바닥 추정 흔들림도 적는다):
