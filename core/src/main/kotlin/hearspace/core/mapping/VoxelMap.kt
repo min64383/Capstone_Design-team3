@@ -33,6 +33,12 @@ data class VoxelView(
     val evidence: Float = hits.toFloat(),
 )
 
+/**
+ * 칸이 깊이 한 장에서 어떻게 보이는가(M20 대표점 진단). HIT = 이번 장에 점이 들어옴, FREE = 칸 뒤가 관측됨(빈 공간, 감쇠 대상),
+ * OCCLUDED = 칸 자리 또는 그 앞이 관측됨, NO_DEPTH = 투영 화소 깊이 무효, OUT_OF_VIEW = 카메라 뒤·영상 밖.
+ */
+enum class CellView { HIT, FREE, OCCLUDED, NO_DEPTH, OUT_OF_VIEW }
+
 /** 삭제 사유별 개수(로그·테스트용). */
 data class PruneCounts(val passed: Int, val unseen: Int, val outOfRadius: Int)
 
@@ -272,26 +278,38 @@ class VoxelMap(private val cfg: MapConfig) {
             val (key, v) = it.next()
             if (v.lastHitFrame == frame) continue
             val pCv = camFromWorld.transformPoint(center(key))
-            if (pCv.z <= 0f) continue // 카메라 뒤: 시야 밖
-            val u = (k.fx * pCv.x / pCv.z + k.cx).roundToInt()
-            val w = (k.fy * pCv.y / pCv.z + k.cy).roundToInt()
-            if (u < 0 || u >= k.width || w < 0 || w >= k.height) continue // 시야 밖
-            val mm = depthMm[w * k.width + u].toInt() and 0xFFFF
-            if (mm == 0) continue // 관측 없음
+            if (sight(pCv, depthMm, k) != CellView.FREE) continue // 시야 밖·관측 없음·칸 자리 또는 그 앞이 관측됨(가려짐 포함)
             if (logOdds) {
-                if (mm / 1000f < pCv.z + max(cfg.voxelSizeM, cfg.freeMarginRatio * pCv.z)) continue // 칸 자리 또는 그 앞이 관측됨
                 v.logOdds = max(cfg.logMin, v.logOdds + cfg.logMiss * weight(pCv.z))
                 decayed++
                 if (v.logOdds <= cfg.logMin) it.remove()
                 continue
             }
-            if (mm / 1000f < pCv.z + cfg.freeMarginM) continue // 복셀 자리 또는 그 앞이 관측됨(가려짐 포함)
             v.score -= cfg.decayPerObservation
             if (cfg.freeEvidenceDecay > 0f) v.currentEvidence = max(0f, v.currentEvidence - cfg.freeEvidenceDecay)
             decayed++
             if (v.score <= 0f) it.remove()
         }
         return decayed
+    }
+
+    /**
+     * 칸 중심 [centerW]가 깊이 [depthMm]에서 어떻게 보이는가([decayFree]와 같은 판정, M20 대표점 진단).
+     * [hitThisFrame]이면 [CellView.HIT].
+     */
+    fun cellView(centerW: Vec3, hitThisFrame: Boolean, depthMm: ShortArray, k: Intrinsics, camFromWorld: Mat4): CellView =
+        if (hitThisFrame) CellView.HIT else sight(camFromWorld.transformPoint(centerW), depthMm, k)
+
+    /** 카메라 좌표 [pCv]의 칸이 이 깊이 장에서 어떻게 보이는가(관측 여부 제외). 빈 공간 여유는 지도 방식마다 다르다. */
+    private fun sight(pCv: Vec3, depthMm: ShortArray, k: Intrinsics): CellView {
+        if (pCv.z <= 0f) return CellView.OUT_OF_VIEW // 카메라 뒤
+        val u = (k.fx * pCv.x / pCv.z + k.cx).roundToInt()
+        val w = (k.fy * pCv.y / pCv.z + k.cy).roundToInt()
+        if (u < 0 || u >= k.width || w < 0 || w >= k.height) return CellView.OUT_OF_VIEW
+        val mm = depthMm[w * k.width + u].toInt() and 0xFFFF
+        if (mm == 0) return CellView.NO_DEPTH
+        val margin = if (logOdds) max(cfg.voxelSizeM, cfg.freeMarginRatio * pCv.z) else cfg.freeMarginM
+        return if (mm / 1000f < pCv.z + margin) CellView.OCCLUDED else CellView.FREE
     }
 
     /**

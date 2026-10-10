@@ -275,6 +275,26 @@ class VoxelMapTest {
     }
 
     @Test
+    fun `cell view uses the same rule as free-space decay`() {
+        val p = Vec3(0f, 0f, -2f) // 광축 위 2 m
+        val m = mapWithVoxelAt(p)
+        fun view(q: Vec3, mm: Int, hit: Boolean = false) = m.cellView(q, hit, depthImage(mm), k, camFromWorld)
+        assertEquals(CellView.HIT, view(p, 3000, hit = true))
+        assertEquals(CellView.FREE, view(p, 3000))
+        assertEquals(CellView.OCCLUDED, view(p, 1000))
+        assertEquals(CellView.OCCLUDED, view(p, 2050)) // 칸 자리
+        assertEquals(CellView.NO_DEPTH, view(p, 0))
+        assertEquals(CellView.OUT_OF_VIEW, view(Vec3(0f, 0f, 2f), 3000)) // 카메라 뒤
+        assertEquals(CellView.OUT_OF_VIEW, view(Vec3(5f, 0f, -1f), 3000)) // 영상 밖
+        // 감쇠는 FREE일 때만
+        for ((mm, decayed) in listOf(3000 to 1, 1000 to 0, 0 to 0)) {
+            val d = mapWithVoxelAt(p)
+            d.beginFrame()
+            assertEquals(decayed, d.decayFree(depthImage(mm), k, camFromWorld), "depth $mm mm")
+        }
+    }
+
+    @Test
     fun `repeated free observations remove the voxel`() {
         val m = mapWithVoxelAt(Vec3(0f, 0f, -2f), hits = 5) // score 1.0
         var n = 0

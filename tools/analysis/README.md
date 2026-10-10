@@ -14,7 +14,8 @@
 | `worldpts.py` | M12.0 | 프레임별 월드 점(깊이 PNG + 깊이 K + 그 프레임 자세, core 역투영과 같은 규약) |
 | `mp4_rgb.py` | M19 | `arcore.mp4`의 매 프레임 밝기(Y 평면) → `<세션>/rgb_mp4/`(JPEG·`index.csv`·`extract.json`). 재생 `-PrgbFrom=mp4`가 읽는다. PyAV 필요 |
 | `spill.py` | M19 | 평활 깊이 옆 번짐 거리 실측(원시–평활 같은 시각 장). M19 번짐 띠(채택 안 함)의 근거였다 |
-| `error_decomp.py` | M12.0 | 오차 분해(IMPROVE_SPEC §11.1): 면 위치 오차·헛 점·바닥 흔들림·수렴·자세 점프·구간별 옆 벽·회전·루프 닫힘 → `<세션>/error_decomp.json`·`error_decomp_frames.csv` |
+| `error_decomp.py` | M12.0, M20 | 오차 분해(IMPROVE_SPEC §11.1): 면 위치 오차·헛 점·바닥 흔들림·수렴·자세 점프·구간별 옆 벽·회전·루프 닫힘 → `<세션>/error_decomp.json`·`error_decomp_frames.csv`. `--source RAW`면 `_raw`가 붙은 이름(신뢰도 ≥ 30), 앞면은 가장 앞 점 `<대상>_p05`도 |
+| `front_diag.py` | M20 | 앞면 오차 진단: `causes <재생 로그>...`는 6° 초과 블록의 대표점 칸 원인 몫(추적 평활·시야 밖·확인 못 함·감쇠 중·지금 앞면 당김), `front <세션>...`은 앞면 오차의 거리·높이·접근 속도별 표 |
 | `test_analysis.py` | M8, M12.0 | 합성 오프라인 재생·합성 세션으로 분석 도구 자체 점검 |
 | `extract_hrir.py` | M6 | SOFA HRTF → 앱용 수평면 HRIR 바이너리(`assets/hrtf/`) |
 
@@ -75,6 +76,16 @@ cd tools/analysis
 ..\..\.venv\Scripts\python.exe mp4_rgb.py ../../data/sessions/<세션ID> ...
 ..\..\.venv\Scripts\python.exe spill.py ../../data/sessions/<조정용 세션ID> ...     # 번짐 거리 p50·p90
 ..\..\.venv\Scripts\python.exe sweep.py sweeps/m19_depth.json ../../data/sweeps/m19 ../../data/sessions/<세션ID> ...
+```
+
+M20 흐름 (앞면 오차 진단: 대표점 칸 원인 몫, 진단용 freshOnly, 평활·원시 앞면 오차):
+
+```powershell
+cd tools/analysis
+..\..\.venv\Scripts\python.exe sweep.py sweeps/m20_front.json ../../data/sweeps/m20 ../../data/sessions/<세션ID> ...
+..\..\.venv\Scripts\python.exe front_diag.py causes ../../data/sweeps/m20/F1W/*
+..\..\.venv\Scripts\python.exe error_decomp.py ../../data/sessions/<세션ID> ...; ..\..\.venv\Scripts\python.exe error_decomp.py --source RAW ../../data/sessions/<세션ID> ...
+..\..\.venv\Scripts\python.exe front_diag.py front ../../data/sessions/<세션ID> ...
 ```
 
 M12.0 흐름 (오차 분해, 지도 없이 세션만 읽음. `--runs`는 선택: core 바닥 추정 흔들림도 적는다):
