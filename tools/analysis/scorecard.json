@@ -1,0 +1,32 @@
+{
+  "note": "M12.2 안내 성적표: 항목·목표·판정 여유와 세션 구분(IMPROVE_SPEC §9.2, 과적합 방지 규칙 ②). 목표는 명세의 가설값이며 세션 결과에 맞춰 정하지 않는다.",
+  "tapeM": 0.03,
+  "zoneMinS": 1.0,
+  "items": [
+    {"key": "direction", "name": "방향 p95(°)", "metric": "directionErrorAheadDeg.p95", "op": "<=", "target": 6.0, "margin": "angle",
+     "basis": "명세 §9.2, 정면 최소 가청각의 약 5배. 여유 = 정렬 각도 불확실성. 정답 최근접점이 머리 앞인 경고만(옆·뒤는 besideFraction)"},
+    {"key": "overestimate", "name": "과대추정 p95", "metric": "overestimate1p5to2p5.p95", "op": "<=", "target": 0.10,
+     "basis": "명세 §9.2(정답 1.5~2.5 m)"},
+    {"key": "firstWarn", "name": "첫 경고(m)", "kind": "firstWarn", "op": ">=", "target": 0.9, "margin": "tape",
+     "basis": "명세 §9.2 '출발 거리의 90%'를 min(출발 거리, warnMaxM)에 적용"},
+    {"key": "firstStop", "name": "첫 STOP(m)", "kind": "firstStop", "op": ">=", "target": 0.9, "margin": "tape",
+     "basis": "같은 90% 규칙을 stopM에 적용"},
+    {"key": "missedStop", "name": "STOP 누락", "kind": "missedStop", "op": "<=", "target": 0,
+     "basis": "MVP §10.2 필수"},
+    {"key": "missedWarn", "name": "경고 놓침", "metric": "missedWarnFraction", "op": "<=", "target": 0.10,
+     "basis": "명세 탐지율 ≥ 90%를 시간 비율로"},
+    {"key": "falseAlarm", "name": "오경보", "metric": "falseAlarmFraction", "op": "<=", "target": 0.10,
+     "basis": "명세 §9.2"},
+    {"key": "outsideCorridor", "name": "통로 밖 경고", "metric": "outsideCorridorFraction", "op": "<=", "target": 0.10,
+     "basis": "오경보와 같은 기준(사용자에게는 같은 헛경고)"},
+    {"key": "idSwitches", "name": "id 전환", "metric": "idSwitches", "op": "<=", "target": 1,
+     "basis": "명세 §9.2"}
+  ],
+  "roles": {
+    "조정용": ["20261007_151747_S01", "20261007_151835_S01", "20261007_152354_S01", "20261007_152720_S01",
+              "20261003_130646_S01", "20261003_130815_S01", "20261003_130834_S01"],
+    "확인용": ["20261007_152743_S01", "20261007_152808_S01", "20261007_152833_S01", "20261007_152859_S01",
+              "20261003_135701_S01", "20261003_135718_S01", "20261003_135734_S01",
+              "20261003_131003_S01", "20261003_131039_S01", "20260928_190833_S01"]
+  }
+}

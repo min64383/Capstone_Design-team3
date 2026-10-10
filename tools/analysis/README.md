@@ -10,6 +10,7 @@
 | `report.py` | M8, M10 | 여러 `metrics.json` → Markdown 비교표. `--group`이면 장면 × 변형마다 회차 묶음 |
 | `sweep.py` | M10 | 변형 목록(`sweeps/*.json`) × 세션마다 오프라인 재생 → `metrics.json` |
 | `plots.py` | M8 | 시계열·지연·위에서 본 그림, `--at 초`로 그 시각 RGB와 나란히 |
+| `scorecard.py` | M12.2 | 안내 성적표: 여러 `metrics.json` → 세션별 항목 판정(합격·경계·불합격·해당 없음)과 조정용·확인용 요약. 항목·목표·세션 구분은 `scorecard.json` |
 | `worldpts.py` | M12.0 | 프레임별 월드 점(깊이 PNG + 깊이 K + 그 프레임 자세, core 역투영과 같은 규약) |
 | `error_decomp.py` | M12.0 | 오차 분해(IMPROVE_SPEC §11.1): 면 위치 오차·헛 점·바닥 흔들림·수렴·자세 점프·구간별 옆 벽·회전·루프 닫힘 → `<세션>/error_decomp.json`·`error_decomp_frames.csv` |
 | `test_analysis.py` | M8, M12.0 | 합성 오프라인 재생·합성 세션으로 분석 도구 자체 점검 |
@@ -40,6 +41,14 @@ cd tools/analysis
 ```
 
 장면 ID는 정답 파일의 `"scene"`이 우선이다(폴더 이름의 장면 ID가 틀린 녹화).
+
+M12.2 흐름 (안내 성적표, IMPROVE_SPEC §9.2):
+
+```powershell
+cd tools/analysis
+..\..\.venv\Scripts\python.exe sweep.py sweeps/m13_defaults.json ../../data/sweeps/m13_defaults ../../data/sessions/<세션ID> ...   # 재생·지표
+..\..\.venv\Scripts\python.exe scorecard.py ../../data/sweeps/m13_defaults/default/*   # 판정표(Markdown)
+```
 
 M12.0 흐름 (오차 분해, 지도 없이 세션만 읽음. `--runs`는 선택: core 바닥 추정 흔들림도 적는다):
 
