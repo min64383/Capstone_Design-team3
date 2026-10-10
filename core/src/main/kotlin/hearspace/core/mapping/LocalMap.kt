@@ -42,7 +42,7 @@ data class MapUpdate(
 class LocalMap(private val config: Config) {
 
     /** 바닥 추정기. */
-    val floor = Floor(config.floor, config.map.radiusM, config.map.voxelSizeM)
+    val floor = Floor(config.floor, config.map.radiusM)
 
     /** 복셀 맵. */
     val voxels = VoxelMap(config.map)

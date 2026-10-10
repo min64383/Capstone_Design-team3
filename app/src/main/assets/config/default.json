@@ -1,6 +1,6 @@
 {
   "head": { "offsetFromCameraM": [0.0, 0.5, -0.39] },
-  "heading": { "windowS": 1.0, "minTravelM": 0.15 },
+  "heading": { "windowS": 2.0, "minTravelM": 0.15 },
   "corridor": {
     "widthM": 0.8,
     "heightM": 2.0,
@@ -84,8 +84,7 @@
     "lostFrames": 10,
     "minBelowCameraM": 0.8,
     "source": "HISTOGRAM",
-    "holdWhenLost": false,
-    "columnCheck": false
+    "holdWhenLost": true
   },
   "cluster": { "epsM": 0.15, "minSamples": 5, "headMinM": 1.2, "bodyMinM": 0.5, "separateWalls": false, "wallFraction": 0.5 },
   "falsePositiveFilter": {

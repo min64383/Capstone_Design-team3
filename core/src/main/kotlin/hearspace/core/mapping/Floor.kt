@@ -4,7 +4,6 @@ import hearspace.core.geometry.Vec3
 import hearspace.core.types.FloorConfig
 import kotlin.math.abs
 import kotlin.math.floor
-import kotlin.math.sqrt
 
 /** 바닥 추정 한 번의 결과. */
 data class FloorUpdate(
@@ -24,10 +23,9 @@ data class FloorUpdate(
  * - 직전 바닥 근처 후보가 모자란 깊이가 `floor.lostFrames`장 이어지면 바닥을 잊고 첫 추정부터 다시(v0.2.7).
  *   잘못 잡은 바닥에 갇히지 않기 위함(M7 실측: 재생 시작 약 3 s 동안 17~28 m 깊이 → 바닥 −33.7 m 고정).
  *   `floor.holdWhenLost`면 잊지 않고 마지막 값을 쓰면서 탐색 폭 없이 다시 찾는다(M18).
- * - `floor.columnCheck`면 같은 [cellM] 수평 칸에 바닥 허용치보다 높은 점이 있는 후보(벽·물체 앞면)를 뺀다(M18).
  * - 최빈 칸 주변 ± `toleranceM` 점의 평균으로 칸보다 세밀하게 잡고, `emaAlpha`로 지수 평활한다(과거 값만 사용).
  */
-class Floor(private val cfg: FloorConfig, private val maxDistM: Float, private val cellM: Float) {
+class Floor(private val cfg: FloorConfig, private val maxDistM: Float) {
 
     private var lostFrames = 0
 
@@ -42,7 +40,6 @@ class Floor(private val cfg: FloorConfig, private val maxDistM: Float, private v
     fun update(pointsW: FloatArray, cameraW: Vec3): FloorUpdate {
         val prev = floorY
         val n = pointsW.size / 3
-        val top = if (cfg.columnCheck) columnTops(pointsW, n) else null
         // 후보 높이 모으기
         val ys = FloatArray(n)
         var m = 0
@@ -51,10 +48,8 @@ class Floor(private val cfg: FloorConfig, private val maxDistM: Float, private v
             if (y >= cameraW.y - cfg.minBelowCameraM) continue
             val dx = pointsW[3 * i] - cameraW.x
             val dz = pointsW[3 * i + 2] - cameraW.z
-            val d2 = dx * dx + dz * dz
-            if (d2 > maxDistM * maxDistM) continue
+            if (dx * dx + dz * dz > maxDistM * maxDistM) continue
             if (prev != null && !searching && abs(y - prev) > cfg.searchBandM) continue
-            if (top != null && top.getValue(cellKey(pointsW[3 * i], pointsW[3 * i + 2])) - y > cfg.toleranceM + cfg.tolerancePerM * sqrt(d2)) continue
             ys[m++] = y
         }
         if (m < cfg.minPoints) {
@@ -94,20 +89,6 @@ class Floor(private val cfg: FloorConfig, private val maxDistM: Float, private v
         // 재탐색으로 찾은 값은 다른 높이일 수 있으므로 평활하지 않고 받는다(잊고 다시 찾는 기준선과 같은 결과)
         floorY = if (prev == null || wasSearching) estimate else prev + cfg.emaAlpha * (estimate - prev)
         return FloorUpdate(true, floorY, m)
-    }
-
-    private fun cellKey(x: Float, z: Float): Long = (floor(x / cellM).toLong() shl 32) xor (floor(z / cellM).toLong() and 0xffffffffL)
-
-    /** 수평 칸마다 가장 높은 점의 높이(기둥 검사). */
-    private fun columnTops(pointsW: FloatArray, n: Int): HashMap<Long, Float> {
-        val top = HashMap<Long, Float>()
-        for (i in 0 until n) {
-            val key = cellKey(pointsW[3 * i], pointsW[3 * i + 2])
-            val y = pointsW[3 * i + 1]
-            val t = top[key]
-            if (t == null || y > t) top[key] = y
-        }
-        return top
     }
 
     private var outOfBandFrames = 0

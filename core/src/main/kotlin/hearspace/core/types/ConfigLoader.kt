@@ -144,7 +144,6 @@ object ConfigLoader {
                     minBelowCameraM = nonNegative("minBelowCameraM"),
                     source = enumValue<FloorSource>("source"),
                     holdWhenLost = boolean("holdWhenLost"),
-                    columnCheck = boolean("columnCheck"),
                 )
             },
             cluster = root.section("cluster") {

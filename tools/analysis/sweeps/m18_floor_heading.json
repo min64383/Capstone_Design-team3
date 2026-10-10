@@ -1,38 +1,22 @@
 {
-  "note": "M18 바닥 규칙·진행 방향(IMPROVE_SPEC v0.3.17). B = 지금 기본값(M12.3 B와 같아야 함). 나머지는 기준 재생의 align.json을 같이 쓴다(바닥 규칙이 재생의 바닥 추정을 바꿔 정렬이 달라지지 않게). 창 2.0 s = 느린 걸음(분당 60보)의 한 주기. F1W·DF1·DF1W는 구현 중 추가: 기둥 검사(F2)가 바닥을 낮게 잡아 STOP 누락을 만들어, 유지만 켠 조합을 따로 잰다",
+  "note": "M18 바닥 유지·진행 방향 창(IMPROVE_SPEC v0.3.17). M18 기본값(유지 켬, 창 2.0) = F1W. B = M18 전 기본값(M12.3 B와 같아야 함). B 밖은 기준 재생의 align.json을 같이 쓴다. 기둥 검사 변형(F2·F·FW·DF·DFW)은 커밋 2feef40에서 돌렸고 키를 지워 여기서 뺐다",
   "variants": [
     {
       "name": "B",
-      "overrides": {}
+      "overrides": {
+        "floor": {
+          "holdWhenLost": false
+        },
+        "heading": {
+          "windowS": 1.0
+        }
+      }
     },
     {
       "name": "F1",
       "overrides": {
-        "floor": {
-          "holdWhenLost": true
-        }
-      },
-      "replay": {
-        "alignFrom": "data/sweeps/m13_defaults/default/{session}/align.json"
-      }
-    },
-    {
-      "name": "F2",
-      "overrides": {
-        "floor": {
-          "columnCheck": true
-        }
-      },
-      "replay": {
-        "alignFrom": "data/sweeps/m13_defaults/default/{session}/align.json"
-      }
-    },
-    {
-      "name": "F",
-      "overrides": {
-        "floor": {
-          "holdWhenLost": true,
-          "columnCheck": true
+        "heading": {
+          "windowS": 1.0
         }
       },
       "replay": {
@@ -42,68 +26,17 @@
     {
       "name": "W",
       "overrides": {
-        "heading": {
-          "windowS": 2.0
-        }
-      },
-      "replay": {
-        "alignFrom": "data/sweeps/m13_defaults/default/{session}/align.json"
-      }
-    },
-    {
-      "name": "FW",
-      "overrides": {
         "floor": {
-          "holdWhenLost": true,
-          "columnCheck": true
-        },
-        "heading": {
-          "windowS": 2.0
+          "holdWhenLost": false
         }
       },
       "replay": {
-        "alignFrom": "data/sweeps/m13_defaults/default/{session}/align.json"
-      }
-    },
-    {
-      "name": "DF",
-      "overrides": {
-        "floor": {
-          "holdWhenLost": true,
-          "columnCheck": true
-        }
-      },
-      "replay": {
-        "substitute": "depth",
-        "alignFrom": "data/sweeps/m13_defaults/default/{session}/align.json"
-      }
-    },
-    {
-      "name": "DFW",
-      "overrides": {
-        "floor": {
-          "holdWhenLost": true,
-          "columnCheck": true
-        },
-        "heading": {
-          "windowS": 2.0
-        }
-      },
-      "replay": {
-        "substitute": "depth",
         "alignFrom": "data/sweeps/m13_defaults/default/{session}/align.json"
       }
     },
     {
       "name": "F1W",
-      "overrides": {
-        "floor": {
-          "holdWhenLost": true
-        },
-        "heading": {
-          "windowS": 2.0
-        }
-      },
+      "overrides": {},
       "replay": {
         "alignFrom": "data/sweeps/m13_defaults/default/{session}/align.json"
       }
@@ -111,8 +44,8 @@
     {
       "name": "DF1",
       "overrides": {
-        "floor": {
-          "holdWhenLost": true
+        "heading": {
+          "windowS": 1.0
         }
       },
       "replay": {
@@ -122,14 +55,7 @@
     },
     {
       "name": "DF1W",
-      "overrides": {
-        "floor": {
-          "holdWhenLost": true
-        },
-        "heading": {
-          "windowS": 2.0
-        }
-      },
+      "overrides": {},
       "replay": {
         "substitute": "depth",
         "alignFrom": "data/sweeps/m13_defaults/default/{session}/align.json"

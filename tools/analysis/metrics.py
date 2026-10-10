@@ -25,6 +25,7 @@ MATCH_MARGIN_M = 0.3  # 추정 대표점이 정답 상자에서 이만큼 안이
 MERGE_BEYOND_M = 0.5  # 정답 물체와 겹치는 추정 물체가 그 물체 뒤로 이만큼 넘게 이어지면 합쳐짐(13번 계획서 표 5, M13.1)
 OVER_LO_M = 1.5  # 과대추정 지표의 정답 거리 하한(명세 §9.2 "1.5~2.5 m"), 부호 있는 거리 오차의 구간 경계로도 쓴다(M12.2)
 ACTIVE = {"NORMAL", "DEGRADED"}
+WALK_SIGN_WINDOW_S = 1.0  # 정답 진행 부호의 창: 앱 heading.windowS(M18에서 2.0으로)와 떼어 M12.2 정답을 그대로 둔다
 
 
 def p(v, q):
@@ -375,9 +376,9 @@ def compute(session: Path, run_dir: Path) -> dict:
     ox, _, oz = cfg["head"]["offsetFromCameraM"]
     tS = (blocks.tBlockNs.to_numpy() - t0) / 1e9
     # 진행 방향은 카메라 이동으로 정하고, 파지 오프셋(진행 방향 기준)도 그 방향으로 돌린다: 돌아선 뒤 머리는 카메라의 −z 쪽이 아니라 +z 쪽.
-    # 창은 재생의 덮어쓰기가 아니라 기본 설정 값(M18: 진행 방향 창을 바꾼 변형에서 정답이 같이 바뀌지 않게)
+    # 창은 앱 설정이 아니라 고정 값(M18: 진행 방향 창을 바꾼 변형·기본값에서 정답이 같이 바뀌지 않게)
     h0 = json.loads(DEFAULT_CONFIG.read_text(encoding="utf-8"))["heading"]
-    sgn = walk_sign(tS, cz, h0["windowS"], h0["minTravelM"])
+    sgn = walk_sign(tS, cz, WALK_SIGN_WINDOW_S, h0["minTravelM"])
     hx, hz = cx + sgn * ox, cz + sgn * oz
     out["walkSignFlips"] = int((np.diff(sgn) != 0).sum())
     out["headingErrorDeg"] = heading_error(blocks.headingDeg.to_numpy(dtype=float), tS, cz, sgn, al)

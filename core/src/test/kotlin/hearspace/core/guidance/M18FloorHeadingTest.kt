@@ -18,15 +18,15 @@ import kotlin.math.abs
 import kotlin.math.atan
 import kotlin.math.sin
 
-/** M18 바닥 규칙(유지·기둥 검사)과 진행 방향 창 (IMPROVE_SPEC v0.3.17, M18 설계 표 6 S1·S2·S4·S5). */
+/** M18 바닥 유지와 진행 방향 창 (IMPROVE_SPEC v0.3.17, M18 설계 표 6 S1·S4·S5). 기둥 검사(S2)는 채택하지 않아 지웠다. */
 class M18FloorHeadingTest {
     private val base = File(System.getProperty("hearspace.defaultConfig")).readText()
 
-    private fun config(spec: SceneSpec, hold: Boolean, column: Boolean, windowS: Float = 1.0f): Config {
+    private fun config(spec: SceneSpec, hold: Boolean, windowS: Float = 1.0f): Config {
         val g = spec.walk.gripOffsetM
         return ConfigLoader.load(
             base,
-            """{ "head": { "offsetFromCameraM": [${g.x}, ${g.y}, ${g.z}] }, "floor": { "holdWhenLost": $hold, "columnCheck": $column },
+            """{ "head": { "offsetFromCameraM": [${g.x}, ${g.y}, ${g.z}] }, "floor": { "holdWhenLost": $hold },
                "heading": { "windowS": $windowS } }""",
         )
     }
@@ -40,7 +40,7 @@ class M18FloorHeadingTest {
     private val wallRec by lazy { wallWalk.generate() }
 
     private fun floorTrace(cfg: Config): List<Float?> {
-        val f = Floor(cfg.floor, cfg.map.radiusM, cfg.map.voxelSizeM)
+        val f = Floor(cfg.floor, cfg.map.radiusM)
         return wallRec.frames.mapNotNull { fr ->
             fr.depth?.let { d -> f.update(Projection.backprojectToWorld(d.depthMm, d.K, d.worldFromCam, cfg.depth.subsample), d.worldFromCam.translation()).floorY }
         }
@@ -49,35 +49,24 @@ class M18FloorHeadingTest {
     private fun lostAfterFirst(trace: List<Float?>) = trace.dropWhile { it == null }.count { it == null }
 
     @Test
-    fun `S1 in front of an end wall the floor is held at the true height and the wall gives STOP`() {
+    fun `S1 in front of an end wall the floor is held and the wall gives STOP`() {
         // 합성 깊이는 옆 벽 밑동까지 빈틈없이 보여 기준선이 바닥을 잃기보다 벽을 타고 올라간다(실측은 올라간 뒤 잃음, 잃는 경우는 FloorTest)
-        val baseline = floorTrace(config(wallWalk, hold = false, column = false))
+        val baseline = floorTrace(config(wallWalk, hold = false))
         val baseMax = baseline.filterNotNull().max()
-        println("M18 S1 baseline: lost ${lostAfterFirst(baseline)} frames, max floor $baseMax")
-        assertTrue(lostAfterFirst(baseline) > 0 || baseMax > 0.2f, "baseline reproduces the climb or the loss")
-        val held = floorTrace(config(wallWalk, hold = true, column = true))
+        assertTrue(lostAfterFirst(baseline) > 0 || baseMax > 0.2f, "baseline reproduces the climb or the loss: lost ${lostAfterFirst(baseline)}, max $baseMax")
+        val held = floorTrace(config(wallWalk, hold = true))
         assertTrue(held.first() != null && lostAfterFirst(held) == 0, "lost ${lostAfterFirst(held)} frames")
-        assertTrue(held.filterNotNull().all { abs(it) <= 0.05f }, "range ${held.filterNotNull().min()}..${held.filterNotNull().max()}")
 
-        // 머리 → 벽 0.9 m 안(STOP 1.0 m보다 여유)에서 모두 STOP
-        val near = runGuidance(wallWalk, config(wallWalk, hold = true, column = true)).filter { it.f.truthHead.positionW.z + 4f < 0.9f }
+        // 머리 → 벽 0.9 m 안(STOP 1.0 m보다 여유)에서 모두 STOP. 올라간 바닥(카메라 − 0.8 m 이하)을 유지해도 벽은 그 위로 높다
+        val near = runGuidance(wallWalk, config(wallWalk, hold = true)).filter { it.f.truthHead.positionW.z + 4f < 0.9f }
         assertTrue(near.isNotEmpty())
         val stop = near.count { s -> s.out.commands.any { it.band == Band.STOP } }.toFloat() / near.size
         assertTrue(stop == 1f, "STOP fraction $stop")
     }
 
-    @Test
-    fun `S2 the column check keeps the floor from climbing the end wall`() {
-        // 유지는 둘 다 켠다(기준선은 잊었다 다시 찾으며 벽 위 높이를 잡는다)
-        val climb = floorTrace(config(wallWalk, hold = true, column = false)).filterNotNull().max()
-        assertTrue(climb > 0.2f, "without the column check the floor climbs: $climb (limit 1.2 − 0.8 = 0.4)")
-        val fixed = floorTrace(config(wallWalk, hold = true, column = true)).filterNotNull()
-        assertTrue(fixed.all { abs(it) <= 0.05f }, "range ${fixed.min()}..${fixed.max()}")
-    }
-
     /** 곧게 걷는 동안 진행 방향 오차(도): 창이 찬 뒤의 프레임만. */
     private fun headingErrors(spec: SceneSpec, windowS: Float, fromS: Float): List<Float> {
-        val h = Heading(config(spec, hold = false, column = false, windowS).heading)
+        val h = Heading(config(spec, hold = false, windowS).heading)
         return spec.generate().frames.mapNotNull { fr ->
             val est = h.update(fr.pose) ?: return@mapNotNull null
             if (fr.tS < fromS) null else abs(Heading.toDeg(est) - Heading.toDeg(fr.truthHead.headingW))
@@ -111,7 +100,7 @@ class M18FloorHeadingTest {
             Walk(speedMps = 0.5f, legM = 2f, legCount = 2, turnS = 2f, durationS = 2f + 4f + 2f + 4f), depthEveryNFrames = 10_000,
         )
         for (w in listOf(1.0f, 2.0f)) {
-            val h = Heading(config(spec, hold = false, column = false, w).heading)
+            val h = Heading(config(spec, hold = false, w).heading)
             var settledS: Float? = null
             for (fr in spec.generate().frames) {
                 val est = h.update(fr.pose) ?: continue

@@ -29,8 +29,8 @@ import kotlin.math.hypot
 class PlaneDetectorTest {
     private val base = File(System.getProperty("hearspace.defaultConfig")).readText()
     private val config: Config = ConfigLoader.load(base, """{ "frontend": { "planes": "RANSAC" } }""")
-    /** 바닥 규칙의 기준선(-PtestOverrides로 M18 규칙을 켠 실행에서도 이 시험들은 기준선 규칙을 본다). */
-    private val baseFloor = config.floor.copy(holdWhenLost = false, columnCheck = false)
+    /** M18 전 바닥 규칙(잊고 다시 찾음): 이 시험들은 그 규칙을 본다(유지는 기본 켬, M18). */
+    private val baseFloor = config.floor.copy(holdWhenLost = false)
     private val cfg = config.frontend
 
     /** [spec]의 t초 근처 깊이 한 장의 월드 점(참 자세)과 카메라 위치. */
@@ -88,10 +88,10 @@ class PlaneDetectorTest {
         // 이 거리에서는 가로 시야(약 ±20°)로 끝 벽이 0.7 m만, 옆 벽은 전혀 안 보여 벽 평면도 없다(`wallMinLengthM` 0.8)
         assertTrue(r.walls.isEmpty(), "walls ${r.walls}")
         // 기준선(히스토그램)은 같은 점에서 바닥을 벽 위 어딘가에 잡는다
-        val hist = Floor(baseFloor.copy(minBelowCameraM = 0f), config.map.radiusM, config.map.voxelSizeM).update(p, cam) // 기준선(하한 없음) 명시
+        val hist = Floor(baseFloor.copy(minBelowCameraM = 0f), config.map.radiusM).update(p, cam) // 기준선(하한 없음) 명시
         assertTrue(hist.floorY != null && hist.floorY!! > 0.2f, "histogram floor on the wall: ${hist.floorY}")
         // 평면 바닥은 이전 값을 유지한다
-        val f = Floor(baseFloor, config.map.radiusM, config.map.voxelSizeM)
+        val f = Floor(baseFloor, config.map.radiusM)
         f.updateFromPlane(0.01f, 400)
         assertEquals(0.01f, f.updateFromPlane(r.floor?.heightM, 0).floorY!!, 1e-6f)
     }
@@ -146,7 +146,7 @@ class PlaneDetectorTest {
 
     @Test
     fun `plane update holds without a plane, smooths inside the band and accepts a lasting step`() {
-        val f = Floor(baseFloor, config.map.radiusM, config.map.voxelSizeM)
+        val f = Floor(baseFloor, config.map.radiusM)
         assertNull(f.updateFromPlane(null, 0).floorY)
         assertEquals(-1f, f.updateFromPlane(-1f, 300).floorY!!, 1e-6f)
         assertEquals(-1f, f.updateFromPlane(null, 0).floorY!!, 1e-6f) // 안 보이면 유지
