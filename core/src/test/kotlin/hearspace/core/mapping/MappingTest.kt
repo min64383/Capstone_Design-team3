@@ -384,6 +384,8 @@ class VoxelMapTest {
 
 class FloorTest {
     private val config: Config = ConfigLoader.load(File(System.getProperty("hearspace.defaultConfig")).readText())
+    /** 바닥 규칙의 기준선(-PtestOverrides로 M18 규칙을 켠 실행에서도 이 시험들은 기준선 규칙을 본다). */
+    private val baseFloor = config.floor.copy(holdWhenLost = false, columnCheck = false)
 
     private fun points(vararg ys: Pair<Float, Int>): FloatArray =
         ys.flatMap { (y, n) -> List(n) { listOf(0f, y, 0f) }.flatten() }.toFloatArray()
@@ -393,8 +395,8 @@ class FloorTest {
         // M13 실측: 캐리어에 다가가면 보이는 바닥보다 캐리어 윗면(카메라 아래 0.5 m) 점이 많아 바닥이 그리로 올라갔다
         val cam = Vec3(0f, 1.1f, 0f)
         val pts = points(0f to 300, 0.6f to 800)
-        assertEquals(0.6f, Floor(config.floor.copy(minBelowCameraM = 0f), config.map.radiusM).update(pts, cam).floorY!!, 1e-4f)
-        val f = Floor(config.floor.copy(minBelowCameraM = 0.7f), config.map.radiusM)
+        assertEquals(0.6f, Floor(baseFloor.copy(minBelowCameraM = 0f), config.map.radiusM, config.map.voxelSizeM).update(pts, cam).floorY!!, 1e-4f)
+        val f = Floor(baseFloor.copy(minBelowCameraM = 0.7f), config.map.radiusM, config.map.voxelSizeM)
         assertEquals(0f, f.update(pts, cam).floorY!!, 1e-4f)
         // 바닥이 안 보이고 윗면만 보여도 바닥을 옮기지 않는다(직전 값 유지)
         assertEquals(0f, f.update(points(0.6f to 800), cam).floorY!!, 1e-4f)
@@ -408,7 +410,7 @@ class FloorTest {
             "M12.1", Scenes.corridorE(), Walk(legM = 3.2f, legCount = 1, durationS = 2f + 3.2f + 3f), Noise(seed = 3, depthMulStd = 0.01f),
         ).generate()
         fun trace(minBelowM: Float): List<Float?> {
-            val f = Floor(config.floor.copy(minBelowCameraM = minBelowM), config.map.radiusM)
+            val f = Floor(baseFloor.copy(minBelowCameraM = minBelowM), config.map.radiusM, config.map.voxelSizeM)
             return rec.frames.mapNotNull { fr ->
                 fr.depth?.let { d -> f.update(Projection.backprojectToWorld(d.depthMm, d.K, d.worldFromCam, config.depth.subsample), d.worldFromCam.translation()).floorY }
             }
@@ -422,7 +424,7 @@ class FloorTest {
 
     @Test
     fun `first estimate uses points below the camera, then the search band`() {
-        val f = Floor(config.floor.copy(minBelowCameraM = 0f), config.map.radiusM) // 기준선(하한 없음)을 명시: -PtestOverrides로 하한을 켠 실행에서도
+        val f = Floor(baseFloor.copy(minBelowCameraM = 0f), config.map.radiusM, config.map.voxelSizeM) // 기준선(하한 없음)을 명시: -PtestOverrides로 하한을 켠 실행에서도
         // 탁자면(0.7)보다 바닥(−0.3)이 많다
         val u = f.update(points(-0.3f to 500, 0.7f to 300, 1.5f to 1000), Vec3(0f, 1.0f, 0f))
         assertEquals(-0.3f, u.floorY!!, 1e-4f)
@@ -434,7 +436,7 @@ class FloorTest {
 
     @Test
     fun `floor tolerance grows with horizontal distance`() {
-        val f = Floor(config.floor, config.map.radiusM) // toleranceM 0.05, tolerancePerM 0.08
+        val f = Floor(baseFloor, config.map.radiusM, config.map.voxelSizeM) // toleranceM 0.05, tolerancePerM 0.08
         f.update(points(0f to 500), Vec3(0f, 1f, 0f))
         assertEquals(true, f.isFloor(0.12f, 1f)) // 허용 0.13
         assertEquals(false, f.isFloor(0.14f, 1f))
@@ -446,7 +448,7 @@ class FloorTest {
 
     @Test
     fun `too few points keeps previous estimate`() {
-        val f = Floor(config.floor, config.map.radiusM)
+        val f = Floor(baseFloor, config.map.radiusM, config.map.voxelSizeM)
         assertNull(f.update(points(-1f to 10), Vec3.ZERO).floorY)
         f.update(points(-1f to 300), Vec3.ZERO)
         val u = f.update(points(-0.9f to 10), Vec3.ZERO)
@@ -456,7 +458,7 @@ class FloorTest {
 
     @Test
     fun `far points are not floor candidates`() {
-        val f = Floor(config.floor, config.map.radiusM) // radiusM 5
+        val f = Floor(baseFloor, config.map.radiusM, config.map.voxelSizeM) // radiusM 5
         val far = FloatArray(3 * 1000) { i -> if (i % 3 == 0) 20f else if (i % 3 == 1) -30f else 0f } // 수평 20 m, 아주 낮음
         val u = f.update(far + points(-1f to 300), Vec3.ZERO)
         assertEquals(-1f, u.floorY!!, 1e-4f)
@@ -465,10 +467,31 @@ class FloorTest {
 
     @Test
     fun `floor is dropped and re-acquired after lostFrames without candidates`() {
-        val f = Floor(config.floor, config.map.radiusM) // lostFrames 10
+        val f = Floor(baseFloor, config.map.radiusM, config.map.voxelSizeM) // lostFrames 10
         f.update(points(-30f to 500), Vec3.ZERO) // 잘못 잡은 바닥
         repeat(config.floor.lostFrames - 1) { assertEquals(-30f, f.update(points(-1f to 500), Vec3.ZERO).floorY!!, 1e-4f) }
         assertNull(f.update(points(-1f to 500), Vec3.ZERO).floorY) // 잊음
         assertEquals(-1f, f.update(points(-1f to 500), Vec3.ZERO).floorY!!, 1e-4f) // 다시 찾음
+    }
+
+    @Test
+    fun `with holdWhenLost the floor is kept and re-searched without the band (M18 S3)`() {
+        val f = Floor(baseFloor.copy(holdWhenLost = true), config.map.radiusM, config.map.voxelSizeM)
+        f.update(points(-30f to 500), Vec3.ZERO) // 잘못 잡은 바닥
+        repeat(config.floor.lostFrames) { assertEquals(-30f, f.update(points(-1f to 500), Vec3.ZERO).floorY!!, 1e-4f) } // 잊지 않음
+        assertEquals(-1f, f.update(points(-1f to 500), Vec3.ZERO).floorY!!, 1e-4f) // 탐색 폭 없이 다시 찾아 평활 없이 받음
+        assertEquals(-1f + 0.2f * 0.1f, f.update(points(-0.9f to 500), Vec3.ZERO).floorY!!, 1e-4f) // 그 뒤는 다시 폭 안에서 평활
+    }
+
+    @Test
+    fun `the column check drops candidates under a higher point in the same cell`() {
+        val f = Floor(baseFloor.copy(columnCheck = true), config.map.radiusM, config.map.voxelSizeM)
+        val cam = Vec3(0f, 1.2f, 0f)
+        // 칸 (1, 0): 벽 점(0.2~1.0, 후보는 카메라 − 0.8 = 0.4 아래만), 칸 (2, 0): 바닥(0) 300점. 벽 칸의 후보는 위에 점이 있어 빠진다
+        val wall = (0 until 600).flatMap { i -> listOf(1.02f, 0.2f + 0.8f * (i % 60) / 60f, 0.02f) }
+        val flr = (0 until 300).flatMap { listOf(2.02f, 0f, 0.02f) }
+        val u = f.update((wall + flr).toFloatArray(), cam)
+        assertEquals(300, u.nCandidates)
+        assertEquals(0f, u.floorY!!, 1e-4f)
     }
 }

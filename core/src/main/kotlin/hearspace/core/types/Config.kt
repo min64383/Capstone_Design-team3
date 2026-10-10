@@ -222,6 +222,18 @@ data class FloorConfig(
     val minBelowCameraM: Float,
     /** 바닥 추정 원천(M13.1c). PLANE이면 `frontend.planes`가 RANSAC이어야 한다. */
     val source: FloorSource,
+    /**
+     * 후보가 모자란 깊이가 `lostFrames`장 이어져도 바닥을 잊지 않는다(M18): 마지막 값을 쓰면서 다음 깊이부터 탐색 폭 없이 다시 찾는다.
+     * M12.3 실측: 벽·문 1 m 앞에서 바닥이 시야에서 빠져 잊히면 지도가 멈추고 스냅샷이 비어 2.2~6.8 s 무음(S01 문은 STOP 구간 안).
+     * false면 잊는다(기준선).
+     */
+    val holdWhenLost: Boolean = false,
+    /**
+     * 기둥 검사(M18): 깊이 한 장의 점을 `map.voxelSizeM` 수평 칸으로 나눠, 후보 점보다 바닥 허용치(`toleranceM + tolerancePerM ×
+     * 수평거리`)를 넘게 높은 점이 같은 칸에 있으면 그 후보를 뺀다(수직면 = 벽·물체 앞면). M12.3 실측: 끝 벽 앞에서 후보가 벽 아랫부분
+     * 점으로 채워져 바닥이 0.35~0.43 m 올라간 뒤 사라졌다(정답 깊이에서도).
+     */
+    val columnCheck: Boolean = false,
 )
 
 /** 군집·높이 분류 설정. */
