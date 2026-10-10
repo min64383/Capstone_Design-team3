@@ -71,6 +71,7 @@ class SlowPath(
         }
 
         val corridor = Corridor(userPosW, headingW, floorY, config.corridor)
+        val camFromWorld = depth.worldFromCam.rigidInverse()
         val occupied = fm?.voxels?.map { it.copy(lastSeenNs = depth.tCaptureNs) } ?: map.voxels.occupied()
         val inCorridor = occupied.filter { corridor.contains(it.centerW) }
         val voxels = withoutEdgeStructures(inCorridor, corridor)
@@ -102,7 +103,11 @@ class SlowPath(
         val detections = ArrayList<Detection>()
         for ((clusterIndex, clusterVoxels) in clusters.withIndex()) {
             val pts = clusterVoxels.map { it.centerW }
-            val reps = RepPoint.candidates(pts, corridor, config.map.voxelSizeM)
+            // M20 진단: freshOnly면 대표점 후보를 이번 장에 관측된 칸으로 좁힌다(없으면 전체)
+            val repVoxels = if (config.repPoint.freshOnly) clusterVoxels.filter { it.lastSeenNs == depth.tCaptureNs }.ifEmpty { clusterVoxels } else clusterVoxels
+            val reps = RepPoint.candidates(repVoxels.map { it.centerW }, corridor, config.map.voxelSizeM)
+            val repVoxel = reps.getValue(config.repPoint.strategy).let { r -> repVoxels.firstOrNull { it.centerW == r } }
+            val repDepth = if (fm == null) map.lastDepthMm else null
             val aabbMin = Vec3(pts.minOf { it.x } - half, pts.minOf { it.y } - half, pts.minOf { it.z } - half)
             val aabbMax = Vec3(pts.maxOf { it.x } + half, pts.maxOf { it.y } + half, pts.maxOf { it.z } + half)
             val heightClass = HeightClassifier.classify(pts.map { it.y - floorY }, config.cluster)!! // 군집 = 통로 안 부분
@@ -137,6 +142,11 @@ class SlowPath(
                 hitsMax = hits.max(),
                 oldestVoxelAgeMs = agesMs.max(),
                 newestVoxelAgeMs = agesMs.min(),
+                repVoxelState = if (repVoxel != null && repDepth != null) {
+                    map.voxels.cellView(repVoxel.centerW, repVoxel.lastSeenNs == depth.tCaptureNs, repDepth, depth.K, camFromWorld).name
+                } else "",
+                repVoxelAgeMs = repVoxel?.let { (depth.tCaptureNs - it.lastSeenNs).coerceAtLeast(0L) / 1_000_000f } ?: Float.NaN,
+                repVoxelHits = repVoxel?.hits ?: -1,
             )
             val filterReason = FalsePositiveFilter.reason(rawDebug, config.falsePositiveFilter)
             debug += rawDebug.copy(filtered = filterReason != null, filterReason = filterReason ?: "")

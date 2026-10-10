@@ -1,10 +1,12 @@
 """오차 분해 지표 (M12.0, IMPROVE_SPEC §11.1). 지도가 아니라 프레임별 월드 점(`worldpts.py`)과 자세 기록으로 잰다.
 
-    python error_decomp.py <세션 폴더> [...] [--runs <재생 로그 루트>]
+    python error_decomp.py <세션 폴더> [...] [--runs <재생 로그 루트>] [--source SMOOTHED|RAW]
         → <세션>/error_decomp.json, <세션>/error_decomp_frames.csv, 요약 표 출력.
         --runs가 있으면 <루트>/<세션ID>/default/slow_path.csv(`:core:replay`)의 core 바닥 추정 흔들림도 적는다.
+        --source가 설정(`depth.source`)과 다르면 출력 이름 끝에 _<원천>(예: error_decomp_frames_raw.csv). RAW는 신뢰도 ≥ RAW_CONF만(M20).
 
-- T1 한 프레임: 정답 물체 앞면·끝 벽·옆 벽까지 프레임마다 잰 위치 − 정답(m, + = 카메라에서 멀리 또는 복도 바깥으로)
+- T1 한 프레임: 정답 물체 앞면·끝 벽·옆 벽까지 프레임마다 잰 위치 − 정답(m, + = 카메라에서 멀리 또는 복도 바깥으로).
+  앞면·끝 벽은 고른 점의 5번째 백분위수(가장 앞 점, `<대상>_p05` 열)도 적는다(M20: 대표점은 가장 앞 칸)
 - T2 정지 누적: 같은 값의 시간 변화와 수렴 시각, 프레임별 바닥 높이의 흔들림, 헛 점 비율(정답상 빈 곳에 찍힌 점),
   유효 깊이 중앙값(정답·바닥 없이 같은 배치의 세션끼리 비교: 수렴하지 않은 깊이를 드러낸다)
 - T3 단방향 보행: 걸은 거리 구간별 오차와 기울기, 자세 점프(frames.csv)
@@ -48,6 +50,8 @@ CONV_TOL_M = 0.05  # 수렴: 1 s 중앙값이 마지막 5 s 중앙값에서 이 
 CONV_FINAL_S = 5.0
 CURVE_BIN_M = 0.5
 CLOSE_WINDOW_S = 0.5
+RAW_CONF = 30  # RAW 깊이는 신뢰도 이 이상만(depth_error.py·M3 F6 결정과 같음)
+FRONT_PCT = 5  # 가장 앞 점 = 고른 앞면 점의 이 백분위수
 
 
 def load_cfg(session: Path) -> dict:
@@ -224,8 +228,10 @@ def core_floor(run_dir: Path) -> dict | None:
     return {"p50": float(y.median()), "spreadM": float(y.quantile(0.9) - y.quantile(0.1))} if len(y) else None
 
 
-def analyze(session: Path, step: int = 2, run_dir: Path | None = None) -> dict:
+def analyze(session: Path, step: int = 2, run_dir: Path | None = None, source: str | None = None) -> dict:
     cfg = load_cfg(session)
+    source = source or cfg["depth"]["source"]
+    suffix = "" if source == cfg["depth"]["source"] else "_" + source.lower()
     head = cfg["head"]["offsetFromCameraM"]
     frames = load_frames(session)
     tr = frames[frames.tracking == "TRACKING"].reset_index(drop=True)
@@ -236,7 +242,7 @@ def analyze(session: Path, step: int = 2, run_dir: Path | None = None) -> dict:
 
     # 1차: 프레임별 월드 점과 바닥 높이
     rows, pts, floors, med_depth = [], [], [], []
-    for row, p, d in iter_world(session, tr, cfg["depth"]["source"], step):
+    for row, p, d in iter_world(session, tr, source, step, RAW_CONF if source == "RAW" else None):
         cam = np.array([row.tx, row.ty, row.tz])
         rows.append(row)
         pts.append(p)
@@ -269,13 +275,17 @@ def analyze(session: Path, step: int = 2, run_dir: Path | None = None) -> dict:
         rec = {"tS": ts, "camZ": float(camz), "floorDy": fy - floor_y, "medDepthM": md, "ghost": ghost_fraction(x, y, z, tg)}
         for name, kind, mn, mx in tg:
             s = select(kind, mn, mx, x, y, z, float(camz), z_end)
-            rec[name] = mode_mean(s[1][s[0]], FACE_BIN_M)[0] - s[2] if s is not None and s[0].sum() >= MIN_POINTS else float("nan")
+            ok = s is not None and s[0].sum() >= MIN_POINTS
+            rec[name] = mode_mean(s[1][s[0]], FACE_BIN_M)[0] - s[2] if ok else float("nan")
+            if kind in ("front", "endwall"):
+                rec[name + "_p05"] = float(np.percentile(s[1][s[0]], FRONT_PCT)) - s[2] if ok else float("nan")
         recs.append(rec)
     df = pd.DataFrame(recs)
-    df.to_csv(session / "error_decomp_frames.csv", index=False)
+    df.to_csv(session / f"error_decomp_frames{suffix}.csv", index=False)
 
     out = {
         "session": session.name,
+        "depthSource": source,
         "scene": scene_of(session),
         "estimatedTruth": estimated,
         "nDepthFrames": len(df),
@@ -364,7 +374,7 @@ def analyze(session: Path, step: int = 2, run_dir: Path | None = None) -> dict:
                              "headM": float(np.linalg.norm(h1 - h0)), "yawFrom180Deg": 180.0 - abs(wrap(y1 - y0)),
                              "acrossJump": any(leg["tEndS"] >= j for j in jump_t)})
     out["loopClosure"] = closures
-    (session / "error_decomp.json").write_text(json.dumps(out, indent=2, ensure_ascii=False), encoding="utf-8")
+    (session / f"error_decomp{suffix}.json").write_text(json.dumps(out, indent=2, ensure_ascii=False), encoding="utf-8")
     return out
 
 
@@ -387,7 +397,11 @@ def summary_line(o: dict) -> str:
 if __name__ == "__main__":
     sys.stdout.reconfigure(encoding="utf-8")  # Windows 콘솔(cp949)에서도 한글·기호 출력
     args = sys.argv[1:]
-    runs = None
+    runs, source = None, None
+    if "--source" in args:
+        i = args.index("--source")
+        source = args[i + 1]
+        del args[i:i + 2]
     if "--runs" in args:
         i = args.index("--runs")
         runs = Path(args[i + 1])
@@ -397,4 +411,4 @@ if __name__ == "__main__":
     print("| 세션 | 장면 | 바닥 흔들림 m | 헛 점 비율 | 대상별 오차 중앙값 m | 수렴 | 점프 | 회전 ° | 루프 닫힘 | 벽 간격 |")
     print("|---|---|---|---|---|---|---|---|---|---|")
     for s in args:
-        print(summary_line(analyze(Path(s), run_dir=runs / Path(s).name / "default" if runs else None)), flush=True)
+        print(summary_line(analyze(Path(s), run_dir=runs / Path(s).name / "default" if runs else None, source=source)), flush=True)

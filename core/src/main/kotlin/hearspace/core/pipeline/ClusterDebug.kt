@@ -39,6 +39,12 @@ data class ClusterDebug(
     /** 실험용 false-positive 필터에서 제외했는지. */
     val filtered: Boolean = false,
     val filterReason: String = "",
+    /** 대표점(설정한 방식) 칸의 이 장 상태([hearspace.core.mapping.CellView] 이름, M20). 대표점이 칸이 아니거나 판정할 깊이가 없으면 "". */
+    val repVoxelState: String = "",
+    /** 대표점 칸의 마지막 관측 뒤 나이(ms). 없으면 NaN. */
+    val repVoxelAgeMs: Float = Float.NaN,
+    /** 대표점 칸의 누적 관측 수. 없으면 -1. */
+    val repVoxelHits: Int = -1,
 ) {
     val lateralSpanM: Float get() = lateralMaxM - lateralMinM
     val alongSpanM: Float get() = alongMaxM - alongMinM
@@ -54,7 +60,8 @@ object ClusterDebugCsv {
             "heightMinM,heightMaxM,heightSpanM," +
             "centroidX,centroidY,centroidZ,nearestX,nearestY,nearestZ," +
             "corridorNearestX,corridorNearestY,corridorNearestZ," +
-            "scoreMin,scoreMean,scoreMax,hitsMin,hitsMean,hitsMax,oldestVoxelAgeMs,newestVoxelAgeMs,filtered,filterReason"
+            "scoreMin,scoreMean,scoreMax,hitsMin,hitsMean,hitsMax,oldestVoxelAgeMs,newestVoxelAgeMs,filtered,filterReason," +
+            "repVoxelState,repVoxelAgeMs,repVoxelHits"
 
     fun row(d: ClusterDebug): String = listOf(
         d.tCaptureNs,
@@ -73,5 +80,6 @@ object ClusterDebugCsv {
         d.hitsMin, d.hitsMean, d.hitsMax,
         d.oldestVoxelAgeMs, d.newestVoxelAgeMs,
         d.filtered, d.filterReason,
+        d.repVoxelState, d.repVoxelAgeMs, d.repVoxelHits,
     ).joinToString(",")
 }

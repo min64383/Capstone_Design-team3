@@ -50,12 +50,17 @@ class LocalMap(private val config: Config) {
     /** 복셀 맵. */
     val voxels = VoxelMap(config.map)
 
+    /** 마지막 [update]가 지도에 쓴 깊이(신뢰도·앞단 필터 뒤). 대표점 칸 상태 진단(M20)이 같은 장으로 판정한다. */
+    var lastDepthMm: ShortArray? = null
+        private set
+
     /**
      * 깊이 한 장을 반영한다. [userPosW]·[headingW]는 삭제 조건(지나감·반경)의 기준(진행 방향 추정은 M5).
      * 바닥을 아직 모르면 맵을 갱신하지 않고 `DEGRADED`를 돌려준다(사용자 결정 2026-09-28).
      */
     fun update(depth: DepthFrame, userPosW: Vec3, headingW: Vec3): MapUpdate {
         val depthMm = effectiveDepth(depth)
+        lastDepthMm = depthMm
         val pts = Projection.backprojectToWorld(depthMm, depth.K, depth.worldFromCam, config.depth.subsample)
         val n = pts.size / 3
         val camW = depth.worldFromCam.translation()

@@ -194,7 +194,7 @@ object ConfigLoader {
                     matchByOverlap = boolean("matchByOverlap"),
                 )
             },
-            repPoint = root.section("repPoint") { RepPointConfig(strategy = enumValue<RepStrategy>("strategy")) },
+            repPoint = root.section("repPoint") { RepPointConfig(strategy = enumValue<RepStrategy>("strategy"), freshOnly = boolean("freshOnly")) },
             policy = root.section("policy") {
                 PolicyConfig(
                     stopM = positive("stopM"),

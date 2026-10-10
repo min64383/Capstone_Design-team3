@@ -14,17 +14,15 @@
 from __future__ import annotations
 
 import argparse
-import json
 from pathlib import Path
 
 import numpy as np
 import pandas as pd
-from PIL import Image
 
 from align import fit, load_frames, to_truth
 from error_decomp import end_face, forward_xz, frame_floor, load_cfg, targets
 from metrics import load_truth, scene_of
-from worldpts import DEPTH_COLUMN, depth_k, depth_rows, load_depth_m, to_world
+from worldpts import iter_world
 
 # 분석 도구 파라미터(앱·core 설정이 아님)
 CORRIDOR_X_M = 0.30
@@ -46,17 +44,8 @@ VARIANTS = [("SMOOTHED", None), ("RAW", 0), ("RAW", RAW_CONF)]
 
 def world_frames(session: Path, frames: pd.DataFrame, source: str, min_conf: int | None, step: int):
     """(frames.csv 행, 월드 점). RAW는 신뢰도 영상으로 [min_conf] 미만 픽셀을 버린다."""
-    meta = json.loads((session / "meta.json").read_text(encoding="utf-8"))
-    col, k = DEPTH_COLUMN[source], None
-    for _, row in depth_rows(frames, source).iterrows():
-        d = load_depth_m(session / row[col])
-        if min_conf and isinstance(row.get("confFile"), str):
-            c = np.asarray(Image.open(session / row["confFile"]))
-            if c.shape == d.shape:
-                d[c < min_conf] = 0
-        if k is None or (k["width"], k["height"]) != (d.shape[1], d.shape[0]):
-            k = depth_k(meta, d.shape[1], d.shape[0])
-        yield row, to_world(d, k, row, step)
+    for row, p, _ in iter_world(session, frames, source, step, min_conf):
+        yield row, p
 
 
 def floor_mask(x, z, truth: list[dict], z_end: float) -> np.ndarray:

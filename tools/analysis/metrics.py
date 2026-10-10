@@ -339,6 +339,56 @@ def band_of(along, pol):
     return None
 
 
+def block_rows(session: Path, run_dir: Path, cfg: dict, frames: pd.DataFrame, g: pd.DataFrame, obs: pd.DataFrame, blocks: pd.DataFrame, t0, truth, al):
+    """오디오 블록마다 정답 최근접점(`truth_nearest`)과 추정 음원의 정답 짝. 방향 지표와 M20 대표점 진단(`front_diag.py`)이 같이 쓴다.
+    행의 rep = 평활된 대표점(정답 좌표 x, z), head·sgn = 정답 머리와 진행 부호. 두 번째 값은 블록 시각·카메라 z·진행 부호."""
+    # 블록마다 정답 머리(정답 좌표)
+    pose = frames.set_index("tNs")[["tx", "ty", "tz"]]
+    cam = pose.loc[blocks.poseTNs]
+    cx, _, cz = to_truth(al, cam.tx.to_numpy(), cam.ty.to_numpy(), cam.tz.to_numpy())
+    ox, _, oz = cfg["head"]["offsetFromCameraM"]
+    tS = (blocks.tBlockNs.to_numpy() - t0) / 1e9
+    # 진행 방향은 카메라 이동으로 정하고, 파지 오프셋(진행 방향 기준)도 그 방향으로 돌린다: 돌아선 뒤 머리는 카메라의 −z 쪽이 아니라 +z 쪽.
+    # 창은 앱 설정이 아니라 고정 값(M18: 진행 방향 창을 바꾼 변형·기본값에서 정답이 같이 바뀌지 않게)
+    h0 = json.loads(DEFAULT_CONFIG.read_text(encoding="utf-8"))["heading"]
+    sgn = walk_sign(tS, cz, WALK_SIGN_WINDOW_S, h0["minTravelM"])
+    hx, hz = cx + sgn * ox, cz + sgn * oz
+
+    # 추정 음원 → 대표점(정답 좌표) → 정답 장애물
+    strat = cfg["repPoint"]["strategy"]
+    obs_idx = obs.set_index(["tCaptureNs", "id"])
+    rep_cols = [f"rep{strat}_x", f"rep{strat}_y", f"rep{strat}_z"]
+
+    def match(snap_t, oid):
+        try:
+            r = obs_idx.loc[(int(snap_t), int(oid))]
+        except KeyError:
+            return None, None, None
+        x, y, z = to_truth(al, r[rep_cols[0]], r[rep_cols[1]], r[rep_cols[2]])
+        best, bd = None, MATCH_MARGIN_M
+        for i, ob in enumerate(truth):
+            (x0, _, z0), (x1, _, z1) = ob["min"], ob["max"]
+            d = np.hypot(max(x0 - x, 0, x - x1), max(z0 - z, 0, z - z1))
+            if d <= bd:
+                best, bd = i, d
+        return best, r["heightClass"], (float(x), float(z))
+
+    rows = []
+    for k, (_, b) in enumerate(blocks.iterrows()):
+        tn = [truth_nearest(ob, hx[k], hz[k], cfg, sgn[k]) for ob in truth]
+        est = g[g.tBlockNs == b.tBlockNs] if len(blocks) != len(g) else g.iloc[[k]]
+        e = est.iloc[0]
+        mi = mh = rep = None
+        if pd.notna(e.obstacleId):
+            mi, mh, rep = match(e.snapshotTNs, e.obstacleId)
+        rows.append({"t": tS[k], "state": b.state, "tn": tn, "band": e.band if pd.notna(e.band) else None,
+                     "oid": int(e.obstacleId) if pd.notna(e.obstacleId) else None,
+                     "az": e.azimuthDeg, "dist": e.distanceM, "match": mi, "hclass": mh, "pose": b.poseTNs,
+                     "snap": int(e.snapshotTNs) if pd.notna(e.snapshotTNs) else None,
+                     "head": (float(hx[k]), float(hz[k])), "sgn": float(sgn[k]), "rep": rep})
+    return rows, {"tS": tS, "cz": cz, "sgn": sgn}
+
+
 def compute(session: Path, run_dir: Path) -> dict:
     cfg = load_config(run_dir)
     pol = cfg["policy"]
@@ -369,53 +419,11 @@ def compute(session: Path, run_dir: Path) -> dict:
     al = align(session, run_dir)
     out["truth"] = {"estimated": estimated, "n": len(truth), "align": {k: al[k] for k in ("residualRmsM", "angleUncertaintyDeg")}}
 
-    # 블록마다 정답 머리(정답 좌표)
-    pose = frames.set_index("tNs")[["tx", "ty", "tz"]]
-    cam = pose.loc[blocks.poseTNs]
-    cx, _, cz = to_truth(al, cam.tx.to_numpy(), cam.ty.to_numpy(), cam.tz.to_numpy())
-    ox, _, oz = cfg["head"]["offsetFromCameraM"]
-    tS = (blocks.tBlockNs.to_numpy() - t0) / 1e9
-    # 진행 방향은 카메라 이동으로 정하고, 파지 오프셋(진행 방향 기준)도 그 방향으로 돌린다: 돌아선 뒤 머리는 카메라의 −z 쪽이 아니라 +z 쪽.
-    # 창은 앱 설정이 아니라 고정 값(M18: 진행 방향 창을 바꾼 변형·기본값에서 정답이 같이 바뀌지 않게)
-    h0 = json.loads(DEFAULT_CONFIG.read_text(encoding="utf-8"))["heading"]
-    sgn = walk_sign(tS, cz, WALK_SIGN_WINDOW_S, h0["minTravelM"])
-    hx, hz = cx + sgn * ox, cz + sgn * oz
-    out["walkSignFlips"] = int((np.diff(sgn) != 0).sum())
-    out["headingErrorDeg"] = heading_error(blocks.headingDeg.to_numpy(dtype=float), tS, cz, sgn, al)
+    rows, ex = block_rows(session, run_dir, cfg, frames, g, obs, blocks, t0, truth, al)
+    out["walkSignFlips"] = int((np.diff(ex["sgn"]) != 0).sum())
+    out["headingErrorDeg"] = heading_error(blocks.headingDeg.to_numpy(dtype=float), ex["tS"], ex["cz"], ex["sgn"], al)
     out["floorErrorM"] = floor_error(run_dir, al)
     out["config"].update({"stopM": pol["stopM"], "warnMaxM": pol["warnMaxM"]})
-
-    # 추정 음원 → 대표점(정답 좌표) → 정답 장애물
-    strat = cfg["repPoint"]["strategy"]
-    obs_idx = obs.set_index(["tCaptureNs", "id"])
-    rep_cols = [f"rep{strat}_x", f"rep{strat}_y", f"rep{strat}_z"]
-
-    def match(snap_t, oid):
-        try:
-            r = obs_idx.loc[(int(snap_t), int(oid))]
-        except KeyError:
-            return None, None
-        x, y, z = to_truth(al, r[rep_cols[0]], r[rep_cols[1]], r[rep_cols[2]])
-        best, bd = None, MATCH_MARGIN_M
-        for i, ob in enumerate(truth):
-            (x0, _, z0), (x1, _, z1) = ob["min"], ob["max"]
-            d = np.hypot(max(x0 - x, 0, x - x1), max(z0 - z, 0, z - z1))
-            if d <= bd:
-                best, bd = i, d
-        return best, r["heightClass"]
-
-    rows = []
-    for k, (_, b) in enumerate(blocks.iterrows()):
-        tn = [truth_nearest(ob, hx[k], hz[k], cfg, sgn[k]) for ob in truth]
-        est = g[g.tBlockNs == b.tBlockNs] if len(blocks) != len(g) else g.iloc[[k]]
-        e = est.iloc[0]
-        mi = mh = None
-        if pd.notna(e.obstacleId):
-            mi, mh = match(e.snapshotTNs, e.obstacleId)
-        rows.append({"t": tS[k], "state": b.state, "tn": tn, "band": e.band if pd.notna(e.band) else None,
-                     "oid": int(e.obstacleId) if pd.notna(e.obstacleId) else None,
-                     "az": e.azimuthDeg, "dist": e.distanceM, "match": mi, "hclass": mh, "pose": b.poseTNs,
-                     "snap": int(e.snapshotTNs) if pd.notna(e.snapshotTNs) else None})
 
     dir_err, dir_ahead, n_beside, over, jitter_src, fa, n_cmd = [], [], 0, [], {}, 0, 0
     band_ok = band_n = 0

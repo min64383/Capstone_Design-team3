@@ -12,6 +12,7 @@ import pandas as pd
 import json
 
 from align import fit
+from front_diag import block_causes, classify
 from metrics import compute, load_truth, run_metrics
 from report import combine
 from sweep import plan
@@ -311,6 +312,16 @@ def check_scorecard():
     assert judge(m, angle, cfg)[0] == BORDER
 
 
+def check_front_diag():
+    """M20 대표점 진단: 합성 재생의 블록마다 군집 기록 짝과 대표점 칸 상태가 있고, 평활 전 대표점으로 잰 방향도 맞는다."""
+    df = block_causes(ROOT / "clean" / "session", ROOT / "clean" / "run")
+    assert len(df) > 0 and (df.cause != "짝 없음").all(), df.cause.value_counts()
+    assert (df.state != "").all() and df.pairM.max() < 0.05, (df.state.value_counts(), df.pairM.max())
+    assert (df.rawErr < 3.0).all(), df.rawErr.max()
+    assert classify("HIT", 1.0, 1.1) == "지금 앞면 당김" and classify("HIT", 1.08, 1.1) == "지금 다른 위치"
+    assert classify("OUT_OF_VIEW", 0, 0) == "시야 밖" and classify("NO_DEPTH", 0, 0) == "확인 못 함" and classify("", 0, 0) == "짝 없음"
+
+
 def main():
     clean = run("clean")
     assert clean["directionErrorDeg"]["p95"] < 2.0, clean["directionErrorDeg"]
@@ -346,6 +357,7 @@ def main():
     check_miss_reasons()
     check_heading_floor_error()
     check_scorecard()
+    check_front_diag()
     print("analysis self-check ok")
 
 

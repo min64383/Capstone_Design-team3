@@ -52,13 +52,17 @@ def depth_rows(frames: pd.DataFrame, source: str = "SMOOTHED") -> pd.DataFrame:
     return frames[(frames.tracking == "TRACKING") & frames[col].notna()]
 
 
-def iter_world(session: Path, frames: pd.DataFrame, source: str = "SMOOTHED", step: int = 2):
-    """(frames.csv 행, 월드 점, 깊이 영상 m)을 깊이 프레임 순서로."""
+def iter_world(session: Path, frames: pd.DataFrame, source: str = "SMOOTHED", step: int = 2, min_conf: int | None = None):
+    """(frames.csv 행, 월드 점, 깊이 영상 m)을 깊이 프레임 순서로. [min_conf]가 있으면 RAW의 신뢰도 영상으로 그 미만 픽셀을 버린다."""
     meta = json.loads((session / "meta.json").read_text(encoding="utf-8"))
     col = DEPTH_COLUMN[source]
     k = None
     for _, row in depth_rows(frames, source).iterrows():
         d = load_depth_m(session / row[col])
+        if min_conf and isinstance(row.get("confFile"), str):
+            c = np.asarray(Image.open(session / row["confFile"]))
+            if c.shape == d.shape:
+                d[c < min_conf] = 0
         if k is None or (k["width"], k["height"]) != (d.shape[1], d.shape[0]):
             k = depth_k(meta, d.shape[1], d.shape[0])
         yield row, to_world(d, k, row, step), d
