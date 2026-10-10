@@ -1,0 +1,12 @@
+{
+  "note": "M12.3 원인 분해: 정답 대입 변형 7개(IMPROVE_SPEC §9.2). B = 대입 없음(M13 기본값과 같아야 함). 정렬은 기준 재생의 align.json을 모든 대입 변형이 같이 쓴다. Dn의 잡음 σ = 0.03 × 거리(측정한 바닥 σ 3~7 cm @1.5~2 m, §6.1.1)",
+  "variants": [
+    {"name": "B", "overrides": {}},
+    {"name": "D", "overrides": {}, "replay": {"substitute": "depth", "alignFrom": "data/sweeps/m13_defaults/default/{session}/align.json"}},
+    {"name": "Dn", "overrides": {}, "replay": {"substitute": "depth", "depthNoisePerM": 0.03, "alignFrom": "data/sweeps/m13_defaults/default/{session}/align.json"}},
+    {"name": "O", "overrides": {}, "replay": {"substitute": "map", "alignFrom": "data/sweeps/m13_defaults/default/{session}/align.json"}},
+    {"name": "H", "overrides": {}, "replay": {"substitute": "heading", "alignFrom": "data/sweeps/m13_defaults/default/{session}/align.json"}},
+    {"name": "DH", "overrides": {}, "replay": {"substitute": "depth,heading", "alignFrom": "data/sweeps/m13_defaults/default/{session}/align.json"}},
+    {"name": "OH", "overrides": {}, "replay": {"substitute": "map,heading", "alignFrom": "data/sweeps/m13_defaults/default/{session}/align.json"}}
+  ]
+}

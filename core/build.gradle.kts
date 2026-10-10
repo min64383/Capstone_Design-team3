@@ -68,6 +68,7 @@ fun mergeJson(base: String, over: String): String {
 }
 
 // M8 오프라인 재생: ./gradlew :core:replay -Psession=<세션 폴더> [-Pout=..] [-PslowMs=10 | -PslowFrom=<slow_path.csv>] [-PoverridesFile=<json>]
+// M12.3 정답 대입: [-Psubstitute=depth,map,heading -PalignFrom=<align.json> -PdepthNoisePerM=0.03]
 tasks.register<JavaExec>("replay") {
     group = "hearspace"
     description = "녹화 세션을 PC에서 오프라인 재생해 실행 로그(§10.1)를 쓴다"
@@ -75,8 +76,8 @@ tasks.register<JavaExec>("replay") {
     mainClass.set("hearspace.core.replay.OfflineReplayMainKt")
     systemProperty("hearspace.defaultConfig", rootProject.file("app/src/main/assets/config/default.json").absolutePath)
     systemProperty("hearspace.replayOut", layout.buildDirectory.dir("replay").get().asFile.absolutePath)
-    val paths = setOf("session", "out", "slowFrom", "overridesFile")
-    args = listOf("session", "out", "slowMs", "slowFrom", "overrides", "overridesFile").mapNotNull { k ->
+    val paths = setOf("session", "out", "slowFrom", "overridesFile", "alignFrom")
+    args = listOf("session", "out", "slowMs", "slowFrom", "overrides", "overridesFile", "substitute", "alignFrom", "depthNoisePerM").mapNotNull { k ->
         (project.findProperty(k) as String?)?.let { v -> "$k=${if (k in paths) rootProject.file(v).absolutePath else v}" }
     }
 }

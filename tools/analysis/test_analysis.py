@@ -249,6 +249,30 @@ def check_zone_stats():
     assert zone_stats([], truth, pol)["missedWarnFraction"] is None
 
 
+def check_miss_reasons():
+    """S5 놓침 사유(M12.3): 바닥 없음 3블록, 군집 없음 2블록, SILENT 1블록, 군집 전부 거름·추적 미확인·구간 밖 각 1블록."""
+    import tempfile
+    from metrics import miss_reason, zone_stats
+
+    pol = {"stopM": 1.0, "warnMaxM": 2.5, "silentMaxM": 3.0}
+    truth = [{"name": "wall", "kind": "structure"}]
+    with tempfile.TemporaryDirectory() as tmp:
+        d = Path(tmp)
+        # 스냅샷 시각: 1 바닥 없음, 2 군집 없음, 3 군집 전부 거름, 4 추적 미확인, 5 장애물 있음(명령 없음 = 구간 밖)
+        pd.DataFrame({"tCaptureNs": [1, 2, 3, 4, 5], "floorY": [None, -1.0, -1.0, -1.0, -1.0]}).to_csv(d / "slow_path.csv", index=False)
+        pd.DataFrame({"tCaptureNs": [3, 4, 4], "filtered": [True, True, False]}).to_csv(d / "cluster_debug.csv", index=False)
+        pd.DataFrame({"tCaptureNs": [5], "id": [1]}).to_csv(d / "obstacles.csv", index=False)
+        snaps = [1, 1, 1, 2, 2, 5, 3, 4, 5]
+        bands = [None] * 5 + ["SILENT", None, None, None]
+        rows = [{"t": k * 1.0, "state": "DEGRADED", "tn": [(1.5, 1.5, 0.0)], "band": b, "match": None, "dist": None, "snap": s}
+                for k, (s, b) in enumerate(zip(snaps, bands))]
+        rows.append({"t": 9.0, "state": "NORMAL", "tn": [(1.5, 1.5, 0.0)], "band": "WARN", "match": 0, "dist": 1.5, "snap": 5})
+        z = zone_stats(rows, truth, pol, miss_reason(d))
+    want = {"noFloor": 3.0, "noCluster": 2.0, "silent": 1.0, "outOfBand": 1.0, "allFiltered": 1.0, "unconfirmed": 1.0}
+    assert z["missedWarnReasons"] == dict(sorted(want.items())), z["missedWarnReasons"]
+    assert abs(z["missedWarnFraction"] - 9 / 10) < 1e-9 and abs(sum(z["missedWarnReasons"].values()) - 9.0) < 1e-9
+
+
 def check_scorecard():
     """T5 판정(M12.2): 합격·경계·불합격·해당 없음, 첫 경고는 0.9 × min(출발 거리, warnMaxM) ± 줄자 여유, 구간 1 s 미만은 판정 안 함."""
     from scorecard import BORDER, FAIL, NA, PASS, judge, verdict
@@ -299,6 +323,7 @@ def main():
     check_round_trip_corridor()
     check_walk_sign()
     check_zone_stats()
+    check_miss_reasons()
     check_scorecard()
     print("analysis self-check ok")
 

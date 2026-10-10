@@ -3,7 +3,13 @@ package hearspace.core.truth
 import hearspace.core.geometry.Vec3
 import hearspace.core.session.FrameRow
 import hearspace.core.types.AlignConfig
+import hearspace.core.types.JsonArray
+import hearspace.core.types.JsonBool
+import hearspace.core.types.JsonNumber
+import hearspace.core.types.JsonObject
+import hearspace.core.types.MiniJson
 import hearspace.core.types.TrackingState
+import java.io.File
 import kotlin.math.atan2
 import kotlin.math.cos
 import kotlin.math.hypot
@@ -57,7 +63,27 @@ data class Alignment(
         (originZ + t.x * rightZ + t.z * dirZ).toFloat(),
     )
 
+    /** 월드 방향 → 정답 좌표 방향(회전만, 길이 보존). */
+    fun toTruthDir(w: Vec3): Vec3 = Vec3((w.x * rightX + w.z * rightZ).toFloat(), w.y, (w.x * dirX + w.z * dirZ).toFloat())
+
+    /** 정답 좌표 방향 → 월드 방향(회전만). */
+    fun toWorldDir(t: Vec3): Vec3 = Vec3((t.x * rightX + t.z * dirX).toFloat(), t.y, (t.x * rightZ + t.z * dirZ).toFloat())
+
     companion object {
+        /** 분석 도구가 쓴 `align.json`(tools/analysis/align.py)을 읽는다. 정답 대입 재생(M12.3)이 기준 재생과 같은 정답을 쓰게 한다. */
+        fun read(file: File): Alignment {
+            val f = (MiniJson.parse(file.readText()) as JsonObject).fields
+            fun num(k: String) = (f.getValue(k) as JsonNumber).value
+            fun pair(k: String) = (f.getValue(k) as JsonArray).items.map { (it as JsonNumber).value }
+            val (ox, oz) = pair("origin")
+            val (dx, dz) = pair("dir")
+            return Alignment(
+                originX = ox, originZ = oz, dirX = dx, dirZ = dz, floorY = num("floorY"), fitLengthM = num("fitLengthM"),
+                fitShort = (f.getValue("fitShort") as JsonBool).value, byHeading = (f.getValue("byHeading") as JsonBool).value,
+                nPoints = num("nPoints").toInt(), residualRmsM = num("residualRmsM"), angleUncertaintyDeg = num("angleUncertaintyDeg"),
+            )
+        }
+
         /**
          * [rows]의 카메라 궤적으로 정렬을 맞춘다. 같은 `tNs`가 두 번 나온 행은 첫 행만, 추적 중(`TRACKING`)인 행만 쓴다.
          * [floorY]는 느린 경로 바닥 추정의 중앙값([medianFloorY]).

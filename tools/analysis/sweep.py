@@ -5,6 +5,8 @@
 
 변형 목록 형식(예: sweeps/m10.json): {"variants": [{"name": "default", "overrides": {}}, ...]}.
 `overrides`는 앱 설정(default.json)에 덮어쓸 부분이다. 출력은 <출력 폴더>/<변형>/<세션ID>/.
+`replay`(선택)는 재생 인자(`:core:replay -P<키>=<값>`)다. 값의 `{session}`은 세션 ID로 바꾼다(정답 대입, M12.3: 예
+{"substitute": "depth", "alignFrom": "data/sweeps/m13_defaults/default/{session}/align.json"}).
 이미 metrics.json이 있는 조합은 건너뛴다(중단 후 이어 돌리기). 다시 돌리려면 그 폴더를 지운다.
 """
 from __future__ import annotations
@@ -33,7 +35,9 @@ def run_one(variant: dict, session: Path, out: Path) -> dict:
     ov = out / "overrides.json"
     ov.write_text(json.dumps(variant["overrides"]), encoding="utf-8")
     subprocess.run([str(GRADLEW), ":core:replay", f"-Psession={session.resolve()}", f"-Pout={out.resolve()}",
-                    f"-PoverridesFile={ov.resolve()}", "-q"], cwd=REPO, check=True)
+                    f"-PoverridesFile={ov.resolve()}", "-q",
+                    *(f"-P{k}={str(v).replace('{session}', session.name)}" for k, v in variant.get("replay", {}).items())],
+                   cwd=REPO, check=True)
     m = compute(session, out)
     m["variant"] = variant["name"]
     (out / "metrics.json").write_text(json.dumps(m, indent=2, ensure_ascii=False), encoding="utf-8")

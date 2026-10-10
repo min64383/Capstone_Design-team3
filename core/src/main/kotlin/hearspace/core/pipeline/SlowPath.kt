@@ -6,6 +6,7 @@ import hearspace.core.guidance.Corridor
 import hearspace.core.guidance.MapAction
 import hearspace.core.mapping.LocalMap
 import hearspace.core.mapping.MapUpdate
+import hearspace.core.mapping.PruneCounts
 import hearspace.core.mapping.VoxelView
 import hearspace.core.tracking.Cluster
 import hearspace.core.tracking.Detection
@@ -14,6 +15,7 @@ import hearspace.core.tracking.RepPoint
 import hearspace.core.tracking.Tracker
 import hearspace.core.types.Config
 import hearspace.core.types.DepthFrame
+import hearspace.core.types.MapHealth
 import hearspace.core.types.ObstacleSnapshot
 
 /**
@@ -27,6 +29,8 @@ import hearspace.core.types.ObstacleSnapshot
  */
 class SlowPath(
     private val config: Config,
+    /** 고정 지도(정답 대입 O, M12.3 평가 전용). 있으면 바닥 추정·복셀 갱신을 건너뛰고 이 칸과 바닥을 쓴다. 앱은 넘기지 않는다. */
+    private val fixedMap: FixedMap? = null,
     /** 단계별 처리 시간을 재는 시계(ns). 실행 결과에는 영향이 없고 [lastStageNs]에만 쓴다. */
     private val nanoTime: () -> Long = System::nanoTime,
 ) {
@@ -52,7 +56,10 @@ class SlowPath(
     fun process(depth: DepthFrame, headingW: Vec3): ObstacleSnapshot {
         val t0 = nanoTime()
         val userPosW = HeadPose.fromCamera(depth.worldFromCam.translation(), headingW, config.head.offsetFromCameraM).positionW
-        val u = map.update(depth, userPosW, headingW)
+        val fm = fixedMap
+        val u = if (fm == null) map.update(depth, userPosW, headingW) else {
+            MapUpdate(depth.tCaptureNs, 0, 0, 0, 0, 0, PruneCounts(0, 0, 0), fm.voxels.size, fm.floorY, MapHealth.OK)
+        }
         lastMapUpdate = u
         val t1 = nanoTime()
         val floorY = u.floorY
@@ -64,7 +71,8 @@ class SlowPath(
         }
 
         val corridor = Corridor(userPosW, headingW, floorY, config.corridor)
-        val inCorridor = map.voxels.occupied().filter { corridor.contains(it.centerW) }
+        val occupied = fm?.voxels?.map { it.copy(lastSeenNs = depth.tCaptureNs) } ?: map.voxels.occupied()
+        val inCorridor = occupied.filter { corridor.contains(it.centerW) }
         val voxels = withoutEdgeStructures(inCorridor, corridor)
         // C2: 남은 칸을 벽 칸과 나머지로 나눠 따로 묶는다(벽도 장애물로 남는다). 끄면 한 묶음(기준선). 가장자리 구조물 규칙을 먼저 전체에
         // 적용해야 한다: 벽 칸을 먼저 떼면 라벨 없는 옆 벽 밑동 조각이 짧은 덩어리로 남아 오경보가 됐다(S02 130646 0.11 → 0.22)
@@ -205,3 +213,6 @@ class SlowPath(
 
 /** 느린 경로 단계별 처리 시간(ns): 맵 갱신(역투영·바닥·복셀), 군집(통로·구조물 제외·군집·대표점), 추적. */
 data class StageTimes(val mapNs: Long, val clusterNs: Long, val trackNs: Long)
+
+/** 미리 정한 점유 칸과 바닥(월드 y). 느린 경로가 지도 대신 쓴다(정답 대입 O, M12.3). */
+class FixedMap(val voxels: List<VoxelView>, val floorY: Float)

@@ -17,6 +17,7 @@ import hearspace.core.types.GuidanceOutput
 import hearspace.core.types.ObstacleSnapshot
 import hearspace.core.types.PoseFrame
 import hearspace.core.types.RgbGuideMode
+import hearspace.core.truth.Substitution
 import java.io.File
 
 /** 느린 경로 한 번의 결과(재생 가상 시계 기준). */
@@ -66,6 +67,10 @@ class OfflineReplay(
     private val config: Config,
     /** 깊이 한 장의 느린 경로 처리 시간(ns). 고정값 또는 기록된 실측값(`slow_path.csv`)으로 준다. */
     private val slowPathNs: (DepthFrame) -> Long,
+    /** 정답 대입(M12.3 원인 분해, 평가 전용). null이면 대입 없음(앱과 같음). */
+    private val substitution: Substitution? = null,
+    /** 대입에 쓴 정렬 파일 경로(`replay_info.json` 기록용). */
+    private val alignFrom: String = "",
 ) {
 
     /**
@@ -73,7 +78,7 @@ class OfflineReplay(
      * `map_eval.json`(M13, [MapEvalWriter])도 쓴다.
      */
     fun run(session: File, outDir: File, overridesJson: String = "{}", slowPathNote: String = "") {
-        val log = RunLogWriter(outDir, session, overridesJson, slowPathNote)
+        val log = RunLogWriter(outDir, session, overridesJson, slowPathNote, substitution?.infoJson(alignFrom))
         run(session, if (File(session, "annotations/obstacles.json").isFile) MapEvalWriter(log, outDir, session, config) else log)
     }
 
@@ -88,8 +93,8 @@ class OfflineReplay(
             null
         }
 
-        val fast = FastPath(config)
-        val slow = SlowPath(config)
+        val fast = FastPath(config, substitution?.headingSnap())
+        val slow = SlowPath(config, substitution?.fixedMap(config.map.voxelSizeM))
         var pose: PoseFrame? = null
         var snapshot: ObstacleSnapshot? = null
         var heading: Vec3? = null
@@ -152,7 +157,8 @@ class OfflineReplay(
                     when (val e = next!!.second) {
                         is PoseEvent -> pose = e.pose
                         is DepthEvent -> {
-                            pending = rgb?.attach(e.depth) ?: e.depth
+                            val d = substitution?.depthOf(e.depth) ?: e.depth
+                            pending = rgb?.attach(d) ?: d
                             startIfIdle(arrival)
                         }
                     }

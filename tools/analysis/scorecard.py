@@ -1,6 +1,7 @@
 """안내 성적표 (M12.2): 여러 metrics.json → 세션별 항목 판정(합격·경계·불합격·해당 없음)과 조정용·확인용 요약(Markdown).
 
     python scorecard.py <metrics.json 또는 실행 로그 폴더> ...
+    python scorecard.py --compare <항목 key,...> <변형별 실행 로그 폴더> ...   → 항목마다 세션 × 변형 표(정답 대입, M12.3)
 
 항목·목표·여유·세션 구분은 `scorecard.json`(IMPROVE_SPEC §9.2). 판정은 세션 단위다(장면당 회차가 1~3개라 묶으면 나쁜 회차가 가려진다).
 경계: 값이 목표 ± 여유 안. 여유는 방향이면 그 세션의 정렬 각도 불확실성, 거리면 줄자 오차(`tapeM`). 비율·개수 항목에는 여유가 없다.
@@ -69,6 +70,42 @@ def role_of(m: dict, cfg: dict) -> str:
     return next((r for r, ids in cfg["roles"].items() if m["session"] in ids), "기타")
 
 
+REASONS = {"noFloor": "바닥 없음", "noCluster": "군집 없음", "silent": "SILENT", "outOfBand": "구간 밖", "unconfirmed": "추적 미확인",
+           "allFiltered": "전부 거름", "noSnapshot": "스냅샷 없음"}
+
+
+def reasons(m: dict) -> str:
+    """경고 놓침 사유별 시간(s), 큰 것부터(M12.3)."""
+    r = m.get("missedWarnReasons") or {}
+    return ", ".join(f"{REASONS.get(k, k)} {v:.1f}" for k, v in sorted(r.items(), key=lambda kv: -kv[1])) or "–"
+
+
+def compare(paths: list[str], keys: list[str], cfg: dict) -> str:
+    """정답 대입 변형 비교(M12.3): 항목마다 행 = 세션, 열 = 변형(인자 순서), 칸 = 값과 판정. 경고 놓침이면 사유 표도."""
+    ms = [load(a) for a in paths]
+    variants = list(dict.fromkeys(m.get("variant", "?") for m in ms))
+    cell = {(m["session"], m.get("variant", "?")): m for m in ms}
+    sessions = sorted({m["session"] for m in ms}, key=lambda s: (cell[next(k for k in cell if k[0] == s)]["scene"], s))
+    out = []
+    for key in keys:
+        it = next(i for i in cfg["items"] if i["key"] == key)
+        rows = []
+        for s in sessions:
+            m0 = cell[next(k for k in cell if k[0] == s)]
+            row = [s[9:], m0["scene"], role_of(m0, cfg)]
+            for v in variants:
+                m = cell.get((s, v))
+                j, val = judge(m, it, cfg) if m else (NA, "–")
+                row.append(f"{val} {j}" if j != NA else "–")
+            rows.append(row)
+        out += [f"### {it['name']} ({it['op']} {it['target']})", "", table(["세션", "장면", "구분"] + variants, rows), ""]
+        if key == "missedWarn":
+            rows = [[s[9:], cell[next(k for k in cell if k[0] == s)]["scene"]] + [reasons(cell[(s, v)]) if (s, v) in cell else "–" for v in variants]
+                    for s in sessions]
+            out += ["### 경고 놓침 사유(s)", "", table(["세션", "장면"] + variants, rows), ""]
+    return "\n".join(out)
+
+
 def diagnostics(ms: list[dict]) -> str:
     rows = []
     for m in ms:
@@ -76,9 +113,9 @@ def diagnostics(ms: list[dict]) -> str:
         shape = m.get("objectShape") or {}
         width = ", ".join(f"{v['widthM']:.2f}({v['truthWidthM']:.2f})" for v in shape.values()) or "–"
         rows.append([m["session"][9:], m["scene"]] + [fmt((de.get(b) or {}).get("p50")) for b in de] +
-                    [fmt(m.get("besideFraction")), fmt(m.get("objectMergedFraction")), width, fmt(m.get("walkSignFlips"))])
+                    [fmt(m.get("besideFraction")), fmt(m.get("objectMergedFraction")), width, fmt(m.get("walkSignFlips")), reasons(m)])
     bins = list((ms[0].get("distanceErrorM") or {}).keys()) if ms else []
-    return table(["세션", "장면"] + [f"거리 오차 p50 {b} m" for b in bins] + ["옆·뒤 경고", "합쳐짐", "폭 m(정답)", "진행 부호 뒤집힘"], rows)
+    return table(["세션", "장면"] + [f"거리 오차 p50 {b} m" for b in bins] + ["옆·뒤 경고", "합쳐짐", "폭 m(정답)", "진행 부호 뒤집힘", "놓침 사유(s)"], rows)
 
 
 def main(paths: list[str], cfg: dict) -> str:
@@ -108,4 +145,8 @@ if __name__ == "__main__":
     sys.stdout.reconfigure(encoding="utf-8")  # Windows 콘솔(cp949)에서도 한글·기호 출력
     if len(sys.argv) < 2:
         sys.exit(__doc__)
-    print(main(sys.argv[1:], json.loads(CONFIG.read_text(encoding="utf-8"))))
+    cfg = json.loads(CONFIG.read_text(encoding="utf-8"))
+    if sys.argv[1] == "--compare":
+        print(compare(sys.argv[3:], sys.argv[2].split(","), cfg))
+    else:
+        print(main(sys.argv[1:], cfg))
