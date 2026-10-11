@@ -212,3 +212,4 @@
 - 2026-10-10 · M21 · 대표점 `CORRIDOR_BAND` 추가(기본 strategy는 결과 검토 전까지 CORRIDOR_NEAREST): 거리는 CORRIDOR_NEAREST와 같게, 좌우는 가장 앞 칸 + `repPoint.bandM` 0.20 m 띠에서 보행선에 가장 가까운 칸 — 거리가 바뀌지 않아 STOP 판정과 분석 짝짓기가 그대로이고 방향만 바뀐다. 0.20 = 조정용 S02 3개 꼬리 거리 p90 0.17 m의 복셀 배수
 - 2026-10-10 · M21 · 설계의 분위수 범위(`bandQ`)와 "거리 = 통로 안 최소"는 쓰지 않음(1차 커밋 7a0d9a4) — 분위수는 비켜 선 상자의 진짜 모서리를 잘라 S03 방향이 나빠졌고, 최소 거리는 끝벽 짝을 분석 여유 밖으로 밀었다. 범위에 0을 가두면 옆벽 둘 사이 빈 가운데를 가리킬 수 있어 실제 칸의 좌우를 쓴다
 - 2026-10-10 · M21 · `cluster_debug.csv`에 평활 전 `corridorBandX/Y/Z` 열 추가, `front_diag.py`가 CORRIDOR_BAND 재생도 분류. 대표점 칸 기록은 대표점에 가장 가까운 칸(만든 점은 칸 중심이 아님)
+- 2026-10-11 · M21 · 결과 검토(사용자, viewer 확인 뒤): `repPoint.strategy` 기본값 CORRIDOR_NEAREST → CORRIDOR_BAND(명세 v0.3.22). 근거는 M21 결과(방향 불합격 7/15 → 4/15, STOP 누락·첫 STOP·오경보 불합격 수 같음). 다른 공간 확인은 M12.4. 시험용 `repband-on.json`은 기본값과 같아져 삭제

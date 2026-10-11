@@ -61,7 +61,7 @@ class TrackingTest {
         // 군집은 통로 안 부분(돌출 모서리 띠)뿐이다: 중심점은 그 띠의 가운데(더 깊은 쪽), 통로 안 최근접은 앞 모서리
         assertTrue(centroid.x in 0.15f..0.45f, "centroid $centroid should be the in-corridor strip")
         assertTrue(centroid.z < corridorNearest.z - 0.1f, "centroid $centroid vs corridor-nearest $corridorNearest")
-        assertEquals(corridorNearest, table.repPointW) // 기본 설정 CORRIDOR_NEAREST
+        assertEquals(c.getValue(RepStrategy.CORRIDOR_BAND), table.repPointW) // 기본 설정 CORRIDOR_BAND(M21)
     }
 
     @Test
