@@ -32,10 +32,38 @@ object EdgeDetector {
 
     /** [upCam]: 월드 위쪽 단위 벡터를 C_cv(+X 오른쪽, +Y 아래, +Z 앞)로 나타낸 것. */
     fun boundaryMask(depthMm: ShortArray, k: Intrinsics, upCam: Vec3, cfg: FrontendConfig): BooleanArray {
+        val mask = BooleanArray(k.width * k.height)
+        edges(depthMm, k, upCam, cfg) { e -> e.forEachMembrane(cfg) { mask[e.idx[it]] = true } }
+        return mask
+    }
+
+    /**
+     * 주사선 하나에서 찾은 경계(막 경사를 낀 두 표면). 배열은 주사선마다 다시 쓰므로 [edges]의 방문 함수 안에서만 읽는다.
+     * [d]·[idx]: 주사선 위치마다 깊이(m, 0 = 무효)와 영상 픽셀 번호(앞 [n]개). [pieces]: 그 주사선의 선형 조각, [left]·[right]는
+     * 경사를 낀 두 표면 조각의 번호. ([du], [dv]): 주사선 한 칸의 픽셀 이동.
+     */
+    class Edge internal constructor(
+        val d: FloatArray, val idx: IntArray, val n: Int, val pieces: List<Piece>, val left: Int, val right: Int, val du: Int, val dv: Int,
+    ) {
+        val leftPiece get() = pieces[left]
+        val rightPiece get() = pieces[right]
+
+        /** 경사 픽셀 중 두 표면 직선 어느 쪽에서도 `edgeFitTolRatio` 넘게 벗어난 것(막 후보, 경계 마스크). */
+        inline fun forEachMembrane(cfg: FrontendConfig, f: (Int) -> Unit) {
+            val l = leftPiece
+            val r = rightPiece
+            for (i in l.end + 1 until r.start) {
+                val tol = cfg.edgeFitTolRatio * d[i]
+                if (abs(d[i] - l.at(i.toFloat())) > tol && abs(d[i] - r.at(i.toFloat())) > tol) f(i)
+            }
+        }
+    }
+
+    /** 가로·세로·두 대각선 주사선의 경계를 모두 [visit]에 넘긴다(경계 마스크와 같은 판정). */
+    fun edges(depthMm: ShortArray, k: Intrinsics, upCam: Vec3, cfg: FrontendConfig, visit: (Edge) -> Unit) {
         require(depthMm.size == k.width * k.height) { "depth size ${depthMm.size} != ${k.width}x${k.height}" }
         val w = k.width
         val h = k.height
-        val mask = BooleanArray(w * h)
         val d = FloatArray(w + h)
         val ht = FloatArray(w + h)
         val idx = IntArray(w + h)
@@ -54,25 +82,27 @@ object EdgeDetector {
                 u += du
                 v += dv
             }
-            scan(d, ht, n, cfg) { mask[idx[it]] = true }
+            scan(d, ht, n, cfg) { pieces, l, r -> visit(Edge(d, idx, n, pieces, l, r, du, dv)) }
         }
         for (v in 0 until h) line(0, v, 1, 0)
         for (u in 0 until w) line(u, 0, 0, 1)
         for (v in 0 until h) { line(0, v, 1, 1); line(0, v, 1, -1) }
         for (u in 1 until w) { line(u, 0, 1, 1); line(u, h - 1, 1, -1) }
-        return mask
     }
 
     /** 선형 조각 [start, end]와 직선(깊이 = a + b·픽셀 위치). */
-    private class Piece(val start: Int, val end: Int, val a: Float, val b: Float) {
+    class Piece internal constructor(val start: Int, val end: Int, val a: Float, val b: Float) {
         val length get() = end - start + 1
         fun at(i: Float) = a + b * i
     }
 
-    /** 주사선 하나: 깊이 [d](m, 0 = 무효)와 카메라 기준 높이 [ht](m)의 앞 [n]개. 경계 픽셀 위치를 [mark]로 알린다. */
-    internal fun scan(d: FloatArray, ht: FloatArray, n: Int, cfg: FrontendConfig, mark: (Int) -> Unit) {
+    /** 표면 조각: 두 픽셀 이상이고 픽셀당 깊이 변화가 깊이의 `edgeSteepRatio` 이하. */
+    fun isSurface(p: Piece, cfg: FrontendConfig) = p.length >= 2 && abs(p.b) <= cfg.edgeSteepRatio * p.at((p.start + p.end) / 2f)
+
+    /** 주사선 하나: 깊이 [d](m, 0 = 무효)와 카메라 기준 높이 [ht](m)의 앞 [n]개. 경계마다 (조각들, 왼쪽 표면 번호, 오른쪽 표면 번호)를 [edge]로 알린다. */
+    internal fun scan(d: FloatArray, ht: FloatArray, n: Int, cfg: FrontendConfig, edge: (List<Piece>, Int, Int) -> Unit) {
         val pieces = segment(d, n, cfg.edgeFitTolRatio)
-        fun surface(p: Piece) = p.length >= 2 && abs(p.b) <= cfg.edgeSteepRatio * p.at((p.start + p.end) / 2f)
+        fun surface(p: Piece) = isSurface(p, cfg)
         var p = 0
         while (p < pieces.size) {
             val left = pieces[p]
@@ -90,12 +120,7 @@ object EdgeDetector {
             val right = pieces[q]
             val dl = left.at(left.end.toFloat())
             val dr = right.at(right.start.toFloat())
-            if (abs(dl - dr) > cfg.edgeMinStepRatio * min(dl, dr) && !isLevel(d, ht, left.end + 1, right.start - 1, cfg)) {
-                for (i in left.end + 1 until right.start) {
-                    val tol = cfg.edgeFitTolRatio * d[i]
-                    if (abs(d[i] - left.at(i.toFloat())) > tol && abs(d[i] - right.at(i.toFloat())) > tol) mark(i)
-                }
-            }
+            if (abs(dl - dr) > cfg.edgeMinStepRatio * min(dl, dr) && !isLevel(d, ht, left.end + 1, right.start - 1, cfg)) edge(pieces, p, q)
             p = q
         }
     }

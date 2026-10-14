@@ -1,0 +1,67 @@
+{
+  "note": "M23 RGB 안내 깊이 개선(IMPROVE_SPEC v0.3.23). CUR = 지금 기본값, E = 경계 판정(막 지움), G = RGB 보정(막 밝기 가중 중앙값), Ra = RGB 경계 위치로 막을 앞·뒤 면에 옮김(EDGE), Rb = Ra + 배경 당김을 배경 면 깊이로(EDGE_MARGIN), D = 정답 깊이(상한). 판정은 cluster_eval.csv(군집 칸 단위 평가). 모두 기준 재생의 align.json을 같이 쓰고, RGB는 tools/analysis/mp4_rgb.py로 먼저 꺼낸다",
+  "variants": [
+    {
+      "name": "CUR",
+      "overrides": {},
+      "replay": {
+        "alignFrom": "data/sweeps/m13_defaults/default/{session}/align.json"
+      }
+    },
+    {
+      "name": "E",
+      "overrides": {
+        "frontend": {
+          "enabled": true
+        }
+      },
+      "replay": {
+        "alignFrom": "data/sweeps/m13_defaults/default/{session}/align.json"
+      }
+    },
+    {
+      "name": "G",
+      "overrides": {
+        "frontend": {
+          "rgbGuide": "WEIGHTED_MEDIAN"
+        }
+      },
+      "replay": {
+        "alignFrom": "data/sweeps/m13_defaults/default/{session}/align.json",
+        "rgbFrom": "mp4"
+      }
+    },
+    {
+      "name": "Ra",
+      "overrides": {
+        "frontend": {
+          "rgbGuide": "EDGE"
+        }
+      },
+      "replay": {
+        "alignFrom": "data/sweeps/m13_defaults/default/{session}/align.json",
+        "rgbFrom": "mp4"
+      }
+    },
+    {
+      "name": "Rb",
+      "overrides": {
+        "frontend": {
+          "rgbGuide": "EDGE_MARGIN"
+        }
+      },
+      "replay": {
+        "alignFrom": "data/sweeps/m13_defaults/default/{session}/align.json",
+        "rgbFrom": "mp4"
+      }
+    },
+    {
+      "name": "D",
+      "overrides": {},
+      "replay": {
+        "substitute": "depth",
+        "alignFrom": "data/sweeps/m13_defaults/default/{session}/align.json"
+      }
+    }
+  ]
+}

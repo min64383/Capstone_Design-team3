@@ -48,6 +48,12 @@ class SlowPath(
     var lastClusterDebug: List<ClusterDebug> = emptyList()
         private set
 
+    /** 마지막 깊이의 군집별 칸([lastClusterDebug]와 같은 순서)과 그때 머리 위치. 군집 칸 단위 평가(ClusterEval, M23)용. */
+    var lastClusters: List<List<VoxelView>> = emptyList()
+        private set
+    var lastUserPosW: Vec3 = Vec3(0f, 0f, 0f)
+        private set
+
     /** 마지막 [process]의 단계별 처리 시간(이 기기·PC의 실측, IMPROVE_SPEC §3-3). */
     var lastStageNs: StageTimes = StageTimes(0, 0, 0)
         private set
@@ -61,10 +67,12 @@ class SlowPath(
             MapUpdate(depth.tCaptureNs, 0, 0, 0, 0, 0, PruneCounts(0, 0, 0), fm.voxels.size, fm.floorY, MapHealth.OK)
         }
         lastMapUpdate = u
+        lastUserPosW = userPosW
         val t1 = nanoTime()
         val floorY = u.floorY
         if (floorY == null) {
             lastClusterDebug = emptyList()
+            lastClusters = emptyList()
             val obstacles = tracker.update(emptyList())
             lastStageNs = StageTimes(t1 - t0, 0, nanoTime() - t1)
             return ObstacleSnapshot(depth.tCaptureNs, obstacles, null, u.mapHealth)
@@ -166,6 +174,7 @@ class SlowPath(
             }
         }
         lastClusterDebug = debug
+        lastClusters = clusters
         val t2 = nanoTime()
         val obstacles = tracker.update(detections)
         lastStageNs = StageTimes(t1 - t0, t2 - t1, nanoTime() - t2)

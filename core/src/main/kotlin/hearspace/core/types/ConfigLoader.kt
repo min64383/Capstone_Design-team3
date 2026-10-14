@@ -97,6 +97,7 @@ object ConfigLoader {
                     rgbGuideRadiusPx = atLeast1("rgbGuideRadiusPx"),
                     rgbGuideLumaSigma = positive("rgbGuideLumaSigma"),
                     rgbMaxAgeMs = nonNegative("rgbMaxAgeMs"),
+                    rgbMarginMaxPx = atLeast1("rgbMarginMaxPx"),
                     segment = enumValue<SegmentMode>("segment"),
                 )
             },

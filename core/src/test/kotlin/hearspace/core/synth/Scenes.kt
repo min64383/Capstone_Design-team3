@@ -173,6 +173,21 @@ object Scenes {
     /** SC-23 SC-08 + 가장자리 평활: 다가가며 보이는 상자 윗면이 유지되고 상자가 한 물체다. */
     val SC23 get() = SC08.copy(id = "SC-23", noise = Noise(edgeSmoothPx = EDGE_SMOOTH_PX))
 
+    /** 배경 당김 반경(M23, [Noise.edgePullPx]). 실측 약 25픽셀의 절반(합성 시험 시간), RGB 마진 상한 `rgbMarginMaxPx` 25 안. */
+    const val EDGE_PULL_PX = 12
+
+    /** 물체별 밝기(상자 220, 벽 60, 바닥 120): RGB 안내 보정이 쓸 대비. */
+    private fun SceneSpec.withContrast() =
+        copy(scene = scene.copy(items = scene.items.map { it.copy(luma = when (it.name) { "box" -> 220; "back_wall" -> 60; else -> 120 }) }))
+
+    /** SC-25 SC-21 + 배경 당김 + 밝기 대비(M23): 상자 군집이 뒤로 늘어나지 않는다(RGB 경계 옮기기 EDGE_MARGIN에서 ≤ 0.10 m). */
+    val SC25 get() = SC21.withContrast().copy(id = "SC-25", noise = Noise(edgeSmoothPx = EDGE_SMOOTH_PX, edgePullPx = EDGE_PULL_PX))
+
+    /** SC-26 바닥 위 낮은 상자(높이 0.25) + 뒤 벽, 평활·당김·대비(M23): 바닥 경계를 옮기지 않아 상자 아랫단 칸이 남는다. */
+    val SC26 get() = SC25.copy(id = "SC-26", scene = SC25.scene.copy(items = SC25.scene.items.map {
+        if (it.name == "box") boxOnLine(2.4f, heightM = 0.25f, depthM = 0.3f).copy(luma = 220) else it
+    }))
+
     /** 전체 목록. */
-    val ALL get() = listOf(SC01, SC02, SC03, SC04, SC05, SC06, SC07, SC08, SC09, SC10, SC11, SC12, SC13, SC14, SC21, SC22, SC23)
+    val ALL get() = listOf(SC01, SC02, SC03, SC04, SC05, SC06, SC07, SC08, SC09, SC10, SC11, SC12, SC13, SC14, SC21, SC22, SC23, SC25, SC26)
 }

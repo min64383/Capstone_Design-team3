@@ -259,10 +259,20 @@ data class Noise(
      * RGB는 그대로라 번진 화소는 배경색에 물체 깊이다. 실측: 물체 옆 번짐 점이 원시 깊이의 3~10배(M19 설계 표 4).
      */
     val edgeSpillPx: Int = 0,
+    /**
+     * 배경 당김(M23): 평활 깊이가 물체 경계 바깥의 먼 배경을 물체 쪽으로 끌어오는 것을 흉내 낸다. 반경 이 픽셀(체스판 거리 r) 안에
+     * 자기보다 [EDGE_JUMP_RATIO] 넘게 가까운 **장애물** 화소가 있으면, 가장 가까운 그런 화소까지의 거리 s에서 깊이를
+     * (깊이 − 그 장애물 깊이) × [EDGE_PULL_RATIO] × (1 − s / (r + 1))만큼 앞으로 당긴다(경계에서 가장 크고 r에서 0, 완만해서 경계 판정의
+     * 경사가 아니다). 실측(M13): 경계에서 약 25픽셀 안의 배경이 0.15~0.5 m 앞으로, 화소당 1~3%. 옆 번짐 뒤, 가장자리 평활 전에 한다.
+     */
+    val edgePullPx: Int = 0,
 )
 
 /** 가장자리 평활 모드에서 깊이 불연속으로 보는 창 안 깊이 차 비율. */
 const val EDGE_JUMP_RATIO = 0.1f
+
+/** 배경 당김의 경계에서 비율(배경 − 물체 깊이 차에 대한, [Noise.edgePullPx]). SC-21에서 경계 0.6 m(실측 0.15~0.5 m의 큰 쪽). */
+const val EDGE_PULL_RATIO = 0.3f
 
 /** 합성 프레임 1개. [truthWorldFromCam]은 점프·잡음이 없는 참 자세(C_cv). */
 data class SynthFrame(
@@ -435,7 +445,8 @@ object SyntheticGenerator {
             if (z <= 0f) continue
             mm[v * k.width + u] = min((z * 1000f).roundToInt(), 65535).toShort()
         }
-        val spilled = if (noise.edgeSpillPx > 0) edgeSpill(mm, obstacle, k, noise.edgeSpillPx) else mm
+        val spilled = (if (noise.edgeSpillPx > 0) edgeSpill(mm, obstacle, k, noise.edgeSpillPx) else mm)
+            .let { if (noise.edgePullPx > 0) edgePull(it, obstacle, k, noise.edgePullPx) else it }
         return DepthFrame(
             tNs, if (noise.edgeSmoothPx > 0) edgeSmooth(spilled, k, noise.edgeSmoothPx) else spilled, null, k, reported, "synthetic", GuideImage(tNs, luma, k),
         )
@@ -457,6 +468,28 @@ object SyntheticGenerator {
                 if (obstacle[j] && d != 0 && d < lo) lo = d
             }
             if (lo < d0 * (1f - EDGE_JUMP_RATIO)) out[v * k.width + u] = lo.toShort()
+        }
+        return out
+    }
+
+    /** [Noise.edgePullPx]: 반경 [r] 안 가장 가까운(체스판 거리) 더 가까운 장애물 화소 쪽으로 배경 깊이를 당긴다. */
+    private fun edgePull(mm: ShortArray, obstacle: BooleanArray, k: Intrinsics, r: Int): ShortArray {
+        val out = mm.copyOf()
+        for (v in 0 until k.height) for (u in 0 until k.width) {
+            val d0 = mm[v * k.width + u].toInt() and 0xFFFF
+            if (d0 == 0) continue
+            var bestS = Int.MAX_VALUE
+            var near = 0
+            for (dv in -r..r) for (du in -r..r) {
+                val uu = u + du
+                val vv = v + dv
+                if (uu !in 0 until k.width || vv !in 0 until k.height) continue
+                val j = vv * k.width + uu
+                val d = mm[j].toInt() and 0xFFFF
+                val s = max(abs(du), abs(dv))
+                if (obstacle[j] && d != 0 && d < d0 * (1f - EDGE_JUMP_RATIO) && (s < bestS || (s == bestS && d < near))) { bestS = s; near = d }
+            }
+            if (bestS <= r) out[v * k.width + u] = (d0 - (d0 - near) * EDGE_PULL_RATIO * (1f - bestS / (r + 1f))).roundToInt().toShort()
         }
         return out
     }

@@ -20,6 +20,16 @@ import kotlin.math.abs
 class ViewerTest {
 
     @Test
+    fun `applied options list each override against the default`() {
+        val base = listOf(hearspace.core.types.MiniJson.parse("""{ "frontend": { "rgbGuide": "NONE", "enabled": false }, "repPoint": { "strategy": "CORRIDOR_BAND" } }"""))
+        val t = appliedOptionsText("""{ "frontend": { "rgbGuide": "EDGE_MARGIN" }, "repPoint": { "strategy": "CORRIDOR_BAND" }, "x": 1 }""", base)
+        assertTrue("frontend.rgbGuide = \"EDGE_MARGIN\"  (기본값 \"NONE\")" in t, t)
+        assertTrue("repPoint.strategy = \"CORRIDOR_BAND\"  (기본값과 같음, 효과 없음)" in t, t)
+        assertTrue("x = 1  (기본값에 없는 키)" in t, t)
+        assertTrue("• 없음: 기본값 그대로" in appliedOptionsText("{}", base))
+    }
+
+    @Test
     fun `variants keep the app audio override`() {
         // 변형을 불러와도 앱의 음향 덮어쓰기(risk-continuous.override.json)가 남아 앱과 같은 소리로 재생된다
         for (variant in listOf("{}", """{ "map": { "voxelSizeM": 0.075 } }""")) {

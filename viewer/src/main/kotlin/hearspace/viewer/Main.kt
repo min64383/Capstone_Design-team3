@@ -1,5 +1,7 @@
 package hearspace.viewer
 
+import hearspace.core.types.JsonObject
+import hearspace.core.types.JsonValue
 import hearspace.core.types.MiniJson
 import java.awt.BorderLayout
 import java.awt.Font
@@ -53,6 +55,9 @@ class MainWindow(initialSession: String?) : JFrame("HEARSPACE 평가 GUI") {
     private val overrides = JTextArea("{}", 14, 30).apply { font = Font(Font.MONOSPACED, Font.PLAIN, 12) }
     private val variantName = JTextField("default", 12)
     private val variantBox = JComboBox<String>()
+    private val applied = JTextArea("세션을 열면 적용된 옵션이 여기 나온다", 7, 30).apply {
+        isEditable = false; lineWrap = true; wrapStyleWord = true; font = Font(Font.MONOSPACED, Font.PLAIN, 12)
+    }
     private val ratings = RatingItem.entries.associateWith { JComboBox(arrayOf(1, 2, 3, 4, 5)).apply { selectedItem = 3 } }
     private val noteField = JTextField(18)
     private val noteList = DefaultListModel<String>()
@@ -98,7 +103,13 @@ class MainWindow(initialSession: String?) : JFrame("HEARSPACE 평가 GUI") {
     private fun configPanel(): JComponent = JPanel(BorderLayout(4, 4)).apply {
         border = BorderFactory.createEmptyBorder(6, 6, 6, 6)
         add(JLabel("<html>앱 설정(default.json + 앱 음향 덮어쓰기)에 덮어쓸 JSON<br>예: {\"map\": {\"voxelSizeM\": 0.075}}</html>"), BorderLayout.NORTH)
-        add(JScrollPane(overrides), BorderLayout.CENTER)
+        add(JPanel(BorderLayout(4, 4)).apply {
+            add(JScrollPane(overrides), BorderLayout.CENTER)
+            add(JPanel(BorderLayout()).apply {
+                add(JLabel("지금 보고 있는 결과에 적용된 옵션"), BorderLayout.NORTH)
+                add(JScrollPane(applied), BorderLayout.CENTER)
+            }, BorderLayout.SOUTH)
+        }, BorderLayout.CENTER)
         add(Box.createVerticalBox().apply {
             add(row(rerunButton.apply { addActionListener { rerun() } }, JButton("기본값({})").apply { addActionListener { overrides.text = "{}" } }))
             add(row(JLabel("변형 이름"), variantName, JButton("저장").apply { addActionListener { saveVariant() } }))
@@ -157,6 +168,8 @@ class MainWindow(initialSession: String?) : JFrame("HEARSPACE 평가 GUI") {
                 player.seek(r.frameOfTime(vm.tNs))
                 playButton.text = "▶ 재생"
                 status.text = summary(r) + (exportDir?.let { " · 저장: ${it.absolutePath}" } ?: "")
+                applied.text = appliedOptionsText(r.overridesJson, listOf(Repo.appOverride, Repo.defaultConfig).map { MiniJson.parse(it.readText()) })
+                applied.caretPosition = 0
             }
         }.execute()
     }
@@ -204,7 +217,8 @@ class MainWindow(initialSession: String?) : JFrame("HEARSPACE 평가 GUI") {
     }
 
     private fun saveVariant() {
-        val name = variantName.text.trim().replace(Regex("[^A-Za-z0-9_.-]"), "_")
+        // 파일 이름 = 목록에 보이는 이름: 한글·공백·+·괄호 허용, 파일 이름에 못 쓰는 글자만 바꾼다
+        val name = variantName.text.trim().replace(Regex("""[\\/:*?"<>|]"""), "_")
         if (name.isEmpty()) return
         val text = overrides.text.trim().ifEmpty { "{}" }
         runCatching { MiniJson.parse(text) }.onFailure { status.text = "설정 JSON 오류: ${it.message}"; return }
@@ -218,6 +232,7 @@ class MainWindow(initialSession: String?) : JFrame("HEARSPACE 평가 GUI") {
         val name = variantBox.selectedItem as String? ?: return
         overrides.text = File(Repo.variants, "$name.json").readText().trim()
         variantName.text = name
+        status.text = "변형 불러옴: $name — [재실행]해야 반영된다"
     }
 
     private fun refreshVariants() {
@@ -251,4 +266,25 @@ class MainWindow(initialSession: String?) : JFrame("HEARSPACE 평가 GUI") {
         val f = fb.save()
         status.text = "평가 저장: ${f.relativeTo(Repo.root).path}"
     }
+}
+
+/**
+ * [overridesJson]의 항목을 한 줄씩, 기본값 [bases](앞의 것이 우선: 앱 음향 덮어쓰기, default.json)와 비교해 적는다. 변형은 누적되지 않는다:
+ * 불러오기는 덮어쓰기 글을 통째로 바꾸고, 재실행은 그 글만 기본값 위에 얹는다.
+ */
+internal fun appliedOptionsText(overridesJson: String, bases: List<JsonValue>): String {
+    fun lookup(root: JsonValue, path: List<String>): JsonValue? = path.fold<String, JsonValue?>(root) { v, k -> (v as? JsonObject)?.fields?.get(k) }
+    val lines = ArrayList<String>()
+    fun walk(v: JsonValue, path: List<String>) {
+        if (v is JsonObject) { v.fields.forEach { (k, c) -> walk(c, path + k) }; return }
+        val now = MiniJson.write(v, pretty = false)
+        val was = bases.firstNotNullOfOrNull { lookup(it, path) }?.let { MiniJson.write(it, pretty = false) }
+        lines += "• ${path.joinToString(".")} = $now  " + when (was) {
+            null -> "(기본값에 없는 키)"
+            now -> "(기본값과 같음, 효과 없음)"
+            else -> "(기본값 $was)"
+        }
+    }
+    walk(MiniJson.parse(overridesJson), emptyList())
+    return "기본값 위에 아래 항목만 바꿨다(변형끼리 누적되지 않음).\n" + (if (lines.isEmpty()) "• 없음: 기본값 그대로" else lines.joinToString("\n"))
 }
