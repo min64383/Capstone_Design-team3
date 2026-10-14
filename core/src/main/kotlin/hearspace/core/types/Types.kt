@@ -24,7 +24,12 @@ enum class PlaneMode { NONE, RANSAC }
 enum class SegmentMode { NONE, REGION }
 
 /** RGB 안내 깊이 보정(M13.7): NONE = 끔(기준선), WEIGHTED_MEDIAN = 막 후보 픽셀을 밝기 가중 중앙값으로. */
-enum class RgbGuideMode { NONE, WEIGHTED_MEDIAN }
+/**
+ * RGB 안내 깊이 보정 방식(M13.7, M23). WEIGHTED_MEDIAN = 막 후보를 밝기 가중 중앙값으로([hearspace.core.frontend.RgbGuide]),
+ * EDGE = RGB 경계 위치로 앞·뒤 면 깊이에 옮김(Ra, [hearspace.core.frontend.RgbEdge]), EDGE_MARGIN = EDGE + 배경 당김을 배경 깊이로(Rb).
+ * EDGE·EDGE_MARGIN에서 RGB 경계가 없거나 바닥 경계인 막은 WEIGHTED_MEDIAN으로 처리한다.
+ */
+enum class RgbGuideMode { NONE, WEIGHTED_MEDIAN, EDGE, EDGE_MARGIN }
 
 /** RGB 안내 깊이 보정(M13.7)에 쓰는 같은 카메라의 밝기 영상. [K]는 이 영상의 내부 파라미터, [luma]는 행 우선 0~255. */
 class GuideImage(val tCaptureNs: Long, val luma: ByteArray, val K: Intrinsics)

@@ -13,7 +13,10 @@ class EdgeDetectorTest {
     /** [depth]의 경계 픽셀 위치. 높이는 모두 카메라 높이(수평면 예외가 걸리지 않게). */
     private fun marked(depth: List<Float>, heights: List<Float> = List(depth.size) { 0f }): List<Int> {
         val out = ArrayList<Int>()
-        EdgeDetector.scan(depth.toFloatArray(), heights.toFloatArray(), depth.size, cfg) { out += it }
+        val d = depth.toFloatArray()
+        EdgeDetector.scan(d, heights.toFloatArray(), d.size, cfg) { pieces, l, r ->
+            EdgeDetector.Edge(d, IntArray(d.size) { it }, d.size, pieces, l, r, 1, 0).forEachMembrane(cfg) { out += it }
+        }
         return out.sorted()
     }
 

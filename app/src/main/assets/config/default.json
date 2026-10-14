@@ -46,6 +46,7 @@
     "rgbGuideRadiusPx": 3,
     "rgbGuideLumaSigma": 12,
     "rgbMaxAgeMs": 20,
+    "rgbMarginMaxPx": 25,
     "segment": "NONE"
   },
   "map": {

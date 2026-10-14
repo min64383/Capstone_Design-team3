@@ -25,6 +25,7 @@ MATCH_MARGIN_M = 0.3  # 추정 대표점이 정답 상자에서 이만큼 안이
 MERGE_BEYOND_M = 0.5  # 정답 물체와 겹치는 추정 물체가 그 물체 뒤로 이만큼 넘게 이어지면 합쳐짐(13번 계획서 표 5, M13.1)
 OVER_LO_M = 1.5  # 과대추정 지표의 정답 거리 하한(명세 §9.2 "1.5~2.5 m"), 부호 있는 거리 오차의 구간 경계로도 쓴다(M12.2)
 ACTIVE = {"NORMAL", "DEGRADED"}
+CLUSTER_EVAL_ALONG_M = (0.5, 3.0)  # 군집 평가 단계: 정답 통로 안 최근접 거리(M23 설계 5절, M22 사전 측정과 같은 구간)
 WALK_SIGN_WINDOW_S = 1.0  # 정답 진행 부호의 창: 앱 heading.windowS(M18에서 2.0으로)와 떼어 M12.2 정답을 그대로 둔다
 
 
@@ -95,6 +96,30 @@ def object_shape(obs: pd.DataFrame, truth: list[dict], al: dict) -> dict | None:
         out[o["name"]] = {"frontErrorM": float(best.front.median()), "depthM": float(best.depth.median()),
                           "widthM": float(best.width.median()), "truthDepthM": float(oz1 - oz0), "truthWidthM": float(ox1 - ox0),
                           "n": int(len(best))}
+    return out or None
+
+
+def cluster_eval(run_dir: Path) -> dict | None:
+    """군집 칸 단위 평가(core `ClusterEvalWriter`, M23): 정답 물체마다 [CLUSTER_EVAL_ALONG_M] 단계의 뒤 늘어남·옆 넘침(주 군집이 있는 단계의
+    중앙값, m), 크기 맞음·갈라짐·놓침 단계 비율, 순도 중앙값, 주 군집 밖 칸의 상태 비율(HIT = 이번 장 관측, 그 밖 = 쌓인 칸)."""
+    f = run_dir / "cluster_eval.csv"
+    if not f.is_file():
+        return None
+    ce = pd.read_csv(f)
+    ce = ce[ce.alongM.between(*CLUSTER_EVAL_ALONG_M)]
+    out = {}
+    for name, g in ce.groupby("name"):
+        m = g[g.nAttached > 0]
+        oc = [c for c in g.columns if c.startswith("out_")]
+        tot = g[oc].to_numpy().sum()
+        out[name] = {
+            "n": int(len(g)),
+            "backP50M": p(m.backM, 50), "sideP50M": p(np.maximum(m.leftM, m.rightM), 50), "frontP50M": p(m.frontM, 50),
+            "lengthP50M": p(m.backM - m.frontM, 50),  # 앞뒤 길이 − 정답 앞뒤 길이
+            "fitFraction": float(g.fits.mean()), "splitFraction": float((g.nAttached >= 2).mean()),
+            "missFraction": float((g.nAttached == 0).mean()), "purityP50": p(m.purity, 50),
+            "outsideState": {c[4:]: float(g[c].sum() / tot) for c in oc} if tot else None,
+        }
     return out or None
 
 
@@ -508,6 +533,7 @@ def compute(session: Path, run_dir: Path) -> dict:
         "structureCommandFraction": n_struct / n_cmd if n_cmd else None,  # 구조물을 물체처럼 경고한 비율
         "objectMergedFraction": merged_fraction(obs, truth, al),
         "objectShape": object_shape(obs, truth, al),
+        "clusterEval": cluster_eval(run_dir),
         **zone_stats(rows, truth, pol, miss_reason(run_dir)),
         "selectedTruth": {truth[i]["name"]: sum(1 for r in rows if r["match"] == i and r["band"] in ("WARN", "STOP")) for i in range(len(truth))},
     })

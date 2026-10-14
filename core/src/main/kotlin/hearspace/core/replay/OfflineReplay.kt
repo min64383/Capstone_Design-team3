@@ -35,6 +35,10 @@ class SlowStep(
     val applied: Boolean,
     /** 처리 직후 점유 복셀. [ReplayListener.captureVoxels]가 true일 때만. */
     val occupiedVoxels: List<VoxelView>?,
+    /** 군집별 칸([clusterDebug]와 같은 순서), 머리 위치, 지도에 쓴 깊이(앞단 뒤, 고정 지도면 null). 군집 칸 단위 평가(M23)용. */
+    val clusters: List<List<VoxelView>> = emptyList(),
+    val userPosW: Vec3 = Vec3(0f, 0f, 0f),
+    val mapDepthMm: ShortArray? = null,
 )
 
 /** [OfflineReplay] 결과를 받는 쪽: 실행 로그 파일([RunLogWriter]) 또는 평가 GUI의 메모리 수집. */
@@ -77,11 +81,12 @@ class OfflineReplay(
 
     /**
      * [session]을 재생해 [outDir]에 실행 로그(MVP §10.1)와 `replay_info.json`을 쓴다. 정답 파일이 있으면 지도 평가
-     * `map_eval.json`(M13, [MapEvalWriter])도 쓴다.
+     * `map_eval.json`(M13, [MapEvalWriter])과 군집 평가 `cluster_eval.csv`(M23, [ClusterEvalWriter])도 쓴다.
      */
     fun run(session: File, outDir: File, overridesJson: String = "{}", slowPathNote: String = "") {
         val log = RunLogWriter(outDir, session, overridesJson, slowPathNote, substitution?.infoJson(alignFrom), rgbSource.name)
-        run(session, if (File(session, "annotations/obstacles.json").isFile) MapEvalWriter(log, outDir, session, config) else log)
+        val truth = File(session, "annotations/obstacles.json").isFile
+        run(session, if (truth) MapEvalWriter(ClusterEvalWriter(log, outDir, session, config, substitution?.align), outDir, session, config) else log)
     }
 
     /** [session]을 재생해 결과를 [listener]에 넘긴다. */
@@ -123,7 +128,10 @@ class OfflineReplay(
             lastStartNs = atNs
             val s = slow.process(d, h)
             val voxels = if (listener.captureVoxels) slow.map.voxels.occupied() else null
-            job = Job(d, atNs, atNs + slowPathNs(d), s, resetAfterNs, slow.lastMapUpdate!!, slow.lastClusterDebug, slow.lastStageNs, voxels)
+            job = Job(
+                d, atNs, atNs + slowPathNs(d), s, resetAfterNs, slow.lastMapUpdate!!, slow.lastClusterDebug, slow.lastStageNs, voxels,
+                slow.lastClusters, slow.lastUserPosW, if (substitution?.map == true) null else slow.map.lastDepthMm,
+            )
         }
 
         fun finishUpTo(tNs: Long) {
@@ -133,7 +141,9 @@ class OfflineReplay(
                 job = null
                 val applied = resetAfterNs == j.resetMark
                 if (applied) snapshot = j.snapshot
-                listener.onSlowStep(SlowStep(j.depth, j.startNs, j.doneNs, j.snapshot, j.mapUpdate, j.clusterDebug, j.stageNs, applied, j.voxels))
+                listener.onSlowStep(
+                    SlowStep(j.depth, j.startNs, j.doneNs, j.snapshot, j.mapUpdate, j.clusterDebug, j.stageNs, applied, j.voxels, j.clusters, j.userPosW, j.mapDepthMm),
+                )
                 startIfIdle(j.doneNs)
             }
         }
@@ -203,6 +213,9 @@ class OfflineReplay(
         val clusterDebug: List<ClusterDebug>,
         val stageNs: StageTimes,
         val voxels: List<VoxelView>?,
+        val clusters: List<List<VoxelView>>,
+        val userPosW: Vec3,
+        val mapDepthMm: ShortArray?,
     )
 
     companion object {
