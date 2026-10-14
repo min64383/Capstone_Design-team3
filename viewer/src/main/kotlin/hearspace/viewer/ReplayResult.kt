@@ -7,6 +7,8 @@ import hearspace.core.frontend.Segmenter
 import hearspace.core.geometry.Vec3
 import hearspace.core.pipeline.StageTimes
 import hearspace.core.replay.OfflineReplay
+import hearspace.core.replay.RgbFrames
+import hearspace.core.replay.RgbSource
 import hearspace.core.replay.ReplayListener
 import hearspace.core.replay.SlowStep
 import hearspace.core.session.FrameRow
@@ -205,7 +207,9 @@ object ReplayRunner {
             }
         }
         try {
-            OfflineReplay(config, OfflineReplay.fixed(SLOW_PATH_MS)).run(session, listener)
+            // RGB 안내 보정(M19·M23)은 MP4에서 꺼낸 매 프레임 밝기가 있으면 그것을 쓴다(재생 비교 -PrgbFrom=mp4와 같게). 녹화 JPEG는 3장마다라 거의 안 붙는다
+            val rgb = if (File(session, "${RgbFrames.MP4_DIR}/index.csv").isFile) RgbSource.MP4 else RgbSource.RECORDED
+            OfflineReplay(config, OfflineReplay.fixed(SLOW_PATH_MS), rgbSource = rgb).run(session, listener)
             export?.complete()
         } finally {
             export?.close()
