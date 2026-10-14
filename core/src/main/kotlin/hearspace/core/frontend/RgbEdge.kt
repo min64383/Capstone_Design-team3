@@ -92,12 +92,12 @@ object RgbEdge {
             fun depthAt(i: Int): Float = if ((i < b) == nearLeft) near.at(i.toFloat()) else bg.at(i.toFloat())
             e.forEachMembrane(cfg) { i -> propose(e.idx[i], depthAt(i)) }
             if (!margin) return@edges
-            // 배경 당김: 뒤 면 쪽으로 평활 깊이가 배경 직선에서 edgeFitTolRatio 안으로 돌아오거나, 물체 밝기가 다시 나오거나,
+            // 배경 당김: 경계 뒤 면 쪽으로 평활 깊이가 배경 직선에서 edgeFitTolRatio 안으로 돌아오거나, 물체 밝기가 다시 나오거나,
             // rgbMarginMaxPx를 넘을 때까지 배경 직선 깊이로 옮긴다. 당김은 물체와 배경 사이에만 있으므로 그 밖이면 멈춘다
             val step = if (nearLeft) 1 else -1
             val objLuma = luma(u0 + (if (nearLeft) 0f else (r.start - l.end).toFloat()) * e.du, v0 + (if (nearLeft) 0f else (r.start - l.end).toFloat()) * e.dv)
             val nearB = near.at(b)
-            var i = if (nearLeft) r.start else l.end
+            var i = if (nearLeft) floor(b).toInt() + 1 else floor(b).toInt() // 경계 바로 뒤 화소부터(직선 위라 막 후보가 아닌 경사 화소 포함)
             while (i in 0 until e.n && abs(i - b) <= cfg.rgbMarginMaxPx) {
                 val z = e.d[i]
                 val zb = bg.at(i.toFloat())

@@ -30,6 +30,7 @@ class ClusterEvalWriter(
 
     private val steps = ArrayList<Step>()
     private val floors = ArrayList<Float?>()
+    private val rgbEdges = IntArray(3)
 
     /** 칸 상태 판정만 쓴다(설정의 빈 공간 여유만 보고 지도 내용은 보지 않는다). */
     private val sight = VoxelMap(config.map)
@@ -37,6 +38,7 @@ class ClusterEvalWriter(
     override fun onSlowStep(step: SlowStep) {
         inner.onSlowStep(step)
         floors += step.snapshot.floorY
+        step.mapUpdate.rgbEdgeCounts?.forEachIndexed { i, c -> rgbEdges[i] += c }
         if (!step.applied) return
         val d = step.depth
         val depthMm = step.mapDepthMm
@@ -58,6 +60,10 @@ class ClusterEvalWriter(
 
     override fun onEnd() {
         inner.onEnd()
+        // RGB 경계 옮기기(M23)를 켠 재생: 경계 중 바닥이라 건너뛴 것·RGB 경계가 있어 옮긴 것(나머지는 가중 중앙값)
+        if (rgbEdges[0] > 0) {
+            File(outDir, RGB_EDGE_FILE).writeText("{ \"edges\": ${rgbEdges[0]}, \"floorSkipped\": ${rgbEdges[1]}, \"rgbEdge\": ${rgbEdges[2]} }\n")
+        }
         val truth = GroundTruth.read(session, config.head.offsetFromCameraM) ?: return
         val al = align ?: Alignment.medianFloorY(floors)?.let { Alignment.fit(SessionReader(session).rows, config.align, config.head.offsetFromCameraM, it) } ?: return
         File(outDir, FILE).bufferedWriter().use { w ->
@@ -75,5 +81,6 @@ class ClusterEvalWriter(
 
     companion object {
         const val FILE = "cluster_eval.csv"
+        const val RGB_EDGE_FILE = "rgb_edge.json"
     }
 }

@@ -3,6 +3,7 @@ package hearspace.core.mapping
 import hearspace.core.frontend.EdgeDetector
 import hearspace.core.frontend.PlaneDetector
 import hearspace.core.frontend.PlaneResult
+import hearspace.core.frontend.RgbEdge
 import hearspace.core.frontend.RgbGuide
 import hearspace.core.frontend.Segmenter
 import hearspace.core.geometry.Projection
@@ -35,6 +36,8 @@ data class MapUpdate(
     val segments: Segmenter.Result? = null,
     /** Depth/복셀 기하만으로 얻은 실내 공간 형태(실험용, guidance에는 아직 미연결). */
     val geometry: IndoorGeometryResult? = null,
+    /** RGB 경계 옮기기(M23)의 경계 수(전체, 바닥 건너뜀, RGB 경계 있음). 실행 로그에는 쓰지 않는다(평가 기록용). */
+    val rgbEdgeCounts: IntArray? = null,
 )
 
 /**
@@ -130,6 +133,7 @@ class LocalMap(private val config: Config) {
         } else null
         return MapUpdate(
             depth.tCaptureNs, n, nFloor, nBelow, nInserted, nDecayed, pruned, voxels.size, floor.floorY, MapHealth.OK, planes, segments, geometry,
+            lastRgbEdgeCounts,
         )
     }
 
@@ -189,6 +193,22 @@ class LocalMap(private val config: Config) {
         return seg to out
     }
 
+    /** 마지막 RGB 경계 옮기기(M23)의 경계 수(전체, 바닥 건너뜀, RGB 경계 있음). 평가 기록용, EDGE·EDGE_MARGIN이 아니면 null. */
+    var lastRgbEdgeCounts: IntArray? = null
+        private set
+
+    /** RGB 경계로 막·배경 당김 옮기기(M23, [RgbEdge]). 바닥 경계 판정은 지난 단계 바닥 추정으로 한다. */
+    private fun rgbEdge(depth: DepthFrame, depthMm: ShortArray, margin: Boolean): RgbEdge.Result {
+        val k = depth.K
+        val camW = depth.worldFromCam.translation()
+        return RgbEdge.refine(
+            depthMm, k, depth.guide!!, depth.worldFromCam.rigidInverse().transformDir(Vec3.UP), config.frontend, margin,
+        ) { p, z ->
+            val pw = depth.worldFromCam.transformPoint(Vec3(((p % k.width) - k.cx) * z / k.fx, ((p / k.width) - k.cy) * z / k.fy, z))
+            floor.isFloor(pw.y, (pw - camW).horizontal().norm())
+        }
+    }
+
     /** 맵·바닥을 모두 잊는다(자세 불연속, §7.5). */
     fun reset() {
         voxels.clear()
@@ -208,15 +228,23 @@ class LocalMap(private val config: Config) {
             for (i in out.indices) if ((conf[i].toInt() and 0xFF) < min) out[i] = 0
         }
         // 막 후보 = 경계 마스크. RGB 보정(M13.7)을 켜면 후보를 색이 같은 쪽 면의 깊이로 옮기고(윤곽을 살림), 경계 판정을 켜면 옮기지
-        // 못한 후보만 지운다(둘 다 켜도 경계 판정 단독보다 막이 늘지 않음)
+        // 못한 후보만 지운다(둘 다 켜도 경계 판정 단독보다 막이 늘지 않음). EDGE·EDGE_MARGIN(M23)은 RGB 경계 위치로 먼저 옮기고
+        // 남은 후보(RGB 경계 없음·바닥 경계)를 가중 중앙값으로. 지난 단계 바닥을 모르면(시작) 가중 중앙값만
         val guide = depth.guide
-        val rgb = config.frontend.rgbGuide == RgbGuideMode.WEIGHTED_MEDIAN && guide != null
-        val mask = if (config.frontend.enabled || rgb) EdgeDetector.boundaryMask(depth, config.frontend, out) else null
+        val mode = config.frontend.rgbGuide
+        val rgb = mode != RgbGuideMode.NONE && guide != null
+        val edge = rgb && (mode == RgbGuideMode.EDGE || mode == RgbGuideMode.EDGE_MARGIN) && floor.floorY != null
+        val refined = if (edge) rgbEdge(depth, out, mode == RgbGuideMode.EDGE_MARGIN) else null
+        lastRgbEdgeCounts = refined?.let { intArrayOf(it.nEdges, it.nFloor, it.nRgb) }
+        val mask = refined?.mask ?: if (config.frontend.enabled || rgb) EdgeDetector.boundaryMask(depth, config.frontend, out) else null
         var snapped: BooleanArray? = null
         if (rgb && mask != null) {
             val r = RgbGuide.snap(out, depth.K, guide!!, config.frontend, mask)
             out = r.depthMm
             snapped = r.snapped
+            if (refined != null) {
+                for (i in out.indices) if (refined.moved[i]) { out[i] = refined.depthMm[i]; snapped[i] = true }
+            }
         }
         if (config.frontend.enabled && mask != null) {
             if (out === depth.depthMm) out = out.copyOf()
