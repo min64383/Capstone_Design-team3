@@ -54,14 +54,20 @@ object Sessions {
         require(a.isNotEmpty()) { "세션이 비었다" }
         val direct = File(a).let { if (it.isAbsolute) it else File(Repo.root, a) }
         if (direct.isDirectory && isSession(direct)) return direct.canonicalFile
-        roots.map { File(it, a) }.firstOrNull { it.isDirectory && isSession(it) }?.let { return it.canonicalFile }
+        preferMp4(roots.map { File(it, a) }.filter { it.isDirectory && isSession(it) })?.let { return it.canonicalFile }
         val byId = list().filter { it.id.contains(a) }.groupBy { it.id }
         return when (byId.size) {
-            1 -> byId.values.single().first().dir.canonicalFile
+            1 -> preferMp4(byId.values.single().map { it.dir })!!.canonicalFile
             0 -> throw IllegalArgumentException("세션 '$a'을(를) 찾지 못했다(찾은 곳: ${roots.joinToString { Repo.relative(it) }})")
             else -> throw IllegalArgumentException("'$a'에 맞는 세션이 여럿이다: ${byId.keys.joinToString()}")
         }
     }
+
+    /**
+     * 같은 세션이 testdata와 data 양쪽에 있으면 MP4 매 프레임(`rgb_mp4/`, `mp4_rgb.py`)이 있는 쪽. testdata 복사본에는 MP4가 없어
+     * RGB 보정(G)이 3장마다 저장된 JPEG만 쓰게 되어 재생 평가(MP4)와 달랐다(M26에서 발견). 둘 다 없으면 첫 번째.
+     */
+    private fun preferMp4(dirs: List<File>): File? = dirs.firstOrNull { File(it, "rgb_mp4/index.csv").isFile } ?: dirs.firstOrNull()
 
     /** 세션 목록 창. 고른 세션 폴더를 돌려준다(취소하면 null). [다른 폴더…]로 목록 밖 세션도 연다. */
     fun choose(owner: Frame?, current: File?): File? {
