@@ -42,7 +42,7 @@ def track_summary(name: str, runs: dict[str, dict]) -> list:
     return [name, str(sum(c["nearbyOtherIds"] for c in car)),
             f"{sum(c['trackIds'] == 1 and c['trackSwitches'] == 0 for c in car)}/{len(car)}",
             f"{sum(c['jumpFraction'] is not None and c['jumpFraction'] <= JUMP for c in car)}/{len(car)}",
-            f"{sum((c['sourceOtherFraction'] or 0) > OTHER for c in ct)}/{len(ct)}"]
+            f"{sum((c['sourceOtherFraction'] or 0) > OTHER for _, c in ct)}/{len(ct)}"]
 
 
 def summary(name: str, runs: dict[str, dict], base: dict[str, dict], cfg: dict) -> list:
