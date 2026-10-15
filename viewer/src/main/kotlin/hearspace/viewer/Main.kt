@@ -222,8 +222,10 @@ class MainWindow(initialSession: String?) : JFrame("HEARSPACE 평가 GUI") {
 
     private fun saveVariant() {
         // 파일 이름 = 목록에 보이는 이름: 한글·공백·+·괄호 허용, 파일 이름에 못 쓰는 글자만 바꾼다
-        val name = variantName.text.trim().replace(Regex("""[\\/:*?"<>|]"""), "_")
-        if (name.isEmpty()) return
+        val typed = variantName.text.trim().replace(Regex("""[\\/:*?"<>|]"""), "_")
+        if (typed.isEmpty()) return
+        // 앞 번호(두 자리 + 공백)가 없으면 다음 번호를 붙인다: 목록이 이름순이라 번호가 만든 순서, 큰 번호가 최신
+        val name = if (NUMBERED.containsMatchIn(typed)) typed else "%02d %s".format(nextVariantNumber(), typed)
         val text = overrides.text.trim().ifEmpty { "{}" }
         runCatching { MiniJson.parse(text) }.onFailure { status.text = "설정 JSON 오류: ${it.message}"; return }
         Repo.variants.mkdirs()
@@ -231,6 +233,9 @@ class MainWindow(initialSession: String?) : JFrame("HEARSPACE 평가 GUI") {
         refreshVariants()
         status.text = "변형 저장: data/viewer/variants/$name.json"
     }
+
+    private fun nextVariantNumber(): Int =
+        (Repo.variants.listFiles { f -> f.extension == "json" }.orEmpty().mapNotNull { NUMBERED.find(it.name)?.groupValues?.get(1)?.toInt() }.maxOrNull() ?: 0) + 1
 
     private fun loadVariant() {
         val name = variantBox.selectedItem as String? ?: return
@@ -292,3 +297,6 @@ internal fun appliedOptionsText(overridesJson: String, bases: List<JsonValue>): 
     walk(MiniJson.parse(overridesJson), emptyList())
     return "기본값 위에 아래 항목만 바꿨다(변형끼리 누적되지 않음).\n" + (if (lines.isEmpty()) "• 없음: 기본값 그대로" else lines.joinToString("\n"))
 }
+
+/** 변형 파일 이름의 앞 번호(만든 순서). */
+private val NUMBERED = Regex("""^(\d+) """)
