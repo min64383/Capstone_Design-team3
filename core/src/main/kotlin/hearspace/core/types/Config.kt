@@ -47,6 +47,12 @@ data class CorridorConfig(
     val edgeInnerM: Float,
     /** 진행 방향으로 이 길이 이상 이어지면 나란한 가장자리 구조물(벽·담장·난간)로 보고 안내하지 않는다(v0.2.5). */
     val edgeMinLengthM: Float,
+    /**
+     * 가장자리 구조물의 길이를 잴 때 통로 밖으로 더 보는 폭(M22 W). 0 = 통로 안 칸만(기준선). 0보다 크면 통로 밖 이 폭까지의 칸과 함께 묶어
+     * [edgeMinLengthM] 이상 이어진 묶음의 칸 중 통로 경계에서 한 칸(`map.voxelSizeM`) 안의 칸을 더 뺀다. 통로 경계가 벽면을 가로질러
+     * 경계 안 몇 칸만 짧은 조각으로 남아 STOP을 내던 문제(S02 130834·S07 131003). 쓰는 값은 `cluster.epsM`(군집이 이을 거리).
+     */
+    val edgeOutsideM: Float,
 )
 
 /** 깊이 입력·역투영 설정. */
@@ -309,6 +315,12 @@ data class TrackConfig(
      * false = 기준선.
      */
     val matchByOverlap: Boolean,
+    /**
+     * 놓친 track을 다시 잡으면 같은 id로 잇는다(M22 R). 출력된 적 있는 track이 [maxMissedUpdates]를 넘겨 지워질 때 id·마지막 상자·시각을
+     * `map.maxUnseenS` 동안 기억하고, 새 track의 상자가 그 상자와 과반 겹치면 그 id를 쓴다. id만 잇고 위치·평활·확인 횟수는 새로 시작한다.
+     * false = 기준선.
+     */
+    val reidLost: Boolean,
 )
 
 /** 대표점 설정. */

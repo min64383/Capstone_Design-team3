@@ -12,7 +12,7 @@ import org.junit.jupiter.api.Test
 /** 군집 칸 단위 평가(M23): 알려진 답. */
 class ClusterEvalTest {
     private val v = 0.05f
-    private val corridor = CorridorConfig(0.8f, 2.0f, 3.5f, 0.2f, 0.25f, 0.8f)
+    private val corridor = CorridorConfig(0.8f, 2.0f, 3.5f, 0.2f, 0.25f, 0.8f, 0f)
     private val truth = GroundTruth(
         2, "S02", false, "",
         listOf(TruthObstacle("suitcase", HeightClass.FLOOR, TruthKind.OBJECT, Vec3(-0.15f, 0f, 2.0f), Vec3(0.15f, 0.6f, 2.3f), null)),

@@ -123,6 +123,85 @@ def cluster_eval(run_dir: Path) -> dict | None:
     return out or None
 
 
+CLUSTER_TOL_M = 0.10  # 군집 면 허용(core `ClusterEval.TOL_M`): 흔들림 문턱으로도 쓴다(M22)
+
+
+def cluster_track(run_dir: Path, truth: list[dict], al: dict, cfg: dict) -> dict | None:
+    """군집·추적·음원 지표(M22): 정답 물체마다 [CLUSTER_EVAL_ALONG_M] 단계에서
+    - jumpFraction·backDeltaP95M: 주 군집(ClusterEval) 앞뒤 길이가 직전 단계보다 [CLUSTER_TOL_M] 넘게 바뀐 단계 비율(주 군집이 이어진 단계 쌍),
+      뒷면 변화 p95
+    - trackIds·trackSwitches·noClusterFraction: 주 군집이 출력된 track id 수·바뀜 횟수(군집 상자가 같은 출력), 주 군집 없는 단계 비율
+    - nearbyOtherIds: 대표점이 정답 상자 [MATCH_MARGIN_M] 안인 출력 중 주 군집 track이 아닌 id 수
+    - sourceOn/Other/NoneFraction·sourceIds: 그 단계 스냅샷으로 낸 마지막 블록의 음원이 이 물체(대표점 짝) / 다른 출력 / 없음인 단계 비율
+      (처음 이 물체가 음원인 단계부터), 이 물체로 센 음원 id 수.
+    `cluster_eval.csv`에 `mainCluster` 열이 없는 옛 재생이면 None."""
+    f = run_dir / "cluster_eval.csv"
+    if not f.is_file():
+        return None
+    ce = pd.read_csv(f)
+    if "mainCluster" not in ce.columns:
+        return None
+    ce = ce[ce.alongM.between(*CLUSTER_EVAL_ALONG_M)]
+    cd = pd.read_csv(run_dir / "cluster_debug.csv").set_index(["tCaptureNs", "clusterIndex"])
+    ob = pd.read_csv(run_dir / "obstacles.csv")
+    s = cfg["repPoint"]["strategy"]
+    x, _, z = to_truth(al, ob[f"rep{s}_x"].to_numpy(), ob[f"rep{s}_y"].to_numpy(), ob[f"rep{s}_z"].to_numpy())
+    ob = ob.assign(tx=x, tz=z)
+    obg = {t: gr for t, gr in ob.groupby("tCaptureNs")}
+    g = pd.read_csv(run_dir / "guidance.csv").dropna(subset=["snapshotTNs"])
+    src = g.groupby(g.snapshotTNs.astype("int64")).obstacleId.last()
+    out = {}
+    for name, e in ce.groupby("name"):
+        o = next(t for t in truth if t["name"] == name)
+        (x0, _, z0), (x1, _, z1) = o["min"], o["max"]
+        e = e.sort_values("tCaptureNs")
+        main_ids, near_all, main_all, src_seq, jumps, dback = [], set(), set(), [], [], []
+        prev = None
+        for r in e.itertuples():
+            gr = obg.get(r.tCaptureNs)
+            near = set()
+            if gr is not None:
+                d = np.hypot(np.maximum.reduce([x0 - gr.tx, 0 * gr.tx, gr.tx - x1]), np.maximum.reduce([z0 - gr.tz, 0 * gr.tz, gr.tz - z1]))
+                near = set(gr.id[d <= MATCH_MARGIN_M].astype(int))
+            near_all |= near
+            tid = None
+            if r.nAttached > 0:
+                if gr is not None and (r.tCaptureNs, r.mainCluster) in cd.index:
+                    c = cd.loc[(r.tCaptureNs, r.mainCluster)]
+                    h = gr[np.isclose(gr.aabbMinX, c.aabbMinX, atol=1e-4) & np.isclose(gr.aabbMinZ, c.aabbMinZ, atol=1e-4)
+                           & np.isclose(gr.aabbMaxX, c.aabbMaxX, atol=1e-4) & np.isclose(gr.aabbMaxZ, c.aabbMaxZ, atol=1e-4)]
+                    if len(h):
+                        tid = int(h.id.iloc[0])
+                        main_all.add(tid)
+                cur = (r.backM - r.frontM, r.backM)
+                if prev is not None:
+                    jumps.append(abs(cur[0] - prev[0]) > CLUSTER_TOL_M)
+                    dback.append(abs(cur[1] - prev[1]))
+                prev = cur
+            else:
+                prev = None
+            main_ids.append(tid if r.nAttached > 0 else "none")
+            sid = src.get(r.tCaptureNs)
+            src_seq.append(None if sid is None or pd.isna(sid) else ("on", int(sid)) if int(sid) in near else ("other", int(sid)))
+        ids = [i for i in main_ids if isinstance(i, int)]
+        first = next((k for k, v in enumerate(src_seq) if v and v[0] == "on"), None)
+        sa = src_seq[first:] if first is not None else []
+        out[name] = {
+            "n": len(e),
+            "jumpFraction": float(np.mean(jumps)) if jumps else None,
+            "backDeltaP95M": p(dback, 95),
+            "trackIds": len(set(ids)),
+            "trackSwitches": sum(1 for a, b in zip(ids, ids[1:]) if a != b),
+            "noClusterFraction": main_ids.count("none") / len(main_ids),
+            "nearbyOtherIds": len(near_all - main_all),
+            "sourceOnFraction": sum(1 for v in sa if v and v[0] == "on") / len(sa) if sa else None,
+            "sourceOtherFraction": sum(1 for v in sa if v and v[0] == "other") / len(sa) if sa else None,
+            "sourceNoneFraction": sum(1 for v in sa if v is None) / len(sa) if sa else None,
+            "sourceIds": len({v[1] for v in sa if v and v[0] == "on"}),
+        }
+    return out or None
+
+
 def id_switches(rows: list[dict], objects: set[int]) -> int | None:
     """정답 물체마다 그 물체로 짝지어진 경고(WARN·STOP)의 서로 다른 추적 id 수 − 1을 더한다(id 전환, §9.2). 짝지어진 경고가 없으면 None."""
     ids: dict[int, set[int]] = {}
@@ -534,6 +613,7 @@ def compute(session: Path, run_dir: Path) -> dict:
         "objectMergedFraction": merged_fraction(obs, truth, al),
         "objectShape": object_shape(obs, truth, al),
         "clusterEval": cluster_eval(run_dir),
+        "clusterTrack": cluster_track(run_dir, truth, al, cfg),
         **zone_stats(rows, truth, pol, miss_reason(run_dir)),
         "selectedTruth": {truth[i]["name"]: sum(1 for r in rows if r["match"] == i and r["band"] in ("WARN", "STOP")) for i in range(len(truth))},
     })

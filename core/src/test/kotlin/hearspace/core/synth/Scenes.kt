@@ -205,6 +205,25 @@ object Scenes {
         Noise(edgeSmoothPx = EDGE_SMOOTH_PX),
     )
 
+    /**
+     * SC-28 통로 경계에 걸린 벽(M22): SC-14 복도에서 치우침을 0.15 m로 줄여 오른쪽 벽면(x 0.55)이 머리에서 0.40 m, 곧 통로 경계에 놓인다.
+     * 깊이 잡음 1%·가장자리 평활로 벽 칸 일부만 경계 안에 들어와 짧은 조각이 된다(실측 S02 130834·S07 131003). 벽은 안내하지 않고 상자는 안내해야 한다.
+     */
+    val SC28 get() = SC14.copy(
+        id = "SC-28",
+        walk = SC14.walk.copy(startCameraW = Vec3(0.15f, 1f, 0f)),
+        noise = Noise(depthMulStd = 0.01f, edgeSmoothPx = EDGE_SMOOTH_PX),
+    )
+
+    /** SC-29 SC-28의 상자를 벽에서 0.10 m 떨어진 낮은 상자(머리에서 좌우 +0.15~+0.30 m, 높이 0.3)로(M22): 벽과 함께 빠지지 않고 STOP이 난다. */
+    val SC29 get() = SC28.copy(
+        id = "SC-29",
+        scene = SC28.scene.copy(items = SC28.scene.items.map {
+            if (it.name == "box") it.copy(shape = Box(Vec3(0.30f, 0f, -3.3f), Vec3(0.45f, 0.3f, -3f))) else it
+        }),
+        walk = SC28.walk.copy(durationS = 2f + 2.6f), // 머리가 상자 앞 0.7 m까지(STOP 1.0 m 안)
+    )
+
     /** 전체 목록. */
-    val ALL get() = listOf(SC01, SC02, SC03, SC04, SC05, SC06, SC07, SC08, SC09, SC10, SC11, SC12, SC13, SC14, SC21, SC22, SC23, SC25, SC26, SC27)
+    val ALL get() = listOf(SC01, SC02, SC03, SC04, SC05, SC06, SC07, SC08, SC09, SC10, SC11, SC12, SC13, SC14, SC21, SC22, SC23, SC25, SC26, SC27, SC28, SC29)
 }

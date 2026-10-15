@@ -7,7 +7,8 @@
     "lengthM": 3.5,
     "behindM": 0.2,
     "edgeInnerM": 0.25,
-    "edgeMinLengthM": 0.8
+    "edgeMinLengthM": 0.8,
+    "edgeOutsideM": 0.0
   },
   "depth": { "subsample": 2, "source": "SMOOTHED", "minConfidence": 0 },
   "frontend": {
@@ -118,7 +119,8 @@
     "suspiciousConfirmObservations": 2,
     "minConfirmConfidence": 0,
     "maxConfirmCentroidJumpM": 0.3,
-    "matchByOverlap": true
+    "matchByOverlap": true,
+    "reidLost": false
   },
   "repPoint": { "strategy": "CORRIDOR_BAND", "bandM": 0.20 },
   "policy": {

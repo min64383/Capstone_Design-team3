@@ -168,6 +168,40 @@ class TrackerUnitTest {
     }
 
     @Test
+    fun `with reidLost a track lost for longer than maxMissedUpdates gets its old id back in the same place`() {
+        // M22 R: 0.7 s 놓친 뒤 같은 자리(상자 과반 겹침)면 같은 id, 다른 자리·기억 시간 뒤·옵션 끔이면 새 id
+        val memoryNs = (cfg.map.maxUnseenS * 1e9).toLong()
+        fun box(x: Float) = det(Vec3(x, 0.3f, -2.15f)).copy(aabbMinW = Vec3(x - 0.2f, 0f, -2.3f), aabbMaxW = Vec3(x + 0.2f, 0.6f, -2.0f))
+        fun reappear(reid: Boolean, x: Float, gapNs: Long): Boolean {
+            val t = Tracker(cfg.track.copy(reidLost = reid), RepStrategy.CENTROID, memoryNs)
+            var now = 0L
+            fun step(d: List<Detection>) = t.update(d, now).also { now += 33_000_000L }
+            val first = (1..cfg.track.minConfirmObservations).map { step(listOf(box(0f))) }.last().single().id
+            repeat(cfg.track.maxMissedUpdates + 1) { step(emptyList()) } // track이 지워짐
+            now += gapNs
+            val again = (1..cfg.track.minConfirmObservations).map { step(listOf(box(x))) }.last().single()
+            assertEquals(cfg.track.minConfirmObservations, again.nObservations) // 위치·확인 횟수는 새로 시작
+            return again.id == first
+        }
+        assertTrue(reappear(true, 0f, 600_000_000L))
+        assertTrue(reappear(true, 0.1f, 600_000_000L)) // 0.4 m 상자가 0.1 m 옮겨도 과반 겹침
+        assertTrue(!reappear(true, 0.5f, 600_000_000L)) // 겹치지 않는 자리
+        assertTrue(!reappear(true, 0f, memoryNs + 1_000_000_000L)) // 기억 시간이 지남
+        assertTrue(!reappear(false, 0f, 600_000_000L)) // 기준선
+    }
+
+    @Test
+    fun `reidLost forgets lost tracks on reset`() {
+        val t = Tracker(cfg.track.copy(reidLost = true), RepStrategy.CENTROID, (cfg.map.maxUnseenS * 1e9).toLong())
+        val d = det(Vec3(0f, 0.3f, -2f)).copy(aabbMinW = Vec3(-0.2f, 0f, -2.2f), aabbMaxW = Vec3(0.2f, 0.6f, -1.9f))
+        val first = (1..cfg.track.minConfirmObservations).map { t.update(listOf(d), 0L) }.last().single().id
+        repeat(cfg.track.maxMissedUpdates + 1) { t.update(emptyList(), 0L) }
+        t.reset()
+        val again = (1..cfg.track.minConfirmObservations).map { t.update(listOf(d), 0L) }.last().single().id
+        assertTrue(again != first)
+    }
+
+    @Test
     fun `with overlap matching a box whose centre jumps keeps its id while its footprint overlaps`() {
         // 뒤쪽 칸이 붙어 상자가 0.8 m 길어져 중심이 0.4 m 튄다(S02, 매칭 반경 0.3 m 밖). 중심 거리만 보면 새 id, 겹침 연결이면 같은 id
         fun box(z0: Float, z1: Float) = det(Vec3(0f, 0.3f, (z0 + z1) / 2)).copy(aabbMinW = Vec3(-0.2f, 0f, z0), aabbMaxW = Vec3(0.2f, 0.6f, z1))
