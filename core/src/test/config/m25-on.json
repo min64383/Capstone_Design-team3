@@ -1,0 +1,1 @@
+{ "corridor": { "edgeOutsideM": 0.15, "cutEnd": true }, "track": { "reidLost": true, "smallClusterVoxels": 10, "suspiciousConfirmObservations": 4 } }

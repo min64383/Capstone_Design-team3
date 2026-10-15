@@ -53,6 +53,11 @@ data class CorridorConfig(
      * 경계 안 몇 칸만 짧은 조각으로 남아 STOP을 내던 문제(S02 130834·S07 131003). 쓰는 값은 `cluster.epsM`(군집이 이을 거리).
      */
     val edgeOutsideM: Float,
+    /**
+     * 통로 끝에 잘린 구조물 조각을 군집에서 뺀다(M25 E). 무음 거리(`policy.silentMaxM`)부터 끝 + `cluster.epsM`까지 묶어 끝 너머와 이어진 칸을 뺀다.
+     * false = 기준선.
+     */
+    val cutEnd: Boolean,
 )
 
 /** 깊이 입력·역투영 설정. */
@@ -321,6 +326,11 @@ data class TrackConfig(
      * false = 기준선.
      */
     val reidLost: Boolean,
+    /**
+     * 칸 수가 이보다 적은 군집은 의심 군집처럼 `suspiciousConfirmObservations`회 확인 뒤 출력한다(M25 S). 칸 하나가 들고 날 때 생겼다 없어지는
+     * 작은 군집의 깜빡임 대응. 0 = 끔(기준선). 쓰는 값은 2 × `cluster.minSamples`.
+     */
+    val smallClusterVoxels: Int,
 )
 
 /** 대표점 설정. */

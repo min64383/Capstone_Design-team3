@@ -168,7 +168,7 @@ class SlowPath(
                     inCorridor = true,
                     confidence = scores.average().toFloat(),
                     lastSeenNs = clusterVoxels.maxOf { it.lastSeenNs },
-                    suspicious = FalsePositiveFilter.matches(rawDebug, config.falsePositiveFilter),
+                    suspicious = FalsePositiveFilter.matches(rawDebug, config.falsePositiveFilter) || pts.size < config.track.smallClusterVoxels,
                     instanceId = clusterVoxels.groupingBy { it.instId }.eachCount().maxByOrNull { it.value }!!.key,
                 )
             }
@@ -194,7 +194,7 @@ class SlowPath(
      */
     private fun withoutEdgeStructures(occupied: List<VoxelView>, voxels: List<VoxelView>, corridor: Corridor): List<VoxelView> {
         val edge = voxels.filter { kotlin.math.abs(corridor.lateralM(it.centerW)) >= config.corridor.edgeInnerM }
-        if (edge.isEmpty()) return voxels
+        if (edge.isEmpty() && !config.corridor.cutEnd) return voxels
         val removed = HashSet<VoxelView>()
         for (idx in Cluster.dbscanXZ(edge.map { it.centerW }, config.cluster.epsM, config.cluster.minSamples)) {
             val along = idx.map { corridor.alongM(edge[it].centerW) }
@@ -212,7 +212,28 @@ class SlowPath(
                 for (i in idx) if (kotlin.math.abs(corridor.lateralM(band[i].centerW)) > half - config.map.voxelSizeM) removed += band[i]
             }
         }
+        if (config.corridor.cutEnd) removed += endFragments(occupied, corridor)
         return if (removed.isEmpty()) voxels else voxels.filter { it !in removed }
+    }
+
+    /**
+     * 통로 끝에 잘린 구조물 조각(M25 E, `corridor.cutEnd`). 진행 방향 `policy.silentMaxM` ~ 끝 + `cluster.epsM`, 통로 높이, 좌우는 W의 바깥 띠까지인
+     * 점유 칸([occupied], 끝 너머 포함)을 묶어 끝 너머 칸이 있는 묶음을 돌려준다. 끝 벽이 통로 끝에 잘려 몇 칸만 군집이 되어 깜빡이던 문제.
+     * 빼는 칸은 모두 무음 거리라 안내는 바뀌지 않고, 다가가 무음 거리 안에 들어온 칸은 대상이 아니다(M25 설계 3.1절).
+     */
+    private fun endFragments(occupied: List<VoxelView>, corridor: Corridor): List<VoxelView> {
+        val c = config.corridor
+        val reach = c.widthM / 2 + c.edgeOutsideM
+        val end = c.lengthM
+        val band = occupied.filter {
+            val along = corridor.alongM(it.centerW)
+            val h = it.centerW.y - corridor.floorY
+            along >= config.policy.silentMaxM && along <= end + config.cluster.epsM && h >= 0f && h <= c.heightM &&
+                kotlin.math.abs(corridor.lateralM(it.centerW)) <= reach
+        }
+        return Cluster.dbscanXZ(band.map { it.centerW }, config.cluster.epsM, config.cluster.minSamples)
+            .filter { idx -> idx.any { corridor.alongM(band[it].centerW) > end } }
+            .flatMap { idx -> idx.map { band[it] } }
     }
 
     /**
