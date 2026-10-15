@@ -26,6 +26,8 @@ MERGE_BEYOND_M = 0.5  # 정답 물체와 겹치는 추정 물체가 그 물체 �
 OVER_LO_M = 1.5  # 과대추정 지표의 정답 거리 하한(명세 §9.2 "1.5~2.5 m"), 부호 있는 거리 오차의 구간 경계로도 쓴다(M12.2)
 ACTIVE = {"NORMAL", "DEGRADED"}
 CLUSTER_EVAL_ALONG_M = (0.5, 3.0)  # 군집 평가 단계: 정답 통로 안 최근접 거리(M23 설계 5절, M22 사전 측정과 같은 구간)
+FLICKER_STEPS = 10  # 깜빡이는 출력: 이 단계 수(약 0.33 s) 이하로 출력되고 사라진 track(M25 설계 3.4절)
+FLICKER_SPOT_M = {"end": 0.2, "top": 0.1, "side": 0.1}  # 깜빡임 자리: 통로 끝·위·옆 경계에서 이만큼 안이면 그 자리(M25 사전 측정과 같은 값)
 WALK_SIGN_WINDOW_S = 1.0  # 정답 진행 부호의 창: 앱 heading.windowS(M18에서 2.0으로)와 떼어 M12.2 정답을 그대로 둔다
 
 
@@ -251,6 +253,30 @@ def per_minute(blocks: pd.DataFrame, sp: pd.DataFrame, dev: pd.DataFrame | None)
     return out
 
 
+def output_flicker(run_dir: Path, cfg: dict) -> dict | None:
+    """깜빡이는 출력(M25, 정답 없이): 출력 track 수, [FLICKER_STEPS] 단계 이하로 사라진 track 수와 자리(군집 중앙값이 통로 끝·위·옆
+    경계 [FLICKER_SPOT_M] 안이면 그 자리, 아니면 안쪽, 이 순서로), 출력 수가 직전 단계와 다른 느린 경로 단계 비율."""
+    if not (run_dir / "obstacles.csv").is_file() or not (run_dir / "cluster_debug.csv").is_file():
+        return None
+    ob = pd.read_csv(run_dir / "obstacles.csv")
+    steps = pd.read_csv(run_dir / "slow_path.csv").tCaptureNs.unique()
+    cd = pd.read_csv(run_dir / "cluster_debug.csv")
+    life = ob.groupby("id").tCaptureNs.nunique()
+    per = ob.groupby("tCaptureNs").id.nunique().reindex(steps, fill_value=0)
+    short = life[life <= FLICKER_STEPS].index
+    c = cfg["corridor"]
+    spots = {"end": 0, "top": 0, "side": 0, "inner": 0}
+    m = ob[ob.id.isin(short)].merge(cd, on=["tCaptureNs", "aabbMinX", "aabbMinZ"], how="left")  # 출력 상자 = 그 단계 군집 상자
+    for _, g in m.groupby("id"):
+        r = g.median(numeric_only=True)
+        k = ("end" if r.alongMaxM >= c["lengthM"] - FLICKER_SPOT_M["end"] else
+             "top" if r.heightMaxM >= c["heightM"] - FLICKER_SPOT_M["top"] else
+             "side" if min(abs(r.lateralMinM), abs(r.lateralMaxM)) >= c["widthM"] / 2 - FLICKER_SPOT_M["side"] else "inner")
+        spots[k] += 1
+    return {"steps": int(len(steps)), "tracks": int(len(life)), "flicker": int(len(short)), "spots": spots,
+            "countChangeFraction": float((per.diff().fillna(0) != 0).mean()) if len(per) else None}
+
+
 def run_metrics(run_dir: Path, cfg: dict) -> dict:
     """정답·세션 없이 실행 로그만으로 되는 지표."""
     g = pd.read_csv(run_dir / "guidance.csv")
@@ -279,6 +305,7 @@ def run_metrics(run_dir: Path, cfg: dict) -> dict:
     if (run_dir / "stage_timing.csv").is_file():  # 실제 시계로 잰 단계별 처리 시간(M11). 기기 값이 아니면 PC 값
         st = pd.read_csv(run_dir / "stage_timing.csv")
         out["stageMs"] = {k: {"p50": p(st[f"{k}Ns"] / 1e6, 50), "p95": p(st[f"{k}Ns"] / 1e6, 95)} for k in ("map", "cluster", "track")}
+    out["outputFlicker"] = output_flicker(run_dir, cfg)
     return out
 
 

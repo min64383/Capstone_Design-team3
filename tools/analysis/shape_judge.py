@@ -3,7 +3,7 @@
     python shape_judge.py <기준 변형 폴더> <변형 폴더> ...     (예: data/sweeps/m23/CUR data/sweeps/m23/G ...)
 
 폴더마다 <세션ID>/metrics.json(sweep.py 출력, `clusterEval` 포함)을 읽는다. 첫 폴더가 기준(CUR)이다.
-완료 기준(M23 설계 표 7): 서 있는 캐리어(정답 `suitcase`) 세션의 뒤 늘어남 중앙 ≤ 0.10 m·크기 맞음 ≥ 50% 세션 수, 캐리어 세션
+깜빡이는 출력(M25 `outputFlicker`) 표를 함께 낸다. 완료 기준(M23 설계 표 7): 서 있는 캐리어(정답 `suitcase`) 세션의 뒤 늘어남 중앙 ≤ 0.10 m·크기 맞음 ≥ 50% 세션 수, 캐리어 세션
 (누운 캐리어 포함) 중 갈라짐 > 5% 세션 수, 안전(STOP 누락, 첫 STOP이 기준보다 0.1 m 넘게 늦음), 확인용 성적표 불합격 수, 지도 단계 p50.
 """
 from __future__ import annotations
@@ -45,6 +45,23 @@ def track_summary(name: str, runs: dict[str, dict]) -> list:
             f"{sum((c['sourceOtherFraction'] or 0) > OTHER for _, c in ct)}/{len(ct)}"]
 
 
+def flicker_summary(name: str, runs: dict[str, dict]) -> list:
+    """깜빡이는 출력(M25, `outputFlicker`): 물체 세션(정답 물체가 있는 세션)과 벽 장면 따로 깜빡임 합·자리, 물체 세션의 출력 수가 바뀐
+    단계 비율(단계 가중). 지표가 없는 옛 재생은 –."""
+    row = [name]
+    for obj in (True, False):
+        fl = [m["outputFlicker"] for m in runs.values() if m.get("outputFlicker") and bool(m.get("clusterEval")) == obj]
+        if not fl:
+            row += ["–"] * (3 if obj else 1)
+            continue
+        spots = {k: sum(f["spots"][k] for f in fl) for k in fl[0]["spots"]}
+        row.append(f"{sum(f['flicker'] for f in fl)} ({' · '.join(str(v) for v in spots.values())})")
+        if obj:
+            row.append(str(sum(f["tracks"] for f in fl)))
+            row.append(f"{100 * sum(f['countChangeFraction'] * f['steps'] for f in fl) / sum(f['steps'] for f in fl):.1f}%")
+    return row
+
+
 def summary(name: str, runs: dict[str, dict], base: dict[str, dict], cfg: dict) -> list:
     shapes = [c for m in runs.values() if (c := carrier(m))]
     standing = [c for n, c in shapes if n == STANDING]
@@ -72,7 +89,9 @@ def main(dirs: list[Path]) -> str:
                                     f"첫 STOP {LATE_STOP_M} m 넘게 늦음", "확인용 불합격 수", "지도 단계 p50 ms(세션 중앙)"],
                                    [summary(v, r, base, cfg) for v, r in runs.items()]), "",
            "### 군집·추적·음원(M22)", "", table(["변형", "근처 다른 출력(캐리어 합)", "track id 1개·바뀜 0", f"흔들림 ≤ {JUMP:.1%}",
-                                              f"음원 다른 것 > {OTHER:.0%}(물체)"], [track_summary(v, r) for v, r in runs.items()]), ""]
+                                              f"음원 다른 것 > {OTHER:.0%}(물체)"], [track_summary(v, r) for v, r in runs.items()]), "",
+           "### 깜빡이는 출력(M25)", "", table(["변형", "깜빡임 물체 세션(끝 · 위 · 옆 · 안쪽)", "출력 track(물체)", "출력 수 바뀐 단계(물체)",
+                                            "깜빡임 벽 장면(끝 · 위 · 옆 · 안쪽)"], [flicker_summary(v, r) for v, r in runs.items()]), ""]
     sessions = sorted({s for r in runs.values() for s in r if carrier(r[s])}, key=lambda s: (base.get(s, {}).get("scene", ""), s))
     for title, key, f in [("뒤 늘어남 중앙(m)", "backP50M", fmt), ("옆 넘침 중앙(m)", "sideP50M", fmt),
                           ("크기 맞음(단계 %)", "fitFraction", lambda v: f"{100 * v:.0f}"),
