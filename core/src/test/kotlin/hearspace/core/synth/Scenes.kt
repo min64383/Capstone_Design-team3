@@ -188,6 +188,23 @@ object Scenes {
         if (it.name == "box") boxOnLine(2.4f, heightM = 0.25f, depthM = 0.3f).copy(luma = 220) else it
     }))
 
+    /**
+     * SC-27 낮은 상자(2.4 m, 높이 0.3) 1.0 m 뒤에 키 큰 상자(3.4 m, 높이 1.0), 평활·대비(M24): 다가가는 동안 뒤 상자 아랫부분이 앞 상자에
+     * 가려진다. 앞면 뒤 감쇠(`map.decayBehind`)가 가려진 실제 물체를 지우지 않는지 본다.
+     */
+    val SC27 get() = SceneSpec(
+        "SC-27",
+        Scene(
+            listOf(
+                floor,
+                boxOnLine(2.4f, heightM = 0.3f, name = "box", depthM = 0.3f),
+                boxOnLine(3.4f, heightM = 1.0f, name = "tall_box", depthM = 0.3f),
+            ).map { it.copy(luma = when (it.name) { "box" -> 220; "tall_box" -> 60; else -> 120 }) },
+        ),
+        walkTo(2.4f),
+        Noise(edgeSmoothPx = EDGE_SMOOTH_PX),
+    )
+
     /** 전체 목록. */
-    val ALL get() = listOf(SC01, SC02, SC03, SC04, SC05, SC06, SC07, SC08, SC09, SC10, SC11, SC12, SC13, SC14, SC21, SC22, SC23, SC25, SC26)
+    val ALL get() = listOf(SC01, SC02, SC03, SC04, SC05, SC06, SC07, SC08, SC09, SC10, SC11, SC12, SC13, SC14, SC21, SC22, SC23, SC25, SC26, SC27)
 }

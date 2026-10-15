@@ -20,6 +20,7 @@ import hearspace.core.synth.Walk
 import hearspace.core.types.Config
 import hearspace.core.types.ConfigLoader
 import hearspace.core.types.Intrinsics
+import hearspace.core.types.MapConfig
 import hearspace.core.types.MapHealth
 import java.io.File
 
@@ -160,7 +161,9 @@ class VoxelMapTest {
     private val k = Intrinsics(100f, 100f, 50f, 50f, 101, 101)
 
     /** 기준선 규칙 테스트는 HITS를 명시한다(`-PtestOverrides`로 기본 모드를 바꾼 실행에서도 기준선을 보게). */
-    private val hitsCfg = config.map.copy(mode = hearspace.core.types.MapMode.HITS, hitWeighting = hearspace.core.types.HitWeighting.NONE)
+    private val hitsCfg = config.map.copy(
+        mode = hearspace.core.types.MapMode.HITS, hitWeighting = hearspace.core.types.HitWeighting.NONE, decayBehind = false,
+    )
 
     /** 카메라 원점, C_cv 정면(+Z)이 월드 −Z가 되도록: C_cv (x, y, z) → 월드 (x, −y, −z). */
     private val worldFromCam = Mat4(floatArrayOf(1f, 0f, 0f, 0f, 0f, -1f, 0f, 0f, 0f, 0f, -1f, 0f, 0f, 0f, 0f, 1f))
@@ -168,8 +171,8 @@ class VoxelMapTest {
 
     private fun depthImage(mm: Int) = ShortArray(k.width * k.height) { mm.toShort() }
 
-    private fun mapWithVoxelAt(p: Vec3, hits: Int = 3): VoxelMap {
-        val m = VoxelMap(hitsCfg)
+    private fun mapWithVoxelAt(p: Vec3, hits: Int = 3, cfg: MapConfig = hitsCfg): VoxelMap {
+        val m = VoxelMap(cfg)
         repeat(hits) { i ->
             m.beginFrame()
             m.insert(p, i.toLong())
@@ -281,8 +284,9 @@ class VoxelMapTest {
         fun view(q: Vec3, mm: Int, hit: Boolean = false) = m.cellView(q, hit, depthImage(mm), k, camFromWorld)
         assertEquals(CellView.HIT, view(p, 3000, hit = true))
         assertEquals(CellView.FREE, view(p, 3000))
-        assertEquals(CellView.OCCLUDED, view(p, 1000))
+        assertEquals(CellView.BEHIND, view(p, 1000)) // 1 m에 면: 칸보다 여유(0.15 m) 넘게 앞
         assertEquals(CellView.OCCLUDED, view(p, 2050)) // 칸 자리
+        assertEquals(CellView.OCCLUDED, view(p, 1900)) // 칸 자리(여유 안 앞)
         assertEquals(CellView.NO_DEPTH, view(p, 0))
         assertEquals(CellView.OUT_OF_VIEW, view(Vec3(0f, 0f, 2f), 3000)) // 카메라 뒤
         assertEquals(CellView.OUT_OF_VIEW, view(Vec3(5f, 0f, -1f), 3000)) // 영상 밖
@@ -292,6 +296,35 @@ class VoxelMapTest {
             d.beginFrame()
             assertEquals(decayed, d.decayFree(depthImage(mm), k, camFromWorld), "depth $mm mm")
         }
+    }
+
+    @Test
+    fun `behind decay removes only voxels with a surface clearly in front (M24)`() {
+        val p = Vec3(0f, 0f, -2f) // 광축 위 2 m
+        val on = hitsCfg.copy(decayBehind = true)
+        // 앞면 뒤(1 m·1.8 m에 면)와 빈 공간(3 m)은 감쇠, 칸 자리(1.9·2.05 m)·무효는 그대로
+        for ((mm, decayed) in listOf(1000 to 1, 1800 to 1, 3000 to 1, 1900 to 0, 2050 to 0, 0 to 0)) {
+            val m = mapWithVoxelAt(p, cfg = on)
+            m.beginFrame()
+            assertEquals(decayed, m.decayFree(depthImage(mm), k, camFromWorld), "depth $mm mm")
+        }
+        // 시야 밖은 그대로(§2.2-6)
+        for (q in listOf(Vec3(0f, 0f, 2f), Vec3(5f, 0f, -1f))) {
+            val m = mapWithVoxelAt(q, cfg = on)
+            m.beginFrame()
+            assertEquals(0, m.decayFree(depthImage(1000), k, camFromWorld), "voxel $q")
+        }
+        // 이번 장에 맞은 칸은 앞면 뒤여도 그대로
+        val m = mapWithVoxelAt(p, cfg = on)
+        m.beginFrame()
+        m.insert(p, 9L)
+        assertEquals(0, m.decayFree(depthImage(1000), k, camFromWorld))
+        // 감쇠량은 빈 공간과 같다: score 1을 0.3씩 깎으면 네 번째에 지워진다
+        val n = mapWithVoxelAt(p, hits = 5, cfg = on)
+        repeat(3) { n.beginFrame(); n.decayFree(depthImage(1000), k, camFromWorld) }
+        assertEquals(1, n.size)
+        n.beginFrame(); n.decayFree(depthImage(1000), k, camFromWorld)
+        assertEquals(0, n.size)
     }
 
     @Test
@@ -338,7 +371,7 @@ class VoxelMapTest {
     // ---- M13.2 로그 오즈: 규칙 자체를 보므로 값은 명시(OctoMap 적중 0.7, 빈 칸 0.4, 0.12~0.97, 점유 0.5, 기준 거리 2 m, 여유 3%) ----
     private val logCfg = config.map.copy(
         mode = hearspace.core.types.MapMode.LOG_ODDS, logHit = 0.847f, logMiss = -0.405f, logMin = -1.992f, logMax = 3.476f,
-        logOccupied = 0f, weightRefM = 2f, freeMarginRatio = 0.03f,
+        logOccupied = 0f, weightRefM = 2f, freeMarginRatio = 0.03f, decayBehind = false,
     )
 
     private fun logMapWithVoxelAt(p: Vec3, hits: Int, weight: Float = 1f) = VoxelMap(logCfg).also { m ->

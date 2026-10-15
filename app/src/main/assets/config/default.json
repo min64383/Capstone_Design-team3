@@ -73,7 +73,8 @@
     "tsdfMaxWeight": 12,
     "tsdfMinCosIncidence": 0.1,
     "instances": false,
-    "freeEvidenceDecay": 0.0
+    "freeEvidenceDecay": 0.0,
+    "decayBehind": false
   },
   "floor": {
     "searchBandM": 0.5,

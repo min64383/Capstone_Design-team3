@@ -127,6 +127,7 @@ object ConfigLoader {
                     tsdfMinCosIncidence = unit("tsdfMinCosIncidence"),
                     instances = boolean("instances"),
                     freeEvidenceDecay = nonNegative("freeEvidenceDecay"),
+                    decayBehind = boolean("decayBehind"),
                 ).also { m ->
                     if (!(m.logMin < m.logOccupied && m.logOccupied < m.logMax)) {
                         throw ConfigException("map", "must satisfy logMin < logOccupied < logMax")
