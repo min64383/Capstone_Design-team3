@@ -277,6 +277,22 @@ def output_flicker(run_dir: Path, cfg: dict) -> dict | None:
             "countChangeFraction": float((per.diff().fillna(0) != 0).mean()) if len(per) else None}
 
 
+def floor_rgb(session: Path, run_dir: Path) -> dict | None:
+    """RGB·포즈로 잰 바닥과 이 재생의 바닥 차이(M26, 정답 없이): 세션의 `floor_rgb.json`(`floor_rgb.py`)에서 받아들인 짝마다
+    실제 바닥(월드 y) − 그 시각까지의 마지막 느린 경로 바닥(`slow_path.csv`). 중앙값·사분위 범위·짝 수. 파일이 없거나 값이 없으면 None."""
+    f = session / "floor_rgb.json"
+    if not f.is_file():
+        return None
+    acc = [q for q in json.loads(f.read_text(encoding="utf-8"))["pairs"] if q["accepted"]]
+    sp = pd.read_csv(run_dir / "slow_path.csv").dropna(subset=["floorY"])
+    t = sp.tCaptureNs.to_numpy()
+    off = [q["floorY"] - sp.floorY.iloc[k] for q in acc if (k := np.searchsorted(t, q["tNs"], side="right") - 1) >= 0]
+    from floor_rgb import MIN_PAIRS
+    if len(off) < MIN_PAIRS:
+        return None
+    return {"offsetP50M": float(np.median(off)), "offsetIqrM": float(np.percentile(off, 75) - np.percentile(off, 25)), "nPairs": len(off)}
+
+
 def run_metrics(run_dir: Path, cfg: dict) -> dict:
     """정답·세션 없이 실행 로그만으로 되는 지표."""
     g = pd.read_csv(run_dir / "guidance.csv")
@@ -531,6 +547,7 @@ def compute(session: Path, run_dir: Path) -> dict:
 
     # 정답 없이 되는 지표
     out: dict = {"session": session.name if session.name != "session" else session.parent.name, "scene": scene_of(session)}
+    out["floorRgb"] = floor_rgb(session, run_dir)
     # 지도 평가(core `MapEvalWriter`, M13): 정답 구조물(벽)마다 마지막 지도의 두께·앞 치우침
     me = run_dir / "map_eval.json"
     if me.is_file():

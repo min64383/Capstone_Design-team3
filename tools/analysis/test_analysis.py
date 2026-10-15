@@ -53,6 +53,58 @@ def check_cluster_track():
         assert abs(m["sourceNoneFraction"] - 1 / 6) < 1e-9 and m["sourceIds"] == 2, m
 
 
+def synth_floor_session(d: Path, true_y: float, depth_y: float, n: int = 50) -> None:
+    """무늬 바닥(월드 y = [true_y])을 RGB로, 다른 높이의 바닥([depth_y])을 깊이로 그린 걷는 세션(M26 자체 점검).
+    카메라는 y 0, 아래로 35° 숙여 −Z로 1 m/s, 30 fps. 내부 파라미터는 실제 녹화와 같은 값(깊이 160×90, 영상 640×480)."""
+    from PIL import Image
+    K = {"fx": 502.8, "fy": 504.2, "cx": 316.8, "cy": 233.8, "width": 640, "height": 480}
+    Kd = {"fx": 125.7, "fy": 126.0, "cx": 79.3, "cy": 43.5, "width": 160, "height": 90}
+    (d / "meta.json").write_text(json.dumps({"camera": {"imageIntrinsics": K}, "depth": {"intrinsics": Kd}}), encoding="utf-8")
+    (d / "rgb_mp4").mkdir()
+    (d / "depth").mkdir()
+    p = np.radians(35)
+    q = (np.sin(-p / 2), 0.0, 0.0, np.cos(-p / 2))  # GL 자세: −Z를 보다가 x축으로 아래로 숙임
+    R = np.array([[1, 0, 0], [0, np.cos(-p), -np.sin(-p)], [0, np.sin(-p), np.cos(-p)]]) @ np.diag([1.0, -1.0, -1.0])
+    rng = np.random.default_rng(0)
+    waves = [(rng.uniform(0, 2 * np.pi), 2 * np.pi / rng.uniform(0.04, 0.25), rng.uniform(0, 2 * np.pi)) for _ in range(12)]
+
+    def tex(x, z):
+        v = sum(np.sin(k * (np.cos(a) * x + np.sin(a) * z) + ph) for a, k, ph in waves)
+        return np.clip(128 + 22 * v, 0, 255)
+
+    def hit(Kx, w, h, cam, plane_y):
+        v, u = np.mgrid[0:h, 0:w]
+        ray = R @ np.stack([(u.ravel() - Kx["cx"]) / Kx["fx"], (v.ravel() - Kx["cy"]) / Kx["fy"], np.ones(w * h)])
+        s = np.where(ray[1] < -1e-6, (plane_y - cam[1]) / np.where(ray[1] < -1e-6, ray[1], -1), -1)
+        P = cam[:, None] + ray * s
+        return s.reshape(h, w), P[0].reshape(h, w), P[2].reshape(h, w)
+
+    rows, idx = [], []
+    for i in range(n):
+        cam = np.array([0.0, 0.0, -i / 30])
+        s, x, z = hit(K, 640, 480, cam, true_y)
+        Image.fromarray(np.where(s > 0, tex(x, z), 128).astype(np.uint8)).save(d / "rgb_mp4" / f"{i:06d}.jpg", quality=95)
+        s, _, _ = hit(Kd, 160, 90, cam, depth_y)
+        Image.fromarray(np.where((s > 0) & (s < 5), s * 1000, 0).astype(np.uint16)).save(d / "depth" / f"{i:06d}.png")
+        t = 1_000_000_000 + i * 33_333_333
+        rows.append({"frameIndex": i, "tNs": t, "tracking": "TRACKING", "tx": cam[0], "ty": cam[1], "tz": cam[2],
+                     "qx": q[0], "qy": q[1], "qz": q[2], "qw": q[3], "depthFile": f"depth/{i:06d}.png"})
+        idx.append({"frameIndex": i, "tNs": t})
+    pd.DataFrame(rows).to_csv(d / "frames.csv", index=False)
+    pd.DataFrame(idx).to_csv(d / "rgb_mp4" / "index.csv", index=False)
+
+
+def check_floor_rgb():
+    """RGB 바닥(M26): 깊이 바닥과 높이가 다른 무늬 바닥을 평면 스윕이 ±0.01 m 안에서 찾는다(어긋남 −0.15, 0, +0.12 m)."""
+    from floor_rgb import measure
+    for off in (-0.15, 0.0, 0.12):
+        with tempfile.TemporaryDirectory() as d:
+            d = Path(d)
+            synth_floor_session(d, true_y=-1.1, depth_y=-1.1 - off)
+            m = measure(d)
+            assert m["offsetP50M"] is not None and abs(m["offsetP50M"] - off) <= 0.01 and abs(m["floorY"] + 1.1) <= 0.01, (off, m["offsetP50M"], m["floorY"], m["nAccepted"])
+
+
 def check_output_flicker():
     """깜빡이는 출력(M25): 3단계만 나온 끝 조각 track은 깜빡임(끝), 오래 간 track은 아님, 출력 수 바뀐 단계 2/20."""
     from metrics import FLICKER_STEPS, output_flicker
@@ -410,6 +462,7 @@ def main():
     check_front_diag()
     check_cluster_track()
     check_output_flicker()
+    check_floor_rgb()
     print("analysis self-check ok")
 
 

@@ -41,6 +41,8 @@ class ViewerModel {
     var showDepth = true
     /** 위에서 본 그림에 그릴 복셀 높이. 높이를 모두 겹치면 벽이 실제보다 두꺼워 보인다(M13: 한 층은 1~2칸). */
     var voxelHeight = VoxelHeight.ALL
+    /** 카메라 화면의 정답 상자를 RGB·포즈로 잰 바닥(`ReplayResult.rgbFloorAt`) 위에 놓는다. 꺼짐 = 재생의 깊이 바닥(정렬 바닥) 위(M26). */
+    var truthOnRgbFloor = false
     /** 지금 쓰고 있는 평가의 시점 메모(타임라인에 표시). */
     val notes = mutableListOf<Note>()
     private val listeners = mutableListOf<() -> Unit>()
@@ -182,7 +184,8 @@ class CameraView(private val model: ViewerModel) : JPanel() {
             }
             val al = r.alignment
             r.truth?.takeIf { al != null }?.obstacles?.forEach { o ->
-                drawBox(boxCorners(o.minM, o.maxM).map { al!!.toWorld(it) }, Palette.truth, dashed = true)
+                val rgbY = if (model.truthOnRgbFloor) r.rgbFloorAt(row.tNs) else null
+                drawBox(boxCorners(o.minM, o.maxM).map { c -> al!!.toWorld(c).let { w -> if (rgbY == null) w else Vec3(w.x, (c.y + rgbY).toFloat(), w.z) } }, Palette.truth, dashed = true)
                     ?.let { labels += Triple(it.first, it.second, "정답 ${o.name}" to Palette.truth) }
             }
             val block = r.blockIndexAt(t).takeIf { it >= 0 }?.let { r.blocks[it] }

@@ -73,6 +73,10 @@ class MainWindow(initialSession: String?) : JFrame("HEARSPACE 평가 GUI") {
             add(exportCheck)
             add(JCheckBox("깊이 겹침", true).apply { addActionListener { vm.showDepth = isSelected; vm.fire() } })
             add(JComboBox(VoxelHeight.entries.toTypedArray()).apply { addActionListener { vm.voxelHeight = selectedItem as VoxelHeight; vm.fire() } })
+            add(JCheckBox("정답 높이: RGB 바닥").apply {
+                toolTipText = "카메라 화면의 정답 상자를 RGB·포즈로 잰 바닥 위에 놓는다(세션의 floor_rgb.json, tools/analysis/floor_rgb.py). 없으면 깊이 바닥"
+                addActionListener { vm.truthOnRgbFloor = isSelected; vm.fire() }
+            })
         }
         val views = JSplitPane(JSplitPane.HORIZONTAL_SPLIT, CameraView(vm), TopView(vm)).apply { resizeWeight = 0.45 }
         val center = JSplitPane(JSplitPane.VERTICAL_SPLIT, views, TimelineView(vm) { seek(it) }).apply { resizeWeight = 0.72 }
