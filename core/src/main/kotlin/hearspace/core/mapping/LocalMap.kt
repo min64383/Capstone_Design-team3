@@ -10,7 +10,9 @@ import hearspace.core.geometry.Projection
 import hearspace.core.geometry.Vec3
 import hearspace.core.types.Config
 import hearspace.core.types.DepthFrame
+import hearspace.core.types.DepthSource
 import hearspace.core.types.FloorSource
+import hearspace.core.types.MapMode
 import hearspace.core.types.MapHealth
 import hearspace.core.types.IndoorGeometryResult
 import hearspace.core.types.PlaneMode
@@ -97,7 +99,23 @@ class LocalMap(private val config: Config) {
         var nBelow = 0
         var nInserted = 0
         val radius = config.map.radiusM
-        for (i in 0 until n) {
+        if (config.map.mode == MapMode.TRISTATE) {
+            // M32: 바닥·바닥 아래 점도 같은 규칙으로 넣는다. 관측 가중 = min(1, (반 칸 / σ(Z))²), 빈 곳 여유 = max(τ, 배수 × σ(Z))
+            val raw = config.depth.source == DepthSource.RAW
+            val camFromWorld = depth.worldFromCam.rigidInverse()
+            val halfVoxel = config.map.voxelSizeM / 2f
+            val tau = config.map.voxelSizeM * kotlin.math.sqrt(3f) / 2f
+            for (i in 0 until n) {
+                val p = Vec3(pts[3 * i], pts[3 * i + 1], pts[3 * i + 2])
+                if ((p - userPosW).horizontal().norm() > radius) continue
+                val camDist = (p - camW).horizontal().norm()
+                if (floor.isFloor(p.y, camDist)) nFloor++ else if (floor.isBelowFloor(p.y, camDist)) nBelow++
+                val sigma = config.depth.sigmaM(raw, camFromWorld.transformPoint(p).z)
+                val w = if (sigma <= halfVoxel) 1f else (halfVoxel / sigma).let { it * it }
+                voxels.insertRay(p, camW, depth.tCaptureNs, w, kotlin.math.max(tau, config.map.sigmaMultiple * sigma))
+                nInserted++
+            }
+        } else for (i in 0 until n) {
             val p = Vec3(pts[3 * i], pts[3 * i + 1], pts[3 * i + 2])
             val camDist = (p - camW).horizontal().norm()
             when {

@@ -44,13 +44,13 @@ class MapEvalWriter(
     private val sceneSamples = ArrayList<SceneInput>()
     private var lastScene: SceneInput? = null
 
-    private class SceneInput(val depth: DepthFrame, val mapDepthMm: ShortArray, val occupiedW: List<Vec3>)
+    private class SceneInput(val depth: DepthFrame, val mapDepthMm: ShortArray, val occupiedW: List<Vec3>, val freeW: List<Vec3>?)
 
     override fun onSlowStep(step: SlowStep) {
         inner.onSlowStep(step)
         floors += step.snapshot.floorY
         val v = step.depth.tCaptureNs to step.occupiedVoxels!!.map { it.centerW }
-        val s = SceneInput(step.depth, step.mapDepthMm ?: step.depth.depthMm, v.second)
+        val s = SceneInput(step.depth, step.mapDepthMm ?: step.depth.depthMm, v.second, step.freeCentersW)
         if (n++ % everyN == 0) { samples += v; sceneSamples += s }
         last = v
         lastScene = s
@@ -80,7 +80,8 @@ class MapEvalWriter(
                 // 지금 지도는 칸에 요소 라벨이 없다: 점유 칸은 모두 장애물(물체) 후보로 쓰인다(M30 설계 3.1절)
                 SceneEval.sample(
                     scene, a, voxelM, config.map.radiusM, s.occupiedW, s.occupiedW.map { Element.OBJECT },
-                    SceneEval.occupancyOnly(s.occupiedW, voxelM), s.depth, s.mapDepthMm, sceneStridePx,
+                    s.freeW?.let { SceneEval.threeState(s.occupiedW, it, voxelM) } ?: SceneEval.occupancyOnly(s.occupiedW, voxelM),
+                    s.depth, s.mapDepthMm, sceneStridePx,
                 )
             },
             voxelM,

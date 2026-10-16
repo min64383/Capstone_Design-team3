@@ -11,7 +11,15 @@
     "edgeOutsideM": 0.0,
     "cutEnd": false
   },
-  "depth": { "subsample": 2, "source": "SMOOTHED", "minConfidence": 0 },
+  "depth": {
+    "subsample": 2,
+    "source": "SMOOTHED",
+    "minConfidence": 0,
+    "rawSigma0M": 0.0057,
+    "rawSigmaPerM2": 0.0091,
+    "smoothedSigma0M": -0.002,
+    "smoothedSigmaPerM2": 0.0101
+  },
   "frontend": {
     "enabled": false,
     "edgeMaxRampPx": 6,
@@ -76,7 +84,9 @@
     "tsdfMinCosIncidence": 0.1,
     "instances": false,
     "freeEvidenceDecay": 0.0,
-    "decayBehind": false
+    "decayBehind": false,
+    "sigmaMultiple": 2.0,
+    "minPrecision": 1.0
   },
   "floor": {
     "searchBandM": 0.5,

@@ -15,6 +15,8 @@ import hearspace.core.tracking.RepPoint
 import hearspace.core.tracking.Tracker
 import hearspace.core.types.Config
 import hearspace.core.types.DepthFrame
+import hearspace.core.types.DepthSource
+import hearspace.core.types.MapMode
 import hearspace.core.types.MapHealth
 import hearspace.core.types.ObstacleSnapshot
 
@@ -80,7 +82,9 @@ class SlowPath(
 
         val corridor = Corridor(userPosW, headingW, floorY, config.corridor)
         val camFromWorld = depth.worldFromCam.rigidInverse()
-        val occupied = fm?.voxels?.map { it.copy(lastSeenNs = depth.tCaptureNs) } ?: map.voxels.occupied()
+        val occupied = fm?.voxels?.map { it.copy(lastSeenNs = depth.tCaptureNs) } ?: map.voxels.occupied().let { all ->
+            if (config.map.mode == MapMode.TRISTATE) withoutFloorBand(all, floorY, depth.worldFromCam.translation()) else all
+        }
         val inCorridor = occupied.filter { corridor.contains(it.centerW) }
         val voxels = withoutEdgeStructures(occupied, inCorridor, corridor)
         // C2: 남은 칸을 벽 칸과 나머지로 나눠 따로 묶는다(벽도 장애물로 남는다). 끄면 한 묶음(기준선). 가장자리 구조물 규칙을 먼저 전체에
@@ -179,6 +183,19 @@ class SlowPath(
         val obstacles = tracker.update(detections, depth.tCaptureNs)
         lastStageNs = StageTimes(t1 - t0, t2 - t1, nanoTime() - t2)
         return ObstacleSnapshot(depth.tCaptureNs, obstacles, floorY, u.mapHealth)
+    }
+
+    /**
+     * TRISTATE(M32): 지도에는 바닥이 남으므로, 안내로 넘기기 전에 바닥 추정값 + max(τ, `map.sigmaMultiple` × σ(거리)) 이하의 칸(바닥 아래 포함)을
+     * 뺀다. 거리는 지금 카메라 [cameraW]에서 칸 중심까지(깊이 Z보다 크거나 같아 띠가 넓은 쪽). 요소 분해(M35)가 들어오기 전까지의 임시 규칙이다.
+     */
+    private fun withoutFloorBand(occupied: List<VoxelView>, floorY: Float, cameraW: Vec3): List<VoxelView> {
+        val raw = config.depth.source == DepthSource.RAW
+        val tau = config.map.voxelSizeM * kotlin.math.sqrt(3f) / 2f
+        return occupied.filter {
+            val band = kotlin.math.max(tau, config.map.sigmaMultiple * config.depth.sigmaM(raw, (it.centerW - cameraW).norm()))
+            it.centerW.y - floorY > band
+        }
     }
 
     /**

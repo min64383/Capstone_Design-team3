@@ -3,6 +3,8 @@
     python scene_eval.py synth <합성 출력 폴더>                       → 열화 강도별 평균·95% 신뢰구간, 단조성, s=0 대 s=1
     python scene_eval.py real <재생 폴더> <변형> <변형> [--scene E]   → 세션 단위 변형 비교(예: B D), 판정 세트는 E 장면
     python scene_eval.py bookmarks <기준 재생 폴더> <출력 json> <세션 폴더> ...   → 정성 평가 책갈피 시각(M30 설계 표 6)
+    python scene_eval.py m32real <재생 폴더> <기준> <변형> ... [--scene E]      → M32 완료 기준 ②④(바닥 맞은 칸 제외 지표, 안전 관문)
+    python scene_eval.py m32synth <출력 json> <이름>=<합성 출력 폴더> ... [--s 1.0] → M32 기준 ③④(장면 지표, 마주침 STOP 검출)
 
 신뢰구간: 부트스트랩 2,000회, 장면(합성)·세션(녹화) 단위 재표본(Efron & Tibshirani 1993). 한 세션 안의 칸은 서로 상관되어
 칸 단위 재표본은 구간을 지나치게 좁힌다.
@@ -26,7 +28,94 @@ SEED = 30
 def load(path: Path) -> dict:
     d = json.loads(path.read_text(encoding="utf-8"))
     d["f1tau"] = d["fScore"]["1tau"]
+    d["completenessFloor"] = d.get("byElement", {}).get("FLOOR", {}).get("completeness")
     return d
+
+
+# M32 주 지표: 바닥에 맞은 칸을 뺀 헛 칸 비율·표면 오차(지도에 바닥이 들어오면 쉬운 맞은 칸이 늘어난다, M32 설계 3.6절)
+HEADLINE32 = {"falseRatioNoFloor": +1, "surfaceErrorP90NoFloorM": +1, "completenessWallObject": -1}
+EXTRA32 = ["f1tau", "unknownRatio", "erasedRatio", "insideRatioNoFloor", "surfaceErrorP50NoFloorM", "completenessFloor",
+           "falseRatio", "surfaceErrorP90M"]
+
+
+def wilson(k: int, n: int, z: float = 1.96) -> tuple[float, float, float]:
+    """비율 k/n과 Wilson 95% 구간(Wilson 1927)."""
+    if n == 0:
+        return np.nan, np.nan, np.nan
+    p = k / n
+    c = (p + z * z / (2 * n)) / (1 + z * z / n)
+    h = z * np.sqrt(p * (1 - p) / n + z * z / (4 * n * n)) / (1 + z * z / n)
+    return p, c - h, c + h
+
+
+def m32_row(f: Path) -> dict:
+    """재생 폴더 하나의 M32 지표(장면 지표 + 안전 지표)."""
+    d = load(f)
+    m = json.loads((f.parent / "metrics.json").read_text(encoding="utf-8")) if (f.parent / "metrics.json").is_file() else {}
+    r = {k: (np.nan if d.get(k) is None else float(d[k])) for k in [*HEADLINE32, *EXTRA32]}
+    r.update({"scene": m.get("scene", ""), "unknownState": (m.get("stateFraction") or {}).get("UNKNOWN", 0.0),
+              "missedStop": m.get("missedStop"), "stopNeeded": m.get("stopNeeded"),
+              "infoAgeMaxMs": (m.get("infoAgeMs") or {}).get("max"), "falseAlarm": m.get("falseAlarmFraction"),
+              "firstWarn": m.get("firstWarnDistanceM") or {}, "firstStop": m.get("firstStopDistanceM") or {}})
+    return r
+
+
+def m32_real(root: Path, base: str, variants: list[str], scene: str | None) -> dict:
+    """완료 기준 ②(헛 칸 비율 구간이 기준보다 낮게 분리, 표면 오차·완전성은 평균이 기준 구간 안이거나 더 좋음)와 ④(STOP 누락·확인 불가)."""
+    rows = []
+    for v in [base, *variants]:
+        for f in sorted((root / v).glob("*/scene_eval.json")):
+            r = m32_row(f)
+            if scene and not r["scene"].startswith(scene):
+                continue
+            rows.append({"variant": v, "session": f.parent.name, **r})
+    df = pd.DataFrame(rows)
+    keys = [*HEADLINE32, *EXTRA32, "unknownState"]
+    ci = {v: {k: boot_ci(df[df.variant == v][k].to_numpy(float)) for k in keys} for v in [base, *variants]}
+    out = {"sessions": int(df.session.nunique()), "variants": {}}
+    for v in [base, *variants]:
+        sub = df[df.variant == v]
+        e: dict = {k: {"mean": ci[v][k][0], "lo": ci[v][k][1], "hi": ci[v][k][2]} for k in keys}
+        e["missedStop"] = int(sub.missedStop.fillna(0).sum())
+        e["infoAgeMaxMs"] = float(sub.infoAgeMaxMs.max())
+        if v != base:
+            b = ci[base]
+            e["criterion2"] = {
+                "falseSeparatedLower": bool(ci[v]["falseRatioNoFloor"][2] < b["falseRatioNoFloor"][1]),
+                "p90NotWorse": bool(ci[v]["surfaceErrorP90NoFloorM"][0] <= b["surfaceErrorP90NoFloorM"][2]),
+                "completenessNotWorse": bool(ci[v]["completenessWallObject"][0] >= b["completenessWallObject"][1]),
+            }
+            e["criterion4"] = {"noMissedStop": e["missedStop"] == 0, "unknownNotWorse": bool(ci[v]["unknownState"][0] <= b["unknownState"][2])}
+        out["variants"][v] = e
+    df.drop(columns=["firstWarn", "firstStop"]).to_csv(root / f"m32_{base}_{'_'.join(variants)}.csv", index=False)
+    out["firstWarnStop"] = {f"{r.variant}/{r.session}": {"warn": r.firstWarn, "stop": r.firstStop} for r in df.itertuples()}
+    return out
+
+
+def m32_synth(roots: dict[str, Path], s: float) -> dict:
+    """합성(강도 [s]) 장면 지표 평균·구간과 마주침 STOP 검출(Wilson). 마주침 = 정답이 STOP 구간에 1 s 넘게 든 것(metrics stopNeeded)."""
+    from metrics import compute
+    out = {}
+    for name, root in roots.items():
+        rows, need, missed, first_stop = [], 0, 0, []
+        for f in sorted(root.glob(f"*/s{s}/scene_eval.json")):
+            run = f.parent
+            mf = run / "metrics.json"
+            if not mf.is_file() and (run / "session").is_dir():
+                mf.write_text(json.dumps(compute(run / "session", run), ensure_ascii=False, default=float), encoding="utf-8")
+            r = m32_row(f)
+            rows.append(r)
+            need += r["stopNeeded"] or 0
+            missed += r["missedStop"] or 0
+            first_stop += [v for v in r["firstStop"].values() if v is not None]
+        df = pd.DataFrame(rows)
+        e: dict = {k: dict(zip(("mean", "lo", "hi"), boot_ci(df[k].to_numpy(float)))) for k in [*HEADLINE32, *EXTRA32, "unknownState"]}
+        e["scenes"] = len(df)
+        e["encounters"] = need
+        e["stopDetection"] = dict(zip(("p", "lo", "hi"), wilson(need - missed, need)))
+        e["firstStopM"] = {"p10": float(np.percentile(first_stop, 10)), "p50": float(np.median(first_stop))} if first_stop else None
+        out[name] = e
+    return out
 
 
 def boot_ci(v: np.ndarray, n: int = N_BOOT, seed: int = SEED) -> tuple[float, float, float]:
@@ -193,6 +282,25 @@ def main(args: list[str]) -> None:
                                             indent=1, ensure_ascii=False) + "\n", encoding="utf-8")
         for r in res:
             print(r["session"], r["scene"], [(m["label"], m["tS"]) for m in r["marks"]])
+    elif args[0] in ("m32real", "m32synth"):
+        flag = "--scene" if args[0] == "m32real" else "--s"
+        opt = args[args.index(flag) + 1] if flag in args else None
+        pos = [a for i, a in enumerate(args[1:], 1) if a != flag and args[i - 1] != flag]
+        if args[0] == "m32real":
+            root, base, variants = Path(pos[0]), pos[1], pos[2:]
+            res = m32_real(root, base, variants, opt)
+            (root / f"m32_{base}_{'_'.join(variants)}.json").write_text(json.dumps(res, indent=1, ensure_ascii=False, default=float), encoding="utf-8")
+            print(f"녹화 {res['sessions']}세션 ({opt or '전체'})")
+            for v, e in res["variants"].items():
+                print(v, "  ".join(f"{k} {fmt(e[k])}" for k in [*HEADLINE32, "unknownRatio", "erasedRatio", "unknownState"]),
+                      f"missedStop {e['missedStop']} infoAgeMax {e['infoAgeMaxMs']:.0f}", e.get("criterion2", ""), e.get("criterion4", ""))
+        else:
+            res = m32_synth({a.split("=", 1)[0]: Path(a.split("=", 1)[1]) for a in pos[1:]}, float(opt) if opt else 1.0)
+            Path(pos[0]).write_text(json.dumps(res, indent=1, ensure_ascii=False, default=float), encoding="utf-8")
+            for name, e in res.items():
+                d = e["stopDetection"]
+                print(name, f"{e['scenes']}장면", "  ".join(f"{k} {fmt(e[k])}" for k in [*HEADLINE32, "unknownRatio", "erasedRatio"]),
+                      f"STOP 검출 {d['p']:.3f} [{d['lo']:.3f}, {d['hi']:.3f}] / {e['encounters']}", e["firstStopM"])
     else:
         sys.exit(__doc__)
 

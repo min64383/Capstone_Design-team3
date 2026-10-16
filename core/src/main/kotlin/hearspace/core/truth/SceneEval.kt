@@ -239,6 +239,20 @@ object SceneEval {
         return { p -> if (key(p, voxelM) in keys) CellState.OCCUPIED else CellState.UNKNOWN }
     }
 
+    /** 3상태 지도(M32 TRISTATE)의 칸 상태: 점유 칸 중심 [occupiedW], 빈 곳 칸 중심 [freeW], 나머지는 모름. */
+    fun threeState(occupiedW: List<Vec3>, freeW: List<Vec3>, voxelM: Float): (Vec3) -> CellState {
+        val occ = occupiedW.mapTo(HashSet()) { key(it, voxelM) }
+        val free = freeW.mapTo(HashSet()) { key(it, voxelM) }
+        return { p ->
+            val k = key(p, voxelM)
+            when (k) {
+                in occ -> CellState.OCCUPIED
+                in free -> CellState.FREE
+                else -> CellState.UNKNOWN
+            }
+        }
+    }
+
     /** 여러 표본을 모은 세션 값. */
     class Pool(val samples: List<Sample>, val voxelM: Float) {
         private val tau = tau(voxelM)
@@ -249,6 +263,14 @@ object SceneEval {
         private val distEl = samples.flatMap { it.distEl.asList() }
 
         fun falseRatio() = ratio(false_, occupied)
+
+        /** 바닥에 맞은 칸(가장 가까운 정답이 바닥이고 τ 안): 지도에 바닥을 넣으면 쉬운 맞은 칸이 늘어 비율 지표가 저절로 좋아진다(M32 설계 3.6절). */
+        private val floorHit = dist.indices.count { distEl[it] == Element.FLOOR && dist[it] <= tau }
+        private val distNoFloor = dist.filterIndexed { i, d -> !(distEl[i] == Element.FLOOR && d <= tau) }
+
+        fun falseRatioNoFloor() = ratio(false_, occupied - floorHit)
+
+        fun distQuantileNoFloor(q: Double): Double? = distNoFloor.sorted().let { if (it.isEmpty()) null else it[((it.size - 1) * q).toInt()].toDouble() }
 
         fun falseRatioBand(b: Int): Double = ratio(samples.sumOf { it.falseByBand[b] }, occupied)
 
@@ -309,6 +331,11 @@ object SceneEval {
                 "inside" to int(inside),
                 "false" to int(false_),
                 "falseRatio" to num(falseRatio()),
+                "falseRatioNoFloor" to num(falseRatioNoFloor()),
+                "insideRatioNoFloor" to num(ratio(inside, occupied - floorHit)),
+                "surfaceErrorP50NoFloorM" to num(distQuantileNoFloor(0.5)),
+                "surfaceErrorP90NoFloorM" to num(distQuantileNoFloor(0.9)),
+                "floorHit" to int(floorHit),
                 "falseRatioByBand" to JsonArray((0..FALSE_BANDS_M.size).map { num(falseRatioBand(it)) }),
                 "insideRatio" to num(ratio(inside, occupied)),
                 "surfaceErrorP50M" to num(distQuantile(0.5)),
