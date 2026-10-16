@@ -1,5 +1,5 @@
 {
- "note": "M30 정성 평가 책갈피(설계 표 6). scene_eval.py bookmarks가 규칙으로 계산",
+ "note": "M30 정성 평가 책갈피(설계 표 6). scene_eval.py bookmarks가 규칙으로 계산 · M31 K01 책갈피(M31 설계 5절: 1.0·2.0·4.0 m 첫 회차 정지 중간)",
  "sessions": [
   {
    "session": "20261007_151747_S01",
@@ -122,6 +122,39 @@
     {
      "tS": 14.14,
      "label": "가장 가까이(문 0.4 m)"
+    }
+   ]
+  },
+  {
+   "session": "20261016_170426_S01",
+   "scene": "K01",
+   "truthColors": true,
+   "marks": [
+    {
+     "tS": 7.88,
+     "label": "K01 1.0 m 가운데"
+    }
+   ]
+  },
+  {
+   "session": "20261016_170655_S01",
+   "scene": "K01",
+   "truthColors": true,
+   "marks": [
+    {
+     "tS": 7.98,
+     "label": "K01 2.0 m 가운데"
+    }
+   ]
+  },
+  {
+   "session": "20261016_171216_S01",
+   "scene": "K01",
+   "truthColors": true,
+   "marks": [
+    {
+     "tS": 7.95,
+     "label": "K01 4.0 m 가운데"
     }
    ]
   }

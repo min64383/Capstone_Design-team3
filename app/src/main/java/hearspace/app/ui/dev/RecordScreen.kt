@@ -388,8 +388,8 @@ class RecordScreen : Activity(), GLSurfaceView.Renderer {
     companion object {
         private const val UI_REFRESH_MS = 250L
 
-        /** 부록 A 장면 ID. */
-        val SCENE_IDS = listOf("S01", "S02", "S03", "S04", "S05", "S06", "S07", "S08", "S09", "S10", "T01")
+        /** 부록 A 장면 ID. K01: M31 보정 녹화(IMPROVE_SPEC §11.2). */
+        val SCENE_IDS = listOf("S01", "S02", "S03", "S04", "S05", "S06", "S07", "S08", "S09", "S10", "T01", "K01")
 
         /** 세션 폴더의 부모: `<앱 전용 외부 저장소>/sessions` (§8.1). */
         fun sessionsRoot(activity: Activity): File = File(activity.getExternalFilesDir(null), "sessions")

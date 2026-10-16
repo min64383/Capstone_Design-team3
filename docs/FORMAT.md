@@ -54,6 +54,7 @@ F8(재생 모드)은 M7에서 확인한다.
 - `scene`: 장면 ID. 폴더 이름의 장면 ID보다 우선한다(M10 녹화는 폴더가 모두 `_S01`).
 - `distanceFrom`: `"start"`(기본, 시작 표시 = 머리 아래에서 잼) 또는 `"camera"`(시작 때 폰 카메라에서 잼). `"camera"`면 읽는 쪽이 `head.offsetFromCameraM`만큼 옮긴다(현재 설정이면 z + 0.39 m).
 - `kind`: `"object"`(기본) 또는 `"structure"`(벽·문 같은 큰 평면). 구조물은 물체 탐지율 분모에서 빠지고 `structureCommandFraction`(구조물을 물체처럼 경고한 비율)로 따로 잰다.
+- 천장(M31): `kind: "structure"`, 이름 `ceiling`, 아랫면 = 실측 천장 높이, 두께 0.10 m. 장면 지표는 2.0 m 위의 얇은(높이 < 0.5 m) 구조물을 천장 요소로 본다(`SceneEval.element`). 벽 상자의 `max.y`는 실측 천장 높이로 둔다.
 
 ## 형식 v0 (M1 스파이크, 읽기만 지원)
 
