@@ -20,6 +20,11 @@ import hearspace.core.types.Config
 import hearspace.core.types.ConfigLoader
 import hearspace.core.types.GuidanceOutput
 import hearspace.core.types.GuidanceState
+import hearspace.core.types.JsonArray
+import hearspace.core.types.JsonBool
+import hearspace.core.types.JsonNumber
+import hearspace.core.types.JsonObject
+import hearspace.core.types.MiniJson
 import hearspace.core.types.ObstacleSnapshot
 import hearspace.core.types.PoseFrame
 import java.io.File
@@ -32,6 +37,8 @@ object Repo {
     val appOverride: File get() = File(root, "app/src/main/assets/config/risk-continuous.override.json")
     val hrtf: File get() = File(root, "app/src/main/assets/hrtf/sadie2_d1_48k.hrir")
     val sessions: File get() = File(root, "testdata/sessions")
+    /** 원본 녹화(git 밖). 파생 파일(`floor_rgb.json` 등)은 여기에만 있다. */
+    val dataSessions: File get() = File(root, "data/sessions")
     val feedback: File get() = File(root, "data/feedback")
     val variants: File get() = File(root, "data/viewer/variants")
 
@@ -107,6 +114,23 @@ class ReplayResult(
     val sessionId: String = session.name
 
     val truth: GroundTruth? = GroundTruth.read(session, config.head.offsetFromCameraM)
+
+    /**
+     * RGB·포즈로 잰 바닥(세션의 `floor_rgb.json`, M26 `tools/analysis/floor_rgb.py`): 받아들인 짝의 (A 장 시각, 월드 바닥 y). 세션 안에서
+     * 월드 바닥이 바뀌기도 해서(E02 152354 재생 바닥 7~10 s에 0.4 m) 세션 하나의 값이 아니라 시각마다 가장 가까운 짝을 쓴다. 없으면 빈 목록.
+     * testdata 세션에는 MP4가 없어 도구를 못 돌리므로 data/sessions의 같은 세션 파일을 쓴다(같은 녹화).
+     */
+    private val rgbFloor: List<Pair<Long, Double>> = listOf(File(session, "floor_rgb.json"), File(Repo.dataSessions, "${session.name}/floor_rgb.json"))
+        .firstOrNull { it.isFile }?.let { f ->
+        ((MiniJson.parse(f.readText()) as? JsonObject)?.fields?.get("pairs") as? JsonArray)?.items?.mapNotNull { p ->
+            val q = (p as? JsonObject)?.fields ?: return@mapNotNull null
+            if ((q["accepted"] as? JsonBool)?.value != true) return@mapNotNull null
+            ((q["tNs"] as JsonNumber).value.toLong()) to (q["floorY"] as JsonNumber).value
+        }
+    }.orEmpty()
+
+    /** 시각 [tNs]에 가장 가까운 짝의 RGB 바닥(월드 y, 표시용). 없으면 null. */
+    fun rgbFloorAt(tNs: Long): Double? = rgbFloor.minByOrNull { kotlin.math.abs(it.first - tNs) }?.second
 
     /** 보행선 좌표(정답 좌표). 바닥을 한 번도 못 잡았으면 null. */
     val alignment: Alignment? = Alignment.medianFloorY(slow.map { it.snapshot.floorY })?.let {

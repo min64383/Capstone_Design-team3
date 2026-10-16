@@ -74,6 +74,9 @@ F8(재생 모드)은 M7에서 확인한다.
 PC에서 만드는 파생 폴더(앱은 쓰지 않음, M19): `rgb_mp4/NNNNNN.jpg`는 `tools/analysis/mp4_rgb.py`가 `arcore.mp4`의 640×480 영상
 트랙에서 꺼낸 매 프레임 밝기(Y 평면, 회색조 JPEG)이고, `rgb_mp4/index.csv`(frameIndex, tNs, mp4Sample, dtMs)가 짝, `extract.json`이
 검사 결과다. 짝은 영상 트랙 바로 뒤 메타데이터 트랙의 protobuf 필드 2.5(카메라 시각, frames.csv `tNs`와 ±1 ms)로 짓는다(형식 비공개, 실측).
+`floor_rgb.json`(M26)은 `tools/analysis/floor_rgb.py`가 `rgb_mp4/`와 포즈로 잰 바닥이다: `pairs[]`(frameA·frameB·tNs = A 장 카메라 시각,
+moveM, depthFloorY = core 규칙의 깊이 바닥, floorY = RGB·포즈 바닥(월드 y, m), offsetM = floorY − depthFloorY, ncc, sharpness, nPixels,
+accepted), 요약 floorY·offsetP50M·offsetIqrM·noiseM(받아들인 짝 5개 미만이면 null), excludeTruth(정답 상자 둘레를 뺐는지).
 
 ### frames.csv 열
 

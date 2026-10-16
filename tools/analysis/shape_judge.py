@@ -18,6 +18,7 @@ from scorecard import CONFIG, FAIL, judge, role_of
 BACK_M, FIT, SPLIT, LATE_STOP_M = 0.10, 0.5, 0.05, 0.1
 JUMP, OTHER = 0.014, 0.05  # 흔들림 문턱(정답 깊이 상한 수준, M22 설계 표 1), 음원이 다른 것인 단계 문턱(M22 표 9)
 STANDING, LYING = "suitcase", "suitcase_lying"
+FLOOR_FLAG_M = 0.10  # 바닥 어긋남 표시(지도 칸 두 개, M26 설계 3.4절)
 
 
 def load_dir(d: Path) -> dict[str, dict]:
@@ -62,6 +63,15 @@ def flicker_summary(name: str, runs: dict[str, dict]) -> list:
     return row
 
 
+def floor_summary(name: str, runs: dict[str, dict]) -> list:
+    """바닥 어긋남(M26, `floorRgb`): 값이 있는 세션 중 |실제 − 재생 바닥| ≥ [FLOOR_FLAG_M]인 세션과 그 값."""
+    fl = {s: m["floorRgb"] for s, m in runs.items() if m.get("floorRgb")}
+    if not fl:
+        return [name, "–", "–"]
+    big = [f"{s[9:15]} {v['offsetP50M']:+.2f}" for s, v in sorted(fl.items()) if abs(v["offsetP50M"]) >= FLOOR_FLAG_M]
+    return [name, f"{len(big)}/{len(fl)}", ", ".join(big) or "–"]
+
+
 def summary(name: str, runs: dict[str, dict], base: dict[str, dict], cfg: dict) -> list:
     shapes = [c for m in runs.values() if (c := carrier(m))]
     standing = [c for n, c in shapes if n == STANDING]
@@ -91,7 +101,9 @@ def main(dirs: list[Path]) -> str:
            "### 군집·추적·음원(M22)", "", table(["변형", "근처 다른 출력(캐리어 합)", "track id 1개·바뀜 0", f"흔들림 ≤ {JUMP:.1%}",
                                               f"음원 다른 것 > {OTHER:.0%}(물체)"], [track_summary(v, r) for v, r in runs.items()]), "",
            "### 깜빡이는 출력(M25)", "", table(["변형", "깜빡임 물체 세션(끝 · 위 · 옆 · 안쪽)", "출력 track(물체)", "출력 수 바뀐 단계(물체)",
-                                            "깜빡임 벽 장면(끝 · 위 · 옆 · 안쪽)"], [flicker_summary(v, r) for v, r in runs.items()]), ""]
+                                            "깜빡임 벽 장면(끝 · 위 · 옆 · 안쪽)"], [flicker_summary(v, r) for v, r in runs.items()]), "",
+           "### 바닥 어긋남(M26, RGB·포즈 − 재생 바닥)", "", table(["변형", f"어긋남 절댓값 ≥ {FLOOR_FLAG_M} m", "세션(m)"],
+                                                            [floor_summary(v, r) for v, r in runs.items()]), ""]
     sessions = sorted({s for r in runs.values() for s in r if carrier(r[s])}, key=lambda s: (base.get(s, {}).get("scene", ""), s))
     for title, key, f in [("뒤 늘어남 중앙(m)", "backP50M", fmt), ("옆 넘침 중앙(m)", "sideP50M", fmt),
                           ("크기 맞음(단계 %)", "fitFraction", lambda v: f"{100 * v:.0f}"),
