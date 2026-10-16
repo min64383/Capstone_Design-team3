@@ -40,7 +40,7 @@ class ConfigLoaderTest {
         )
         assertEquals(TrackConfig(0.3f, 0.3f, 2, 3, 2, 0f, 0.3f, true, false, 0), c.track)
         assertEquals(RepPointConfig(RepStrategy.CORRIDOR_BAND, 0.20f), c.repPoint)
-        assertEquals(PolicyConfig(1.0f, 2.5f, 3.0f, 0.15f, 1, 300f), c.policy)
+        assertEquals(PolicyConfig(1.0f, 2.5f, 3.0f, 0.15f, 1, 350f), c.policy)
         assertEquals(StateConfig(10, 0.5f, 3.0f, 15.0f, 600f), c.state)
         assertEquals(
             AudioConfig(

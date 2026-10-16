@@ -131,7 +131,7 @@
     "silentMaxM": 3.0,
     "hysteresisM": 0.15,
     "maxSources": 1,
-    "maxInfoAgeMs": 300,
+    "maxInfoAgeMs": 350,
     "prioritizeStop": false
   },
   "state": {
