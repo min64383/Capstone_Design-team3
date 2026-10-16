@@ -8,6 +8,7 @@ import hearspace.core.geometry.Projection
 import hearspace.core.geometry.Vec3
 import hearspace.core.session.Png16
 import hearspace.core.session.SessionReader
+import hearspace.core.truth.VoxelClass
 import hearspace.core.types.Band
 import hearspace.core.types.GuidanceState
 import hearspace.core.types.HeightClass
@@ -36,9 +37,13 @@ import kotlin.math.sin
 class ViewerModel {
     var result: ReplayResult? = null
         private set
+    /** 나란히 보기의 두 번째 결과(같은 세션, 다른 변형 또는 정답 깊이 대입, M30). 없으면 한 결과만 본다. */
+    var compare: ReplayResult? = null
     var tNs: Long = 0
         private set
     var showDepth = true
+    /** 카메라 화면에 지도 칸을 겹친다(M30): 정답 장면이 있으면 칸 분류 색, 없으면 높이 색. 놓친 표면은 빈 사각형. */
+    var showVoxels = false
     /** 위에서 본 그림에 그릴 복셀 높이. 높이를 모두 겹치면 벽이 실제보다 두꺼워 보인다(M13: 한 층은 1~2칸). */
     var voxelHeight = VoxelHeight.ALL
     /** 카메라 화면의 정답 상자를 RGB·포즈로 잰 바닥(`ReplayResult.rgbFloorAt`) 위에 놓는다. 꺼짐 = 재생의 깊이 바닥(정렬 바닥) 위(M26). */
@@ -53,7 +58,7 @@ class ViewerModel {
     fun setResult(r: ReplayResult) {
         val same = result?.session == r.session
         result = r
-        if (!same) { tNs = r.t0Ns; notes.clear() }
+        if (!same) { tNs = r.t0Ns; notes.clear(); compare = null }
         fire()
     }
 
@@ -86,6 +91,16 @@ internal object Palette {
         HeightClass.BODY -> Color(60, 200, 255)
         HeightClass.HEAD -> Color(240, 80, 240)
     }
+    /** 칸 분류(M30 그림 2): 맞은 칸 초록, 속 칸 회색, 헛 칸 빨강, 놓친 표면 흰 테두리. */
+    fun voxelClass(c: VoxelClass): Color = when (c) {
+        VoxelClass.HIT -> Color(60, 220, 110)
+        VoxelClass.INSIDE -> Color(150, 150, 160)
+        VoxelClass.FALSE -> Color(255, 60, 60)
+    }
+    val missed = Color(255, 255, 255)
+    /** 칸 분류 장면에서 평가 영역 밖(높이 상한 위 등) 칸. */
+    val outside = Color(90, 90, 100)
+    fun heightOf(yM: Float): Color = Color.getHSBColor(0.66f * (1f - (yM / 2f).coerceIn(0f, 1f)), 0.9f, 1f)
     fun band(b: Band?): Color = when (b) {
         Band.STOP -> Color(255, 70, 70)
         Band.WARN -> Color(255, 170, 40)
@@ -113,7 +128,7 @@ private val BOX_EDGES = listOf(0 to 1, 2 to 3, 4 to 5, 6 to 7, 0 to 2, 1 to 3, 4
  * 영상: RGB(없으면 검은 바탕) + 깊이 겹침 + 물체·정답 상자 투영. 저장된 영상은 센서 방향이라(세로 파지 시 90° 돌아간 가로 영상,
  * docs/FORMAT.md F3) 센서 좌표로 그린 뒤 시계 방향 90° 돌려 보여 준다.
  */
-class CameraView(private val model: ViewerModel) : JPanel() {
+class CameraView(private val model: ViewerModel, private val compare: Boolean = false) : JPanel() {
     private val rgbCache = lru<String, BufferedImage?>()
     private val depthCache = lru<String, BufferedImage?>()
 
@@ -126,7 +141,7 @@ class CameraView(private val model: ViewerModel) : JPanel() {
         val g = g0 as Graphics2D
         g.color = Palette.bg
         g.fillRect(0, 0, width, height)
-        val r = model.result ?: return message(g, "세션을 여세요")
+        val r = (if (compare) model.compare else model.result) ?: return message(g, "세션을 여세요")
         val t = model.tNs
         val k = r.reader.meta.camera.imageIntrinsics
         val sw = k.width
@@ -183,6 +198,25 @@ class CameraView(private val model: ViewerModel) : JPanel() {
                 return p.filterNotNull().minByOrNull { it.first } // 센서 좌표 왼쪽 = 화면 위
             }
             val al = r.alignment
+            // 지도 칸(M30): 칸 중심을 투영해 작은 사각형으로. 정답 장면이 있으면 분류 색, 없으면 높이 색
+            val rec = r.slowAt(t)
+            if (model.showVoxels && rec != null) {
+                val v = rec.voxelsW
+                for (i in 0 until v.size / 3) {
+                    val w = Vec3(v[3 * i], v[3 * i + 1], v[3 * i + 2])
+                    val (u, vv) = px(w) ?: continue
+                    s.color = r.classify(w)?.let(Palette::voxelClass) ?: if (r.classColors) Palette.outside else Palette.heightOf(al?.toTruth(w)?.y ?: 0f)
+                    s.fillRect(u.toInt() - 2, vv.toInt() - 2, 5, 5)
+                }
+                if (al != null) {
+                    s.color = Palette.missed
+                    s.stroke = BasicStroke(1f)
+                    for (p in r.missedAt(rec)) {
+                        val (u, vv) = px(al.toWorld(p)) ?: continue
+                        s.drawRect(u.toInt() - 2, vv.toInt() - 2, 5, 5)
+                    }
+                }
+            }
             r.truth?.takeIf { al != null }?.obstacles?.forEach { o ->
                 val rgbY = if (model.truthOnRgbFloor) r.rgbFloorAt(row.tNs) else null
                 drawBox(boxCorners(o.minM, o.maxM).map { c -> al!!.toWorld(c).let { w -> if (rgbY == null) w else Vec3(w.x, (c.y + rgbY).toFloat(), w.z) } }, Palette.truth, dashed = true)
@@ -218,7 +252,9 @@ class CameraView(private val model: ViewerModel) : JPanel() {
             g.drawString(lc.first, (ox + sc * (sh - v)).toInt() + 4, (oy + sc * u).toInt() - 4)
         }
         g.color = Palette.text
+        if (r.label.isNotEmpty()) g.drawString(r.label, 8, 16)
         val src = (if (rgbRow == null) "RGB 없음(깊이만)" else "RGB 프레임 ${rgbRow.frameIndex}") +
+            (if (model.showVoxels) (if (r.classColors) "  ·  칸: 초록 맞음, 회색 속, 빨강 헛, 흰 테 놓친 표면(바닥 제외), 어두운 회색 영역 밖" else "  ·  칸: 높이 색(정답 장면 없음)") else "") +
             (if (model.showDepth && r.config.frontend.enabled) "  ·  자홍 = 경계(막) 판정" else "") +
             (if (model.showDepth && r.config.frontend.planes == PlaneMode.RANSAC) "  ·  초록 = 바닥 평면, 주황 = 벽 평면" else "") +
             (if (model.showDepth && r.config.frontend.segment == SegmentMode.REGION) "  ·  색 = 영역(C3a, 직전 처리한 깊이)" else "")
@@ -271,7 +307,7 @@ class CameraView(private val model: ViewerModel) : JPanel() {
  * 위에서 본 그림(보행선 좌표: 위쪽 = 보행선 앞 +z, 오른쪽 = +x). 궤적·점유 복셀·통로·추적 물체·정답 상자·음원 방향.
  * 음원 선은 구간 색, 굵기는 STOP이 가장 굵다.
  */
-class TopView(private val model: ViewerModel) : JPanel() {
+class TopView(private val model: ViewerModel, private val compare: Boolean = false) : JPanel() {
     init {
         preferredSize = Dimension(420, 480)
         model.onChange { repaint() }
@@ -282,7 +318,7 @@ class TopView(private val model: ViewerModel) : JPanel() {
         g.smooth()
         g.color = Palette.bg
         g.fillRect(0, 0, width, height)
-        val r = model.result ?: return message(g, "")
+        val r = (if (compare) model.compare else model.result) ?: return message(g, "")
         val al = r.alignment ?: return message(g, "바닥을 잡지 못해 보행선 좌표가 없음")
         val track = r.reader.rows.map { al.toTruth(Vec3(it.pose.tx, it.pose.ty, it.pose.tz)) }
         val truthBoxes = r.truth?.obstacles.orEmpty()
@@ -326,14 +362,23 @@ class TopView(private val model: ViewerModel) : JPanel() {
             g.color = Color(60, 230, 110)
             g.drawString(pl.floor?.let { "바닥 평면 y %.2f m, 들림 %.2f m/m (점 %d)".format(it.heightM - al.floorY.toFloat(), it.liftPerM, it.nInliers) } ?: "바닥 평면 없음(유지)", 8, height - 8)
         }
-        // 점유 복셀(밝을수록 높음)
+        // 점유 복셀(밝을수록 높음). 칸 겹침을 켜고 정답 장면이 있으면 칸 분류 색(M30), 놓친 표면은 흰 테두리
         slow?.voxelsW?.let { v ->
             for (i in 0 until v.size / 3) {
-                val p = al.toTruth(Vec3(v[3 * i], v[3 * i + 1], v[3 * i + 2]))
+                val w = Vec3(v[3 * i], v[3 * i + 1], v[3 * i + 2])
+                val p = al.toTruth(w)
                 if (!model.voxelHeight.contains(p.y, r.config.corridor.heightM)) continue
+                val c = if (model.showVoxels) r.classify(w)?.let(Palette::voxelClass) else null
                 val b = (80 + 120 * (p.y / 2f).coerceIn(0f, 1f)).toInt()
-                g.color = Color(b, b, b)
+                g.color = c ?: Color(b, b, b)
                 g.fillRect(sx(p.x).toInt() - 1, sy(p.z).toInt() - 1, 3, 3)
+            }
+            if (model.showVoxels) {
+                g.color = Palette.missed
+                for (p in r.missedAt(slow)) {
+                    if (!model.voxelHeight.contains(p.y, r.config.corridor.heightM)) continue
+                    g.drawRect(sx(p.x).toInt() - 1, sy(p.z).toInt() - 1, 3, 3)
+                }
             }
         }
         // 정답 상자
@@ -386,7 +431,7 @@ class TopView(private val model: ViewerModel) : JPanel() {
             g.color = Color.WHITE
             g.fillOval(sx(head.x).toInt() - 5, sy(head.z).toInt() - 5, 10, 10)
             g.color = Palette.text
-            g.drawString("${b.g.state}  ${"%.2f".format(r.secondsOf(t))} s  물체 ${slow?.snapshot?.obstacles?.size ?: 0}  음원 ${b.g.commands.size}", 8, 16)
+            g.drawString("${if (r.label.isEmpty()) "" else r.label + "  "}${b.g.state}  ${"%.2f".format(r.secondsOf(t))} s  물체 ${slow?.snapshot?.obstacles?.size ?: 0}  음원 ${b.g.commands.size}", 8, 16)
         }
     }
 }

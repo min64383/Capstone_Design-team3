@@ -424,6 +424,24 @@ def check_front_diag():
     assert classify("OUT_OF_VIEW", 0, 0) == "시야 밖" and classify("NO_DEPTH", 0, 0) == "확인 못 함" and classify("", 0, 0) == "짝 없음"
 
 
+def check_scene_eval():
+    """M30: σ0 + k·Z² 맞춤이 알고 넣은 잡음을 되찾고 교차 검사가 68% 근처, 장면 지표 집계가 단조·분리를 바르게 판정한다."""
+    from depth_error import bin_stats, coverage, fit_sigma
+    from scene_eval import judge_synth
+    rng = np.random.default_rng(1)
+    z = rng.uniform(0.5, 5.0, 40000)
+    df = pd.DataFrame({"Z": z, "r": rng.normal(0, 0.01 + 0.008 * z ** 2), "session": np.repeat(["a", "b"], 20000)})
+    s0, k = fit_sigma(bin_stats(df))
+    assert abs(s0 - 0.01) < 0.006 and abs(k - 0.008) < 0.001, (s0, k)
+    cov = coverage(df[df.session == "a"], df[df.session == "b"])["within1Sigma"]
+    assert 0.64 < cov < 0.72, cov
+    rows = [{"seed": i, "s": s, "surfaceErrorP90M": 0.02 + 0.05 * s + 0.002 * rng.normal(), "falseRatio": 0.1 * s,
+             "completenessWallObject": 0.5 - 0.1 * s, **{k: np.nan for k in ("surfaceErrorP50M", "insideRatio", "completenessAll", "f1tau", "unknownRatio")}}
+            for i in range(30) for s in (0.0, 0.5, 1.0)]
+    res = judge_synth(pd.DataFrame(rows))
+    assert all(res["metrics"][k]["monotone"] and res["metrics"][k]["separated01"] for k in ("surfaceErrorP90M", "falseRatio", "completenessWallObject")), res
+
+
 def main():
     clean = run("clean")
     assert clean["directionErrorDeg"]["p95"] < 2.0, clean["directionErrorDeg"]
@@ -463,6 +481,7 @@ def main():
     check_cluster_track()
     check_output_flicker()
     check_floor_rgb()
+    check_scene_eval()
     print("analysis self-check ok")
 
 
