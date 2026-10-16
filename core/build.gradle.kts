@@ -91,10 +91,10 @@ tasks.register<JavaExec>("sceneEval") {
     dependsOn("testClasses")
     classpath = sourceSets["test"].runtimeClasspath
     mainClass.set("hearspace.core.synth.SceneEvalRunKt")
-    maxHeapSize = "4g"
+    maxHeapSize = (project.findProperty("heap") as String?) ?: "4g" // -Pheap=2g: 메모리가 적은 PC(M32)
     systemProperty("hearspace.defaultConfig", rootProject.file("app/src/main/assets/config/default.json").absolutePath)
     val paths = setOf("out", "overridesFile")
-    args = listOf("scenes", "seed", "strengths", "out", "overridesFile", "rawEveryN").mapNotNull { k ->
+    args = listOf("scenes", "seed", "strengths", "out", "overridesFile", "rawEveryN", "threads").mapNotNull { k ->
         (project.findProperty(k) as String?)?.let { v -> "$k=${if (k in paths) rootProject.file(v).absolutePath else v}" }
     } + (if (project.findProperty("out") == null) listOf("out=${layout.buildDirectory.dir("scene-eval").get().asFile.absolutePath}") else emptyList())
 }

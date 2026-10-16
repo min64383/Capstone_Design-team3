@@ -43,6 +43,9 @@ object SceneEval {
     /** 헛 칸 거리 구간 경계(카메라 수평 거리, m): 0~2, 2~3.5, 3.5~. 3.5 = 통로 길이 `corridor.lengthM` 기본값과 같은 구간. */
     val FALSE_BANDS_M = floatArrayOf(2f, 3.5f)
 
+    /** 헛 칸 높이 구간 경계(정답 바닥 위 m): 바닥 아래(< 0), 바닥 근처(0~0.3), 그 위. 0.3 = 누운 캐리어 높이(M12.0)로 낮은 물체 구간. */
+    val FALSE_HEIGHTS_M = floatArrayOf(0f, 0.3f)
+
     /** F 값을 내는 허용 배수(τ, 2τ, 3τ). */
     val F_MULTIPLES = intArrayOf(1, 2, 3)
 
@@ -126,6 +129,9 @@ object SceneEval {
         val confusion: Array<IntArray>,
         /** 관측했는데 덮이지 않은 표면 점(정답 좌표)과 요소(viewer 표시용). */
         val missed: List<Pair<Vec3, Element>> = emptyList(),
+        /** 헛 칸의 높이 구간([FALSE_HEIGHTS_M]: 바닥 아래, 바닥 근처, 그 위)과 지워진 표면의 요소별 수(M32 원인 분해). */
+        val falseByHeight: IntArray = IntArray(FALSE_HEIGHTS_M.size + 1),
+        val erasedByElement: IntArray = IntArray(Element.entries.size),
     )
 
     /**
@@ -156,6 +162,7 @@ object SceneEval {
         var inside = 0
         var falseN = 0
         val bands = IntArray(FALSE_BANDS_M.size + 1)
+        val heights = IntArray(FALSE_HEIGHTS_M.size + 1)
         val dist = ArrayList<Float>()
         val distEl = ArrayList<Element>()
         val confusion = Array(Element.entries.size) { IntArray(Element.entries.size + 1) }
@@ -174,6 +181,7 @@ object SceneEval {
                     falseN++
                     val r = hypot(p.x - cam.x, p.z - cam.z)
                     bands[FALSE_BANDS_M.indexOfFirst { r < it }.let { if (it < 0) FALSE_BANDS_M.size else it }]++
+                    heights[FALSE_HEIGHTS_M.indexOfFirst { p.y < it }.let { if (it < 0) FALSE_HEIGHTS_M.size else it }]++
                 }
             }
             dist += d
@@ -207,6 +215,7 @@ object SceneEval {
         val covered = IntArray(Element.entries.size)
         var unknown = 0
         var erased = 0
+        val erasedEl = IntArray(Element.entries.size)
         val missed = ArrayList<Pair<Vec3, Element>>()
         for ((p, el) in surface.values) {
             visible[el.ordinal]++
@@ -215,14 +224,14 @@ object SceneEval {
             missed += p to el
             when (stateOf(al.toWorld(p))) {
                 CellState.UNKNOWN -> unknown++
-                CellState.FREE -> erased++
+                CellState.FREE -> { erased++; erasedEl[el.ordinal]++ }
                 CellState.OCCUPIED -> Unit
             }
         }
         for (kf in free) if (stateOf(al.toWorld(center(kf, voxelM))) == CellState.UNKNOWN) unknown++
         return Sample(
             depth.tCaptureNs, occ, inside, falseN, bands, dist.toFloatArray(), distEl.toTypedArray(),
-            visible, covered, surface.size + free.size, unknown, erased, confusion, missed,
+            visible, covered, surface.size + free.size, unknown, erased, confusion, missed, heights, erasedEl,
         )
     }
 
@@ -319,6 +328,7 @@ object SceneEval {
                         "visible" to int(visible(el)),
                         "covered" to int(covered(el)),
                         "completeness" to num(completeness(el)),
+                        "erased" to int(samples.sumOf { it.erasedByElement[el.ordinal] }),
                     ),
                 )
             }
@@ -337,6 +347,7 @@ object SceneEval {
                 "surfaceErrorP90NoFloorM" to num(distQuantileNoFloor(0.9)),
                 "floorHit" to int(floorHit),
                 "falseRatioByBand" to JsonArray((0..FALSE_BANDS_M.size).map { num(falseRatioBand(it)) }),
+                "falseByHeight" to JsonArray((0..FALSE_HEIGHTS_M.size).map { b -> int(samples.sumOf { it.falseByHeight[b] }) }),
                 "insideRatio" to num(ratio(inside, occupied)),
                 "surfaceErrorP50M" to num(distQuantile(0.5)),
                 "surfaceErrorP90M" to num(distQuantile(0.9)),

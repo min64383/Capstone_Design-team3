@@ -76,6 +76,8 @@ class SlowRec(
     /** 이 단계가 처리한 깊이와 지도에 쓴 깊이(앞단 뒤): 장면 지표의 놓친 표면 표시용(M30). */
     val depth: DepthFrame? = null,
     val mapDepthMm: ShortArray? = null,
+    /** TRISTATE 지도의 빈 곳 칸 중심(x, y, z 교차, M32). 다른 지도 방식이면 null. */
+    val freeW: FloatArray? = null,
 )
 
 /** [times](오름차순)에서 [t] 이하인 마지막 위치. 없으면 −1. 화면은 이것으로만 찾아 미래 값을 쓰지 않는다. */
@@ -160,23 +162,26 @@ class ReplayResult(
         return if (s.inRegion(p)) SceneEval.classify(s, p, tau) else null
     }
 
-    private val missedCache = java.util.IdentityHashMap<SlowRec, List<Vec3>>()
+    private val missedCache = java.util.IdentityHashMap<SlowRec, List<Pair<Vec3, Boolean>>>()
 
     /** 칸 분류 색으로 그릴 장면인가(정답 장면이 있고 정렬이 있음). 그렇다면 평가 영역 밖 칸은 회색으로 그린다. */
     val classColors: Boolean get() = sceneTruth != null && alignment != null
 
     /**
-     * [rec] 단계의 깊이에서 관측했는데 지도 칸이 덮지 않은 정답 표면(정답 좌표). 정답 장면이 없으면 빈 목록. 바닥은 뺀다: 지금 파이프라인은
-     * 바닥 점을 지도에 넣기 전에 버리므로 바닥은 늘 놓친 표면이라 화면을 덮는다(장면 지표의 완전성 ★도 벽·물체만 본다).
+     * [rec] 단계의 깊이에서 관측했는데 지도 칸이 덮지 않은 정답 표면(정답 좌표)과 그 자리가 지도에서 빈 곳인지(지워진 표면, TRISTATE만, M32).
+     * 정답 장면이 없으면 빈 목록. 점유만 저장하는 지도는 바닥을 뺀다: 바닥 점을 지도에 넣기 전에 버리므로 바닥은 늘 놓친 표면이라 화면을 덮는다.
      */
-    fun missedAt(rec: SlowRec): List<Vec3> = missedCache.getOrPut(rec) {
+    fun missedAt(rec: SlowRec): List<Pair<Vec3, Boolean>> = missedCache.getOrPut(rec) {
         val s = sceneTruth ?: return@getOrPut emptyList()
         val al = alignment ?: return@getOrPut emptyList()
         val d = rec.depth ?: return@getOrPut emptyList()
         val occ = (0 until rec.voxelsW.size / 3).map { Vec3(rec.voxelsW[3 * it], rec.voxelsW[3 * it + 1], rec.voxelsW[3 * it + 2]) }
         val v = config.map.voxelSizeM
-        SceneEval.sample(s, al, v, config.map.radiusM, occ, occ.map { Element.OBJECT }, SceneEval.occupancyOnly(occ, v), d, rec.mapDepthMm ?: d.depthMm, 4)
-            .missed.filter { it.second != Element.FLOOR }.map { it.first }
+        val free = rec.freeW?.let { f -> (0 until f.size / 3).map { Vec3(f[3 * it], f[3 * it + 1], f[3 * it + 2]) } }
+        val stateOf = free?.let { SceneEval.threeState(occ, it, v) } ?: SceneEval.occupancyOnly(occ, v)
+        SceneEval.sample(s, al, v, config.map.radiusM, occ, occ.map { Element.OBJECT }, stateOf, d, rec.mapDepthMm ?: d.depthMm, 4)
+            .missed.filter { free != null || it.second != Element.FLOOR }
+            .map { (p, _) -> p to (stateOf(al.toWorld(p)) == hearspace.core.truth.CellState.FREE) }
     }
 
     /** 장면 ID: 정답 파일의 `scene`, 없으면 폴더 이름 끝(M10 녹화는 폴더 이름이 틀려 정답 파일이 우선). */
@@ -263,7 +268,8 @@ object ReplayRunner {
                 val v = step.occupiedVoxels!!
                 val xyz = FloatArray(v.size * 3)
                 v.forEachIndexed { i, vox -> xyz[3 * i] = vox.centerW.x; xyz[3 * i + 1] = vox.centerW.y; xyz[3 * i + 2] = vox.centerW.z }
-                slow += SlowRec(step.doneNs, step.snapshot, xyz, step.applied, step.stageNs, step.mapUpdate.planes, step.mapUpdate.segments, step.depth, step.mapDepthMm)
+                val free = step.freeCentersW?.let { f -> FloatArray(f.size * 3).also { a -> f.forEachIndexed { i, c -> a[3 * i] = c.x; a[3 * i + 1] = c.y; a[3 * i + 2] = c.z } } }
+                slow += SlowRec(step.doneNs, step.snapshot, xyz, step.applied, step.stageNs, step.mapUpdate.planes, step.mapUpdate.segments, step.depth, step.mapDepthMm, free)
             }
 
             override fun onBlock(tNs: Long, pose: PoseFrame, snapshot: ObstacleSnapshot?, g: GuidanceOutput) {

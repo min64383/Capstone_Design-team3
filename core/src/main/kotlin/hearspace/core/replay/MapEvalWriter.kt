@@ -37,6 +37,9 @@ class MapEvalWriter(
     private val sceneStridePx: Int = 4,
 ) : ReplayListener {
     override val captureVoxels = true
+
+    /** 빈 곳 칸은 장면 지표 표본 단계만(마지막 단계는 표본이 아니면 빈 곳 없이 남아 TRISTATE에서는 빠진다). */
+    override fun captureFree(stepIndex: Int) = stepIndex % everyN == 0
     private val samples = ArrayList<Pair<Long, List<Vec3>>>()
     private var last: Pair<Long, List<Vec3>>? = null
     private val floors = ArrayList<Float?>()
@@ -73,7 +76,8 @@ class MapEvalWriter(
 
     private fun writeScene(truth: GroundTruth, al: Alignment) {
         val scene = SceneEval.scene(truth, sceneHeightM) ?: return
-        val inputs = (sceneSamples + listOfNotNull(lastScene)).distinctBy { it.depth.tCaptureNs }
+        val tristate = config.map.mode == hearspace.core.types.MapMode.TRISTATE
+        val inputs = (sceneSamples + listOfNotNull(lastScene?.takeIf { !tristate || it.freeW != null })).distinctBy { it.depth.tCaptureNs }
         val voxelM = config.map.voxelSizeM
         fun pool(a: Alignment) = SceneEval.Pool(
             inputs.map { s ->

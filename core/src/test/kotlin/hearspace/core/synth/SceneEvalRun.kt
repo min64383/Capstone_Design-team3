@@ -15,7 +15,7 @@ import java.util.concurrent.atomic.AtomicInteger
  * `<out>/<시드>/s<강도>/scene_eval.json`과 장면 요약 `<out>/<시드>/scene.json`을 남긴다. 세션 폴더는 재생 뒤 깊이 영상만 지운다.
  * 안내 기록(`guidance.csv` 등)도 남겨 `scene_eval.py synth`가 `metrics.py`로 마주침 검출(STOP)을 센다(M32).
  *
- *     ./gradlew :core:sceneEval [-Pscenes=200] [-Pseed=1] [-Pstrengths=0,0.5,1,1.5] [-Pout=..] [-PoverridesFile=..] [-PrawEveryN=1]
+ *     ./gradlew :core:sceneEval [-Pscenes=200] [-Pseed=1] [-Pstrengths=0,0.5,1,1.5] [-Pout=..] [-PoverridesFile=..] [-PrawEveryN=1] [-Pthreads=N]
  *
  * `rawEveryN` 3이면 원시 깊이를 새 깊이 3장에 1장만 쓴다(원시 깊이 약 10 Hz 흉내, `depth.source: RAW` 설정과 함께, M32).
  *
@@ -29,11 +29,12 @@ fun main(args: Array<String>) {
     val out = File(opt["out"] ?: "build/scene-eval").absoluteFile
     val overrides = opt["overridesFile"]?.takeIf { it.isNotBlank() }?.let { File(it).readText() } ?: "{}"
     val rawEveryN = opt["rawEveryN"]?.takeIf { it.isNotBlank() }?.toInt() ?: 1
+    val threads = opt["threads"]?.takeIf { it.isNotBlank() }?.toInt() ?: Runtime.getRuntime().availableProcessors()
     val config = ConfigLoader.load(File(System.getProperty("hearspace.defaultConfig")).readText(), overrides)
     val t0 = System.nanoTime()
     val done = AtomicInteger()
     val total = scenes * strengths.size
-    val pool = Executors.newFixedThreadPool(Runtime.getRuntime().availableProcessors())
+    val pool = Executors.newFixedThreadPool(threads)
     for (i in 0 until scenes) {
         val seed = seed0 + i
         pool.submit {

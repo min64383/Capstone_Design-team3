@@ -25,6 +25,7 @@ class ClusterEvalWriter(
     private val align: Alignment?,
 ) : ReplayListener {
     override val captureVoxels get() = inner.captureVoxels
+    override fun captureFree(stepIndex: Int) = inner.captureFree(stepIndex)
 
     private class Step(val tNs: Long, val headW: Vec3, val clusters: List<Pair<FloatArray, ByteArray>>)
 

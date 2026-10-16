@@ -91,13 +91,15 @@ internal object Palette {
         HeightClass.BODY -> Color(60, 200, 255)
         HeightClass.HEAD -> Color(240, 80, 240)
     }
-    /** 칸 분류(M30 그림 2): 맞은 칸 초록, 속 칸 회색, 헛 칸 빨강, 놓친 표면 흰 테두리. */
+    /** 칸 분류(M30 그림 2): 맞은 칸 초록, 속 칸 회색, 헛 칸 빨강, 놓친 표면 흰 테두리(지워진 표면은 자홍). */
     fun voxelClass(c: VoxelClass): Color = when (c) {
         VoxelClass.HIT -> Color(60, 220, 110)
         VoxelClass.INSIDE -> Color(150, 150, 160)
         VoxelClass.FALSE -> Color(255, 60, 60)
     }
     val missed = Color(255, 255, 255)
+    /** 놓친 표면 중 지도에서 빈 곳이 된 것(지워진 표면, TRISTATE, M32): 자홍 테두리. */
+    val erased = Color(255, 0, 255)
     /** 칸 분류 장면에서 평가 영역 밖(높이 상한 위 등) 칸. */
     val outside = Color(90, 90, 100)
     fun heightOf(yM: Float): Color = Color.getHSBColor(0.66f * (1f - (yM / 2f).coerceIn(0f, 1f)), 0.9f, 1f)
@@ -209,9 +211,9 @@ class CameraView(private val model: ViewerModel, private val compare: Boolean = 
                     s.fillRect(u.toInt() - 2, vv.toInt() - 2, 5, 5)
                 }
                 if (al != null) {
-                    s.color = Palette.missed
                     s.stroke = BasicStroke(1f)
-                    for (p in r.missedAt(rec)) {
+                    for ((p, erased) in r.missedAt(rec)) {
+                        s.color = if (erased) Palette.erased else Palette.missed
                         val (u, vv) = px(al.toWorld(p)) ?: continue
                         s.drawRect(u.toInt() - 2, vv.toInt() - 2, 5, 5)
                     }
@@ -374,9 +376,9 @@ class TopView(private val model: ViewerModel, private val compare: Boolean = fal
                 g.fillRect(sx(p.x).toInt() - 1, sy(p.z).toInt() - 1, 3, 3)
             }
             if (model.showVoxels) {
-                g.color = Palette.missed
-                for (p in r.missedAt(slow)) {
+                for ((p, erased) in r.missedAt(slow)) {
                     if (!model.voxelHeight.contains(p.y, r.config.corridor.heightM)) continue
+                    g.color = if (erased) Palette.erased else Palette.missed
                     g.drawRect(sx(p.x).toInt() - 1, sy(p.z).toInt() - 1, 3, 3)
                 }
             }

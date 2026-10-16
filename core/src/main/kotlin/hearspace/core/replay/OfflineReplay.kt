@@ -48,6 +48,12 @@ interface ReplayListener {
     /** true면 느린 경로마다 점유 복셀을 복사해 [SlowStep.occupiedVoxels]로 준다(GUI용, 비용이 든다). */
     val captureVoxels: Boolean get() = false
 
+    /**
+     * TRISTATE 지도에서 느린 경로 [stepIndex]번째(0부터, 결과가 나오는 순서와 같음)의 빈 곳 칸을 복사해 [SlowStep.freeCentersW]로 줄지.
+     * 빈 곳 칸은 점유 칸보다 훨씬 많아(수만~수십만) 필요한 단계만 고른다(M32: 장면 지표는 몇 단계마다 한 번만 쓴다). 기본은 [captureVoxels].
+     */
+    fun captureFree(stepIndex: Int): Boolean = captureVoxels
+
     /** 느린 경로 결과가 나온 순서대로. */
     fun onSlowStep(step: SlowStep)
 
@@ -115,6 +121,7 @@ class OfflineReplay(
         // M13.4: 느린 경로 주기 상한(앱 LivePipeline과 같은 규칙: 시작 간격이 1/maxRateHz 이상)
         val minIntervalNs = if (config.slowPath.maxRateHz > 0f) (1e9 / config.slowPath.maxRateHz).toLong() else 0L
         var lastStartNs = Long.MIN_VALUE
+        var startedSteps = 0
 
         fun startIfIdle(atNs: Long) {
             if (job != null) return
@@ -128,9 +135,10 @@ class OfflineReplay(
             val h = heading ?: return // 앱과 같이: 진행 방향을 모르면 그 깊이는 버린다
             if (d.tCaptureNs < resetAfterNs) return
             lastStartNs = atNs
+            val stepIndex = startedSteps++
             val s = slow.process(d, h)
             val voxels = if (listener.captureVoxels) slow.map.voxels.occupied() else null
-            val free = if (listener.captureVoxels && config.map.mode == hearspace.core.types.MapMode.TRISTATE) slow.map.voxels.freeCenters() else null
+            val free = if (config.map.mode == hearspace.core.types.MapMode.TRISTATE && listener.captureFree(stepIndex)) slow.map.voxels.freeCenters() else null
             job = Job(
                 d, atNs, atNs + slowPathNs(d), s, resetAfterNs, slow.lastMapUpdate!!, slow.lastClusterDebug, slow.lastStageNs, voxels,
                 slow.lastClusters, slow.lastUserPosW, if (substitution?.map == true) null else slow.map.lastDepthMm, free,
