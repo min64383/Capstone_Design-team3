@@ -464,6 +464,8 @@ def check_depth_absolute():
                     if o["name"] == "wall_end":
                         o["min"][2] += 0.05
                         o["max"][2] += 0.05
+                j["obstacles"].append({"name": "ceiling_beam", "type": "FLOOR", "kind": "structure",  # 바닥에 닿지 않는 보는 끝 벽이 아니다
+                                       "min": [-0.62, 2.0, 3.9], "max": [0.62, 2.5, 4.3]})
                 f.write_text(json.dumps(j), encoding="utf-8")
             cfg = load_cfg(s)
             al = fit(load_frames(s), cfg["align"], cfg["head"]["offsetFromCameraM"], analyze(s)["floor"]["y"])

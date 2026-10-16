@@ -138,6 +138,8 @@ def targets(truth: list[dict]) -> list[tuple[str, str, np.ndarray, np.ndarray]]:
         ext = mx - mn
         if o["kind"] == "object":
             out.append((o["name"], "front", mn, mx))
+        elif mn[1] > 0.0:  # 바닥에서 시작하지 않는 구조물(천장·보, M31)은 잴 벽이 아니다
+            continue
         elif ext[2] < 0.5 <= ext[0]:
             out.append((o["name"], "endwall", mn, mx))
         elif ext[0] < 0.5 <= ext[2]:
