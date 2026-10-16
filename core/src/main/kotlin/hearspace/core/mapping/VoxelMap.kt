@@ -35,9 +35,10 @@ data class VoxelView(
 
 /**
  * 칸이 깊이 한 장에서 어떻게 보이는가(M20 대표점 진단). HIT = 이번 장에 점이 들어옴, FREE = 칸 뒤가 관측됨(빈 공간, 감쇠 대상),
- * OCCLUDED = 칸 자리 또는 그 앞이 관측됨, NO_DEPTH = 투영 화소 깊이 무효, OUT_OF_VIEW = 카메라 뒤·영상 밖.
+ * OCCLUDED = 칸 자리가 관측됨(여유 안), NO_DEPTH = 투영 화소 깊이 무효, OUT_OF_VIEW = 카메라 뒤·영상 밖,
+ * BEHIND = 칸보다 여유 넘게 앞에 면이 관측됨(앞면 뒤, M24: `map.decayBehind`면 감쇠 대상).
  */
-enum class CellView { HIT, FREE, OCCLUDED, NO_DEPTH, OUT_OF_VIEW }
+enum class CellView { HIT, FREE, OCCLUDED, NO_DEPTH, OUT_OF_VIEW, BEHIND }
 
 /** 삭제 사유별 개수(로그·테스트용). */
 data class PruneCounts(val passed: Int, val unseen: Int, val outOfRadius: Int)
@@ -46,7 +47,9 @@ data class PruneCounts(val passed: Int, val unseen: Int, val outOfRadius: Int)
  * 월드 좌표 희소 해시 복셀 점유 맵 (§7.3). 복셀 크기 `map.voxelSizeM`.
  * - 관측: 깊이 한 장에서 비바닥 점이 들어간 복셀은 hits += 1, score += hitGain(최대 1). 같은 장 안에서는 한 번만.
  * - 빈 공간 감쇠: **시야 안에서** 복셀 중심을 깊이 이미지에 투영했을 때 유효 깊이가 복셀보다 `freeMarginM` 이상 멀면
- *   score −= decayPerObservation. 시야 밖·깊이 무효·가려진(깊이가 더 가까운) 복셀은 감쇠하지 않는다(§2.2-6).
+ *   score −= decayPerObservation. 시야 밖·깊이 무효 복셀은 감쇠하지 않는다(§2.2-6). 칸 자리(여유 안)가 관측된 복셀도 그대로다.
+ *   칸보다 여유 넘게 앞에 면이 관측된 복셀(앞면 뒤)은 `decayBehind`면 같은 양만큼 감쇠한다(M24: 시선이 칸 앞에서 면에 닿았으므로
+ *   시야 안 관측으로 본다. 끄면 그대로).
  * - 삭제: score ≤ 0, 또는 [prune]의 세 조건(지나감·오래 안 보임·반경 밖)뿐이다.
  * - `map.hitWeighting` DISTANCE(M13.5): 한 장의 표 = 거리 가중치([weight]). 점유는 표의 가중합 ≥ `minHits`, score 증가도 같은
  *   가중치를 곱한다. 먼 관측(평활 깊이의 바닥 들림·꼬리)은 문턱까지 더 많은 장이 필요하고 score가 낮아, 다가가며 얻는 가까운
@@ -55,7 +58,7 @@ data class PruneCounts(val passed: Int, val unseen: Int, val outOfRadius: Int)
  * `map.mode` LOG_ODDS(M13.2, OctoMap 방식): 칸마다 로그 오즈. 점이 들면 + `logHit` × 가중치, 시야 안에서 칸을 지나 더 멀리
  * 보이면(여유 = max(복셀, `freeMarginRatio` × 칸 깊이)) + `logMiss` × 가중치, [`logMin`, `logMax`]로 묶고, `logOccupied` 이상이면
  * 점유, 하한에 닿으면 지운다. 가중치 = min(1, (`weightRefM` / 거리)²): 먼 관측일수록 약해, 다가가며 얻는 가까운 관측이 멀리서
- * 생긴 칸(끌림·잡음)을 덮어쓴다. 시야 밖·깊이 무효·가려진 칸은 그대로다(§2.2-6). 지나감·오래 안 보임·반경 밖 삭제는 같다.
+ * 생긴 칸(끌림·잡음)을 덮어쓴다. 시야 밖·깊이 무효·칸 자리 관측 칸은 그대로고, 앞면 뒤 칸은 `decayBehind`면 빈 칸처럼 갱신한다(§2.2-6). 지나감·오래 안 보임·반경 밖 삭제는 같다.
  *
  * `map.mode` TSDF(M13.6, KinectFusion·Voxblox 방식): 칸마다 부호 있는 거리 sd(m, + = 카메라 쪽 빈 곳)와 가중치. 점이 들면 그 시선을
  * 따라 점 앞뒤 잘림 폭 τ 안의 칸을 만들고(바닥 위만), 매 장 시야 안의 모든 칸을 깊이 영상에 투영해 관측 sd = 측정 깊이 − 칸 깊이를
@@ -278,7 +281,8 @@ class VoxelMap(private val cfg: MapConfig) {
             val (key, v) = it.next()
             if (v.lastHitFrame == frame) continue
             val pCv = camFromWorld.transformPoint(center(key))
-            if (sight(pCv, depthMm, k) != CellView.FREE) continue // 시야 밖·관측 없음·칸 자리 또는 그 앞이 관측됨(가려짐 포함)
+            val seen = sight(pCv, depthMm, k)
+            if (seen != CellView.FREE && !(seen == CellView.BEHIND && cfg.decayBehind)) continue // 시야 밖·관측 없음·칸 자리 관측
             if (logOdds) {
                 v.logOdds = max(cfg.logMin, v.logOdds + cfg.logMiss * weight(pCv.z))
                 decayed++
@@ -309,7 +313,12 @@ class VoxelMap(private val cfg: MapConfig) {
         val mm = depthMm[w * k.width + u].toInt() and 0xFFFF
         if (mm == 0) return CellView.NO_DEPTH
         val margin = if (logOdds) max(cfg.voxelSizeM, cfg.freeMarginRatio * pCv.z) else cfg.freeMarginM
-        return if (mm / 1000f < pCv.z + margin) CellView.OCCLUDED else CellView.FREE
+        val d = mm / 1000f
+        return when {
+            d < pCv.z - margin -> CellView.BEHIND
+            d < pCv.z + margin -> CellView.OCCLUDED
+            else -> CellView.FREE
+        }
     }
 
     /**

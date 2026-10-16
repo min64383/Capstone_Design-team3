@@ -63,7 +63,9 @@ def main(dirs: list[Path]) -> str:
                           ("갈라짐(단계 %)", "splitFraction", lambda v: f"{100 * v:.1f}"),
                           ("놓침(단계 %)", "missFraction", lambda v: f"{100 * v:.1f}"),
                           ("밖 칸 중 이번 장 관측(HIT) %", "outsideState", lambda v: f"{100 * v['HIT']:.0f}" if v else "–"),
-                          ("밖 칸 중 가려짐(OCCLUDED) %", "outsideState", lambda v: f"{100 * v['OCCLUDED']:.0f}" if v else "–"),
+                          # M24 전 재생에는 BEHIND가 없고 OCCLUDED가 앞면 뒤까지 포함한다
+                          ("밖 칸 중 칸 자리 관측(OCCLUDED) %", "outsideState", lambda v: f"{100 * v['OCCLUDED']:.0f}" if v else "–"),
+                          ("밖 칸 중 앞면 뒤(BEHIND) %", "outsideState", lambda v: f"{100 * v['BEHIND']:.0f}" if v and "BEHIND" in v else "–"),
                           ("밖 칸 중 시야 밖 %", "outsideState", lambda v: f"{100 * v['OUT_OF_VIEW']:.0f}" if v else "–")]:
         rows = []
         for s in sessions:

@@ -213,7 +213,7 @@ class SyntheticSceneTest {
     @Test
     fun `all appendix B scenes generate`() {
         val ids = Scenes.ALL.map { it.id }
-        assertEquals((1..14).map { "SC-%02d".format(it) } + listOf("SC-21", "SC-22", "SC-23", "SC-25", "SC-26"), ids)
+        assertEquals((1..14).map { "SC-%02d".format(it) } + listOf("SC-21", "SC-22", "SC-23", "SC-25", "SC-26", "SC-27"), ids)
         for (s in Scenes.ALL) assertTrue(s.generate().frames.any { it.depth != null }, s.id)
     }
 }

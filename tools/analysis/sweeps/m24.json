@@ -1,0 +1,11 @@
+{
+  "note": "M24 가려진 칸 정리(IMPROVE_SPEC v0.3.24). CUR = 지금 기본값, G = RGB 보정(막 밝기 가중 중앙값), O = 앞면 뒤 감쇠(map.decayBehind), GO = G + O, EO = 경계 판정(막 지움) + O, D = 정답 깊이(상한). 판정은 cluster_eval.csv(shape_judge.py). 모두 기준 재생의 align.json을 같이 쓰고, RGB는 tools/analysis/mp4_rgb.py로 먼저 꺼낸다",
+  "variants": [
+    { "name": "CUR", "overrides": {}, "replay": { "alignFrom": "data/sweeps/m13_defaults/default/{session}/align.json" } },
+    { "name": "G", "overrides": { "frontend": { "rgbGuide": "WEIGHTED_MEDIAN" } }, "replay": { "alignFrom": "data/sweeps/m13_defaults/default/{session}/align.json", "rgbFrom": "mp4" } },
+    { "name": "O", "overrides": { "map": { "decayBehind": true } }, "replay": { "alignFrom": "data/sweeps/m13_defaults/default/{session}/align.json" } },
+    { "name": "GO", "overrides": { "frontend": { "rgbGuide": "WEIGHTED_MEDIAN" }, "map": { "decayBehind": true } }, "replay": { "alignFrom": "data/sweeps/m13_defaults/default/{session}/align.json", "rgbFrom": "mp4" } },
+    { "name": "EO", "overrides": { "frontend": { "enabled": true }, "map": { "decayBehind": true } }, "replay": { "alignFrom": "data/sweeps/m13_defaults/default/{session}/align.json" } },
+    { "name": "D", "overrides": {}, "replay": { "substitute": "depth", "alignFrom": "data/sweeps/m13_defaults/default/{session}/align.json" } }
+  ]
+}

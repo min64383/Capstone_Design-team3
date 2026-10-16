@@ -198,6 +198,11 @@ data class MapConfig(
     val instances: Boolean,
     /** HITS 모드에서 현재 점유 증거(hit-equivalent)를 빈 공간 관측 한 번에 얼마나 깎을지. 0이면 기존 누적 hits 동작. */
     val freeEvidenceDecay: Float,
+    /**
+     * 앞면 뒤 감쇠(M24): 이번 장에 맞지 않았고 투영 화소의 깊이가 칸보다 빈 공간 여유보다 더 가까운 칸(그 시선이 칸 앞에서 면에 닿음)도
+     * 빈 공간과 같은 양만큼 감쇠한다. 막·당김 점이 앞면 뒤에 만든 칸은 앞면이 보이는 동안 지워지지 않았다(M23 결과, M24 설계). false = 기준선.
+     */
+    val decayBehind: Boolean,
 )
 
 /** 바닥 추정 설정. */
