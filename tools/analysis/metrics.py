@@ -514,7 +514,9 @@ def block_rows(session: Path, run_dir: Path, cfg: dict, frames: pd.DataFrame, g:
         x, y, z = to_truth(al, r[rep_cols[0]], r[rep_cols[1]], r[rep_cols[2]])
         best, bd = None, MATCH_MARGIN_M
         for i, ob in enumerate(truth):
-            (x0, _, z0), (x1, _, z1) = ob["min"], ob["max"]
+            (x0, y0, z0), (x1, _, z1) = ob["min"], ob["max"]
+            if y0 >= cfg["corridor"]["heightM"]:  # 통로 높이 위(천장·보, M31)는 truth_nearest처럼 뺀다
+                continue
             d = np.hypot(max(x0 - x, 0, x - x1), max(z0 - z, 0, z - z1))
             if d <= bd:
                 best, bd = i, d
