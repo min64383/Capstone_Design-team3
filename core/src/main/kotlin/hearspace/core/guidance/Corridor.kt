@@ -27,12 +27,12 @@ class Corridor(val originW: Vec3, headingW: Vec3, val floorY: Float, private val
         return Vec3(h.x, yW, h.z)
     }
 
-    /** 통로 안인지. */
-    fun contains(pW: Vec3): Boolean {
+    /** 통로 안인지. [halfWidthM]은 좌우 반폭(가장자리 구조물을 통로 밖까지 잴 때 넓힘, M22). */
+    fun contains(pW: Vec3, halfWidthM: Float = cfg.widthM / 2): Boolean {
         val along = alongM(pW)
         val h = pW.y - floorY
         return along >= -cfg.behindM && along <= cfg.lengthM &&
-            abs(lateralM(pW)) <= cfg.widthM / 2 &&
+            abs(lateralM(pW)) <= halfWidthM &&
             h >= 0f && h <= cfg.heightM
     }
 }

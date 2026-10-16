@@ -38,7 +38,7 @@ class SlowPath(
     /** 바닥·복셀 맵. */
     val map = LocalMap(config)
 
-    private val tracker = Tracker(config.track, config.repPoint.strategy)
+    private val tracker = Tracker(config.track, config.repPoint.strategy, if (config.track.reidLost) (config.map.maxUnseenS * 1e9).toLong() else 0L)
 
     /** 마지막 맵 갱신 결과(`slow_path.csv` 기록용). */
     var lastMapUpdate: MapUpdate? = null
@@ -73,7 +73,7 @@ class SlowPath(
         if (floorY == null) {
             lastClusterDebug = emptyList()
             lastClusters = emptyList()
-            val obstacles = tracker.update(emptyList())
+            val obstacles = tracker.update(emptyList(), depth.tCaptureNs)
             lastStageNs = StageTimes(t1 - t0, 0, nanoTime() - t1)
             return ObstacleSnapshot(depth.tCaptureNs, obstacles, null, u.mapHealth)
         }
@@ -82,7 +82,7 @@ class SlowPath(
         val camFromWorld = depth.worldFromCam.rigidInverse()
         val occupied = fm?.voxels?.map { it.copy(lastSeenNs = depth.tCaptureNs) } ?: map.voxels.occupied()
         val inCorridor = occupied.filter { corridor.contains(it.centerW) }
-        val voxels = withoutEdgeStructures(inCorridor, corridor)
+        val voxels = withoutEdgeStructures(occupied, inCorridor, corridor)
         // C2: 남은 칸을 벽 칸과 나머지로 나눠 따로 묶는다(벽도 장애물로 남는다). 끄면 한 묶음(기준선). 가장자리 구조물 규칙을 먼저 전체에
         // 적용해야 한다: 벽 칸을 먼저 떼면 라벨 없는 옆 벽 밑동 조각이 짧은 덩어리로 남아 오경보가 됐다(S02 130646 0.11 → 0.22)
         val groups = if (config.cluster.separateWalls) {
@@ -176,7 +176,7 @@ class SlowPath(
         lastClusterDebug = debug
         lastClusters = clusters
         val t2 = nanoTime()
-        val obstacles = tracker.update(detections)
+        val obstacles = tracker.update(detections, depth.tCaptureNs)
         lastStageNs = StageTimes(t1 - t0, t2 - t1, nanoTime() - t2)
         return ObstacleSnapshot(depth.tCaptureNs, obstacles, floorY, u.mapHealth)
     }
@@ -187,14 +187,30 @@ class SlowPath(
      * 좁은 복도에서 사용자가 조금만 치우쳐도 옆 벽 한 줄이 통로 안에 들어와 계속 경고하던 문제(M5 실측) 대응.
      * 벽에 붙은 물체는 가장자리 구역 안 부분만 벽과 함께 빠지고 안쪽으로 나온 부분은 남는다.
      * 실내 벽에 한정하지 않는 규칙이다(실외 확장, §15).
+     *
+     * `corridor.edgeOutsideM` > 0이면(M22 W) 통로 밖 그 폭까지의 칸([occupied])과 함께 한 번 더 묶어, 길게 이어진 묶음의 칸 중 통로 경계에서
+     * 한 칸 안(|좌우| > 반폭 − 칸 크기)의 통로 안 칸을 더 뺀다. 통로가 벽면을 가로지르면 경계 안 몇 칸만 짧은 조각으로 남아 위 규칙에 걸리지 않았다.
+     * 한 칸으로 좁힌 것은 벽에 붙은 물체·벽과 이어진 문의 가장자리 구역까지 빼면 확인용 세션에서 경고가 늦어졌기 때문이다(M22 설계 2.6절).
      */
-    private fun withoutEdgeStructures(voxels: List<VoxelView>, corridor: Corridor): List<VoxelView> {
+    private fun withoutEdgeStructures(occupied: List<VoxelView>, voxels: List<VoxelView>, corridor: Corridor): List<VoxelView> {
         val edge = voxels.filter { kotlin.math.abs(corridor.lateralM(it.centerW)) >= config.corridor.edgeInnerM }
         if (edge.isEmpty()) return voxels
         val removed = HashSet<VoxelView>()
         for (idx in Cluster.dbscanXZ(edge.map { it.centerW }, config.cluster.epsM, config.cluster.minSamples)) {
             val along = idx.map { corridor.alongM(edge[it].centerW) }
             if (along.max() - along.min() >= config.corridor.edgeMinLengthM) idx.forEach { removed += edge[it] }
+        }
+        if (config.corridor.edgeOutsideM > 0f) {
+            val half = config.corridor.widthM / 2
+            val band = occupied.filter {
+                corridor.contains(it.centerW, half + config.corridor.edgeOutsideM) &&
+                    kotlin.math.abs(corridor.lateralM(it.centerW)) >= config.corridor.edgeInnerM
+            }
+            for (idx in Cluster.dbscanXZ(band.map { it.centerW }, config.cluster.epsM, config.cluster.minSamples)) {
+                val along = idx.map { corridor.alongM(band[it].centerW) }
+                if (along.max() - along.min() < config.corridor.edgeMinLengthM) continue
+                for (i in idx) if (kotlin.math.abs(corridor.lateralM(band[i].centerW)) > half - config.map.voxelSizeM) removed += band[i]
+            }
         }
         return if (removed.isEmpty()) voxels else voxels.filter { it !in removed }
     }

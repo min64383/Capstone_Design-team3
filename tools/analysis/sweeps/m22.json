@@ -1,0 +1,11 @@
+{
+  "note": "M22 정답 군집과 안정 추적(IMPROVE_SPEC v0.3.25). CUR = 지금 기본값, GO = RGB 보정 + 앞면 뒤 감쇠(M24), W = 가장자리 구조물 길이를 통로 밖 corridor.edgeOutsideM(= cluster.epsM 0.15)까지 재고 경계 한 칸만 뺌, R = 놓친 track을 map.maxUnseenS 동안 기억해 같은 id(track.reidLost). 정답 깊이 D는 data/sweeps/m23/D. 판정은 shape_judge.py(clusterTrack 열). 모두 기준 재생의 align.json을 같이 쓰고, RGB는 tools/analysis/mp4_rgb.py로 먼저 꺼낸다",
+  "variants": [
+    { "name": "CUR", "overrides": {}, "replay": { "alignFrom": "data/sweeps/m13_defaults/default/{session}/align.json" } },
+    { "name": "CW", "overrides": { "corridor": { "edgeOutsideM": 0.15 } }, "replay": { "alignFrom": "data/sweeps/m13_defaults/default/{session}/align.json" } },
+    { "name": "CWR", "overrides": { "corridor": { "edgeOutsideM": 0.15 }, "track": { "reidLost": true } }, "replay": { "alignFrom": "data/sweeps/m13_defaults/default/{session}/align.json" } },
+    { "name": "GO", "overrides": { "frontend": { "rgbGuide": "WEIGHTED_MEDIAN" }, "map": { "decayBehind": true } }, "replay": { "alignFrom": "data/sweeps/m13_defaults/default/{session}/align.json", "rgbFrom": "mp4" } },
+    { "name": "GW", "overrides": { "frontend": { "rgbGuide": "WEIGHTED_MEDIAN" }, "map": { "decayBehind": true }, "corridor": { "edgeOutsideM": 0.15 } }, "replay": { "alignFrom": "data/sweeps/m13_defaults/default/{session}/align.json", "rgbFrom": "mp4" } },
+    { "name": "GWR", "overrides": { "frontend": { "rgbGuide": "WEIGHTED_MEDIAN" }, "map": { "decayBehind": true }, "corridor": { "edgeOutsideM": 0.15 }, "track": { "reidLost": true } }, "replay": { "alignFrom": "data/sweeps/m13_defaults/default/{session}/align.json", "rgbFrom": "mp4" } }
+  ]
+}

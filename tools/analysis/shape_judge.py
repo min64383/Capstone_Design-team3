@@ -16,6 +16,7 @@ from report import fmt, table
 from scorecard import CONFIG, FAIL, judge, role_of
 
 BACK_M, FIT, SPLIT, LATE_STOP_M = 0.10, 0.5, 0.05, 0.1
+JUMP, OTHER = 0.014, 0.05  # 흔들림 문턱(정답 깊이 상한 수준, M22 설계 표 1), 음원이 다른 것인 단계 문턱(M22 표 9)
 STANDING, LYING = "suitcase", "suitcase_lying"
 
 
@@ -29,6 +30,19 @@ def carrier(m: dict) -> tuple[str, dict] | None:
         if name in ce:
             return name, ce[name]
     return None
+
+
+def track_summary(name: str, runs: dict[str, dict]) -> list:
+    """군집·추적·음원(M22, `clusterTrack`): 캐리어 세션의 근처 다른 출력 합, track id 1개·바뀜 0 세션, 흔들림 ≤ [JUMP] 세션,
+    물체 세션 중 음원이 다른 것인 단계 > [OTHER]인 세션. 옛 재생(`mainCluster` 없음)은 –."""
+    ct = [(n, c) for m in runs.values() for n, c in ((m.get("clusterTrack") or {}).items())]
+    car = [c for n, c in ct if n in (STANDING, LYING)]
+    if not ct:
+        return [name, "–", "–", "–", "–"]
+    return [name, str(sum(c["nearbyOtherIds"] for c in car)),
+            f"{sum(c['trackIds'] == 1 and c['trackSwitches'] == 0 for c in car)}/{len(car)}",
+            f"{sum(c['jumpFraction'] is not None and c['jumpFraction'] <= JUMP for c in car)}/{len(car)}",
+            f"{sum((c['sourceOtherFraction'] or 0) > OTHER for _, c in ct)}/{len(ct)}"]
 
 
 def summary(name: str, runs: dict[str, dict], base: dict[str, dict], cfg: dict) -> list:
@@ -56,7 +70,9 @@ def main(dirs: list[Path]) -> str:
     base = runs[dirs[0].name]
     out = ["### 요약", "", table(["변형", f"뒤 늘어남 ≤ {BACK_M} m", f"크기 맞음 ≥ {FIT:.0%}", f"갈라짐 > {SPLIT:.0%}", "STOP 누락",
                                     f"첫 STOP {LATE_STOP_M} m 넘게 늦음", "확인용 불합격 수", "지도 단계 p50 ms(세션 중앙)"],
-                                   [summary(v, r, base, cfg) for v, r in runs.items()]), ""]
+                                   [summary(v, r, base, cfg) for v, r in runs.items()]), "",
+           "### 군집·추적·음원(M22)", "", table(["변형", "근처 다른 출력(캐리어 합)", "track id 1개·바뀜 0", f"흔들림 ≤ {JUMP:.1%}",
+                                              f"음원 다른 것 > {OTHER:.0%}(물체)"], [track_summary(v, r) for v, r in runs.items()]), ""]
     sessions = sorted({s for r in runs.values() for s in r if carrier(r[s])}, key=lambda s: (base.get(s, {}).get("scene", ""), s))
     for title, key, f in [("뒤 늘어남 중앙(m)", "backP50M", fmt), ("옆 넘침 중앙(m)", "sideP50M", fmt),
                           ("크기 맞음(단계 %)", "fitFraction", lambda v: f"{100 * v:.0f}"),

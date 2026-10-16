@@ -24,6 +24,35 @@ def run(name):
     return compute(ROOT / name / "session", ROOT / name / "run")
 
 
+def check_cluster_track():
+    """군집·추적·음원 지표(M22): 주 군집 track id·바뀜·군집 없음, 흔들림, 근처 다른 출력, 음원 맞음/다른 것/없음."""
+    from metrics import cluster_track
+    with tempfile.TemporaryDirectory() as d:
+        d = Path(d)
+        al = {"origin": [0.0, 0.0], "dir": [0.0, 1.0], "floorY": 0.0}  # 정답 x = −월드 x, 정답 z = 월드 z
+        truth = [{"name": "box", "kind": "object", "min": [-0.2, 0.0, 2.0], "max": [0.2, 0.6, 2.3]}]
+        ts = [1, 2, 3, 4, 5, 6]
+        back = [0.0, 0.0, 0.2, 0.2, 0.2, None]  # 3단계에서 뒤로 0.2 m 늘어남(흔들림 1/4), 6단계는 주 군집 없음
+        pd.DataFrame({"tCaptureNs": ts, "name": "box", "alongM": 1.0, "nAttached": [1, 1, 1, 1, 1, 0],
+                      "frontM": [0.0] * 5 + [None], "backM": back, "mainCluster": [0] * 5 + [-1]}).to_csv(d / "cluster_eval.csv", index=False)
+        box = {"aabbMinX": -0.2, "aabbMinZ": 2.0, "aabbMaxX": 0.2, "aabbMaxZ": 2.3}
+        pd.DataFrame([{"tCaptureNs": t, "clusterIndex": 0, **box} for t in ts[:5]]).to_csv(d / "cluster_debug.csv", index=False)
+        rows = []
+        for t in ts[:5]:
+            rows.append({"tCaptureNs": t, "id": 1 if t <= 3 else 2, "repCORRIDOR_BAND_x": 0.0, "repCORRIDOR_BAND_y": 0.3, "repCORRIDOR_BAND_z": 2.0, **box})
+            rows.append({"tCaptureNs": t, "id": 9, "repCORRIDOR_BAND_x": -0.45, "repCORRIDOR_BAND_y": 0.3, "repCORRIDOR_BAND_z": 2.1,  # 정답 0.25 m 옆 벽 조각
+                         "aabbMinX": -0.47, "aabbMinZ": 2.0, "aabbMaxX": -0.43, "aabbMaxZ": 2.2})
+            rows.append({"tCaptureNs": t, "id": 7, "repCORRIDOR_BAND_x": -1.0, "repCORRIDOR_BAND_y": 0.3, "repCORRIDOR_BAND_z": 1.5,  # 멀리 떨어진 출력
+                         "aabbMinX": -1.1, "aabbMinZ": 1.4, "aabbMaxX": -0.9, "aabbMaxZ": 1.6})
+        pd.DataFrame(rows).to_csv(d / "obstacles.csv", index=False)
+        pd.DataFrame({"snapshotTNs": ts, "obstacleId": [1, 1, 7, 2, 2, None]}).to_csv(d / "guidance.csv", index=False)
+        m = cluster_track(d, truth, al, {"repPoint": {"strategy": "CORRIDOR_BAND"}})["box"]
+        assert m["trackIds"] == 2 and m["trackSwitches"] == 1 and abs(m["noClusterFraction"] - 1 / 6) < 1e-9, m
+        assert abs(m["jumpFraction"] - 0.25) < 1e-9 and m["nearbyOtherIds"] == 1, m
+        assert abs(m["sourceOnFraction"] - 4 / 6) < 1e-9 and abs(m["sourceOtherFraction"] - 1 / 6) < 1e-9, m
+        assert abs(m["sourceNoneFraction"] - 1 / 6) < 1e-9 and m["sourceIds"] == 2, m
+
+
 def check_run_only():
     """세션 없는 실행 로그(사용자 모드 T01): 2분, 둘째 분만 UNKNOWN 절반·발열 2 (M10)."""
     with tempfile.TemporaryDirectory() as d:
@@ -358,6 +387,7 @@ def main():
     check_heading_floor_error()
     check_scorecard()
     check_front_diag()
+    check_cluster_track()
     print("analysis self-check ok")
 
 

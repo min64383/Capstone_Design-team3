@@ -37,6 +37,8 @@ object ClusterEval {
         val topM: Float,
         val purity: Float,
         val outside: IntArray,
+        /** 주 군집의 번호(그 단계 군집 목록 순서 = `cluster_debug.csv`의 clusterIndex), 없으면 −1(M22: 주 군집 → 출력 track). */
+        val mainIndex: Int = -1,
     ) {
         /** 다섯 면이 모두 ±[TOL_M] 안. */
         val fits get() = nAttached > 0 && listOf(frontM, backM, leftM, rightM, topM).all { kotlin.math.abs(it) <= TOL_M }
@@ -68,15 +70,16 @@ object ClusterEval {
                 topM = main.centers.maxOf { it.y } + half - hi.y,
                 purity = nIn.toFloat() / main.centers.size,
                 outside = outside,
+                mainIndex = clusters.indexOf(main),
             )
         }
 
     val CSV_HEADER = "tCaptureNs,name,alongM,nAttached,nVoxels,frontM,backM,leftM,rightM,topM,fits,purity," +
-        CellView.entries.joinToString(",") { "out_${it.name}" }
+        CellView.entries.joinToString(",") { "out_${it.name}" } + ",mainCluster"
 
     fun csvLine(tNs: Long, r: Row): String {
         fun f(x: Float) = if (x.isNaN()) "" else "%.3f".format(java.util.Locale.ROOT, x)
         return listOf(tNs, r.name, f(r.alongM), r.nAttached, r.nVoxels, f(r.frontM), f(r.backM), f(r.leftM), f(r.rightM), f(r.topM), r.fits, f(r.purity))
-            .joinToString(",") + "," + r.outside.joinToString(",")
+            .joinToString(",") + "," + r.outside.joinToString(",") + "," + r.mainIndex
     }
 }

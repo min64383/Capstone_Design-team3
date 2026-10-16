@@ -161,7 +161,7 @@ class TruthTest {
 
     @Test
     fun `corridor-nearest truth point follows metrics truth_nearest`() {
-        val c = hearspace.core.types.CorridorConfig(widthM = 0.8f, heightM = 2.0f, lengthM = 3.5f, behindM = 0.2f, edgeInnerM = 0.25f, edgeMinLengthM = 0.8f)
+        val c = hearspace.core.types.CorridorConfig(widthM = 0.8f, heightM = 2.0f, lengthM = 3.5f, behindM = 0.2f, edgeInnerM = 0.25f, edgeMinLengthM = 0.8f, edgeOutsideM = 0f)
         fun box(x0: Float, x1: Float, z0: Float, z1: Float, y0: Float = 0f) =
             TruthObstacle("b", HeightClass.FLOOR, TruthKind.OBJECT, Vec3(x0, y0, z0), Vec3(x1, y0 + 0.5f, z1), null)
         val ahead = box(-0.2f, 0.2f, 2.0f, 2.3f).nearestInCorridor(0f, 0f, c)!!

@@ -51,6 +51,7 @@ object ConfigLoader {
                     behindM = nonNegative("behindM"),
                     edgeInnerM = nonNegative("edgeInnerM"),
                     edgeMinLengthM = positive("edgeMinLengthM"),
+                    edgeOutsideM = nonNegative("edgeOutsideM"),
                 )
             },
             depth = root.section("depth") {
@@ -194,6 +195,7 @@ object ConfigLoader {
                     minConfirmConfidence = unit("minConfirmConfidence"),
                     maxConfirmCentroidJumpM = positive("maxConfirmCentroidJumpM"),
                     matchByOverlap = boolean("matchByOverlap"),
+                    reidLost = boolean("reidLost"),
                 )
             },
             repPoint = root.section("repPoint") {

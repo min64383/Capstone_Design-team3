@@ -38,8 +38,12 @@ data class Detection(
  *
  * missed 상태의 track은 id 복구를 위해 내부에만 유지하고 Obstacle로 출력하지 않는다.
  * 따라서 오래된 위치가 안내에 재사용되지는 않는다.
+ *
+ * [TrackConfig.reidLost]면(M22 R) 출력된 적 있는 track이 지워질 때 id·마지막 상자·시각을 [reidMemoryNs] 동안 기억하고, 새 track의 상자가
+ * 그 상자와 과반 겹치면 그 id를 쓴다(가장 최근에 놓친 것 먼저). 잇는 것은 id뿐이고 위치·평활·확인 횟수는 새로 시작한다.
+ * [reidMemoryNs]는 `map.maxUnseenS`(지도가 그 물체의 칸을 잊는 시간)다.
  */
-class Tracker(private val cfg: TrackConfig, private val strategy: RepStrategy) {
+class Tracker(private val cfg: TrackConfig, private val strategy: RepStrategy, private val reidMemoryNs: Long = 0L) {
 
     private class Track(
         val id: Int,
@@ -58,13 +62,18 @@ class Tracker(private val cfg: TrackConfig, private val strategy: RepStrategy) {
         var aabbMax: Vec3 = Vec3.ZERO,
     )
 
+    /** 지워진 track(M22 R): id, 마지막 상자, 지워진 시각. */
+    private class Lost(val id: Int, val aabbMin: Vec3, val aabbMax: Vec3, val tNs: Long)
+
     private var tracks = listOf<Track>()
+    private val lost = ArrayList<Lost>()
     private var nextId = 1
     /** 물체 번호(C3b) → 마지막으로 그 번호였던 track id. 놓쳤다가 같은 번호로 다시 나타나면 그 id를 다시 쓴다(재식별). */
     private val idOfInstance = HashMap<Int, Int>()
 
-    /** 이번 군집들로 물체 목록을 갱신한다. */
-    fun update(detections: List<Detection>): List<Obstacle> {
+    /** 이번 군집들로 물체 목록을 갱신한다. [tNs]는 이번 깊이의 시각(놓친 track 기억, M22 R). */
+    fun update(detections: List<Detection>, tNs: Long = detections.maxOfOrNull { it.lastSeenNs } ?: 0L): List<Obstacle> {
+        if (cfg.reidLost) lost.removeAll { tNs - it.tNs > reidMemoryNs }
         // 이전 track과 현재 detection 사이에서 matchRadius 안의 후보를 만든다.
         val pairs = ArrayList<Triple<Float, Int, Int>>()
         for ((ti, t) in tracks.withIndex()) for ((di, d) in detections.withIndex()) {
@@ -114,7 +123,10 @@ class Tracker(private val cfg: TrackConfig, private val strategy: RepStrategy) {
             } else {
                 // 재식별(C3b): 같은 물체 번호의 예전 id가 살아 있는 track에 없으면 다시 쓴다. 물체가 하나뿐인 세션에서도 잠깐 놓쳤다가
                 // 다시 잡을 때마다 새 id가 붙어 id 전환이 생겼다(S02 회차 합 7회)
-                val reuse = d.instanceId.takeIf { it != 0 }?.let { idOfInstance[it] }?.takeIf { id -> tracks.none { it.id == id } && next.none { it.id == id } }
+                fun free(id: Int) = tracks.none { it.id == id } && next.none { it.id == id }
+                val reuse = d.instanceId.takeIf { it != 0 }?.let { idOfInstance[it] }?.takeIf(::free)
+                    ?: if (!cfg.reidLost) null else lost.filter { free(it.id) && overlapsMajority(it.aabbMin, it.aabbMax, d.aabbMinW, d.aabbMaxW) }
+                        .maxByOrNull { it.tNs }?.also { l -> lost.remove(l) }?.id
                 Track(
                     id = reuse ?: nextId++,
                     reps = d.repCandidatesW,
@@ -156,6 +168,7 @@ class Tracker(private val cfg: TrackConfig, private val strategy: RepStrategy) {
             old.missedUpdates++
             old.consecutiveObservations = 0
             if (old.missedUpdates <= cfg.maxMissedUpdates) next += old
+            else if (cfg.reidLost && old.confirmed) lost += Lost(old.id, old.aabbMin, old.aabbMax, tNs)
         }
 
         tracks = next
@@ -177,5 +190,6 @@ class Tracker(private val cfg: TrackConfig, private val strategy: RepStrategy) {
     fun reset() {
         tracks = emptyList()
         idOfInstance.clear()
+        lost.clear()
     }
 }
