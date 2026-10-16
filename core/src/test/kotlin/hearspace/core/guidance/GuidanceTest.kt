@@ -30,7 +30,7 @@ import kotlin.math.abs
 import kotlin.math.atan
 
 /** 한 프레임의 결과. */
-data class Step(val f: SynthFrame, val out: GuidanceOutput, val action: MapAction)
+data class Step(val f: SynthFrame, val out: GuidanceOutput, val action: MapAction, val snapshot: ObstacleSnapshot? = null)
 
 /** 합성 장면을 앱과 같은 인과 순서로 돌린다: 자세마다 빠른 경로, 새 깊이면 맵 명령 적용 후 느린 경로(진행 방향은 빠른 경로의 최신 값). */
 fun runGuidance(
@@ -61,7 +61,7 @@ fun runGuidance(
             lastDepthT = d.tCaptureNs
             snapshot = slow.process(d, h)
         }
-        out += Step(f, g, action)
+        out += Step(f, g, action, snapshot)
     }
     return out
 }

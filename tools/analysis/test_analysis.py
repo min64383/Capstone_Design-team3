@@ -53,6 +53,27 @@ def check_cluster_track():
         assert abs(m["sourceNoneFraction"] - 1 / 6) < 1e-9 and m["sourceIds"] == 2, m
 
 
+def check_output_flicker():
+    """깜빡이는 출력(M25): 3단계만 나온 끝 조각 track은 깜빡임(끝), 오래 간 track은 아님, 출력 수 바뀐 단계 2/20."""
+    from metrics import FLICKER_STEPS, output_flicker
+    with tempfile.TemporaryDirectory() as d:
+        d = Path(d)
+        ts = list(range(20))
+        pd.DataFrame({"tCaptureNs": ts}).to_csv(d / "slow_path.csv", index=False)
+        rows, cl = [], []
+        for t in ts:
+            rows.append({"tCaptureNs": t, "id": 1, "aabbMinX": 0.0, "aabbMinZ": 2.0})
+            cl.append({"tCaptureNs": t, "aabbMinX": 0.0, "aabbMinZ": 2.0, "alongMaxM": 2.0, "heightMaxM": 0.8, "lateralMinM": -0.2, "lateralMaxM": 0.2})
+            if 5 <= t < 8:
+                rows.append({"tCaptureNs": t, "id": 2, "aabbMinX": 0.1, "aabbMinZ": 3.4})
+                cl.append({"tCaptureNs": t, "aabbMinX": 0.1, "aabbMinZ": 3.4, "alongMaxM": 3.45, "heightMaxM": 1.0, "lateralMinM": 0.0, "lateralMaxM": 0.1})
+        pd.DataFrame(rows).to_csv(d / "obstacles.csv", index=False)
+        pd.DataFrame(cl).to_csv(d / "cluster_debug.csv", index=False)
+        m = output_flicker(d, {"corridor": {"lengthM": 3.5, "heightM": 2.0, "widthM": 0.8}})
+        assert FLICKER_STEPS >= 3 and m["tracks"] == 2 and m["flicker"] == 1, m
+        assert m["spots"] == {"end": 1, "top": 0, "side": 0, "inner": 0} and abs(m["countChangeFraction"] - 2 / 20) < 1e-9, m
+
+
 def check_run_only():
     """세션 없는 실행 로그(사용자 모드 T01): 2분, 둘째 분만 UNKNOWN 절반·발열 2 (M10)."""
     with tempfile.TemporaryDirectory() as d:
@@ -388,6 +409,7 @@ def main():
     check_scorecard()
     check_front_diag()
     check_cluster_track()
+    check_output_flicker()
     print("analysis self-check ok")
 
 

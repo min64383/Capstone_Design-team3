@@ -8,7 +8,8 @@
     "behindM": 0.2,
     "edgeInnerM": 0.25,
     "edgeMinLengthM": 0.8,
-    "edgeOutsideM": 0.0
+    "edgeOutsideM": 0.0,
+    "cutEnd": false
   },
   "depth": { "subsample": 2, "source": "SMOOTHED", "minConfidence": 0 },
   "frontend": {
@@ -120,7 +121,8 @@
     "minConfirmConfidence": 0,
     "maxConfirmCentroidJumpM": 0.3,
     "matchByOverlap": true,
-    "reidLost": false
+    "reidLost": false,
+    "smallClusterVoxels": 0
   },
   "repPoint": { "strategy": "CORRIDOR_BAND", "bandM": 0.20 },
   "policy": {

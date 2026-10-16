@@ -1,0 +1,11 @@
+{
+  "note": "M25 깜빡이는 작은 출력 정리(IMPROVE_SPEC v0.3.26). 모두 M22의 W(corridor.edgeOutsideM 0.15)·R(track.reidLost) 위. C = 지금 기본값 깊이, G = RGB 보정 + 앞면 뒤 감쇠(M24 GO). E = 통로 끝에 잘린 조각 빼기(corridor.cutEnd), S = 칸 10(= 2 × cluster.minSamples) 미만 군집은 4회(= 2 × minConfirmObservations) 확인(track.smallClusterVoxels·suspiciousConfirmObservations). 판정은 shape_judge.py(outputFlicker 열). RGB는 tools/analysis/mp4_rgb.py로 먼저 꺼낸다",
+  "variants": [
+    { "name": "CWR", "overrides": { "corridor": { "edgeOutsideM": 0.15 }, "track": { "reidLost": true } }, "replay": { "alignFrom": "data/sweeps/m13_defaults/default/{session}/align.json" } },
+    { "name": "CWRE", "overrides": { "corridor": { "edgeOutsideM": 0.15, "cutEnd": true }, "track": { "reidLost": true } }, "replay": { "alignFrom": "data/sweeps/m13_defaults/default/{session}/align.json" } },
+    { "name": "CWRES", "overrides": { "corridor": { "edgeOutsideM": 0.15, "cutEnd": true }, "track": { "reidLost": true, "smallClusterVoxels": 10, "suspiciousConfirmObservations": 4 } }, "replay": { "alignFrom": "data/sweeps/m13_defaults/default/{session}/align.json" } },
+    { "name": "GWR", "overrides": { "frontend": { "rgbGuide": "WEIGHTED_MEDIAN" }, "map": { "decayBehind": true }, "corridor": { "edgeOutsideM": 0.15 }, "track": { "reidLost": true } }, "replay": { "alignFrom": "data/sweeps/m13_defaults/default/{session}/align.json", "rgbFrom": "mp4" } },
+    { "name": "GWRE", "overrides": { "frontend": { "rgbGuide": "WEIGHTED_MEDIAN" }, "map": { "decayBehind": true }, "corridor": { "edgeOutsideM": 0.15, "cutEnd": true }, "track": { "reidLost": true } }, "replay": { "alignFrom": "data/sweeps/m13_defaults/default/{session}/align.json", "rgbFrom": "mp4" } },
+    { "name": "GWRES", "overrides": { "frontend": { "rgbGuide": "WEIGHTED_MEDIAN" }, "map": { "decayBehind": true }, "corridor": { "edgeOutsideM": 0.15, "cutEnd": true }, "track": { "reidLost": true, "smallClusterVoxels": 10, "suspiciousConfirmObservations": 4 } }, "replay": { "alignFrom": "data/sweeps/m13_defaults/default/{session}/align.json", "rgbFrom": "mp4" } }
+  ]
+}

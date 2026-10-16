@@ -224,6 +224,18 @@ object Scenes {
         walk = SC28.walk.copy(durationS = 2f + 2.6f), // 머리가 상자 앞 0.7 m까지(STOP 1.0 m 안)
     )
 
+    /**
+     * SC-30 통로 끝에 걸린 끝 벽(M25): 끝 벽 앞면이 서 있는 머리에서 3.53 m(카메라 3.23 m), 곧 통로 끝(3.5 m) 바로 너머에 놓인다.
+     * 깊이 잡음 1%·가장자리 평활로 벽 칸 일부만 끝 안에 들어와 작은 조각 군집이 생겼다 없어진다(실측 통로 끝 3.3~3.5 m 깜빡임).
+     * 걸어서 머리가 벽 앞 0.7 m까지 간다(STOP 1.0 m 안).
+     */
+    val SC30 get() = SceneSpec(
+        "SC-30",
+        Scene(listOf(floor, endWall(3.23f))),
+        Walk(durationS = 2f + 2.85f),
+        Noise(depthMulStd = 0.01f, edgeSmoothPx = EDGE_SMOOTH_PX),
+    )
+
     /** 전체 목록. */
-    val ALL get() = listOf(SC01, SC02, SC03, SC04, SC05, SC06, SC07, SC08, SC09, SC10, SC11, SC12, SC13, SC14, SC21, SC22, SC23, SC25, SC26, SC27, SC28, SC29)
+    val ALL get() = listOf(SC01, SC02, SC03, SC04, SC05, SC06, SC07, SC08, SC09, SC10, SC11, SC12, SC13, SC14, SC21, SC22, SC23, SC25, SC26, SC27, SC28, SC29, SC30)
 }
