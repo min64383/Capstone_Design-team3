@@ -81,12 +81,12 @@ class OfflineReplay(
 
     /**
      * [session]을 재생해 [outDir]에 실행 로그(MVP §10.1)와 `replay_info.json`을 쓴다. 정답 파일이 있으면 지도 평가
-     * `map_eval.json`(M13, [MapEvalWriter])과 군집 평가 `cluster_eval.csv`(M23, [ClusterEvalWriter])도 쓴다.
+     * `map_eval.json`(M13)·장면 지표 `scene_eval.json`(M30, 둘 다 [MapEvalWriter])과 군집 평가 `cluster_eval.csv`(M23, [ClusterEvalWriter])도 쓴다.
      */
     fun run(session: File, outDir: File, overridesJson: String = "{}", slowPathNote: String = "") {
         val log = RunLogWriter(outDir, session, overridesJson, slowPathNote, substitution?.infoJson(alignFrom), rgbSource.name)
         val truth = File(session, "annotations/obstacles.json").isFile
-        run(session, if (truth) MapEvalWriter(ClusterEvalWriter(log, outDir, session, config, substitution?.align), outDir, session, config) else log)
+        run(session, if (truth) MapEvalWriter(ClusterEvalWriter(log, outDir, session, config, substitution?.align), outDir, session, config, align = substitution?.align) else log)
     }
 
     /** [session]을 재생해 결과를 [listener]에 넘긴다. */

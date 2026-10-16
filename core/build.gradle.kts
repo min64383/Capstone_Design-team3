@@ -82,3 +82,19 @@ tasks.register<JavaExec>("replay") {
         (project.findProperty(k) as String?)?.let { v -> "$k=${if (k in paths) rootProject.file(v).absolutePath else v}" }
     }
 }
+
+// M30 무작위 합성 장면 일괄 재생(장면 지표 기준 ②): ./gradlew :core:sceneEval [-Pscenes=200] [-Pseed=1] [-Pstrengths=0,0.5,1,1.5]
+// [-Pout=<폴더>] [-PoverridesFile=<json>]. 생성기는 test 소스(합성 장면)라 test 실행 경로를 쓴다.
+tasks.register<JavaExec>("sceneEval") {
+    group = "hearspace"
+    description = "무작위 합성 장면을 열화 강도별로 재생해 장면 지표(scene_eval.json)를 쓴다"
+    dependsOn("testClasses")
+    classpath = sourceSets["test"].runtimeClasspath
+    mainClass.set("hearspace.core.synth.SceneEvalRunKt")
+    maxHeapSize = "4g"
+    systemProperty("hearspace.defaultConfig", rootProject.file("app/src/main/assets/config/default.json").absolutePath)
+    val paths = setOf("out", "overridesFile")
+    args = listOf("scenes", "seed", "strengths", "out", "overridesFile").mapNotNull { k ->
+        (project.findProperty(k) as String?)?.let { v -> "$k=${if (k in paths) rootProject.file(v).absolutePath else v}" }
+    } + (if (project.findProperty("out") == null) listOf("out=${layout.buildDirectory.dir("scene-eval").get().asFile.absolutePath}") else emptyList())
+}

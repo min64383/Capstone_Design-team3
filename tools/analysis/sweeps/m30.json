@@ -1,0 +1,4 @@
+{"variants": [
+  {"name": "B", "overrides": {}},
+  {"name": "D", "overrides": {}, "replay": {"substitute": "depth", "alignFrom": "data/sweeps/m30/real/B/{session}/align.json"}}
+]}

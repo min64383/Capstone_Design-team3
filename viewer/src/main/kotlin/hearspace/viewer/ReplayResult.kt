@@ -14,10 +14,15 @@ import hearspace.core.replay.SlowStep
 import hearspace.core.session.FrameRow
 import hearspace.core.session.SessionReader
 import hearspace.core.truth.Alignment
+import hearspace.core.truth.Element
 import hearspace.core.truth.GroundTruth
+import hearspace.core.truth.SceneEval
+import hearspace.core.truth.Substitution
+import hearspace.core.truth.VoxelClass
 import hearspace.core.types.Band
 import hearspace.core.types.Config
 import hearspace.core.types.ConfigLoader
+import hearspace.core.types.DepthFrame
 import hearspace.core.types.GuidanceOutput
 import hearspace.core.types.GuidanceState
 import hearspace.core.types.JsonArray
@@ -68,6 +73,9 @@ class SlowRec(
     val planes: PlaneResult? = null,
     /** `frontend.segment`가 REGION일 때 이 깊이의 영역 분할(C3a). */
     val segments: Segmenter.Result? = null,
+    /** 이 단계가 처리한 깊이와 지도에 쓴 깊이(앞단 뒤): 장면 지표의 놓친 표면 표시용(M30). */
+    val depth: DepthFrame? = null,
+    val mapDepthMm: ShortArray? = null,
 )
 
 /** [times](오름차순)에서 [t] 이하인 마지막 위치. 없으면 −1. 화면은 이것으로만 찾아 미래 값을 쓰지 않는다. */
@@ -96,6 +104,10 @@ class ReplayResult(
     /** 스테레오 PCM(L R 교차), [sampleRate]. 블록 i는 표본 [i × blockSize, (i + 1) × blockSize). */
     val audio: FloatArray,
     val elapsedMs: Long,
+    /** 정답 대입 재생(M30 비교 D)이면 기준 재생의 정렬을 그대로 쓴다(변형마다 맞추면 정답이 달라진다). */
+    alignmentOverride: Alignment? = null,
+    /** 화면에 붙일 이름(나란히 보기). */
+    val label: String = "",
 ) {
     val sampleRate = config.audio.sampleRate
     val blockSize = config.audio.blockSize
@@ -133,8 +145,38 @@ class ReplayResult(
     fun rgbFloorAt(tNs: Long): Double? = rgbFloor.minByOrNull { kotlin.math.abs(it.first - tNs) }?.second
 
     /** 보행선 좌표(정답 좌표). 바닥을 한 번도 못 잡았으면 null. */
-    val alignment: Alignment? = Alignment.medianFloorY(slow.map { it.snapshot.floorY })?.let {
+    val alignment: Alignment? = alignmentOverride ?: Alignment.medianFloorY(slow.map { it.snapshot.floorY })?.let {
         runCatching { Alignment.fit(reader.rows, config.align, config.head.offsetFromCameraM, it) }.getOrNull()
+    }
+
+    /** 장면 지표의 정답 장면(M30): 정답에 벽이 있어 장면 전체가 정답일 때만(E 세션). 없으면 칸을 높이 색으로만 그린다. */
+    val sceneTruth: SceneEval.Scene? = truth?.let { SceneEval.scene(it, config.corridor.heightM) }
+    private val tau = SceneEval.tau(config.map.voxelSizeM)
+
+    /** 월드 칸 중심 [w]의 분류(맞은·속·헛 칸). 정답 장면이 없거나 평가 영역 밖이면 null. 계산은 core `SceneEval`. */
+    fun classify(w: Vec3): VoxelClass? {
+        val s = sceneTruth ?: return null
+        val p = alignment?.toTruth(w) ?: return null
+        return if (s.inRegion(p)) SceneEval.classify(s, p, tau) else null
+    }
+
+    private val missedCache = java.util.IdentityHashMap<SlowRec, List<Vec3>>()
+
+    /** 칸 분류 색으로 그릴 장면인가(정답 장면이 있고 정렬이 있음). 그렇다면 평가 영역 밖 칸은 회색으로 그린다. */
+    val classColors: Boolean get() = sceneTruth != null && alignment != null
+
+    /**
+     * [rec] 단계의 깊이에서 관측했는데 지도 칸이 덮지 않은 정답 표면(정답 좌표). 정답 장면이 없으면 빈 목록. 바닥은 뺀다: 지금 파이프라인은
+     * 바닥 점을 지도에 넣기 전에 버리므로 바닥은 늘 놓친 표면이라 화면을 덮는다(장면 지표의 완전성 ★도 벽·물체만 본다).
+     */
+    fun missedAt(rec: SlowRec): List<Vec3> = missedCache.getOrPut(rec) {
+        val s = sceneTruth ?: return@getOrPut emptyList()
+        val al = alignment ?: return@getOrPut emptyList()
+        val d = rec.depth ?: return@getOrPut emptyList()
+        val occ = (0 until rec.voxelsW.size / 3).map { Vec3(rec.voxelsW[3 * it], rec.voxelsW[3 * it + 1], rec.voxelsW[3 * it + 2]) }
+        val v = config.map.voxelSizeM
+        SceneEval.sample(s, al, v, config.map.radiusM, occ, occ.map { Element.OBJECT }, SceneEval.occupancyOnly(occ, v), d, rec.mapDepthMm ?: d.depthMm, 4)
+            .missed.filter { it.second != Element.FLOOR }.map { it.first }
     }
 
     /** 장면 ID: 정답 파일의 `scene`, 없으면 폴더 이름 끝(M10 녹화는 폴더 이름이 틀려 정답 파일이 우선). */
@@ -201,7 +243,10 @@ object ReplayRunner {
     /** 느린 경로 처리 시간(ms). `:core:replay` 기본값(OfflineReplayMain)과 같다. */
     const val SLOW_PATH_MS = 10f
 
-    fun run(session: File, overridesJson: String, hrtf: Hrtf, exportDir: File? = null): ReplayResult {
+    /**
+     * [substitution]을 주면 정답 대입 재생(M30 비교 D: 정답 깊이)이다. 정렬은 그 대입의 정렬([Substitution.align])을 쓴다.
+     */
+    fun run(session: File, overridesJson: String, hrtf: Hrtf, exportDir: File? = null, substitution: Substitution? = null, label: String = ""): ReplayResult {
         val start = System.nanoTime()
         val config = Repo.loadConfig(overridesJson)
         val reader = SessionReader(session)
@@ -218,7 +263,7 @@ object ReplayRunner {
                 val v = step.occupiedVoxels!!
                 val xyz = FloatArray(v.size * 3)
                 v.forEachIndexed { i, vox -> xyz[3 * i] = vox.centerW.x; xyz[3 * i + 1] = vox.centerW.y; xyz[3 * i + 2] = vox.centerW.z }
-                slow += SlowRec(step.doneNs, step.snapshot, xyz, step.applied, step.stageNs, step.mapUpdate.planes, step.mapUpdate.segments)
+                slow += SlowRec(step.doneNs, step.snapshot, xyz, step.applied, step.stageNs, step.mapUpdate.planes, step.mapUpdate.segments, step.depth, step.mapDepthMm)
             }
 
             override fun onBlock(tNs: Long, pose: PoseFrame, snapshot: ObstacleSnapshot?, g: GuidanceOutput) {
@@ -233,7 +278,7 @@ object ReplayRunner {
         try {
             // RGB 안내 보정(M19·M23)은 MP4에서 꺼낸 매 프레임 밝기가 있으면 그것을 쓴다(재생 비교 -PrgbFrom=mp4와 같게). 녹화 JPEG는 3장마다라 거의 안 붙는다
             val rgb = if (File(session, "${RgbFrames.MP4_DIR}/index.csv").isFile) RgbSource.MP4 else RgbSource.RECORDED
-            OfflineReplay(config, OfflineReplay.fixed(SLOW_PATH_MS), rgbSource = rgb).run(session, listener)
+            OfflineReplay(config, OfflineReplay.fixed(SLOW_PATH_MS), substitution, rgbSource = rgb).run(session, listener)
             export?.complete()
         } finally {
             export?.close()
@@ -241,7 +286,7 @@ object ReplayRunner {
         require(blocks.isNotEmpty()) { "no audio blocks: session has no tracked pose" }
         val audio = FloatArray(chunks.size * 2 * n)
         chunks.forEachIndexed { i, c -> c.copyInto(audio, i * 2 * n) }
-        return ReplayResult(session, reader, config, overridesJson, blocks, slow, audio, (System.nanoTime() - start) / 1_000_000)
+        return ReplayResult(session, reader, config, overridesJson, blocks, slow, audio, (System.nanoTime() - start) / 1_000_000, substitution?.align, label)
     }
 
     fun loadHrtf(): Hrtf = Hrtf.parse(Repo.hrtf.readBytes())

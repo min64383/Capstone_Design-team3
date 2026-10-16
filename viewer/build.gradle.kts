@@ -58,3 +58,19 @@ tasks.register<JavaExec>("exportSonification") {
         if (out != null) args(rootProject.file(out).absolutePath)
     }
 }
+
+// M30 화면 없는 그림 저장: 책갈피(viewer/bookmarks.json)마다 카메라 화면 + 위에서 본 그림(지도 칸 겹침), 아래 줄은 정답 깊이 대입(D).
+// ./gradlew :viewer:snapshot [-Psession=<ID 일부>] [-Pvariant=<변형 이름>] [-Pout=<폴더>]
+tasks.register<JavaExec>("snapshot") {
+    group = "hearspace"
+    description = "책갈피 시점의 viewer 화면을 PNG로 저장(화면 없이)"
+    classpath = sourceSets["main"].runtimeClasspath
+    mainClass.set("hearspace.viewer.SnapshotMainKt")
+    workingDir = rootProject.projectDir
+    maxHeapSize = "4g"
+    systemProperty("hearspace.repoRoot", rootProject.projectDir.absolutePath)
+    systemProperty("java.awt.headless", "true")
+    args = listOf("session", "variant", "out").mapNotNull { k ->
+        (project.findProperty(k) as String?)?.let { v -> "$k=${if (k == "out") rootProject.file(v).absolutePath else v}" }
+    }
+}

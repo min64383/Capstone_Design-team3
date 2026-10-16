@@ -1,5 +1,6 @@
 package hearspace.viewer
 
+import hearspace.core.truth.Substitution
 import hearspace.core.types.JsonObject
 import hearspace.core.types.JsonValue
 import hearspace.core.types.MiniJson
@@ -63,6 +64,24 @@ class MainWindow(initialSession: String?) : JFrame("HEARSPACE 평가 GUI") {
     private val noteList = DefaultListModel<String>()
     private val timer = Timer(30) { onTick() }
 
+    // 나란히 보기(M30): 같은 세션을 정답 깊이 대입(D) 또는 저장된 변형으로 한 번 더 돌려 두 번째 결과로 보인다
+    private val compareBox = JComboBox<String>()
+    private val compareButton = JButton("나란히")
+    private val viewsHolder = JPanel(BorderLayout())
+    private val singleViews = JSplitPane(JSplitPane.HORIZONTAL_SPLIT, CameraView(vm), TopView(vm)).apply { resizeWeight = 0.45 }
+    private val pairViews = JPanel(GridLayout(2, 2)).apply {
+        add(CameraView(vm)); add(TopView(vm)); add(CameraView(vm, compare = true)); add(TopView(vm, compare = true))
+    }
+
+    // 책갈피(M30 정성 평가 시점): 고르면 그 시각으로 가고, 문항별 점수·메모를 책갈피마다 모아 평가와 함께 저장한다
+    private var marks: List<Bookmark> = emptyList()
+    private var truthColors = false
+    private val bookmarkBox = JComboBox<String>()
+    private val bookmarkScores = linkedMapOf<Double, BookmarkScore>()
+    private val bmItems = BookmarkItem.entries.associateWith { JComboBox(arrayOf("-", "1", "2", "3", "4", "5")) }
+    private val bmMemo = JTextField(18)
+    private val bmList = DefaultListModel<String>()
+
     init {
         defaultCloseOperation = EXIT_ON_CLOSE
         val toolbar = JPanel().apply {
@@ -72,14 +91,19 @@ class MainWindow(initialSession: String?) : JFrame("HEARSPACE 평가 GUI") {
             add(timeLabel)
             add(exportCheck)
             add(JCheckBox("깊이 겹침", true).apply { addActionListener { vm.showDepth = isSelected; vm.fire() } })
+            add(JCheckBox("지도 칸").apply {
+                toolTipText = "지도 칸을 겹친다(M30). 정답이 장면 전체인 세션(E)은 칸 분류 색: 초록 맞음, 회색 속, 빨강 헛, 흰 테 놓친 표면"
+                addActionListener { vm.showVoxels = isSelected; vm.fire() }
+            })
+            add(bookmarkBox.apply { toolTipText = "책갈피(viewer/bookmarks.json): 고르면 그 시각으로 간다"; addActionListener { onBookmark() } })
             add(JComboBox(VoxelHeight.entries.toTypedArray()).apply { addActionListener { vm.voxelHeight = selectedItem as VoxelHeight; vm.fire() } })
             add(JCheckBox("정답 높이: RGB 바닥").apply {
                 toolTipText = "카메라 화면의 정답 상자를 RGB·포즈로 잰 바닥 위에 놓는다(세션의 floor_rgb.json, tools/analysis/floor_rgb.py). 없으면 깊이 바닥"
                 addActionListener { vm.truthOnRgbFloor = isSelected; vm.fire() }
             })
         }
-        val views = JSplitPane(JSplitPane.HORIZONTAL_SPLIT, CameraView(vm), TopView(vm)).apply { resizeWeight = 0.45 }
-        val center = JSplitPane(JSplitPane.VERTICAL_SPLIT, views, TimelineView(vm) { seek(it) }).apply { resizeWeight = 0.72 }
+        viewsHolder.add(singleViews, BorderLayout.CENTER)
+        val center = JSplitPane(JSplitPane.VERTICAL_SPLIT, viewsHolder, TimelineView(vm) { seek(it) }).apply { resizeWeight = 0.72 }
         val tabs = JTabbedPane().apply {
             addTab("설정", configPanel())
             addTab("평가", feedbackPanel())
@@ -96,6 +120,7 @@ class MainWindow(initialSession: String?) : JFrame("HEARSPACE 평가 GUI") {
         setSize(minOf(1500, screen.width), minOf(920, screen.height))
         setLocationRelativeTo(null)
         refreshVariants()
+        refreshCompare()
         // 명령줄 값: 세션 ID(일부도 하나에만 맞으면), testdata/sessions 기준 상대경로, 저장소 기준 경로
         initialSession?.let { arg ->
             runCatching { Sessions.resolve(arg) }
@@ -118,6 +143,7 @@ class MainWindow(initialSession: String?) : JFrame("HEARSPACE 평가 GUI") {
             add(row(rerunButton.apply { addActionListener { rerun() } }, JButton("기본값({})").apply { addActionListener { overrides.text = "{}" } }))
             add(row(JLabel("변형 이름"), variantName, JButton("저장").apply { addActionListener { saveVariant() } }))
             add(row(variantBox, JButton("불러오기").apply { addActionListener { loadVariant() } }))
+            add(row(JLabel("비교"), compareBox, compareButton.apply { addActionListener { runCompare() } }, JButton("한 화면").apply { addActionListener { setCompare(null) } }))
         }, BorderLayout.SOUTH)
     }
 
@@ -126,7 +152,18 @@ class MainWindow(initialSession: String?) : JFrame("HEARSPACE 평가 GUI") {
         add(JPanel(GridLayout(0, 2, 4, 4)).apply {
             for ((item, box) in ratings) { add(JLabel(item.label)); add(box) }
         }, BorderLayout.NORTH)
-        add(JScrollPane(JList(noteList)), BorderLayout.CENTER)
+        add(JPanel(GridLayout(2, 1, 4, 4)).apply {
+            add(JScrollPane(JList(noteList)))
+            add(JPanel(BorderLayout(4, 4)).apply {
+                add(JPanel(GridLayout(0, 2, 4, 2)).apply {
+                    add(JLabel("책갈피 평가")); add(JLabel("(위 목록에서 고른 책갈피)"))
+                    for ((item, box) in bmItems) { add(JLabel(item.label)); add(box) }
+                    add(JLabel("메모")); add(bmMemo)
+                }, BorderLayout.NORTH)
+                add(JScrollPane(JList(bmList)), BorderLayout.CENTER)
+                add(row(JButton("책갈피 점수 넣기").apply { addActionListener { addBookmarkScore() } }), BorderLayout.SOUTH)
+            })
+        }, BorderLayout.CENTER)
         add(Box.createVerticalBox().apply {
             add(row(noteField, JButton("메모 추가(현재 시각)").apply { addActionListener { addNote() } }))
             add(row(JButton("평가 저장").apply { addActionListener { saveFeedback() } }))
@@ -145,7 +182,80 @@ class MainWindow(initialSession: String?) : JFrame("HEARSPACE 평가 GUI") {
     private fun open(dir: File) {
         session = dir
         title = "HEARSPACE 평가 GUI — ${Repo.relative(dir)}"
+        setCompare(null)
+        val (m, colors) = Bookmarks.of(dir.name)
+        marks = m
+        truthColors = colors
+        bookmarkScores.clear()
+        bmList.clear()
+        bookmarkBox.removeAllItems()
+        bookmarkBox.addItem(if (m.isEmpty()) "책갈피 없음" else "책갈피 ${m.size}개")
+        m.forEach { bookmarkBox.addItem("%.2f s  %s".format(it.tS, it.label)) }
+        // 칸 분류 색이 없는 장면(정답이 물체뿐)은 지도 모양 문항만 매긴다
+        bmItems.forEach { (item, box) -> box.isEnabled = truthColors || !item.needsTruthColors }
         rerun()
+    }
+
+    private fun onBookmark() {
+        val i = bookmarkBox.selectedIndex - 1
+        val r = vm.result ?: return
+        if (i !in marks.indices) return
+        seek(r.t0Ns + (marks[i].tS * 1e9).toLong())
+    }
+
+    private fun addBookmarkScore() {
+        val i = bookmarkBox.selectedIndex - 1
+        if (i !in marks.indices) { status.text = "책갈피를 먼저 고르세요"; return }
+        val m = marks[i]
+        val scores = bmItems.filter { it.value.isEnabled }.mapNotNull { (item, box) -> (box.selectedItem as String).toIntOrNull()?.let { item to it } }.toMap()
+        if (scores.isEmpty()) { status.text = "점수를 하나 이상 고르세요"; return }
+        bookmarkScores[m.tS] = BookmarkScore(m.tS, m.label, scores, bmMemo.text.trim())
+        bmList.clear()
+        bookmarkScores.values.forEach { b -> bmList.addElement("%.2f s %s  %s  %s".format(b.tS, b.label, b.scores.entries.joinToString(" ") { "${it.key.name} ${it.value}" }, b.memo)) }
+        bmMemo.text = ""
+        bmItems.values.forEach { it.selectedIndex = 0 }
+    }
+
+    /** 나란히 보기 목록: 정답 깊이 대입(D)과 저장된 변형. */
+    private fun refreshCompare() {
+        compareBox.removeAllItems()
+        compareBox.addItem(COMPARE_TRUTH_DEPTH)
+        Repo.variants.listFiles { f -> f.extension == "json" }?.sortedBy { it.name }?.forEach { compareBox.addItem(it.nameWithoutExtension) }
+    }
+
+    private fun setCompare(r: ReplayResult?) {
+        vm.compare = r
+        viewsHolder.removeAll()
+        viewsHolder.add(if (r == null) singleViews else pairViews, BorderLayout.CENTER)
+        viewsHolder.revalidate()
+        viewsHolder.repaint()
+        vm.fire()
+    }
+
+    /** 같은 세션을 고른 비교 대상으로 돌린다(백그라운드). 정답 깊이 대입은 지금 결과의 정렬을 그대로 쓴다. */
+    private fun runCompare() {
+        val dir = session ?: return
+        val base = vm.result ?: return
+        val name = compareBox.selectedItem as String? ?: return
+        val sub = if (name == COMPARE_TRUTH_DEPTH) {
+            val truth = base.truth ?: run { status.text = "정답이 없어 정답 깊이 대입을 할 수 없음"; return }
+            val al = base.alignment ?: run { status.text = "정렬이 없어 정답 깊이 대입을 할 수 없음"; return }
+            Substitution(truth, al, depth = true)
+        } else {
+            null
+        }
+        val text = if (sub != null) base.overridesJson else File(Repo.variants, "$name.json").readText().trim().ifEmpty { "{}" }
+        compareButton.isEnabled = false
+        status.text = "비교 재실행 중… $name"
+        object : SwingWorker<ReplayResult, Unit>() {
+            override fun doInBackground() = ReplayRunner.run(dir, text, hrtf, substitution = sub, label = "B: $name")
+            override fun done() {
+                compareButton.isEnabled = true
+                val r = runCatching { get() }.getOrElse { e -> status.text = "비교 실패: ${(e.cause ?: e).message}"; return }
+                setCompare(r)
+                status.text = "나란히: 위 A(지금 결과), 아래 B($name). 소리는 A"
+            }
+        }.execute()
     }
 
     /** 현재 설정 덮어쓰기로 다시 돌린다(백그라운드). 보던 시각은 유지한다. */
@@ -160,7 +270,7 @@ class MainWindow(initialSession: String?) : JFrame("HEARSPACE 평가 GUI") {
         rerunButton.isEnabled = false
         status.text = "재실행 중… ${Repo.relative(dir)}"
         object : SwingWorker<ReplayResult, Unit>() {
-            override fun doInBackground() = ReplayRunner.run(dir, text, hrtf, exportDir)
+            override fun doInBackground() = ReplayRunner.run(dir, text, hrtf, exportDir, label = "A: ${variantName.text.trim()}")
             override fun done() {
                 rerunButton.isEnabled = true
                 val r = runCatching { get() }.getOrElse { e ->
@@ -271,6 +381,8 @@ class MainWindow(initialSession: String?) : JFrame("HEARSPACE 평가 GUI") {
             ratings = ratings.mapValues { it.value.selectedItem as Int },
             notes = vm.notes.toList(),
             createdAt = Feedback.now(),
+            compare = vm.compare?.label.orEmpty(),
+            bookmarks = bookmarkScores.values.toList(),
         )
         val f = fb.save()
         status.text = "평가 저장: ${f.relativeTo(Repo.root).path}"
@@ -297,6 +409,9 @@ internal fun appliedOptionsText(overridesJson: String, bases: List<JsonValue>): 
     walk(MiniJson.parse(overridesJson), emptyList())
     return "기본값 위에 아래 항목만 바꿨다(변형끼리 누적되지 않음).\n" + (if (lines.isEmpty()) "• 없음: 기본값 그대로" else lines.joinToString("\n"))
 }
+
+/** 나란히 보기 목록의 정답 깊이 대입 항목 이름. */
+private const val COMPARE_TRUTH_DEPTH = "정답 깊이 대입(D)"
 
 /** 변형 파일 이름의 앞 번호(만든 순서). */
 private val NUMBERED = Regex("""^(\d+) """)

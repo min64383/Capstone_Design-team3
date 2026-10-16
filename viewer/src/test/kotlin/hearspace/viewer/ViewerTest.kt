@@ -56,22 +56,45 @@ class ViewerTest {
     @Test
     fun `feedback round trips and the config hash ignores formatting`() {
         val fb = Feedback("sid", "testdata/sessions/sid", "S02", "v1", """{ "map": { "voxelSizeM": 0.075 } }""",
-            RatingItem.entries.associateWith { 4 }, listOf(Note(1.5, "왼쪽 상자가 오른쪽에서 들림")), "2026-10-03T12:00:00")
+            RatingItem.entries.associateWith { 4 }, listOf(Note(1.5, "왼쪽 상자가 오른쪽에서 들림")), "2026-10-03T12:00:00",
+            compare = "B: 정답 깊이 대입(D)", bookmarks = listOf(BookmarkScore(3.0, "시작 3 s", mapOf(BookmarkItem.FALSE to 2, BookmarkItem.SHAPE to 4), "캐리어 뒤 빨강")))
         val back = Feedback.parse(fb.toJson())
         assertEquals(fb.copy(overridesJson = back.overridesJson), back)
         assertEquals(Feedback.configHash(fb.overridesJson), Feedback.configHash(back.overridesJson))
         assertEquals(Feedback.configHash("""{"map":{"voxelSizeM":0.075}}"""), Feedback.configHash("{ \"map\" :\n { \"voxelSizeM\" : 0.075 } }"))
         assertTrue(Feedback.configHash("{}") != Feedback.configHash("""{"map":{"voxelSizeM":0.1}}"""))
         assertThrows<IllegalArgumentException> { fb.copy(ratings = mapOf(RatingItem.DIRECTION to 6)) }
+        assertThrows<IllegalArgumentException> { fb.copy(bookmarks = listOf(BookmarkScore(1.0, "x", mapOf(BookmarkItem.HIT to 0), ""))) }
+    }
+
+    @Test
+    fun `bookmarks file lists sessions and marks`() {
+        val ids = Bookmarks.sessionIds()
+        assertTrue(ids.isNotEmpty())
+        val (marks, colors) = Bookmarks.of("20261007_151747_S01")
+        assertTrue(marks.size == 3 && colors, "$marks $colors")
+        assertTrue(Bookmarks.of("20261003_131003_S01").let { it.first.size == 2 && !it.second })
+        assertTrue(Bookmarks.of("nope").first.isEmpty())
+    }
+
+    @Test
+    fun `views paint with map cells and a compared result`() {
+        val dir = File(Repo.sessions, "20261003_131039_S01")
+        val a = ReplayRunner.run(dir, "{}", ReplayRunner.loadHrtf(), label = "A")
+        val b = ReplayRunner.run(dir, """{ "map": { "voxelSizeM": 0.075 } }""", ReplayRunner.loadHrtf(), label = "B")
+        val img = render(a, b, a.t0Ns + (a.durationS * 0.6e9).toLong(), "test")
+        assertTrue(img.height > 2 * 480 && img.getRGB(100, 480 + 300) != img.getRGB(100, 10))
     }
 
     @Test
     fun `sessions resolve by id, partial id or repo-relative path and display relative paths`() {
         val want = s02.canonicalFile
-        assertEquals(want, Sessions.resolve("20261003_130815_S01"))          // ID (같은 ID가 data/에 있어도 git 쪽이 먼저)
+        // ID로 찾으면 같은 ID가 data/에 MP4와 함께 있을 때 그쪽을 연다(534af1d), 아니면 git 쪽
+        val byId = File(Repo.dataSessions, "20261003_130815_S01").takeIf { File(it, "arcore.mp4").isFile }?.canonicalFile ?: want
+        assertEquals(byId, Sessions.resolve("20261003_130815_S01"))
         assertEquals(want, Sessions.resolve("testdata/sessions/20261003_130815_S01"))
         assertEquals(want, Sessions.resolve("""testdata\sessions\20261003_130815_S01\""")) // Windows 구분자, 끝 구분자
-        assertEquals(want, Sessions.resolve("130815"))                       // 한 세션에만 맞는 일부
+        assertEquals(byId, Sessions.resolve("130815"))                       // 한 세션에만 맞는 일부
         assertEquals(want, Sessions.resolve(want.path))                      // 절대경로도 그대로
         assertThrows<IllegalArgumentException> { Sessions.resolve("20261003_13") }  // 여럿에 맞음
         assertThrows<IllegalArgumentException> { Sessions.resolve("no_such_session") }

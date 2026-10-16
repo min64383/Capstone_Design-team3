@@ -1,0 +1,129 @@
+{
+ "note": "M30 정성 평가 책갈피(설계 표 6). scene_eval.py bookmarks가 규칙으로 계산",
+ "sessions": [
+  {
+   "session": "20261007_151747_S01",
+   "scene": "E01h",
+   "truthColors": true,
+   "marks": [
+    {
+     "tS": 3.0,
+     "label": "시작 3 s"
+    },
+    {
+     "tS": 20.53,
+     "label": "가운데"
+    },
+    {
+     "tS": 40.06,
+     "label": "끝"
+    }
+   ]
+  },
+  {
+   "session": "20261007_152354_S01",
+   "scene": "E02",
+   "truthColors": true,
+   "marks": [
+    {
+     "tS": 7.71,
+     "label": "끝 벽 3.0 m"
+    },
+    {
+     "tS": 14.04,
+     "label": "가장 가까이(끝 벽 1.2 m)"
+    }
+   ]
+  },
+  {
+   "session": "20261007_152743_S01",
+   "scene": "E03",
+   "truthColors": true,
+   "marks": [
+    {
+     "tS": 10.77,
+     "label": "돌기 전 끝 벽 1.0 m"
+    },
+    {
+     "tS": 12.2,
+     "label": "돈 뒤 2 s"
+    }
+   ]
+  },
+  {
+   "session": "20260928_084542_S02",
+   "scene": "S02",
+   "truthColors": false,
+   "marks": [
+    {
+     "tS": 6.03,
+     "label": "걷기 시작(물체 1.5 m)"
+    },
+    {
+     "tS": 9.43,
+     "label": "가장 가까이(물체 0.4 m)"
+    }
+   ]
+  },
+  {
+   "session": "20261003_130646_S01",
+   "scene": "S02",
+   "truthColors": false,
+   "marks": [
+    {
+     "tS": 5.12,
+     "label": "걷기 시작(물체 2.3 m)"
+    },
+    {
+     "tS": 11.75,
+     "label": "가장 가까이(물체 0.7 m)"
+    }
+   ]
+  },
+  {
+   "session": "20261003_131003_S01",
+   "scene": "S07",
+   "truthColors": false,
+   "marks": [
+    {
+     "tS": 4.15,
+     "label": "걷기 시작(물체 2.3 m)"
+    },
+    {
+     "tS": 9.02,
+     "label": "가장 가까이(물체 0.8 m)"
+    }
+   ]
+  },
+  {
+   "session": "20261003_135701_S01",
+   "scene": "S03",
+   "truthColors": false,
+   "marks": [
+    {
+     "tS": 4.82,
+     "label": "걷기 시작(물체 2.3 m)"
+    },
+    {
+     "tS": 8.96,
+     "label": "가장 가까이(물체 0.9 m)"
+    }
+   ]
+  },
+  {
+   "session": "20260928_190833_S01",
+   "scene": "S01",
+   "truthColors": false,
+   "marks": [
+    {
+     "tS": 7.31,
+     "label": "문 3.0 m"
+    },
+    {
+     "tS": 14.14,
+     "label": "가장 가까이(문 0.4 m)"
+    }
+   ]
+  }
+ ]
+}

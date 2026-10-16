@@ -222,6 +222,8 @@ data class Noise(
     val seed: Long = 1L,
     /** 깊이 곱셈 잡음 표준편차(비율, 0.01 = 1%). */
     val depthMulStd: Float = 0f,
+    /** 깊이 거리 제곱 잡음: σ = k·Z²(m, Z = 깊이 m). 삼각측량형 깊이 오차 모델(Khoshelham 2012), k는 M30 실측. */
+    val depthQuadK: Float = 0f,
     /** 깊이 스케일 편향(비율, 0.1 = +10%). */
     val depthScaleBias: Float = 0f,
     /** 무효(0) 픽셀 비율. */
@@ -440,6 +442,7 @@ object SyntheticGenerator {
             obstacle[v * k.width + u] = hit.second.obstacle
             var z = hit.first * (1f + noise.depthScaleBias)
             if (noise.depthMulStd > 0f) z *= 1f + noise.depthMulStd * gauss(rnd)
+            if (noise.depthQuadK > 0f) z += noise.depthQuadK * z * z * gauss(rnd)
             if (noise.invalidRatio > 0f && rnd.nextFloat() < noise.invalidRatio) continue
             if (garbage) z *= 10f else if (z > MAX_DEPTH_M) continue
             if (z <= 0f) continue
