@@ -138,10 +138,10 @@ object RandomScenes {
         // 보행: 보행선 위 첫 물체(머리 폭 ±0.3 m 안) 또는 끝 벽 [STOP_BEFORE_M] 앞에서 멈춘다. 머리 높이 판도 막는다.
         val speed = u(0.5f, 1.2f)
         val pitch = u(5f, 25f)
-        val gripZ = -0.3f // 머리는 카메라 0.3 m 뒤(합성 기본 파지)
+        val headBehindM = 0.3f // 머리는 카메라 0.3 m 뒤(합성 기본 파지): 머리가 앞면 STOP_BEFORE_M 앞에 서려면 카메라 거리 + 0.3 m를 걷는다
         val blockers = items.filter { abs((it.min.x + it.max.x) / 2 - walkX) < 0.3f + (it.max.x - it.min.x) / 2 }.map { -it.max.z }
         val stopAt = (blockers + listOfNotNull(endWall)).minOrNull()
-        val walkM = max(0.5f, min(stopAt?.let { it - STOP_BEFORE_M + gripZ } ?: OPEN_WALK_M, OPEN_WALK_M))
+        val walkM = max(0.5f, min(stopAt?.let { it - STOP_BEFORE_M + headBehindM } ?: OPEN_WALK_M, OPEN_WALK_M))
         val walk = Walk(
             startCameraW = Vec3(walkX, 1f, 0f),
             speedMps = speed,
