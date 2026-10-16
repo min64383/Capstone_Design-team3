@@ -15,6 +15,7 @@ import javax.swing.JPanel
  *     ./gradlew :viewer:snapshot [-Psession=<ID 일부>] [-Pvariant=<변형 이름>] [-Pcompare=<변형 이름>] [-Pout=<폴더>]
  *
  * `compare`를 주면 아래 줄에 D 대신 그 변형을 같은 정렬(위 줄의 정렬, 재생 `alignFrom`과 같음)로 그린다(M32: B 대 R3).
+ * `alignDir`를 주면 두 줄 모두 `<alignDir>/<세션ID>/align.json`의 정렬을 쓴다(M32: 파이프라인 바닥과 독립된 정렬, tools/analysis/floor_ref.py).
  *
  * 세션을 주지 않으면 `viewer/bookmarks.json`의 모든 세션. 출력은 `<out>/<세션ID>_<번호>.png`(기본 build/snapshots).
  */
@@ -29,7 +30,9 @@ fun main(args: Array<String>) {
         val dir = Sessions.resolve(id)
         val (marks, _) = Bookmarks.of(dir.name)
         if (marks.isEmpty()) { println("$id: 책갈피 없음"); continue }
-        val a = ReplayRunner.run(dir, overrides, hrtf, label = "A: ${variant ?: "기본값"}")
+        val alignFile = opt["alignDir"]?.takeIf { it.isNotBlank() }?.let { File(it, "${dir.name}/align.json") }?.takeIf { it.isFile }
+        val a0 = ReplayRunner.run(dir, overrides, hrtf, label = "A: ${variant ?: "기본값"}")
+        val a = alignFile?.let { f -> a0.truth?.let { t -> ReplayRunner.run(dir, overrides, hrtf, substitution = Substitution(t, hearspace.core.truth.Alignment.read(f)), label = a0.label) } } ?: a0
         // 정답 깊이 대입은 정답이 장면 전체인 세션만(정답이 물체뿐이면 벽이 없는 깊이가 된다)
         val compare = opt["compare"]?.takeIf { it.isNotBlank() }
         val b = a.truth?.takeIf { a.sceneTruth != null }?.let { t ->

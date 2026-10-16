@@ -34,7 +34,7 @@ def load(path: Path) -> dict:
 
 # M32 주 지표: 바닥에 맞은 칸을 뺀 헛 칸 비율·표면 오차(지도에 바닥이 들어오면 쉬운 맞은 칸이 늘어난다, M32 설계 3.6절)
 HEADLINE32 = {"falseRatioNoFloor": +1, "surfaceErrorP90NoFloorM": +1, "completenessWallObject": -1}
-EXTRA32 = ["f1tau", "unknownRatio", "erasedRatio", "insideRatioNoFloor", "surfaceErrorP50NoFloorM", "completenessFloor",
+EXTRA32 = ["falseRatioAboveFloorBand", "f1tau", "unknownRatio", "erasedRatio", "insideRatioNoFloor", "surfaceErrorP50NoFloorM", "completenessFloor",
            "falseRatio", "surfaceErrorP90M"]
 
 
@@ -292,14 +292,14 @@ def main(args: list[str]) -> None:
             (root / f"m32_{base}_{'_'.join(variants)}.json").write_text(json.dumps(res, indent=1, ensure_ascii=False, default=float), encoding="utf-8")
             print(f"녹화 {res['sessions']}세션 ({opt or '전체'})")
             for v, e in res["variants"].items():
-                print(v, "  ".join(f"{k} {fmt(e[k])}" for k in [*HEADLINE32, "unknownRatio", "erasedRatio", "unknownState"]),
+                print(v, "  ".join(f"{k} {fmt(e[k])}" for k in [*HEADLINE32, "falseRatioAboveFloorBand", "unknownRatio", "erasedRatio", "unknownState"]),
                       f"missedStop {e['missedStop']} infoAgeMax {e['infoAgeMaxMs']:.0f}", e.get("criterion2", ""), e.get("criterion4", ""))
         else:
             res = m32_synth({a.split("=", 1)[0]: Path(a.split("=", 1)[1]) for a in pos[1:]}, float(opt) if opt else 1.0)
             Path(pos[0]).write_text(json.dumps(res, indent=1, ensure_ascii=False, default=float), encoding="utf-8")
             for name, e in res.items():
                 d = e["stopDetection"]
-                print(name, f"{e['scenes']}장면", "  ".join(f"{k} {fmt(e[k])}" for k in [*HEADLINE32, "unknownRatio", "erasedRatio"]),
+                print(name, f"{e['scenes']}장면", "  ".join(f"{k} {fmt(e[k])}" for k in [*HEADLINE32, "falseRatioAboveFloorBand", "unknownRatio", "erasedRatio"]),
                       f"STOP 검출 {d['p']:.3f} [{d['lo']:.3f}, {d['hi']:.3f}] / {e['encounters']}", e["firstStopM"])
     else:
         sys.exit(__doc__)

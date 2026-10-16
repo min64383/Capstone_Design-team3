@@ -46,6 +46,12 @@ object SceneEval {
     /** 헛 칸 높이 구간 경계(정답 바닥 위 m): 바닥 아래(< 0), 바닥 근처(0~0.3), 그 위. 0.3 = 누운 캐리어 높이(M12.0)로 낮은 물체 구간. */
     val FALSE_HEIGHTS_M = floatArrayOf(0f, 0.3f)
 
+    /**
+     * 정답 바닥 높이의 불확실성(m): 녹화 세션의 정답 바닥은 측정마다 다르다(M32: RGB 바닥과 깊이 바닥이 E03 152808에서 0.11 m 차이). 이보다
+     * 높은 칸만 센 헛 칸 비율을 함께 낸다(바닥 근처 칸의 판정이 정답 바닥 선택에 휘둘리지 않게).
+     */
+    const val FLOOR_UNCERTAIN_M = 0.15f
+
     /** F 값을 내는 허용 배수(τ, 2τ, 3τ). */
     val F_MULTIPLES = intArrayOf(1, 2, 3)
 
@@ -132,6 +138,9 @@ object SceneEval {
         /** 헛 칸의 높이 구간([FALSE_HEIGHTS_M]: 바닥 아래, 바닥 근처, 그 위)과 지워진 표면의 요소별 수(M32 원인 분해). */
         val falseByHeight: IntArray = IntArray(FALSE_HEIGHTS_M.size + 1),
         val erasedByElement: IntArray = IntArray(Element.entries.size),
+        /** [FLOOR_UNCERTAIN_M]보다 높은 점유 칸과 그중 헛 칸. */
+        val occupiedAboveBand: Int = 0,
+        val falseAboveBand: Int = 0,
     )
 
     /**
@@ -163,6 +172,8 @@ object SceneEval {
         var falseN = 0
         val bands = IntArray(FALSE_BANDS_M.size + 1)
         val heights = IntArray(FALSE_HEIGHTS_M.size + 1)
+        var occAbove = 0
+        var falseAbove = 0
         val dist = ArrayList<Float>()
         val distEl = ArrayList<Element>()
         val confusion = Array(Element.entries.size) { IntArray(Element.entries.size + 1) }
@@ -173,12 +184,14 @@ object SceneEval {
             if (hypot(p.x - cam.x, p.z - cam.z) <= radiusM + tau) grid.getOrPut(key(p, voxelM)) { ArrayList(1) } += p
             if (!scene.inRegion(p) || !near(p)) continue
             occ++
+            if (p.y > FLOOR_UNCERTAIN_M) occAbove++
             val (d, el) = scene.nearest(p)
             when (classify(scene, p, tau)) {
                 VoxelClass.HIT -> confusion[el.ordinal][labels[i]?.ordinal ?: Element.entries.size]++
                 VoxelClass.INSIDE -> inside++
                 VoxelClass.FALSE -> {
                     falseN++
+                    if (p.y > FLOOR_UNCERTAIN_M) falseAbove++
                     val r = hypot(p.x - cam.x, p.z - cam.z)
                     bands[FALSE_BANDS_M.indexOfFirst { r < it }.let { if (it < 0) FALSE_BANDS_M.size else it }]++
                     heights[FALSE_HEIGHTS_M.indexOfFirst { p.y < it }.let { if (it < 0) FALSE_HEIGHTS_M.size else it }]++
@@ -231,7 +244,7 @@ object SceneEval {
         for (kf in free) if (stateOf(al.toWorld(center(kf, voxelM))) == CellState.UNKNOWN) unknown++
         return Sample(
             depth.tCaptureNs, occ, inside, falseN, bands, dist.toFloatArray(), distEl.toTypedArray(),
-            visible, covered, surface.size + free.size, unknown, erased, confusion, missed, heights, erasedEl,
+            visible, covered, surface.size + free.size, unknown, erased, confusion, missed, heights, erasedEl, occAbove, falseAbove,
         )
     }
 
@@ -347,6 +360,7 @@ object SceneEval {
                 "surfaceErrorP90NoFloorM" to num(distQuantileNoFloor(0.9)),
                 "floorHit" to int(floorHit),
                 "falseRatioByBand" to JsonArray((0..FALSE_BANDS_M.size).map { num(falseRatioBand(it)) }),
+                "falseRatioAboveFloorBand" to num(ratio(samples.sumOf { it.falseAboveBand }, samples.sumOf { it.occupiedAboveBand })),
                 "falseByHeight" to JsonArray((0..FALSE_HEIGHTS_M.size).map { b -> int(samples.sumOf { it.falseByHeight[b] }) }),
                 "insideRatio" to num(ratio(inside, occupied)),
                 "surfaceErrorP50M" to num(distQuantile(0.5)),

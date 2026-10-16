@@ -7,6 +7,7 @@ import hearspace.core.synth.Scenes
 import hearspace.core.types.ConfigLoader
 import hearspace.core.types.MapMode
 import org.junit.jupiter.api.Assertions.assertEquals
+import org.junit.jupiter.api.Assertions.assertNull
 import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Test
 import java.io.File
@@ -45,6 +46,28 @@ class TriStateMapTest {
         val occ = slow.map.voxels.occupied()
         assertTrue(occ.size > 100, "floor cells ${occ.size}")
         assertTrue(occ.all { abs(it.centerW.y) < voxel }, "non-floor cell ${occ.firstOrNull { abs(it.centerW.y) >= voxel }}")
+    }
+
+    @Test
+    fun `the map is updated without any floor judgment and the floor comes from the map`() {
+        // 바닥이 안 보이는 장면에서도 지도는 갱신된다(지도 앞 바닥 판단 없음). 바닥이 보이면 지도에서 구한 바닥이 정답 바닥(y = 0)과 맞는다
+        val noFloor = hearspace.core.synth.Scene(listOf(hearspace.core.synth.SceneItem("sign", hearspace.core.synth.Box(Vec3(-3f, 1.2f, -3f), Vec3(3f, 3f, -2.9f)), true)))
+        val spec = SceneSpec("no-floor", noFloor, hearspace.core.synth.Walk(durationS = 1f, pitchDownDeg = -30f))
+        val map = LocalMap(config)
+        for (f in spec.generate().frames) {
+            val d = f.depth ?: continue
+            val u = map.update(d, d.worldFromCam.translation(), f.truthHead.headingW)
+            assertNull(u.floorY)
+        }
+        assertTrue(map.voxels.occupied().isNotEmpty(), "map not updated without a floor")
+
+        val floorMap = LocalMap(config)
+        var last: Float? = null
+        for (f in Scenes.SC01.generate().frames) {
+            val d = f.depth ?: continue
+            last = floorMap.update(d, d.worldFromCam.translation(), f.truthHead.headingW).floorY
+        }
+        assertEquals(0f, last!!, voxel / 2, "floor from the map")
     }
 
     @Test
