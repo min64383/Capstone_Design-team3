@@ -19,6 +19,12 @@ M30 오차 모델:
   (Khoshelham 2012). 원시 깊이는 신뢰도 4구간별로
 - 검사: 세션을 이름 순으로 번갈아 두 묶음으로 나눠, 한 묶음의 b·σ 모델로 다른 묶음의 |잔차 − b| ≤ σ 비율(정규분포면 68%)
     python depth_error.py <세션 폴더> [...] --dup --runs <기준 재생 폴더>   → 깊이 새 시각 비율, 재생이 같은 시각 깊이를 넣은 횟수
+
+M31 보정 녹화 K01(끝 벽까지 거리를 미리 정한 정지 세션):
+    python depth_error.py <세션 폴더> [...] --absolute <출력 폴더> --runs <기준 재생 폴더>   → depth_absolute.json, depth_absolute.png
+- 면 상수를 빼지 않은 끝 벽 잔차 중앙값 = 그 거리의 절대 편향(원천·원시 신뢰도 4구간별). 같은 거리 세션끼리 차 = 세션 사이 편향.
+  사람이 표시에 서는 오차(약 ±3 cm, M12.0)보다 작은 값은 판단하지 않는다
+  끝 벽 점은 면 띠 ±MODEL_BAND_M(0.3 m) 안만 쓰므로 그보다 큰 편향은 잘린다(K01은 물체 없는 정면 벽이라 띠 안으로 예상)
 """
 from __future__ import annotations
 
@@ -157,8 +163,9 @@ CONF_BINS = [(0, 64), (64, 128), (128, 192), (192, 256)]
 INCIDENCE_EDGES_DEG = [0, 30, 60, 90]
 
 
-def model_points(session: Path, run_dir: Path, source: str) -> pd.DataFrame:
-    """평면 잔차 점: 면 이름·종류(floor/wall), 카메라 깊이 Z, 수평 거리 ρ, 입사각, 신뢰도, 잔차(면 상수 뺀 것), 면 상수."""
+def model_points(session: Path, run_dir: Path, source: str, subtract: bool = True) -> pd.DataFrame:
+    """평면 잔차 점: 면 이름·종류(floor/wall, floor/sidewall/endwall), 카메라 깊이 Z, 수평 거리 ρ, 입사각, 신뢰도, 잔차(면 상수 뺀 것), 면 상수.
+    [subtract]가 거짓이면 면 상수를 빼지 않는다(M31 K01: 거리를 미리 정한 절대 편향)."""
     meta = json.loads((session / "meta.json").read_text(encoding="utf-8"))
     cfg = load_cfg(session)
     al = json.loads((run_dir / "align.json").read_text(encoding="utf-8"))
@@ -204,24 +211,27 @@ def model_points(session: Path, run_dir: Path, source: str) -> pd.DataFrame:
             if o["kind"] == "object":
                 mn, mx = o["min"], o["max"]
                 fl &= ~((x > mn[0] - OBJECT_MARGIN_M) & (x < mx[0] + OBJECT_MARGIN_M) & (z > mn[2] - OBJECT_MARGIN_M) & (z < mx[2] + OBJECT_MARGIN_M))
-        parts = [("floor", "floor", fl, y, np.abs(ry))]
+        parts = [("floor", "floor", "floor", fl, y, np.abs(ry))]
         hy = (y > MODEL_WALL_Y_M[0]) & (y < MODEL_WALL_Y_M[1])
         for name, kind, mn, mx in walls:
             if kind == "sidewall":
                 inner = mx[0] if mx[0] < 0 else mn[0]
                 s = 1.0 if inner < 0 else -1.0  # 복도 안쪽(카메라 쪽) +
                 m = hy & (np.abs(x - inner) < MODEL_BAND_M) & (z > mn[2] + MODEL_BAND_M) & (z < min(mx[2], ze) - MODEL_BAND_M)
-                parts.append((name, "wall", m, (x - inner) * s, np.abs(rx)))
+                parts.append((name, "wall", kind, m, (x - inner) * s, np.abs(rx)))
             else:
                 m = hy & (np.abs(z - mn[2]) < MODEL_BAND_M) & (np.abs(x) < half)
-                parts.append((name, "wall", m, mn[2] - z, np.abs(rz)))
-        for name, surf, m, res, cosn in parts:
+                parts.append((name, "wall", kind, m, mn[2] - z, np.abs(rz)))
+        for name, surf, fkind, m, res, cosn in parts:
             if m.any():
-                out.append(pd.DataFrame({"session": session.name, "face": name, "surface": surf, "Z": zc[m], "rho": rho[m],
+                out.append(pd.DataFrame({"session": session.name, "face": name, "surface": surf, "faceKind": fkind, "Z": zc[m], "rho": rho[m],
                                          "incDeg": np.degrees(np.arccos(np.clip(cosn[m], 0, 1))), "conf": cf[m], "r": res[m]}))
     if not out:
         return pd.DataFrame()
     df = pd.concat(out, ignore_index=True)
+    if not subtract:
+        df["offset"] = 0.0
+        return df
     # 면마다 Z 1~2 m 중앙값(줄자·정렬 상수)을 뺀다
     ref = df[(df.Z >= MODEL_REF_Z_M[0]) & (df.Z < MODEL_REF_Z_M[1])].groupby("face").r.median()
     df["offset"] = df.face.map(ref)
@@ -337,6 +347,57 @@ def plot_model(res: dict, path: Path) -> None:
     fig.savefig(path, dpi=130)
 
 
+def absolute(sessions: list[Path], runs: Path) -> list[dict]:
+    """M31 K01: 끝 벽까지 거리를 미리 정한 정지 세션마다 끝 벽 잔차(카메라 쪽 +)의 중앙값 = 그 거리의 절대 편향.
+    면 상수를 빼지 않는다. 거리는 끝 벽 점 카메라 깊이 Z 중앙값의 0.5 m 단위 반올림(K01 1.0·1.5·2.0·3.0·4.0 m)."""
+    rows = []
+    for s in sessions:
+        for source in ("SMOOTHED", "RAW"):
+            df = model_points(s, runs / s.name, source, subtract=False)
+            e = df[df.faceKind == "endwall"] if not df.empty else df
+            subs = {source: e}
+            if source == "RAW" and not e.empty:
+                subs |= {f"RAW conf{lo}-{hi - 1}": e[(e.conf >= lo) & (e.conf < hi)] for lo, hi in CONF_BINS}
+            for name, d in subs.items():
+                if len(d) < MODEL_MIN_POINTS:
+                    continue
+                bias = float(np.median(d.r))
+                rows.append({"session": s.name, "source": name, "zNominal": round(float(np.median(d.Z)) * 2) / 2,
+                             "zMedian": float(np.median(d.Z)), "n": len(d), "bias": bias,
+                             "sigma": float(1.4826 * np.median(np.abs(d.r - bias)))})
+    return rows
+
+
+def pair_diffs(rows: list[dict]) -> list[dict]:
+    """같은 원천·같은 거리 세션끼리 편향 차(최대 − 최소) = 세션 사이 편향."""
+    df = pd.DataFrame(rows)
+    out = []
+    for (src, zn), g in df.groupby(["source", "zNominal"]):
+        if len(g) >= 2:
+            out.append({"source": src, "zNominal": float(zn), "sessions": len(g), "biasSpread": float(g.bias.max() - g.bias.min()),
+                        "biasMean": float(g.bias.mean())})
+    return out
+
+
+def plot_absolute(rows: list[dict], path: Path) -> None:
+    import matplotlib
+    matplotlib.use("Agg")
+    import matplotlib.pyplot as plt
+    df = pd.DataFrame(rows)
+    fig, ax = plt.subplots(figsize=(7, 4))
+    for src, mk in (("SMOOTHED", "o"), ("RAW", "s"), ("RAW conf192-255", "^"), ("RAW conf0-63", "v")):
+        d = df[df.source == src]
+        if not d.empty:
+            ax.plot(d.zMedian, d.bias, mk, color="k", mfc="none" if "conf" in src else "k", label=src)
+    ax.axhline(0, color="0.6", lw=1)
+    ax.set_xlabel("camera depth Z of end wall (m)")
+    ax.set_ylabel("absolute bias (m, + = in front of wall)")
+    ax.grid(alpha=0.3)
+    ax.legend(fontsize=8)
+    fig.tight_layout()
+    fig.savefig(path, dpi=130)
+
+
 def dup(sessions: list[Path], runs: Path) -> list[dict]:
     """깊이 새 시각 비율(행 대비)과 재생이 같은 시각 깊이를 지도에 넣은 횟수."""
     out = []
@@ -357,6 +418,7 @@ def main() -> None:
     ap.add_argument("--step", type=int, default=2)
     ap.add_argument("--model", type=Path, help="M30 오차 모델 출력 폴더")
     ap.add_argument("--dup", action="store_true", help="M30 새 관측 비율")
+    ap.add_argument("--absolute", type=Path, help="M31 K01 절대 편향 출력 폴더")
     ap.add_argument("--runs", type=Path, help="기준 재생 폴더(<runs>/<세션ID>/align.json, slow_path.csv)")
     a = ap.parse_args()
     if a.model:
@@ -368,6 +430,17 @@ def main() -> None:
             lin = "–" if not g["fitLinear"] else f"σ0 {g['fitLinear'][0]:+.3f} k {g['fitLinear'][1]:.4f}"
             print(f"{key:28s} 세션 {g['sessions']:2d} 점 {g['points']:8d}  Z² {fit} ±1σ {cov(('coverageAonB', 'coverageBonA'))}"
                   f"  | Z {lin} ±1σ {cov(('coverageLinearAonB', 'coverageLinearBonA'))}")
+        return
+    if a.absolute:
+        rows = absolute(a.sessions, a.runs)
+        pairs = pair_diffs(rows)
+        a.absolute.mkdir(parents=True, exist_ok=True)
+        (a.absolute / "depth_absolute.json").write_text(json.dumps({"rows": rows, "pairs": pairs}, indent=1, ensure_ascii=False), encoding="utf-8")
+        plot_absolute(rows, a.absolute / "depth_absolute.png")
+        for r in rows:
+            print(f"{r['session']}  {r['source']:16s} Z {r['zMedian']:.2f} (≈{r['zNominal']:.1f})  점 {r['n']:7d}  편향 {r['bias']:+.3f}  σ {r['sigma']:.3f}")
+        for p in pairs:
+            print(f"{p['source']:16s} {p['zNominal']:.1f} m  세션 {p['sessions']}  편향 평균 {p['biasMean']:+.3f}  세션 사이 차 {p['biasSpread']:.3f}")
         return
     if a.dup:
         for o in dup(a.sessions, a.runs):

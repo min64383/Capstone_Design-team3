@@ -442,6 +442,41 @@ def check_scene_eval():
     assert all(res["metrics"][k]["monotone"] and res["metrics"][k]["separated01"] for k in ("surfaceErrorP90M", "falseRatio", "completenessWallObject")), res
 
 
+def check_depth_absolute():
+    """M31 K01: 면 상수를 빼지 않은 끝 벽 편향. 합성 정지 세션(M12SessionsTest e01, 끝 벽 카메라 4.0 m)에서 정답 그대로면 0,
+    정답 끝 벽을 5 cm 멀리 적으면 +0.05(카메라 쪽 +). 같은 거리 두 세션의 차를 낸다.
+    (깊이 +10% 세션은 끝 벽 점이 면 띠 ±0.3 m 밖이라 값이 없다: 띠보다 큰 편향은 이 방식으로 재지 않는다.)"""
+    import shutil
+    from align import fit, load_frames
+    from depth_error import absolute, pair_diffs
+    from error_decomp import analyze, load_cfg
+
+    m12 = ROOT.parent / "m12"
+    with tempfile.TemporaryDirectory() as tmp:
+        tmp = Path(tmp)
+        for name, src in (("clean", "e01_clean"), ("far5", "e01_clean")):
+            s = tmp / "sessions" / name
+            shutil.copytree(m12 / src, s)
+            if name == "far5":
+                f = s / "annotations/obstacles.json"
+                j = json.loads(f.read_text(encoding="utf-8"))
+                for o in j["obstacles"]:
+                    if o["name"] == "wall_end":
+                        o["min"][2] += 0.05
+                        o["max"][2] += 0.05
+                f.write_text(json.dumps(j), encoding="utf-8")
+            cfg = load_cfg(s)
+            al = fit(load_frames(s), cfg["align"], cfg["head"]["offsetFromCameraM"], analyze(s)["floor"]["y"])
+            (tmp / "runs" / name).mkdir(parents=True)
+            (tmp / "runs" / name / "align.json").write_text(json.dumps(al), encoding="utf-8")
+        rows = absolute([tmp / "sessions" / n for n in ("clean", "far5")], tmp / "runs")
+    b = {(r["session"], r["source"]): r for r in rows}
+    assert abs(b["clean", "SMOOTHED"]["bias"]) < 0.01 and abs(b["clean", "SMOOTHED"]["zNominal"] - 4.0) < 1e-9, b["clean", "SMOOTHED"]
+    assert abs(b["far5", "SMOOTHED"]["bias"] - 0.05) < 0.01, b["far5", "SMOOTHED"]
+    p = {x["source"]: x for x in pair_diffs(rows)}
+    assert p["SMOOTHED"]["sessions"] == 2 and abs(p["SMOOTHED"]["biasSpread"] - 0.05) < 0.01, p
+
+
 def main():
     clean = run("clean")
     assert clean["directionErrorDeg"]["p95"] < 2.0, clean["directionErrorDeg"]
@@ -482,6 +517,7 @@ def main():
     check_output_flicker()
     check_floor_rgb()
     check_scene_eval()
+    check_depth_absolute()
     print("analysis self-check ok")
 
 
