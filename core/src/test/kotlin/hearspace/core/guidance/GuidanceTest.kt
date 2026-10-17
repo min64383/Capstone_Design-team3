@@ -286,7 +286,7 @@ class PolicyTest {
         assertEquals(SoundKind.HEAD_TONE, cmds.single().sound)
         assertTrue(cmds.single().azimuthDeg > 0f) // 오른쪽 +
         assertEquals(50f, cmds.single().infoAgeMs)
-        assertTrue(p.commands(snap(obstacle(1, 2.0f)), head, 301f).isEmpty()) // 정보 만료
+        assertTrue(p.commands(snap(obstacle(1, 2.0f)), head, config.policy.maxInfoAgeMs + 1f).isEmpty()) // 정보 만료
         assertEquals(Band.STOP, p.commands(snap(obstacle(3, -0.1f)), head, 0f).single().band) // 옆·발밑(뒤 0.2 m까지)
         assertTrue(p.commands(snap(obstacle(4, -0.3f)), head, 0f).isEmpty())
     }

@@ -651,6 +651,7 @@ def compute(session: Path, run_dir: Path) -> dict:
         "firstWarnDistanceM": {truth[i]["name"]: first_warn_dist.get(i) for i in sorted(entered)},
         "firstStopDistanceM": {truth[i]["name"]: first_stop_dist.get(i) for i in sorted(entered)},
         "missedStop": len(stop_needed - stop_seen),
+        "stopNeeded": len(stop_needed),  # STOP 구간에 1 s 넘게 든 정답 수(마주침, M32 합성 마주침 검출의 분모)
         "sourceJitterDegStd": jitter_std(),
         "falseAlarmFraction": fa / n_cmd if n_cmd else None,
         # id 전환(명세 §9.2, C3b·T1 평가): 정답 물체마다 그 물체로 짝지어진 경고(WARN·STOP)의 서로 다른 추적 id 수 − 1의 합

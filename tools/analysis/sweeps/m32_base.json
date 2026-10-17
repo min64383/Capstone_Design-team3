@@ -1,0 +1,4 @@
+{"variants": [
+  {"name": "B300", "overrides": {"policy": {"maxInfoAgeMs": 300}}},
+  {"name": "B", "overrides": {}}
+]}

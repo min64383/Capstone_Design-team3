@@ -1,0 +1,12 @@
+{
+ "variants": [
+  {
+   "name": "B300",
+   "overrides": {
+    "policy": {
+     "maxInfoAgeMs": 300
+    }
+   }
+  }
+ ]
+}

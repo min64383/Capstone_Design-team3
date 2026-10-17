@@ -43,6 +43,15 @@ object SceneEval {
     /** 헛 칸 거리 구간 경계(카메라 수평 거리, m): 0~2, 2~3.5, 3.5~. 3.5 = 통로 길이 `corridor.lengthM` 기본값과 같은 구간. */
     val FALSE_BANDS_M = floatArrayOf(2f, 3.5f)
 
+    /** 헛 칸 높이 구간 경계(정답 바닥 위 m): 바닥 아래(< 0), 바닥 근처(0~0.3), 그 위. 0.3 = 누운 캐리어 높이(M12.0)로 낮은 물체 구간. */
+    val FALSE_HEIGHTS_M = floatArrayOf(0f, 0.3f)
+
+    /**
+     * 정답 바닥 높이의 불확실성(m): 녹화 세션의 정답 바닥은 측정마다 다르다(M32: RGB 바닥과 깊이 바닥이 E03 152808에서 0.11 m 차이). 이보다
+     * 높은 칸만 센 헛 칸 비율을 함께 낸다(바닥 근처 칸의 판정이 정답 바닥 선택에 휘둘리지 않게).
+     */
+    const val FLOOR_UNCERTAIN_M = 0.15f
+
     /** F 값을 내는 허용 배수(τ, 2τ, 3τ). */
     val F_MULTIPLES = intArrayOf(1, 2, 3)
 
@@ -126,6 +135,12 @@ object SceneEval {
         val confusion: Array<IntArray>,
         /** 관측했는데 덮이지 않은 표면 점(정답 좌표)과 요소(viewer 표시용). */
         val missed: List<Pair<Vec3, Element>> = emptyList(),
+        /** 헛 칸의 높이 구간([FALSE_HEIGHTS_M]: 바닥 아래, 바닥 근처, 그 위)과 지워진 표면의 요소별 수(M32 원인 분해). */
+        val falseByHeight: IntArray = IntArray(FALSE_HEIGHTS_M.size + 1),
+        val erasedByElement: IntArray = IntArray(Element.entries.size),
+        /** [FLOOR_UNCERTAIN_M]보다 높은 점유 칸과 그중 헛 칸. */
+        val occupiedAboveBand: Int = 0,
+        val falseAboveBand: Int = 0,
     )
 
     /**
@@ -156,6 +171,9 @@ object SceneEval {
         var inside = 0
         var falseN = 0
         val bands = IntArray(FALSE_BANDS_M.size + 1)
+        val heights = IntArray(FALSE_HEIGHTS_M.size + 1)
+        var occAbove = 0
+        var falseAbove = 0
         val dist = ArrayList<Float>()
         val distEl = ArrayList<Element>()
         val confusion = Array(Element.entries.size) { IntArray(Element.entries.size + 1) }
@@ -166,14 +184,17 @@ object SceneEval {
             if (hypot(p.x - cam.x, p.z - cam.z) <= radiusM + tau) grid.getOrPut(key(p, voxelM)) { ArrayList(1) } += p
             if (!scene.inRegion(p) || !near(p)) continue
             occ++
+            if (p.y > FLOOR_UNCERTAIN_M) occAbove++
             val (d, el) = scene.nearest(p)
             when (classify(scene, p, tau)) {
                 VoxelClass.HIT -> confusion[el.ordinal][labels[i]?.ordinal ?: Element.entries.size]++
                 VoxelClass.INSIDE -> inside++
                 VoxelClass.FALSE -> {
                     falseN++
+                    if (p.y > FLOOR_UNCERTAIN_M) falseAbove++
                     val r = hypot(p.x - cam.x, p.z - cam.z)
                     bands[FALSE_BANDS_M.indexOfFirst { r < it }.let { if (it < 0) FALSE_BANDS_M.size else it }]++
+                    heights[FALSE_HEIGHTS_M.indexOfFirst { p.y < it }.let { if (it < 0) FALSE_HEIGHTS_M.size else it }]++
                 }
             }
             dist += d
@@ -207,6 +228,7 @@ object SceneEval {
         val covered = IntArray(Element.entries.size)
         var unknown = 0
         var erased = 0
+        val erasedEl = IntArray(Element.entries.size)
         val missed = ArrayList<Pair<Vec3, Element>>()
         for ((p, el) in surface.values) {
             visible[el.ordinal]++
@@ -215,14 +237,14 @@ object SceneEval {
             missed += p to el
             when (stateOf(al.toWorld(p))) {
                 CellState.UNKNOWN -> unknown++
-                CellState.FREE -> erased++
+                CellState.FREE -> { erased++; erasedEl[el.ordinal]++ }
                 CellState.OCCUPIED -> Unit
             }
         }
         for (kf in free) if (stateOf(al.toWorld(center(kf, voxelM))) == CellState.UNKNOWN) unknown++
         return Sample(
             depth.tCaptureNs, occ, inside, falseN, bands, dist.toFloatArray(), distEl.toTypedArray(),
-            visible, covered, surface.size + free.size, unknown, erased, confusion, missed,
+            visible, covered, surface.size + free.size, unknown, erased, confusion, missed, heights, erasedEl, occAbove, falseAbove,
         )
     }
 
@@ -239,6 +261,20 @@ object SceneEval {
         return { p -> if (key(p, voxelM) in keys) CellState.OCCUPIED else CellState.UNKNOWN }
     }
 
+    /** 3상태 지도(M32 TRISTATE)의 칸 상태: 점유 칸 중심 [occupiedW], 빈 곳 칸 중심 [freeW], 나머지는 모름. */
+    fun threeState(occupiedW: List<Vec3>, freeW: List<Vec3>, voxelM: Float): (Vec3) -> CellState {
+        val occ = occupiedW.mapTo(HashSet()) { key(it, voxelM) }
+        val free = freeW.mapTo(HashSet()) { key(it, voxelM) }
+        return { p ->
+            val k = key(p, voxelM)
+            when (k) {
+                in occ -> CellState.OCCUPIED
+                in free -> CellState.FREE
+                else -> CellState.UNKNOWN
+            }
+        }
+    }
+
     /** 여러 표본을 모은 세션 값. */
     class Pool(val samples: List<Sample>, val voxelM: Float) {
         private val tau = tau(voxelM)
@@ -249,6 +285,14 @@ object SceneEval {
         private val distEl = samples.flatMap { it.distEl.asList() }
 
         fun falseRatio() = ratio(false_, occupied)
+
+        /** 바닥에 맞은 칸(가장 가까운 정답이 바닥이고 τ 안): 지도에 바닥을 넣으면 쉬운 맞은 칸이 늘어 비율 지표가 저절로 좋아진다(M32 설계 3.6절). */
+        private val floorHit = dist.indices.count { distEl[it] == Element.FLOOR && dist[it] <= tau }
+        private val distNoFloor = dist.filterIndexed { i, d -> !(distEl[i] == Element.FLOOR && d <= tau) }
+
+        fun falseRatioNoFloor() = ratio(false_, occupied - floorHit)
+
+        fun distQuantileNoFloor(q: Double): Double? = distNoFloor.sorted().let { if (it.isEmpty()) null else it[((it.size - 1) * q).toInt()].toDouble() }
 
         fun falseRatioBand(b: Int): Double = ratio(samples.sumOf { it.falseByBand[b] }, occupied)
 
@@ -297,6 +341,7 @@ object SceneEval {
                         "visible" to int(visible(el)),
                         "covered" to int(covered(el)),
                         "completeness" to num(completeness(el)),
+                        "erased" to int(samples.sumOf { it.erasedByElement[el.ordinal] }),
                     ),
                 )
             }
@@ -309,7 +354,14 @@ object SceneEval {
                 "inside" to int(inside),
                 "false" to int(false_),
                 "falseRatio" to num(falseRatio()),
+                "falseRatioNoFloor" to num(falseRatioNoFloor()),
+                "insideRatioNoFloor" to num(ratio(inside, occupied - floorHit)),
+                "surfaceErrorP50NoFloorM" to num(distQuantileNoFloor(0.5)),
+                "surfaceErrorP90NoFloorM" to num(distQuantileNoFloor(0.9)),
+                "floorHit" to int(floorHit),
                 "falseRatioByBand" to JsonArray((0..FALSE_BANDS_M.size).map { num(falseRatioBand(it)) }),
+                "falseRatioAboveFloorBand" to num(ratio(samples.sumOf { it.falseAboveBand }, samples.sumOf { it.occupiedAboveBand })),
+                "falseByHeight" to JsonArray((0..FALSE_HEIGHTS_M.size).map { b -> int(samples.sumOf { it.falseByHeight[b] }) }),
                 "insideRatio" to num(ratio(inside, occupied)),
                 "surfaceErrorP50M" to num(distQuantile(0.5)),
                 "surfaceErrorP90M" to num(distQuantile(0.9)),

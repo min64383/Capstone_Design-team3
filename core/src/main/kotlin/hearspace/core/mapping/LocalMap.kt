@@ -10,7 +10,9 @@ import hearspace.core.geometry.Projection
 import hearspace.core.geometry.Vec3
 import hearspace.core.types.Config
 import hearspace.core.types.DepthFrame
+import hearspace.core.types.DepthSource
 import hearspace.core.types.FloorSource
+import hearspace.core.types.MapMode
 import hearspace.core.types.MapHealth
 import hearspace.core.types.IndoorGeometryResult
 import hearspace.core.types.PlaneMode
@@ -59,7 +61,7 @@ class LocalMap(private val config: Config) {
 
     /**
      * 깊이 한 장을 반영한다. [userPosW]·[headingW]는 삭제 조건(지나감·반경)의 기준(진행 방향 추정은 M5).
-     * 바닥을 아직 모르면 맵을 갱신하지 않고 `DEGRADED`를 돌려준다(사용자 결정 2026-09-28).
+     * 바닥을 아직 모르면 맵을 갱신하지 않고 `DEGRADED`를 돌려준다(사용자 결정 2026-09-28). TRISTATE는 예외([updateTriState]).
      */
     fun update(depth: DepthFrame, userPosW: Vec3, headingW: Vec3): MapUpdate {
         val depthMm = effectiveDepth(depth)
@@ -67,6 +69,7 @@ class LocalMap(private val config: Config) {
         val pts = Projection.backprojectToWorld(depthMm, depth.K, depth.worldFromCam, config.depth.subsample)
         val n = pts.size / 3
         val camW = depth.worldFromCam.translation()
+        if (config.map.mode == MapMode.TRISTATE) return updateTriState(depth, pts, camW, userPosW, headingW)
         val planes = if (config.frontend.planes == PlaneMode.RANSAC) PlaneDetector.detect(pts, camW, config.frontend, config.map.radiusM) else null
         val f = if (config.floor.source == FloorSource.PLANE) {
             val pf = planes?.floor
@@ -135,6 +138,60 @@ class LocalMap(private val config: Config) {
             depth.tCaptureNs, n, nFloor, nBelow, nInserted, nDecayed, pruned, voxels.size, floor.floorY, MapHealth.OK, planes, segments, geometry,
             lastRgbEdgeCounts,
         )
+    }
+
+    /**
+     * TRISTATE(M32): 지도 앞에서 바닥을 판단하지 않는다(프로포절 "같은 처리"). 바닥 추정 없이 모든 점(반경 안)을 같은 규칙으로 넣는다.
+     * 관측 가중 = min(1, (반 칸 / σ(Z))²), 빈 곳 여유 = max(τ, `map.sigmaMultiple` × σ(Z)). 돌려주는 바닥은 갱신한 지도에서 구한다
+     * ([floorFromMap], 안내의 통로·바닥 띠용 임시 규칙, 요소 분해 M35에서 바꾼다). 지도에서 바닥을 못 찾으면 null(`DEGRADED`).
+     */
+    private fun updateTriState(depth: DepthFrame, pts: FloatArray, camW: Vec3, userPosW: Vec3, headingW: Vec3): MapUpdate {
+        val n = pts.size / 3
+        val raw = config.depth.source == DepthSource.RAW
+        val camFromWorld = depth.worldFromCam.rigidInverse()
+        val halfVoxel = config.map.voxelSizeM / 2f
+        val tau = config.map.voxelSizeM * kotlin.math.sqrt(3f) / 2f
+        voxels.beginFrame()
+        var nInserted = 0
+        for (i in 0 until n) {
+            val p = Vec3(pts[3 * i], pts[3 * i + 1], pts[3 * i + 2])
+            if ((p - userPosW).horizontal().norm() > config.map.radiusM) continue
+            val sigma = config.depth.sigmaM(raw, camFromWorld.transformPoint(p).z)
+            val w = if (sigma <= halfVoxel) 1f else (halfVoxel / sigma).let { it * it }
+            voxels.insertRay(p, camW, depth.tCaptureNs, w, kotlin.math.max(tau, config.map.sigmaMultiple * sigma))
+            nInserted++
+        }
+        val pruned = voxels.prune(userPosW, headingW, depth.tCaptureNs)
+        val floorY = floorFromMap(userPosW, camW)
+        return MapUpdate(
+            depth.tCaptureNs, n, 0, 0, nInserted, 0, pruned, voxels.size, floorY, if (floorY == null) MapHealth.DEGRADED else MapHealth.OK,
+        )
+    }
+
+    /**
+     * 지도에서 구한 바닥 높이(M32 임시 규칙, M35 요소 분해 전까지): 사용자에서 수평 `corridor.lengthM` 안, 카메라보다 `floor.minBelowCameraM`
+     * 이상 낮은 점유 칸을 높이 칸(복셀)별로 세어 가장 많은 층을 바닥 층으로 본다(바닥은 넓게 퍼진 수평 층이고, 벽은 층마다 몇 칸씩만 있다).
+     * 그 층과 위아래 한 층 칸 중심의 평균 높이를 쓴다(바닥면이 칸 경계에 놓이면 두 층에 나뉜다). 가장 많은 층이 `cluster.minSamples`칸보다
+     * 적으면 null. 같은 규칙이 지도 전체에 쌓인 관측을 쓰므로, 끝 벽 앞에서 바닥이 안 보여도 앞서 본 바닥 칸으로 유지된다.
+     */
+    fun floorFromMap(userPosW: Vec3, cameraW: Vec3): Float? {
+        val maxD = config.corridor.lengthM
+        val top = cameraW.y - config.floor.minBelowCameraM
+        val layers = HashMap<Int, Int>()
+        for (v in voxels.occupied()) {
+            if (v.centerW.y >= top || (v.centerW - userPosW).horizontal().norm() > maxD) continue
+            layers.merge(v.iy, 1, Int::plus)
+        }
+        val (mode, count) = layers.maxWithOrNull(compareBy({ it.value }, { -it.key }))?.toPair() ?: return null
+        if (count < config.cluster.minSamples) return null
+        var sum = 0.0
+        var k = 0
+        for (iy in mode - 1..mode + 1) {
+            val c = layers[iy] ?: continue
+            sum += (iy + 0.5) * config.map.voxelSizeM * c
+            k += c
+        }
+        return (sum / k).toFloat()
     }
 
     private var nextInstance = 1

@@ -37,6 +37,9 @@ class MapEvalWriter(
     private val sceneStridePx: Int = 4,
 ) : ReplayListener {
     override val captureVoxels = true
+
+    /** 빈 곳 칸은 장면 지표 표본 단계만(마지막 단계는 표본이 아니면 빈 곳 없이 남아 TRISTATE에서는 빠진다). */
+    override fun captureFree(stepIndex: Int) = stepIndex % everyN == 0
     private val samples = ArrayList<Pair<Long, List<Vec3>>>()
     private var last: Pair<Long, List<Vec3>>? = null
     private val floors = ArrayList<Float?>()
@@ -44,13 +47,13 @@ class MapEvalWriter(
     private val sceneSamples = ArrayList<SceneInput>()
     private var lastScene: SceneInput? = null
 
-    private class SceneInput(val depth: DepthFrame, val mapDepthMm: ShortArray, val occupiedW: List<Vec3>)
+    private class SceneInput(val depth: DepthFrame, val mapDepthMm: ShortArray, val occupiedW: List<Vec3>, val freeW: List<Vec3>?)
 
     override fun onSlowStep(step: SlowStep) {
         inner.onSlowStep(step)
         floors += step.snapshot.floorY
         val v = step.depth.tCaptureNs to step.occupiedVoxels!!.map { it.centerW }
-        val s = SceneInput(step.depth, step.mapDepthMm ?: step.depth.depthMm, v.second)
+        val s = SceneInput(step.depth, step.mapDepthMm ?: step.depth.depthMm, v.second, step.freeCentersW)
         if (n++ % everyN == 0) { samples += v; sceneSamples += s }
         last = v
         lastScene = s
@@ -73,14 +76,16 @@ class MapEvalWriter(
 
     private fun writeScene(truth: GroundTruth, al: Alignment) {
         val scene = SceneEval.scene(truth, sceneHeightM) ?: return
-        val inputs = (sceneSamples + listOfNotNull(lastScene)).distinctBy { it.depth.tCaptureNs }
+        val tristate = config.map.mode == hearspace.core.types.MapMode.TRISTATE
+        val inputs = (sceneSamples + listOfNotNull(lastScene?.takeIf { !tristate || it.freeW != null })).distinctBy { it.depth.tCaptureNs }
         val voxelM = config.map.voxelSizeM
         fun pool(a: Alignment) = SceneEval.Pool(
             inputs.map { s ->
                 // 지금 지도는 칸에 요소 라벨이 없다: 점유 칸은 모두 장애물(물체) 후보로 쓰인다(M30 설계 3.1절)
                 SceneEval.sample(
                     scene, a, voxelM, config.map.radiusM, s.occupiedW, s.occupiedW.map { Element.OBJECT },
-                    SceneEval.occupancyOnly(s.occupiedW, voxelM), s.depth, s.mapDepthMm, sceneStridePx,
+                    s.freeW?.let { SceneEval.threeState(s.occupiedW, it, voxelM) } ?: SceneEval.occupancyOnly(s.occupiedW, voxelM),
+                    s.depth, s.mapDepthMm, sceneStridePx,
                 )
             },
             voxelM,

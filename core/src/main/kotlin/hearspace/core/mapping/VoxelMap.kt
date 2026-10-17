@@ -31,6 +31,8 @@ data class VoxelView(
     val instId: Int = 0,
     /** 현재 점유 증거(hit-equivalent). `freeEvidenceDecay`가 0이면 기존 누적 hit와 같은 의미. */
     val evidence: Float = hits.toFloat(),
+    /** TRISTATE의 빈 증거 F(광선이 지난 장의 관측 가중 합). 다른 모드는 0. */
+    val free: Float = 0f,
 )
 
 /**
@@ -71,6 +73,11 @@ data class PruneCounts(val passed: Int, val unseen: Int, val outOfRadius: Int)
  * 확실한 빈 곳(sd ≥ τ)은 평균에 섞지 않고 가중치를 HITS의 감쇠·증가 비율만큼 깎아 0이면 지운다(공간 깎기, 치운 물체 SC-04).
  * 점유 = 가중치 ≥ `minHits`, |sd| ≤ 복셀 반 대각선(표면이 칸을 지나면 반드시 잡히는 폭), 측정점이 이 띠를 지난 장이 하나 이상(윤곽
  * 보호로 안 지워진 윤곽 바깥 칸이 평균만으로 표면이 되지 않게, SC-02). 맞은 장·벽 표는 시선 위 이 띠의 칸에 센다(C2). 시야 밖·깊이 무효 칸은 그대로다(§2.2-6).
+ *
+ * `map.mode` TRISTATE(M32, 점유·빈 곳·모름): [insertRay]로 점마다 카메라에서 측정점 앞 여유까지 광선이 지난 칸에 빈 증거 F, 측정점 칸에
+ * 맞은 증거 H를 장마다 한 번씩 관측 가중(σ(Z)에서 유도, [LocalMap])만큼 더한다. 점유 = H ≥ `minPrecision`이고 H ≥ F(계수 모형의 최대우도),
+ * 기록이 있고 점유가 아니면 빈 곳, 기록이 없으면 모름. 투영 감쇠([decayFree])는 하지 않는다: 광선이 닿지 않는 시야 밖·깊이 무효 칸은
+ * 그대로다(§2.2-6). 삭제(지나감·오래 안 보임·반경 밖)된 칸은 모름이 된다.
  */
 class VoxelMap(private val cfg: MapConfig) {
 
@@ -79,10 +86,12 @@ class VoxelMap(private val cfg: MapConfig) {
         var wallHits: Int, var lastWallFrame: Long, var sd: Float = 0f, var sdWeight: Float = 0f,
         var instId: Int = 0, var instVotes: Int = 0, var lastInstFrame: Long = -1,
         var currentEvidence: Float = weightedHits,
+        var free: Float = 0f, var lastFreeFrame: Long = -1,
     )
 
     private val logOdds = cfg.mode == MapMode.LOG_ODDS
     private val tsdf = cfg.mode == MapMode.TSDF
+    private val tristate = cfg.mode == MapMode.TRISTATE
     /** 표면이 칸을 지나면 그 칸 중심까지의 거리는 반 대각선 이하(기하, 설정값이 아님). */
     private val surfaceBandM = cfg.voxelSizeM * sqrt(3f) / 2f
     /** TSDF 빈 곳 관측 한 번에 깎는 가중치: HITS의 감쇠 ÷ 증가(관측 한 장의 무게 1에 대한 비율). */
@@ -90,7 +99,7 @@ class VoxelMap(private val cfg: MapConfig) {
 
     /** TSDF 잘림 폭: 깊이 [depthM]에서 max(`tsdfTruncMinM`, `tsdfTruncPerM` × 깊이). */
     fun truncation(depthM: Float): Float = max(cfg.tsdfTruncMinM, cfg.tsdfTruncPerM * depthM)
-    private val weighted = cfg.hitWeighting == HitWeighting.DISTANCE
+    private val weighted = cfg.hitWeighting == HitWeighting.DISTANCE || tristate
 
     /** 관측 가중치: 거리 [distM]에서 min(1, (weightRefM / 거리)²). */
     fun weight(distM: Float): Float = if (distM <= cfg.weightRefM) 1f else (cfg.weightRefM / distM).let { it * it }
@@ -115,6 +124,64 @@ class VoxelMap(private val cfg: MapConfig) {
         if (tsdf && cameraW != null) allocateAlongRay(pW, cameraW, tNs, minAllocY, weight, wall)
         hit(key(index(pW.x), index(pW.y), index(pW.z)), tNs, weight, wall)
     }
+
+    /**
+     * TRISTATE: 카메라 [cameraW]에서 점 [pW]까지의 광선이 측정점 앞 [marginM]까지 지나는 칸에 빈 증거 F += [weight], [pW] 칸에 맞은 증거
+     * H += [weight](둘 다 장마다 한 번). 측정점 칸은 빈 증거를 받지 않는다. 빈 증거만 받은 칸은 마지막 관측 시각을 새로 해 삭제 규칙이
+     * 같게 적용되고, 맞은 적이 있는 칸의 마지막 관측 시각은 맞은 시각 그대로다(추적의 나이 판단).
+     */
+    fun insertRay(pW: Vec3, cameraW: Vec3, tNs: Long, weight: Float, marginM: Float) {
+        val endKey = key(index(pW.x), index(pW.y), index(pW.z))
+        traverse(cameraW, pW, marginM) { k ->
+            if (k == endKey) return@traverse
+            val v = voxels.getOrPut(k) { Voxel(0, 0f, tNs, -1, 0f, 0f, 0, -1) }
+            if (v.lastFreeFrame != frame) {
+                v.free += weight
+                v.lastFreeFrame = frame
+                if (v.hits == 0) v.lastSeenNs = max(v.lastSeenNs, tNs)
+            }
+        }
+        hit(endKey, tNs, weight, false)
+    }
+
+    /** [from]에서 [to] 쪽으로 길이 |to − from| − [marginM]까지 광선이 지나는 칸을 차례로(3차원 칸 순회, Amanatides–Woo 1987). */
+    private inline fun traverse(from: Vec3, to: Vec3, marginM: Float, visit: (Long) -> Unit) {
+        val d = to - from
+        val len = d.norm()
+        val end = len - marginM
+        if (end <= 0f) return
+        val s = cfg.voxelSizeM
+        val dx = d.x / len
+        val dy = d.y / len
+        val dz = d.z / len
+        var ix = index(from.x)
+        var iy = index(from.y)
+        var iz = index(from.z)
+        val sx = if (dx > 0f) 1 else -1
+        val sy = if (dy > 0f) 1 else -1
+        val sz = if (dz > 0f) 1 else -1
+        var tx = firstCrossing(from.x, ix, dx, sx)
+        var ty = firstCrossing(from.y, iy, dy, sy)
+        var tz = firstCrossing(from.z, iz, dz, sz)
+        val ddx = if (dx == 0f) Float.MAX_VALUE else s / abs(dx)
+        val ddy = if (dy == 0f) Float.MAX_VALUE else s / abs(dy)
+        val ddz = if (dz == 0f) Float.MAX_VALUE else s / abs(dz)
+        var t = 0f
+        while (t < end) {
+            visit(key(ix, iy, iz))
+            if (tx <= ty && tx <= tz) {
+                t = tx; tx += ddx; ix += sx
+            } else if (ty <= tz) {
+                t = ty; ty += ddy; iy += sy
+            } else {
+                t = tz; tz += ddz; iz += sz
+            }
+        }
+    }
+
+    /** 광선 o + t·dc가 칸 [i]의 진행 쪽 경계를 처음 지나는 t(축 하나). */
+    private fun firstCrossing(o: Float, i: Int, dc: Float, st: Int): Float =
+        if (dc == 0f) Float.MAX_VALUE else ((i + (if (st > 0) 1 else 0)) * cfg.voxelSizeM - o) / dc
 
     /** 칸 [key]에 이 장의 관측 한 번(한 장에 한 번). 없으면 만든다. */
     private fun hit(key: Long, tNs: Long, weight: Float, wall: Boolean) {
@@ -275,6 +342,7 @@ class VoxelMap(private val cfg: MapConfig) {
      */
     fun decayFree(depthMm: ShortArray, k: Intrinsics, camFromWorld: Mat4): Int {
         if (tsdf) return updateTsdf(depthMm, k, camFromWorld)
+        if (tristate) return 0 // 빈 증거는 광선이 쌓는다([insertRay])
         var decayed = 0
         val it = voxels.entries.iterator()
         while (it.hasNext()) {
@@ -351,17 +419,21 @@ class VoxelMap(private val cfg: MapConfig) {
     /**
      * 군집화 대상 복셀: HITS는 표 수 ≥ `map.minHits`(DISTANCE면 가중합), score ≥ `map.minScore`. LOG_ODDS는 로그 오즈 ≥ `map.logOccupied`.
      */
-    fun occupied(): List<VoxelView> = voxels.filter { (_, v) ->
-        when {
-            tsdf -> v.sdWeight >= cfg.minHits && abs(v.sd) <= surfaceBandM && v.hits > 0 // 측정점이 지난 적 없는 칸은 평균만으로 표면이 아님(윤곽 부풀림)
-            logOdds -> v.logOdds >= cfg.logOccupied
-            else -> {
-                val historical = if (weighted) v.weightedHits else v.hits.toFloat()
-                val evidence = if (cfg.freeEvidenceDecay > 0f) v.currentEvidence else historical
-                evidence >= cfg.minHits && v.score >= cfg.minScore
-            }
+    fun occupied(): List<VoxelView> = voxels.filter { (_, v) -> isOccupied(v) }.map { (key, v) -> view(key, v) }
+
+    private fun isOccupied(v: Voxel): Boolean = when {
+        tsdf -> v.sdWeight >= cfg.minHits && abs(v.sd) <= surfaceBandM && v.hits > 0 // 측정점이 지난 적 없는 칸은 평균만으로 표면이 아님(윤곽 부풀림)
+        logOdds -> v.logOdds >= cfg.logOccupied
+        tristate -> v.weightedHits >= cfg.minPrecision && v.weightedHits >= v.free
+        else -> {
+            val historical = if (weighted) v.weightedHits else v.hits.toFloat()
+            val evidence = if (cfg.freeEvidenceDecay > 0f) v.currentEvidence else historical
+            evidence >= cfg.minHits && v.score >= cfg.minScore
         }
-    }.map { (key, v) -> view(key, v) }
+    }
+
+    /** TRISTATE의 빈 곳 칸(기록이 있고 점유가 아닌 칸) 중심. 다른 모드는 빈 곳을 저장하지 않으므로 빈 목록. */
+    fun freeCenters(): List<Vec3> = if (!tristate) emptyList() else voxels.filter { (_, v) -> !isOccupied(v) }.map { (key, _) -> center(key) }
 
     /** 모든 복셀. */
     fun views(): List<VoxelView> = voxels.map { (key, v) -> view(key, v) }
@@ -374,7 +446,7 @@ class VoxelMap(private val cfg: MapConfig) {
             cfg.freeEvidenceDecay > 0f -> v.currentEvidence
             else -> historical
         }
-        return VoxelView(ix(key), iy(key), iz(key), center(key), v.hits, v.score, v.lastSeenNs, v.logOdds, v.wallHits, v.instId, evidence)
+        return VoxelView(ix(key), iy(key), iz(key), center(key), v.hits, v.score, v.lastSeenNs, v.logOdds, v.wallHits, v.instId, evidence, v.free)
     }
 
     /** 모든 score에 [factor]를 곱한다(추적 복귀 시 `state.recoverScoreScale`, §7.5). LOG_ODDS는 로그 오즈를 0(모름) 쪽으로 같은 비율만큼. */
@@ -385,6 +457,10 @@ class VoxelMap(private val cfg: MapConfig) {
         }
         if (logOdds) {
             for (v in voxels.values) v.logOdds = max(cfg.logMin, min(cfg.logMax, v.logOdds * factor))
+            return
+        }
+        if (tristate) { // 맞은·빈 증거를 같은 비율로: 비율 판정은 그대로, 정밀도 문턱 쪽으로 모름에 가까워진다
+            for (v in voxels.values) { v.weightedHits *= factor; v.free *= factor }
             return
         }
         for (v in voxels.values) v.score = max(0f, min(1f, v.score * factor))

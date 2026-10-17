@@ -12,7 +12,10 @@ import javax.swing.JPanel
  * 화면 없는 그림 저장(M30): 책갈피마다 사용자가 viewer에서 보는 것과 같은 패널(카메라 화면 + 위에서 본 그림, 지도 칸 겹침 켬·깊이 겹침 끔)을 PNG로.
  * 정답이 장면 전체(E 세션)면 아래 줄에 정답 깊이 대입(D)을 나란히 그린다(viewer [나란히]와 같음).
  *
- *     ./gradlew :viewer:snapshot [-Psession=<ID 일부>] [-Pvariant=<변형 이름>] [-Pout=<폴더>]
+ *     ./gradlew :viewer:snapshot [-Psession=<ID 일부>] [-Pvariant=<변형 이름>] [-Pcompare=<변형 이름>] [-Pout=<폴더>]
+ *
+ * `compare`를 주면 아래 줄에 D 대신 그 변형을 같은 정렬(위 줄의 정렬, 재생 `alignFrom`과 같음)로 그린다(M32: B 대 R3).
+ * `alignDir`를 주면 두 줄 모두 `<alignDir>/<세션ID>/align.json`의 정렬을 쓴다(M32: 파이프라인 바닥과 독립된 정렬, tools/analysis/floor_ref.py).
  *
  * 세션을 주지 않으면 `viewer/bookmarks.json`의 모든 세션. 출력은 `<out>/<세션ID>_<번호>.png`(기본 build/snapshots).
  */
@@ -27,9 +30,17 @@ fun main(args: Array<String>) {
         val dir = Sessions.resolve(id)
         val (marks, _) = Bookmarks.of(dir.name)
         if (marks.isEmpty()) { println("$id: 책갈피 없음"); continue }
-        val a = ReplayRunner.run(dir, overrides, hrtf, label = "A: ${variant ?: "기본값"}")
+        val alignFile = opt["alignDir"]?.takeIf { it.isNotBlank() }?.let { File(it, "${dir.name}/align.json") }?.takeIf { it.isFile }
+        val a0 = ReplayRunner.run(dir, overrides, hrtf, label = "A: ${variant ?: "기본값"}")
+        val a = alignFile?.let { f -> a0.truth?.let { t -> ReplayRunner.run(dir, overrides, hrtf, substitution = Substitution(t, hearspace.core.truth.Alignment.read(f)), label = a0.label) } } ?: a0
         // 정답 깊이 대입은 정답이 장면 전체인 세션만(정답이 물체뿐이면 벽이 없는 깊이가 된다)
-        val b = a.truth?.takeIf { a.sceneTruth != null }?.let { t -> a.alignment?.let { al -> ReplayRunner.run(dir, overrides, hrtf, substitution = Substitution(t, al, depth = true), label = "B: 정답 깊이 대입(D)") } }
+        val compare = opt["compare"]?.takeIf { it.isNotBlank() }
+        val b = a.truth?.takeIf { a.sceneTruth != null }?.let { t ->
+            a.alignment?.let { al ->
+                if (compare == null) ReplayRunner.run(dir, overrides, hrtf, substitution = Substitution(t, al, depth = true), label = "B: 정답 깊이 대입(D)")
+                else ReplayRunner.run(dir, File(Repo.variants, "$compare.json").readText().trim(), hrtf, substitution = Substitution(t, al), label = "B: $compare")
+            }
+        }
         for ((i, m) in marks.withIndex()) {
             val f = File(out, "%s_%02d.png".format(dir.name, i + 1))
             ImageIO.write(render(a, b, a.t0Ns + (m.tS * 1e9).toLong(), "${dir.name}  %.2f s  ${m.label}".format(m.tS)), "png", f)

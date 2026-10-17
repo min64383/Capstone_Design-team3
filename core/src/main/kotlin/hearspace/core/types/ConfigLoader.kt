@@ -60,6 +60,10 @@ object ConfigLoader {
                     subsample = atLeast1("subsample"),
                     source = enumValue<DepthSource>("source"),
                     minConfidence = intIn("minConfidence", 0, 255),
+                    rawSigma0M = float("rawSigma0M"),
+                    rawSigmaPerM2 = nonNegative("rawSigmaPerM2"),
+                    smoothedSigma0M = float("smoothedSigma0M"),
+                    smoothedSigmaPerM2 = nonNegative("smoothedSigmaPerM2"),
                 )
             },
             frontend = root.section("frontend") {
@@ -130,6 +134,8 @@ object ConfigLoader {
                     instances = boolean("instances"),
                     freeEvidenceDecay = nonNegative("freeEvidenceDecay"),
                     decayBehind = boolean("decayBehind"),
+                    sigmaMultiple = positive("sigmaMultiple"),
+                    minPrecision = positive("minPrecision"),
                 ).also { m ->
                     if (!(m.logMin < m.logOccupied && m.logOccupied < m.logMax)) {
                         throw ConfigException("map", "must satisfy logMin < logOccupied < logMax")

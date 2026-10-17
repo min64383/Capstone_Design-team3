@@ -29,12 +29,15 @@ object SyntheticSessionWriter {
         sceneId: String,
         depthOffsetNs: Long = 300_000L,
         version: String = SessionFormat.VERSION,
+        /** 원시 깊이는 새 깊이 [rawEveryN]장에 한 장만 새로 쓴다(M32: 원시 깊이 약 10 Hz 흉내, 나머지 프레임은 마지막 원시 시각을 유지). */
+        rawEveryN: Int = 1,
     ): File {
         dir.mkdirs()
         listOf(SessionFormat.DEPTH_DIR, SessionFormat.RAW_DEPTH_DIR, SessionFormat.DEPTH_CONF_DIR).forEach { File(dir, it).mkdirs() }
         val k = rec.frames.firstNotNullOfOrNull { it.depth }?.K ?: SyntheticGenerator.DEPTH_K
         val textureK = Intrinsics(k.fx * 12, k.fy * 12, k.cx * 12, k.cy * 12, k.width * 12, k.height * 12)
         var lastDepthT = Long.MIN_VALUE
+        var lastRawT: Long? = null
         var saved = 0L
         File(dir, SessionFormat.FRAMES_FILE).bufferedWriter().use { w ->
             w.write(FramesCsv.headerLine(version)); w.newLine()
@@ -42,12 +45,16 @@ object SyntheticSessionWriter {
                 val d = f.depth
                 val depthT = d?.let { it.tCaptureNs - depthOffsetNs }
                 val isNew = depthT != null && depthT != lastDepthT
+                val rawNew = isNew && saved % rawEveryN == 0L
                 if (isNew) {
                     val png = Png16.encode(GrayImage.of16(d.K.width, d.K.height, d.depthMm))
                     File(dir, SessionFormat.depthFile(f.index.toLong())).writeBytes(png)
-                    File(dir, SessionFormat.rawDepthFile(f.index.toLong())).writeBytes(png)
-                    val conf = ByteArray(d.depthMm.size) { i -> if (d.depthMm[i].toInt() == 0) 0 else 255.toByte() }
-                    File(dir, SessionFormat.confFile(f.index.toLong())).writeBytes(Png16.encode(GrayImage.of8(d.K.width, d.K.height, conf)))
+                    if (rawNew) {
+                        File(dir, SessionFormat.rawDepthFile(f.index.toLong())).writeBytes(png)
+                        val conf = ByteArray(d.depthMm.size) { i -> if (d.depthMm[i].toInt() == 0) 0 else 255.toByte() }
+                        File(dir, SessionFormat.confFile(f.index.toLong())).writeBytes(Png16.encode(GrayImage.of8(d.K.width, d.K.height, conf)))
+                        lastRawT = depthT
+                    }
                     lastDepthT = depthT
                     saved++
                 }
@@ -61,9 +68,9 @@ object SyntheticSessionWriter {
                     displayPose = if (version == SessionFormat.VERSION_V0) f.displayPoseGl else null,
                     depthTNs = depthT,
                     depthFile = if (isNew) SessionFormat.depthFile(f.index.toLong()) else null,
-                    rawDepthTNs = depthT,
-                    rawDepthFile = if (isNew) SessionFormat.rawDepthFile(f.index.toLong()) else null,
-                    confFile = if (isNew) SessionFormat.confFile(f.index.toLong()) else null,
+                    rawDepthTNs = if (rawEveryN == 1) depthT else lastRawT,
+                    rawDepthFile = if (rawNew) SessionFormat.rawDepthFile(f.index.toLong()) else null,
+                    confFile = if (rawNew) SessionFormat.confFile(f.index.toLong()) else null,
                     rgbFile = null,
                 )
                 w.write(FramesCsv.format(row, version)); w.newLine()

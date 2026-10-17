@@ -68,7 +68,20 @@ data class DepthConfig(
     val source: DepthSource,
     /** 원시 깊이 신뢰도(0~255)가 이보다 낮은 픽셀은 무효로 본다. 일반 깊이에는 적용하지 않는다. */
     val minConfidence: Int,
-)
+    /**
+     * 깊이 점 위치 오차 σ(Z) = σ₀ + k·Z²(카메라 깊이 Z, m)의 계수(M32 TRISTATE 지도의 관측 가중·빈 곳 여유·바닥 띠). M31 오차 모델에서 교차
+     * 검사를 통과한 벽 맞춤 값: 원시 σ₀ 0.0057·k 0.0091, 평활 σ₀ −0.0020·k 0.0101(data/sweeps/m31/depth_model). 신뢰도별 k가 단조롭지 않아
+     * 신뢰도로는 나누지 않는다(M32 설계 2.1절).
+     */
+    val rawSigma0M: Float,
+    val rawSigmaPerM2: Float,
+    val smoothedSigma0M: Float,
+    val smoothedSigmaPerM2: Float,
+) {
+    /** 깊이 Z(m)에서 점 위치 오차 σ(m). [raw]면 원시 깊이 계수. 음수가 되는 가까운 거리는 0. */
+    fun sigmaM(raw: Boolean, zM: Float): Float =
+        (if (raw) rawSigma0M + rawSigmaPerM2 * zM * zM else smoothedSigma0M + smoothedSigmaPerM2 * zM * zM).coerceAtLeast(0f)
+}
 
 /**
  * 깊이 영상 앞단(IMPROVE_SPEC §6.1.1 M13.1). ① 경계 판정: 주사선을 선형 조각으로 나눠, 긴 조각 둘 사이를 짧은 경사로 잇는
@@ -214,6 +227,16 @@ data class MapConfig(
      * 빈 공간과 같은 양만큼 감쇠한다. 막·당김 점이 앞면 뒤에 만든 칸은 앞면이 보이는 동안 지워지지 않았다(M23 결과, M24 설계). false = 기준선.
      */
     val decayBehind: Boolean,
+    /**
+     * TRISTATE(M32): 빈 곳 여유와 안내 대상에서 뺄 바닥 띠의 σ(Z) 배수. 광선은 측정점 앞 max(τ, 배수 × σ)에서 멈추고, 바닥 추정값에서
+     * 배수 × σ 안이거나 그보다 낮은 칸은 안내 대상이 아니다(지도에는 남는다, 요소 분해 M35까지의 임시 규칙). 2 = 약 95%.
+     */
+    val sigmaMultiple: Float,
+    /**
+     * TRISTATE 점유 문턱: 맞은 증거 H(관측 가중 w = min(1, (반 칸 / σ)²)의 합)가 이 값 이상이고 빈 증거 F 이하가 아니면 점유. 1 = 칸에 든 관측의
+     * 위치 정밀도를 합하면 반 칸 하나(깊이 주기와 무관).
+     */
+    val minPrecision: Float,
 )
 
 /** 바닥 추정 설정. */
