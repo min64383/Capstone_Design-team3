@@ -28,6 +28,7 @@ ACTIVE = {"NORMAL", "DEGRADED"}
 CLUSTER_EVAL_ALONG_M = (0.5, 3.0)  # 군집 평가 단계: 정답 통로 안 최근접 거리(M23 설계 5절, M22 사전 측정과 같은 구간)
 FLICKER_STEPS = 10  # 깜빡이는 출력: 이 단계 수(약 0.33 s) 이하로 출력되고 사라진 track(M25 설계 3.4절)
 FLICKER_SPOT_M = {"end": 0.2, "top": 0.1, "side": 0.1}  # 깜빡임 자리: 통로 끝·위·옆 경계에서 이만큼 안이면 그 자리(M25 사전 측정과 같은 값)
+SIDE_WALL_TOL_M = 0.10  # 옆 벽 경고: 대표점이 실측 옆 벽 면에서 이만큼 안(M33, CLUSTER_TOL_M과 같은 값)
 WALK_SIGN_WINDOW_S = 1.0  # 정답 진행 부호의 창: 앱 heading.windowS(M18에서 2.0으로)와 떼어 M12.2 정답을 그대로 둔다
 
 
@@ -476,6 +477,54 @@ def zone_stats(rows: list[dict], truth: list[dict], pol: dict, why=None) -> dict
     }
 
 
+def distance_guidance(rows: list[dict], truth: list[dict], pol: dict) -> dict:
+    """실측 거리만으로 하는 안내 채점(M33 설계 3.2절). 상자 짝짓기(`MATCH_MARGIN_M`) 대신 블록마다 통로 안 가장 가까운 정답의 진행 방향
+    거리만 쓴다. 정렬 각이 틀려도 진행 방향 거리는 거의 그대로다(4 m에서 1.2°면 1 mm 미만).
+    - 경고(WARN·STOP)가 시작된 블록에서 그 거리가 warnMaxM + hysteresisM + MATCH_MARGIN_M보다 멀거나 통로 안 정답이 없으면 오경보.
+      걸은 10 m당(머리 경로 길이), 분당 횟수로 낸다.
+    - 대상별 첫 경고·첫 STOP 거리: 정상 상태에서 그 대상이 통로 안 가장 가까운 정답일 때 처음 WARN·STOP이 난 블록의 진행 방향 거리.
+    - 옆 벽 경고: 경고 블록 중 대표점이 실측 옆 벽 면 SIDE_WALL_TOL_M 안인 비율(옆 벽은 통로 밖이다).
+    - 거리 오차: 오경보가 아닌 경고 블록의 안내 거리 − 통로 안 가장 가까운 정답의 진행 방향 거리(음수 = 실제보다 가깝게 안내)."""
+    far = pol["warnMaxM"] + pol["hysteresisM"] + MATCH_MARGIN_M
+    side_x = [min(ob["min"][0], ob["max"][0], key=abs) for ob in truth
+              if ob["kind"] == "structure" and ob["max"][0] - ob["min"][0] < 0.5 and ob["max"][2] - ob["min"][2] > 1.0]
+    onsets = fa = n_warn = n_side = 0
+    first_warn, first_stop = {}, {}
+    dist_err = []
+    walked = 0.0
+    prev_warn, prev_head = False, None
+    for r in rows:
+        if prev_head is not None:
+            walked += float(np.hypot(r["head"][0] - prev_head[0], r["head"][1] - prev_head[1]))
+        prev_head = r["head"]
+        warned = r["band"] in ("WARN", "STOP")
+        cands = [(v[0], i) for i, v in enumerate(r["tn"]) if v is not None]
+        near = min(cands) if cands else None
+        if warned and r["state"] in ACTIVE:
+            n_warn += 1
+            if r["rep"] is not None and any(abs(r["rep"][0] - x) <= SIDE_WALL_TOL_M for x in side_x):
+                n_side += 1
+            if near is not None and near[0] <= far:
+                if r["dist"] is not None and not np.isnan(r["dist"]):
+                    dist_err.append(float(r["dist"]) - near[0])
+                first_warn.setdefault(truth[near[1]]["name"], round(near[0], 3))
+                if r["band"] == "STOP":
+                    first_stop.setdefault(truth[near[1]]["name"], round(near[0], 3))
+            if not prev_warn:
+                onsets += 1
+                fa += int(near is None or near[0] > far)
+        prev_warn = warned
+    dur_min = (rows[-1]["t"] - rows[0]["t"]) / 60 if len(rows) > 1 else 0.0
+    return {
+        "falseAlarmOnsets": int(fa), "warnOnsets": int(onsets), "walkedM": round(walked, 3), "durationMin": round(dur_min, 3),
+        "falseAlarmPer10m": fa / walked * 10 if walked >= 1.0 else None,
+        "falseAlarmPerMin": fa / dur_min if dur_min > 0 else None,
+        "firstWarnAlongM": first_warn, "firstStopAlongM": first_stop,
+        "sideWallWarnFraction": n_side / n_warn if n_warn else None,
+        "distanceErrorM": {"p05": p(dist_err, 5), "p50": p(dist_err, 50), "p95": p(dist_err, 95), "n": len(dist_err)},
+    }
+
+
 def band_of(along, pol):
     if along < pol["stopM"]:
         return "STOP"
@@ -662,6 +711,7 @@ def compute(session: Path, run_dir: Path) -> dict:
         "clusterEval": cluster_eval(run_dir),
         "clusterTrack": cluster_track(run_dir, truth, al, cfg),
         **zone_stats(rows, truth, pol, miss_reason(run_dir)),
+        "distanceGuidance": distance_guidance(rows, truth, pol),
         "selectedTruth": {truth[i]["name"]: sum(1 for r in rows if r["match"] == i and r["band"] in ("WARN", "STOP")) for i in range(len(truth))},
     })
     return out

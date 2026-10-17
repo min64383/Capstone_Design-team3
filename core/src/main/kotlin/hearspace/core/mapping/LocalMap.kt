@@ -18,6 +18,8 @@ import hearspace.core.types.IndoorGeometryResult
 import hearspace.core.types.PlaneMode
 import hearspace.core.types.RgbGuideMode
 import hearspace.core.types.SegmentMode
+import hearspace.core.types.TriFree
+import hearspace.core.types.TriWeight
 
 /** 깊이 한 장을 맵에 반영한 결과(§10.1 `slow_path.csv`의 일부). */
 data class MapUpdate(
@@ -69,7 +71,9 @@ class LocalMap(private val config: Config) {
         val pts = Projection.backprojectToWorld(depthMm, depth.K, depth.worldFromCam, config.depth.subsample)
         val n = pts.size / 3
         val camW = depth.worldFromCam.translation()
-        if (config.map.mode == MapMode.TRISTATE) return updateTriState(depth, pts, camW, userPosW, headingW)
+        if (config.map.mode == MapMode.TRISTATE) {
+            return if (config.map.triSameFrame) updateTriFrame(depth, depthMm, camW, userPosW, headingW) else updateTriState(depth, pts, camW, userPosW, headingW)
+        }
         val planes = if (config.frontend.planes == PlaneMode.RANSAC) PlaneDetector.detect(pts, camW, config.frontend, config.map.radiusM) else null
         val f = if (config.floor.source == FloorSource.PLANE) {
             val pf = planes?.floor
@@ -165,6 +169,64 @@ class LocalMap(private val config: Config) {
         val floorY = floorFromMap(userPosW, camW)
         return MapUpdate(
             depth.tCaptureNs, n, 0, 0, nInserted, 0, pruned, voxels.size, floorY, if (floorY == null) MapHealth.DEGRADED else MapHealth.OK,
+        )
+    }
+
+    /**
+     * TRISTATE M33 갱신(`map.triSameFrame`): 점유 격자 모형의 성질 ①~⑤(M33 설계 3.6절)를 갖춘 한 장 갱신. 화소마다 관측 가중과 빈 곳 여유를
+     * 깊이 오차 모형에서 준다. 가중 w = min(1, (반 칸 / σ)²)(②, `map.triWeight` SIGMA_INCIDENCE면 σ(Z, θ), DISTANCE는 비교 줄), 여유 =
+     * max(τ / cos θ, |b(Z)| + 배수 × σ)(③, `map.triMargin`이 아니면 M32 max(τ, 배수 × σ)). 점과 화소는 [Projection.backprojectToWorld]와 같은 순서로 고른다.
+     */
+    private fun updateTriFrame(depth: DepthFrame, depthMm: ShortArray, camW: Vec3, userPosW: Vec3, headingW: Vec3): MapUpdate {
+        val m = config.map
+        val raw = config.depth.source == DepthSource.RAW
+        val k = depth.K
+        val halfVoxel = m.voxelSizeM / 2f
+        val tau = m.voxelSizeM * kotlin.math.sqrt(3f) / 2f
+        fun cos(u: Int, w: Int) = Projection.cosIncidence(depthMm, k, u, w, m.tsdfMinCosIncidence)
+        fun sigma(u: Int, w: Int, z: Float): Float = if (m.triWeight == TriWeight.SIGMA_INCIDENCE) {
+            val c = cos(u, w)
+            config.depth.sigmaM(raw, z, kotlin.math.sqrt(1f - c * c) / c, k.fx)
+        } else {
+            config.depth.sigmaM(raw, z)
+        }
+        fun weight(u: Int, w: Int, z: Float, distM: Float): Float =
+            if (m.triWeight == TriWeight.DISTANCE) voxels.weight(distM) else sigma(u, w, z).let { s -> if (s <= halfVoxel) 1f else (halfVoxel / s).let { it * it } }
+        fun margin(u: Int, w: Int, z: Float): Float = if (m.triMargin) {
+            kotlin.math.max(tau / cos(u, w), kotlin.math.abs(config.depth.biasM(raw, z)) + m.sigmaMultiple * sigma(u, w, z))
+        } else {
+            kotlin.math.max(tau, m.sigmaMultiple * sigma(u, w, z))
+        }
+        val pts = ArrayList<Float>()
+        val ws = ArrayList<Float>()
+        val ms = ArrayList<Float>()
+        val s = config.depth.subsample
+        var nAll = 0
+        for (v in 0 until k.height step s) for (u in 0 until k.width step s) {
+            val mm = depthMm[v * k.width + u].toInt() and 0xFFFF
+            if (mm == 0) continue
+            nAll++
+            val z = mm / 1000f
+            val p = depth.worldFromCam.transformPoint(Projection.backproject(u.toFloat(), v.toFloat(), z, k))
+            if ((p - userPosW).horizontal().norm() > m.radiusM) continue
+            pts += p.x; pts += p.y; pts += p.z
+            ws += weight(u, v, z, (p - camW).norm())
+            ms += margin(u, v, z)
+        }
+        val proj = if (m.triFree == TriFree.PROJECTION) {
+            VoxelMap.TriProjection(depthMm, k, depth.worldFromCam.rigidInverse(), { u, w, z ->
+                val p = depth.worldFromCam.transformPoint(Projection.backproject(u.toFloat(), w.toFloat(), z, k))
+                weight(u, w, z, (p - camW).norm())
+            }, ::margin)
+        } else {
+            null
+        }
+        voxels.beginFrame()
+        voxels.insertTriFrame(pts.toFloatArray(), ws.toFloatArray(), ms.toFloatArray(), camW, depth.tCaptureNs, proj)
+        val pruned = voxels.prune(userPosW, headingW, depth.tCaptureNs)
+        val floorY = floorFromMap(userPosW, camW)
+        return MapUpdate(
+            depth.tCaptureNs, nAll, 0, 0, ws.size, 0, pruned, voxels.size, floorY, if (floorY == null) MapHealth.DEGRADED else MapHealth.OK,
         )
     }
 

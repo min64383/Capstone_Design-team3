@@ -5,6 +5,7 @@
     python scene_eval.py bookmarks <기준 재생 폴더> <출력 json> <세션 폴더> ...   → 정성 평가 책갈피 시각(M30 설계 표 6)
     python scene_eval.py m32real <재생 폴더> <기준> <변형> ... [--scene E]      → M32 완료 기준 ②④(바닥 맞은 칸 제외 지표, 안전 관문)
     python scene_eval.py m32synth <출력 json> <이름>=<합성 출력 폴더> ... [--s 1.0] → M32 기준 ③④(장면 지표, 마주침 STOP 검출)
+    python scene_eval.py m33real <재생 폴더> <기준> <변형> ...                   → M33 미리 정한 주 지표(설계 표 7), 세션 쌍 차이 구간
 
 신뢰구간: 부트스트랩 2,000회, 장면(합성)·세션(녹화) 단위 재표본(Efron & Tibshirani 1993). 한 세션 안의 칸은 서로 상관되어
 칸 단위 재표본은 구간을 지나치게 좁힌다.
@@ -89,6 +90,87 @@ def m32_real(root: Path, base: str, variants: list[str], scene: str | None) -> d
         out["variants"][v] = e
     df.drop(columns=["firstWarn", "firstStop"]).to_csv(root / f"m32_{base}_{'_'.join(variants)}.csv", index=False)
     out["firstWarnStop"] = {f"{r.variant}/{r.session}": {"warn": r.firstWarn, "stop": r.firstStop} for r in df.itertuples()}
+    return out
+
+
+# M33 미리 정한 주 지표(설계 표 7)와 나빠지는 방향(+1 = 클수록 나쁨). 세션 평균, 비교는 같은 세션끼리의 차(변형 − 기준).
+M33_GUIDE = {"falseAlarmPer10m": +1, "endWallFirstWarn": -1, "unknownState": +1}
+M33_MAP = {"footprint": +1, "contradictionRaw": +1, "wallThicknessM": +1, "floorFlatnessM": +1, "floorBelow": +1, "roundTripSideM": +1, "roundTripFloorM": +1}
+M33_REPORT = ["contradictionSmoothed", "contradictionOwn", "distanceErrorP50M", "sideWallWarnFraction", "bandedFalseRatio", "undecidedRatio",
+              "completenessAllPixelsWallObject", "falseRatioNoFloor", "erasedRatio", "unknownRatio"]
+
+
+def m33_row(run: Path) -> dict:
+    """재생 폴더 하나의 M33 지표(map_check.json, scene_eval.json, metrics.json)."""
+    def js(name):
+        f = run / name
+        return json.loads(f.read_text(encoding="utf-8")) if f.is_file() else {}
+    c, s, m = js("map_check.json"), js("scene_eval.json"), js("metrics.json")
+    dg = m.get("distanceGuidance") or {}
+    rt = c.get("roundTripM") or {}
+    raw = (m.get("replayInfo") or {}).get("depthSource") == "RAW" or "RAW" in json.dumps((json.loads((run / "replay_info.json").read_text(encoding="utf-8")) if (run / "replay_info.json").is_file() else {}).get("configOverrides", {}))
+    contra = c.get("contradiction") or {}
+    thick = [v for v in (c.get("thicknessM") or {}).values() if v is not None]
+    def r(d):
+        return np.nan if not d or d.get("ratio") is None else float(d["ratio"])
+    side = [abs(v) for k, v in rt.items() if k != "floor"]
+    return {
+        "scene": m.get("scene", ""),
+        "missedStop": m.get("missedStop"),
+        "falseAlarmPer10m": np.nan if dg.get("falseAlarmPer10m") is None else float(dg["falseAlarmPer10m"]),
+        "endWallFirstWarn": float("wall_end" in (dg.get("firstWarnAlongM") or {})) if dg.get("walkedM", 0) >= 1.0 else np.nan,
+        "unknownState": (m.get("stateFraction") or {}).get("UNKNOWN", 0.0),
+        "footprint": r(c.get("footprint")),
+        "contradictionRaw": r(contra.get("raw")),
+        "contradictionSmoothed": r(contra.get("smoothed")),
+        "contradictionOwn": r(contra.get("raw" if raw else "smoothed")),
+        "wallThicknessM": float(np.mean(thick)) if thick else np.nan,
+        "floorFlatnessM": np.nan if c.get("floorFlatnessM") is None else float(c["floorFlatnessM"]),
+        "floorBelow": r(c.get("floorBelow")),
+        "roundTripSideM": float(np.mean(side)) if side else np.nan,
+        "roundTripFloorM": abs(float(rt["floor"])) if "floor" in rt else np.nan,
+        "distanceErrorP50M": np.nan if (dg.get("distanceErrorM") or {}).get("p50") is None else float(dg["distanceErrorM"]["p50"]),
+        "sideWallWarnFraction": np.nan if dg.get("sideWallWarnFraction") is None else float(dg["sideWallWarnFraction"]),
+        "bandedFalseRatio": np.nan if (s.get("banded") or {}).get("falseRatio") is None else float(s["banded"]["falseRatio"]),
+        "undecidedRatio": np.nan if (s.get("banded") or {}).get("undecidedRatio") is None else float(s["banded"]["undecidedRatio"]),
+        **{k: (np.nan if s.get(k) is None else float(s[k])) for k in ("completenessAllPixelsWallObject", "falseRatioNoFloor", "erasedRatio", "unknownRatio")},
+    }
+
+
+def paired_ci(a: np.ndarray, b: np.ndarray, n: int = N_BOOT, seed: int = SEED) -> tuple[float, float, float, int]:
+    """같은 세션끼리의 차 a − b의 평균과 95% 부트스트랩 구간, 쓴 세션 수(둘 중 하나라도 값이 없는 세션은 뺀다)."""
+    ok = ~(np.isnan(a) | np.isnan(b))
+    m, lo, hi = boot_ci((a - b)[ok], n, seed)
+    return m, lo, hi, int(ok.sum())
+
+
+def m33_real(root: Path, base: str, variants: list[str], scene: str | None) -> dict:
+    rows = []
+    for v in [base, *variants]:
+        for run in sorted(p for p in (root / v).iterdir() if p.is_dir()):
+            r = m33_row(run)
+            if scene and not r["scene"].startswith(scene):
+                continue
+            rows.append({"variant": v, "session": run.name, **r})
+    df = pd.DataFrame(rows)
+    keys = [*M33_GUIDE, *M33_MAP, *M33_REPORT]
+    out = {"sessions": int(df.session.nunique()), "variants": {}}
+    piv = {k: df.pivot(index="session", columns="variant", values=k) for k in keys}
+    for v in [base, *variants]:
+        sub = df[df.variant == v]
+        e: dict = {"missedStop": int(sub.missedStop.fillna(0).sum())}
+        for k in keys:
+            mean, lo, hi = boot_ci(sub[k].to_numpy(float))
+            e[k] = {"mean": mean, "lo": lo, "hi": hi}
+            if v != base:
+                d, dlo, dhi, nn = paired_ci(piv[k][v].to_numpy(float), piv[k][base].to_numpy(float))
+                sign = M33_GUIDE.get(k, M33_MAP.get(k))
+                e[k]["diff"] = {"mean": d, "lo": dlo, "hi": dhi, "n": nn}
+                if sign is not None and not np.isnan(d):
+                    e[k]["better"] = bool((dhi < 0) if sign > 0 else (dlo > 0))
+                    e[k]["worse"] = bool((dlo > 0) if sign > 0 else (dhi < 0))
+        out["variants"][v] = e
+    df.to_csv(root / f"m33_{base}_{'_'.join(variants)}.csv", index=False)
     return out
 
 
@@ -282,6 +364,20 @@ def main(args: list[str]) -> None:
                                             indent=1, ensure_ascii=False) + "\n", encoding="utf-8")
         for r in res:
             print(r["session"], r["scene"], [(m["label"], m["tS"]) for m in r["marks"]])
+    elif args[0] == "m33real":
+        scene = args[args.index("--scene") + 1] if "--scene" in args else None
+        pos = [a for i, a in enumerate(args[1:], 1) if a != "--scene" and args[i - 1] != "--scene"]
+        root, base, variants = Path(pos[0]), pos[1], pos[2:]
+        res = m33_real(root, base, variants, scene)
+        (root / f"m33_{base}_{'_'.join(variants)}.json").write_text(json.dumps(res, indent=1, ensure_ascii=False, default=float), encoding="utf-8")
+        print(f"녹화 {res['sessions']}세션 ({scene or '전체'}), 차 = 변형 − {base} (세션 쌍 95% 구간)")
+        for v, e in res["variants"].items():
+            print(f"== {v}  STOP 누락 {e['missedStop']}")
+            for k in [*M33_GUIDE, *M33_MAP, *M33_REPORT]:
+                m = e[k]
+                d = m.get("diff")
+                tag = "" if not d else f"   차 {d['mean']:+.4f} [{d['lo']:+.4f}, {d['hi']:+.4f}] n{d['n']}" + (" 좋음" if m.get("better") else "") + (" 나쁨" if m.get("worse") else "")
+                print(f"   {k:32s} {fmt(m)}{tag}")
     elif args[0] in ("m32real", "m32synth"):
         flag = "--scene" if args[0] == "m32real" else "--s"
         opt = args[args.index(flag) + 1] if flag in args else None

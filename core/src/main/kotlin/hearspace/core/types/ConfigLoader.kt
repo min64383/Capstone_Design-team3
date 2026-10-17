@@ -64,6 +64,12 @@ object ConfigLoader {
                     rawSigmaPerM2 = nonNegative("rawSigmaPerM2"),
                     smoothedSigma0M = float("smoothedSigma0M"),
                     smoothedSigmaPerM2 = nonNegative("smoothedSigmaPerM2"),
+                    rawIncidenceK = nonNegative("rawIncidenceK"),
+                    smoothedIncidenceK = nonNegative("smoothedIncidenceK"),
+                    rawBias0M = float("rawBias0M"),
+                    rawBiasPerM = float("rawBiasPerM"),
+                    smoothedBias0M = float("smoothedBias0M"),
+                    smoothedBiasPerM = float("smoothedBiasPerM"),
                 )
             },
             frontend = root.section("frontend") {
@@ -136,6 +142,14 @@ object ConfigLoader {
                     decayBehind = boolean("decayBehind"),
                     sigmaMultiple = positive("sigmaMultiple"),
                     minPrecision = positive("minPrecision"),
+                    triSameFrame = boolean("triSameFrame"),
+                    triWeight = enumValue<TriWeight>("triWeight"),
+                    triMargin = boolean("triMargin"),
+                    triDecayS = nonNegative("triDecayS"),
+                    triClamp = nonNegative("triClamp"),
+                    triFree = enumValue<TriFree>("triFree"),
+                    prunePassed = boolean("prunePassed"),
+                    triFreeRule = enumValue<TriFreeRule>("triFreeRule"),
                 ).also { m ->
                     if (!(m.logMin < m.logOccupied && m.logOccupied < m.logMax)) {
                         throw ConfigException("map", "must satisfy logMin < logOccupied < logMax")

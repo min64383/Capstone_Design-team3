@@ -1,12 +1,15 @@
 package hearspace.core.mapping
 
 import hearspace.core.geometry.Mat4
+import hearspace.core.geometry.Projection
 import hearspace.core.geometry.Vec3
 import hearspace.core.types.HitWeighting
 import hearspace.core.types.Intrinsics
 import hearspace.core.types.MapConfig
 import hearspace.core.types.MapMode
+import hearspace.core.types.TriFreeRule
 import kotlin.math.abs
+import kotlin.math.exp
 import kotlin.math.floor
 import kotlin.math.max
 import kotlin.math.min
@@ -87,6 +90,8 @@ class VoxelMap(private val cfg: MapConfig) {
         var instId: Int = 0, var instVotes: Int = 0, var lastInstFrame: Long = -1,
         var currentEvidence: Float = weightedHits,
         var free: Float = 0f, var lastFreeFrame: Long = -1,
+        /** 마지막으로 증거를 받은 시각(M33 시간 감쇠). MIN = 아직 없음. */
+        var lastUpdNs: Long = Long.MIN_VALUE,
     )
 
     private val logOdds = cfg.mode == MapMode.LOG_ODDS
@@ -142,6 +147,83 @@ class VoxelMap(private val cfg: MapConfig) {
             }
         }
         hit(endKey, tNs, weight, false)
+    }
+
+    /**
+     * TRISTATE 한 장(M33, `map.triSameFrame`). [pointsW]는 점(x, y, z 교차), [weights]·[margins]는 점마다 관측 가중과 빈 곳 여유.
+     * 1. 점이 든 칸(맞은 칸)마다 그 장 가중의 최댓값을 모은다.
+     * 2. 빈 증거: [projection]이 null이면 광선이 측정점 앞 여유까지 지난 칸에 그 장 광선 가중의 최댓값을 더한다(RAY). 있으면 광선은 칸을
+     *    만드는 데만 쓰고, 기록이 있는 모든 칸을 그 칸이 투영된 화소의 깊이와 비교해 화소 깊이가 칸 깊이 + 그 화소의 여유보다 멀 때 그 화소의
+     *    가중을 더한다(PROJECTION, 성질 ④). 어느 쪽이든 맞은 칸은 빈 증거를 받지 않는다(성질 ①, OctoMap computeUpdate).
+     * 3. 맞은 칸에 맞은 증거를 더한다.
+     * 증거를 받는 칸만 받기 직전에 H·F에 exp(−Δt / `triDecayS`)를 곱한다(성질 ⑤). 증거를 받지 않는 칸(시야 밖·깊이 무효·표면 자리)은 그대로다.
+     */
+    fun insertTriFrame(pointsW: FloatArray, weights: FloatArray, margins: FloatArray, cameraW: Vec3, tNs: Long, projection: TriProjection?) {
+        val n = weights.size
+        val hitW = HashMap<Long, Float>()
+        for (i in 0 until n) hitW.merge(key(index(pointsW[3 * i]), index(pointsW[3 * i + 1]), index(pointsW[3 * i + 2])), weights[i], ::max)
+        if (projection == null) {
+            val freeW = HashMap<Long, Float>()
+            for (i in 0 until n) {
+                traverse(cameraW, Vec3(pointsW[3 * i], pointsW[3 * i + 1], pointsW[3 * i + 2]), margins[i]) { k ->
+                    if (k !in hitW) freeW.merge(k, weights[i], ::max)
+                }
+            }
+            for ((k, w) in freeW) addFree(voxels.getOrPut(k) { emptyVoxel(tNs) }, w, tNs)
+        } else {
+            for (i in 0 until n) {
+                traverse(cameraW, Vec3(pointsW[3 * i], pointsW[3 * i + 1], pointsW[3 * i + 2]), margins[i]) { k ->
+                    if (k !in hitW) voxels.getOrPut(k) { emptyVoxel(tNs) }
+                }
+            }
+            val kk = projection.k
+            for ((k, v) in voxels) {
+                if (k in hitW) continue
+                val pCv = projection.camFromWorld.transformPoint(center(k))
+                if (pCv.z <= 0f) continue
+                val u = (kk.fx * pCv.x / pCv.z + kk.cx).roundToInt()
+                val w = (kk.fy * pCv.y / pCv.z + kk.cy).roundToInt()
+                if (u < 0 || u >= kk.width || w < 0 || w >= kk.height) continue
+                val mm = projection.depthMm[w * kk.width + u].toInt() and 0xFFFF
+                if (mm == 0) continue
+                val d = mm / 1000f
+                if (d > pCv.z + projection.marginAt(u, w, d)) addFree(v, projection.weightAt(u, w, d), tNs)
+            }
+        }
+        for ((k, w) in hitW) {
+            val v = voxels.getOrPut(k) { emptyVoxel(tNs) }
+            decay(v, tNs)
+            hit(k, tNs, w, false)
+            if (cfg.triClamp > 0f) v.weightedHits = min(v.weightedHits, cfg.triClamp)
+        }
+    }
+
+    /** M33 투영 판정의 입력: 이 장의 깊이와 화소별 가중·여유(LocalMap이 깊이 오차 모형에서 준다). */
+    class TriProjection(
+        val depthMm: ShortArray,
+        val k: Intrinsics,
+        val camFromWorld: Mat4,
+        val weightAt: (u: Int, w: Int, depthM: Float) -> Float,
+        val marginAt: (u: Int, w: Int, depthM: Float) -> Float,
+    )
+
+    private fun emptyVoxel(tNs: Long) = Voxel(0, 0f, tNs, -1, 0f, 0f, 0, -1)
+
+    private fun addFree(v: Voxel, w: Float, tNs: Long) {
+        decay(v, tNs)
+        v.free += w
+        if (cfg.triClamp > 0f) v.free = min(v.free, cfg.triClamp)
+        if (v.hits == 0) v.lastSeenNs = max(v.lastSeenNs, tNs)
+    }
+
+    /** 성질 ⑤: 증거를 받기 직전, 마지막으로 받은 뒤 지난 시간만큼 H·F를 줄인다(`triDecayS` 0이면 그대로). */
+    private fun decay(v: Voxel, tNs: Long) {
+        if (cfg.triDecayS > 0f && v.lastUpdNs != Long.MIN_VALUE && tNs > v.lastUpdNs) {
+            val f = exp(-((tNs - v.lastUpdNs) / 1e9) / cfg.triDecayS).toFloat()
+            v.weightedHits *= f
+            v.free *= f
+        }
+        v.lastUpdNs = tNs
     }
 
     /** [from]에서 [to] 쪽으로 길이 |to − from| − [marginM]까지 광선이 지나는 칸을 차례로(3차원 칸 순회, Amanatides–Woo 1987). */
@@ -235,39 +317,6 @@ class VoxelMap(private val cfg: MapConfig) {
         }
     }
 
-    /**
-     * 픽셀 ([u], [w])에서 면 법선과 시선 사이 cos(하한 `tsdfMinCosIncidence`). 법선은 가로·세로마다 깊이가 가운데와 더 가까운 쪽 이웃
-     * 하나와의 차(한쪽 차분)의 외적: 깊이 경계에서 앞뒤 면에 걸친 이웃으로 법선을 구하면 cos가 하한까지 떨어져 빈 곳 칸이 표면이 됐다
-     * (막 없는 SC-21에서 상자–벽 사이 21칸). 이웃이 무효면 1(보정 없음).
-     */
-    private fun cosIncidence(depthMm: ShortArray, k: Intrinsics, u: Int, w: Int): Float {
-        if (u < 1 || u >= k.width - 1 || w < 1 || w >= k.height - 1) return 1f
-        fun d(uu: Int, ww: Int) = (depthMm[ww * k.width + uu].toInt() and 0xFFFF) / 1000f
-        val dc = d(u, w)
-        if (dc == 0f) return 1f
-        fun p(uu: Int, ww: Int, z: Float) = Vec3((uu - k.cx) * z / k.fx, (ww - k.cy) * z / k.fy, z)
-        val c = p(u, w, dc)
-        /** 가운데에서 깊이가 더 가까운 쪽 이웃까지의 3D 차(두 이웃 모두 무효면 null). */
-        fun side(a: Pair<Int, Int>, b: Pair<Int, Int>): Vec3? {
-            val da = d(a.first, a.second)
-            val db = d(b.first, b.second)
-            val useA = da != 0f && (db == 0f || abs(da - dc) <= abs(db - dc))
-            return when {
-                useA -> p(a.first, a.second, da) - c
-                db != 0f -> c - p(b.first, b.second, db)
-                else -> null
-            }
-        }
-        val gu = side(u + 1 to w, u - 1 to w) ?: return 1f
-        val gw = side(u to w + 1, u to w - 1) ?: return 1f
-        val n = gu cross gw
-        val r = c
-        val nn = n.norm()
-        val rn = r.norm()
-        if (nn <= 0f || rn <= 0f) return 1f
-        return max(cfg.tsdfMinCosIncidence, abs(n dot r) / (nn * rn))
-    }
-
     /** 픽셀 ([u], [w])의 3×3 이웃에 깊이 [z] ± [tau] 안의 유효 깊이가 있는지. */
     private fun nearSurfaceAround(depthMm: ShortArray, k: Intrinsics, u: Int, w: Int, z: Float, tau: Float): Boolean {
         for (dw in -1..1) for (du in -1..1) {
@@ -319,7 +368,7 @@ class VoxelMap(private val cfg: MapConfig) {
             val mm = depthMm[w * k.width + u].toInt() and 0xFFFF
             if (mm == 0) continue // 관측 없음
             val tau = truncation(pCv.z)
-            val sd = (mm / 1000f - pCv.z) * cosIncidence(depthMm, k, u, w)
+            val sd = (mm / 1000f - pCv.z) * Projection.cosIncidence(depthMm, k, u, w, cfg.tsdfMinCosIncidence)
             if (sd < -tau) continue // 가려짐: 칸이 측정 표면보다 τ 넘게 뒤
             val wt = weight(pCv.z)
             if (sd >= tau) {
@@ -406,7 +455,7 @@ class VoxelMap(private val cfg: MapConfig) {
             val (key, v) = it.next()
             val d = (center(key) - userPosW).horizontal()
             when {
-                dir != null && (d dot dir) < -cfg.passedMarginM -> passed++
+                cfg.prunePassed && dir != null && (d dot dir) < -cfg.passedMarginM -> passed++
                 nowNs - v.lastSeenNs > maxUnseenNs -> unseen++
                 d.norm() > cfg.radiusM -> far++
                 else -> continue
@@ -432,8 +481,17 @@ class VoxelMap(private val cfg: MapConfig) {
         }
     }
 
-    /** TRISTATE의 빈 곳 칸(기록이 있고 점유가 아닌 칸) 중심. 다른 모드는 빈 곳을 저장하지 않으므로 빈 목록. */
-    fun freeCenters(): List<Vec3> = if (!tristate) emptyList() else voxels.filter { (_, v) -> !isOccupied(v) }.map { (key, _) -> center(key) }
+    /**
+     * TRISTATE의 빈 곳 칸 중심. 다른 모드는 빈 곳을 저장하지 않으므로 빈 목록.
+     * - `map.triFreeRule` NOT_OCCUPIED(M32): 기록이 있고 점유가 아닌 칸.
+     * - EVIDENCE(M33): 점유 판정의 반대쪽, F > H이고 F ≥ `minPrecision`(증거가 충분할 때만 빈 곳). 맞은 증거가 쌓였지만 정밀도 문턱에 못 미친
+     *   칸이나 증거가 없는 칸(광선이 골랐지만 표면 자리로 판정된 칸)은 모름이다. M33 구현 중 발견: 정답 깊이(합성 s = 0)에서 M32 "지워진 표면"
+     *   0.37의 대부분이 이 규칙 차이였다(NOT_OCCUPIED면 같은 장 우선·투영 판정을 켜도 0.36·0.34).
+     */
+    fun freeCenters(): List<Vec3> = if (!tristate) emptyList() else voxels.filter { (_, v) -> isFree(v) }.map { (key, _) -> center(key) }
+
+    private fun isFree(v: Voxel): Boolean =
+        if (cfg.triFreeRule == TriFreeRule.EVIDENCE) v.free > v.weightedHits && v.free >= cfg.minPrecision else !isOccupied(v) && (v.free > 0f || v.weightedHits > 0f)
 
     /** 모든 복셀. */
     fun views(): List<VoxelView> = voxels.map { (key, v) -> view(key, v) }

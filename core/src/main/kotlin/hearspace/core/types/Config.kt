@@ -77,10 +77,31 @@ data class DepthConfig(
     val rawSigmaPerM2: Float,
     val smoothedSigma0M: Float,
     val smoothedSigmaPerM2: Float,
+    /**
+     * 화소 깊이 오차의 입사각 항(M33, `map.triWeight` SIGMA_INCIDENCE): σ(Z, θ) = √(σ(Z)² + (c·Z·tan θ / f<sub>x</sub>)²). 비스듬한 면에서 한 화소가 덮는
+     * 깊이 폭이 Z·tan θ / f<sub>x</sub>다(c = 그 폭에 대한 오차 비율, 화소 안 균일이면 1/√12). 계수는 M33 픽셀 깊이 오차 측정(`depth_error.py --pixel`).
+     */
+    val rawIncidenceK: Float,
+    val smoothedIncidenceK: Float,
+    /** 화소 깊이 편향 b(Z) = b₀ + b₁·Z(m, + = 실제보다 가깝게)(M33 `map.triBiasMargin`). 계수는 M33 픽셀 깊이 오차 측정. */
+    val rawBias0M: Float,
+    val rawBiasPerM: Float,
+    val smoothedBias0M: Float,
+    val smoothedBiasPerM: Float,
 ) {
     /** 깊이 Z(m)에서 점 위치 오차 σ(m). [raw]면 원시 깊이 계수. 음수가 되는 가까운 거리는 0. */
     fun sigmaM(raw: Boolean, zM: Float): Float =
         (if (raw) rawSigma0M + rawSigmaPerM2 * zM * zM else smoothedSigma0M + smoothedSigmaPerM2 * zM * zM).coerceAtLeast(0f)
+
+    /** 입사각 θ의 tan을 넣은 σ(Z, θ)(M33). [fxPx]는 깊이 영상 초점 거리(화소). */
+    fun sigmaM(raw: Boolean, zM: Float, tanTheta: Float, fxPx: Float): Float {
+        val s = sigmaM(raw, zM)
+        val f = (if (raw) rawIncidenceK else smoothedIncidenceK) * zM * tanTheta / fxPx
+        return kotlin.math.sqrt(s * s + f * f)
+    }
+
+    /** 깊이 Z(m)의 편향 b(Z)(M33). */
+    fun biasM(raw: Boolean, zM: Float): Float = if (raw) rawBias0M + rawBiasPerM * zM else smoothedBias0M + smoothedBiasPerM * zM
 }
 
 /**
@@ -237,6 +258,29 @@ data class MapConfig(
      * 위치 정밀도를 합하면 반 칸 하나(깊이 주기와 무관).
      */
     val minPrecision: Float,
+    /**
+     * TRISTATE 한 장 갱신을 점유 격자 모형에 맞춘다(M33 성질 ①): 그 장에서 맞은 칸은 빈 증거를 받지 않고, 칸마다 맞은·빈 증거를 그 장의 가장
+     * 큰 가중으로 한 번씩 더한다(화소 순서와 무관, OctoMap computeUpdate). 아래 tri* 설정은 이것이 켜졌을 때만 쓴다. false = M32.
+     */
+    val triSameFrame: Boolean,
+    /** 관측 가중 곡선(M33 성질 ②). SIGMA = M32 σ(Z), SIGMA_INCIDENCE = σ(Z, θ), DISTANCE = 비교 줄 min(1, (`weightRefM` / 거리)²). */
+    val triWeight: TriWeight,
+    /**
+     * 빈 곳 여유를 칸의 광선 방향 두께와 측정 불확실성으로(M33 성질 ③): max(τ / cos θ, |b(Z)| + 배수 × σ). θ는 그 화소의 면 입사각(하한
+     * `tsdfMinCosIncidence`). 비스듬한 면에서는 표면이 칸을 지나도 칸 중심을 지나는 화소 광선이 표면을 τ / cos θ만큼 더 가서 만난다(M13.6 TSDF와
+     * 같은 이유). false = M32 max(τ, 배수 × σ).
+     */
+    val triMargin: Boolean,
+    /** 관측이 닿은 칸만 갱신 직전에 H·F에 exp(−Δt / T)를 곱하는 T(s, M33 성질 ⑤). 0 = 끔. */
+    val triDecayS: Float,
+    /** 비교 줄: H·F 상한(OctoMap clamping의 맞은 관측 수 환산). 0 = 끔. */
+    val triClamp: Float,
+    /** 빈 증거 판정(M33 성질 ④). RAY = 광선이 지난 칸, PROJECTION = 칸이 투영된 화소의 깊이로. */
+    val triFree: TriFree,
+    /** 사용자 뒤로 `passedMarginM` 넘게 지나간 칸을 지운다(MVP §7.3). false면 반경·안 보인 시간으로만 지운다(M33 3.8절). */
+    val prunePassed: Boolean,
+    /** 빈 곳 판정 규칙([TriFreeRule], M33 구현 중 성질로 추가). 복셀 지도의 갱신·점유는 바꾸지 않고 칸 상태 읽기만 바꾼다(평가·M39용). */
+    val triFreeRule: TriFreeRule,
 )
 
 /** 바닥 추정 설정. */
