@@ -1,6 +1,8 @@
 package hearspace.core.geometry
 
 import hearspace.core.types.Intrinsics
+import kotlin.math.abs
+import kotlin.math.max
 import kotlin.math.sqrt
 
 // 기하 (MVP_SPEC §5, §7.1). 좌표계는 월드(W, +Y 위)와 카메라 C_cv(+X 오른쪽, +Y 아래, +Z 앞)만 쓴다.
@@ -154,6 +156,38 @@ object Projection {
     /** 픽셀 (u, v)와 깊이 [depthM]를 C_cv 점으로. `X = (u − cx)·d / fx`, `Y = (v − cy)·d / fy`, `Z = d`. */
     fun backproject(u: Float, v: Float, depthM: Float, k: Intrinsics) =
         Vec3((u - k.cx) * depthM / k.fx, (v - k.cy) * depthM / k.fy, depthM)
+
+    /**
+     * 픽셀 ([u], [w])에서 면 법선과 시선 사이 cos(하한 [minCos]). 법선은 가로·세로마다 깊이가 가운데와 더 가까운 쪽 이웃
+     * 하나와의 차(한쪽 차분)의 외적: 깊이 경계에서 앞뒤 면에 걸친 이웃으로 법선을 구하면 cos가 하한까지 떨어져 빈 곳 칸이 표면이 됐다
+     * (막 없는 SC-21에서 상자–벽 사이 21칸, M13.6). 이웃이 무효면 1(보정 없음).
+     */
+    fun cosIncidence(depthMm: ShortArray, k: Intrinsics, u: Int, w: Int, minCos: Float): Float {
+        if (u < 1 || u >= k.width - 1 || w < 1 || w >= k.height - 1) return 1f
+        fun d(uu: Int, ww: Int) = (depthMm[ww * k.width + uu].toInt() and 0xFFFF) / 1000f
+        val dc = d(u, w)
+        if (dc == 0f) return 1f
+        fun p(uu: Int, ww: Int, z: Float) = Vec3((uu - k.cx) * z / k.fx, (ww - k.cy) * z / k.fy, z)
+        val c = p(u, w, dc)
+        /** 가운데에서 깊이가 더 가까운 쪽 이웃까지의 3D 차(두 이웃 모두 무효면 null). */
+        fun side(a: Pair<Int, Int>, b: Pair<Int, Int>): Vec3? {
+            val da = d(a.first, a.second)
+            val db = d(b.first, b.second)
+            val useA = da != 0f && (db == 0f || abs(da - dc) <= abs(db - dc))
+            return when {
+                useA -> p(a.first, a.second, da) - c
+                db != 0f -> c - p(b.first, b.second, db)
+                else -> null
+            }
+        }
+        val gu = side(u + 1 to w, u - 1 to w) ?: return 1f
+        val gw = side(u to w + 1, u to w - 1) ?: return 1f
+        val n = gu cross gw
+        val nn = n.norm()
+        val rn = c.norm()
+        if (nn <= 0f || rn <= 0f) return 1f
+        return max(minCos, abs(n dot c) / (nn * rn))
+    }
 
     /** C_cv 점을 픽셀로. 카메라 뒤(Z ≤ 0)면 null. */
     fun project(pCv: Vec3, k: Intrinsics): Pair<Float, Float>? {

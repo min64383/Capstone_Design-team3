@@ -94,7 +94,7 @@ class OfflineReplay(
     fun run(session: File, outDir: File, overridesJson: String = "{}", slowPathNote: String = "") {
         val log = RunLogWriter(outDir, session, overridesJson, slowPathNote, substitution?.infoJson(alignFrom), rgbSource.name)
         val truth = File(session, "annotations/obstacles.json").isFile
-        run(session, if (truth) MapEvalWriter(ClusterEvalWriter(log, outDir, session, config, substitution?.align), outDir, session, config, align = substitution?.align) else log)
+        run(session, if (truth) MapEvalWriter(ClusterEvalWriter(log, outDir, session, config, substitution?.align), outDir, session, config, align = substitution?.align, alignFile = alignFrom.takeIf { it.isNotBlank() }?.let(::File)) else log)
     }
 
     /** [session]을 재생해 결과를 [listener]에 넘긴다. */

@@ -1,0 +1,26 @@
+{
+ "variants": [
+  {
+   "name": "B",
+   "overrides": {},
+   "replay": {
+    "alignFrom": "data/sweeps/m32/align_ref/{session}/align.json"
+   }
+  },
+  {
+   "name": "R3",
+   "overrides": {
+    "map": {
+     "mode": "TRISTATE"
+    },
+    "depth": {
+     "source": "RAW",
+     "minConfidence": 1
+    }
+   },
+   "replay": {
+    "alignFrom": "data/sweeps/m32/align_ref/{session}/align.json"
+   }
+  }
+ ]
+}

@@ -62,11 +62,35 @@ object SceneEval {
     class Solid(val name: String, val element: Element, val min: Vec3, val max: Vec3)
 
     /** 정답 장면: 고체 상자들 + 바닥(y = 0, 그 아래 [FLOOR_SLAB_M] 고체). [regionMin]~[regionMax] 밖 칸은 보지 않는다. */
-    class Scene(val solids: List<Solid>, val regionMin: Vec3, val regionMax: Vec3) {
+    class Scene(
+        val solids: List<Solid>,
+        val regionMin: Vec3,
+        val regionMax: Vec3,
+        /** 채점에서 뺄 상자(정답 밖 물체, M33): 안(τ 여유)의 칸은 세지 않고, 광선이 먼저 닿으면 그 화소의 표면은 세지 않는다. */
+        val excluded: List<Solid> = emptyList(),
+    ) {
+        fun isExcluded(p: Vec3, margin: Float) = excluded.any { s ->
+            p.x > s.min.x - margin && p.x < s.max.x + margin && p.y > s.min.y - margin && p.y < s.max.y + margin && p.z > s.min.z - margin && p.z < s.max.z + margin
+        }
+
+        /** [raycast]의 첫 교차([t])보다 채점에서 뺄 상자가 먼저인지(그러면 그 화소는 정답 밖 물체를 본다). */
+        fun hitsExcludedFirst(o: Vec3, d: Vec3, t: Float) = excluded.any { s -> slab(o, d, s.min, s.max)?.let { it < t } ?: false }
+
         fun inRegion(p: Vec3) = p.x in regionMin.x..regionMax.x && p.y in regionMin.y..regionMax.y && p.z in regionMin.z..regionMax.z
 
         fun inside(p: Vec3) = (p.y < 0f && p.y > -FLOOR_SLAB_M) || solids.any { s ->
             p.x > s.min.x && p.x < s.max.x && p.y > s.min.y && p.y < s.max.y && p.z > s.min.z && p.z < s.max.z
+        }
+
+        /** 가장 가까운 정답 고체(null = 바닥, M33 면 두께의 칸 나누기). */
+        fun nearestSolid(p: Vec3): Solid? {
+            var best = abs(p.y)
+            var s0: Solid? = null
+            for (s in solids) {
+                val d = abs(boxDistance(p, s.min, s.max))
+                if (d < best) { best = d; s0 = s }
+            }
+            return s0
         }
 
         /** 가장 가까운 정답 표면까지 거리(부호 없음)와 그 요소. */
@@ -106,11 +130,12 @@ object SceneEval {
     fun scene(truth: GroundTruth, heightM: Float): Scene? {
         val structures = truth.obstacles.filter { it.kind == TruthKind.STRUCTURE }
         if (structures.isEmpty()) return null
-        val solids = truth.obstacles.map { Solid(it.name, element(it), it.minM, it.maxM) }
+        val solids = truth.obstacles.filter { it.kind != TruthKind.UNMODELED }.map { Solid(it.name, element(it), it.minM, it.maxM) }
         return Scene(
             solids,
             Vec3(structures.minOf { it.minM.x }, -BELOW_FLOOR_M, structures.minOf { it.minM.z }),
             Vec3(structures.maxOf { it.maxM.x }, heightM, structures.maxOf { it.maxM.z }),
+            truth.obstacles.filter { it.kind == TruthKind.UNMODELED }.map { Solid(it.name, Element.OBJECT, it.minM, it.maxM) },
         )
     }
 
@@ -141,7 +166,39 @@ object SceneEval {
         /** [FLOOR_UNCERTAIN_M]보다 높은 점유 칸과 그중 헛 칸. */
         val occupiedAboveBand: Int = 0,
         val falseAboveBand: Int = 0,
+        /** 판정 불가 띠(M33)를 둔 셈: 띠 밖 점유 칸, 그중 헛 칸, 띠 안(판정 불가) 칸. 띠를 주지 않으면 0. */
+        val occupiedDecided: Int = 0,
+        val falseDecided: Int = 0,
+        val undecided: Int = 0,
+        /** 변형 깊이의 유효 여부와 무관하게 시야 안 모든 화소의 정답 광선으로 정한 관측 표면과 그중 덮인 수(요소 순서, M33). */
+        val visibleAll: IntArray = IntArray(Element.entries.size),
+        val coveredAll: IntArray = IntArray(Element.entries.size),
     )
+
+    /**
+     * 판정 불가 띠(M33 설계 3.4절): 정답 점 [p](정답 좌표) 둘레 가장 가까운 면의 법선 방향 정답 불확실성 u(m). 헛 칸의 표면 거리 d가
+     * d ≤ τ + u면 판정에서 뺀다. 바닥은 세션의 바닥 값(RGB·평활·원시) 범위 [floorM]. 벽·천장·물체는 [markM] + 정렬 각 [angleDeg] 오차로 그 점이
+     * 면 법선 방향으로 움직이는 양: 각 오차는 시작 표시 둘레 회전이라 (x, z)를 (−z, x)·tan(각)만큼 옮기므로 x 법선 면은 tan·|z|, z 법선 면은
+     * tan·|x|, 수평 면은 0이다(정면 끝 벽은 각 오차에 둔감하다).
+     */
+    class Band(val floorM: Float, val markM: Float, val angleDeg: Float) {
+        private val tan = kotlin.math.tan(Math.toRadians(angleDeg.toDouble())).toFloat()
+        fun u(p: Vec3, solid: Solid?): Float {
+            if (solid == null) return floorM
+            return markM + tan * when (faceAxis(p, solid)) { 0 -> abs(p.z); 2 -> abs(p.x); else -> 0f }
+        }
+    }
+
+    /** 상자 [s]에서 [p]에 가장 가까운 면의 법선 축(0 = x, 1 = y, 2 = z). */
+    fun faceAxis(p: Vec3, s: Solid): Int {
+        fun gap(a: Int): Float {
+            val lo = s.min.c(a)
+            val hi = s.max.c(a)
+            val v = p.c(a)
+            return if (v < lo) lo - v else if (v > hi) v - hi else -minOf(v - lo, hi - v)
+        }
+        return (0..2).maxByOrNull { gap(it) }!!
+    }
 
     /**
      * 표본 하나를 센다.
@@ -161,6 +218,7 @@ object SceneEval {
         depth: DepthFrame,
         depthMm: ShortArray,
         stride: Int,
+        band: Band? = null,
     ): Sample {
         val tau = tau(voxelM)
         val cam = al.toTruth(depth.worldFromCam.translation())
@@ -174,6 +232,9 @@ object SceneEval {
         val heights = IntArray(FALSE_HEIGHTS_M.size + 1)
         var occAbove = 0
         var falseAbove = 0
+        var occDec = 0
+        var falseDec = 0
+        var undecided = 0
         val dist = ArrayList<Float>()
         val distEl = ArrayList<Element>()
         val confusion = Array(Element.entries.size) { IntArray(Element.entries.size + 1) }
@@ -182,11 +243,15 @@ object SceneEval {
             val p = al.toTruth(w)
             // 덮임 판정용 격자에는 영역·반경 경계 밖 τ까지의 칸도 넣는다(경계 안 표면점을 경계 밖 칸이 덮는 경우)
             if (hypot(p.x - cam.x, p.z - cam.z) <= radiusM + tau) grid.getOrPut(key(p, voxelM)) { ArrayList(1) } += p
-            if (!scene.inRegion(p) || !near(p)) continue
+            if (!scene.inRegion(p) || !near(p) || scene.isExcluded(p, tau)) continue
             occ++
             if (p.y > FLOOR_UNCERTAIN_M) occAbove++
             val (d, el) = scene.nearest(p)
-            when (classify(scene, p, tau)) {
+            val cls = classify(scene, p, tau)
+            if (band != null) {
+                if (cls == VoxelClass.FALSE && d <= tau + band.u(p, scene.nearestSolid(p))) undecided++ else { occDec++; if (cls == VoxelClass.FALSE) falseDec++ }
+            }
+            when (cls) {
                 VoxelClass.HIT -> confusion[el.ordinal][labels[i]?.ordinal ?: Element.entries.size]++
                 VoxelClass.INSIDE -> inside++
                 VoxelClass.FALSE -> {
@@ -204,14 +269,17 @@ object SceneEval {
         // 관측한 표면과 빈 칸(간격 stride 화소의 광선)
         val k = depth.K
         val surface = HashMap<Long, Pair<Vec3, Element>>()
+        val surfaceAll = HashMap<Long, Pair<Vec3, Element>>()
         val free = HashSet<Long>()
         for (v in stride / 2 until k.height step stride) for (u in stride / 2 until k.width step stride) {
-            if (depthMm[v * k.width + u].toInt() == 0) continue
+            val valid = depthMm[v * k.width + u].toInt() != 0
             val dir = al.toTruthDir(depth.worldFromCam.transformDir(Vec3((u - k.cx) / k.fx, (v - k.cy) / k.fy, 1f)))
             val (t, el) = scene.raycast(cam, dir) ?: continue
             if (t > TruthDepth.MAX_DEPTH_M) continue
             val hit = cam + dir * t
-            if (!scene.inRegion(hit) || !near(hit)) continue
+            if (!scene.inRegion(hit) || !near(hit) || scene.hitsExcludedFirst(cam, dir, t)) continue
+            surfaceAll.putIfAbsent(key(hit, voxelM), hit to el)
+            if (!valid) continue
             surface.putIfAbsent(key(hit, voxelM), hit to el)
             val len = dir.norm()
             var s = voxelM / len
@@ -242,9 +310,16 @@ object SceneEval {
             }
         }
         for (kf in free) if (stateOf(al.toWorld(center(kf, voxelM))) == CellState.UNKNOWN) unknown++
+        val visibleAll = IntArray(Element.entries.size)
+        val coveredAll = IntArray(Element.entries.size)
+        for ((p, el) in surfaceAll.values) {
+            visibleAll[el.ordinal]++
+            if (anyWithin(grid, p, tau, voxelM)) coveredAll[el.ordinal]++
+        }
         return Sample(
             depth.tCaptureNs, occ, inside, falseN, bands, dist.toFloatArray(), distEl.toTypedArray(),
             visible, covered, surface.size + free.size, unknown, erased, confusion, missed, heights, erasedEl, occAbove, falseAbove,
+            occDec, falseDec, undecided, visibleAll, coveredAll,
         )
     }
 
@@ -370,6 +445,18 @@ object SceneEval {
                 "fScore" to JsonObject(F_MULTIPLES.associate { "${it}tau" to num(fScore(it)) }.toMap(LinkedHashMap())),
                 "unknownRatio" to num(unknownRatio()),
                 "erasedRatio" to num(erasedRatio()),
+                "banded" to JsonObject(
+                    linkedMapOf(
+                        "falseRatio" to num(ratio(samples.sumOf { it.falseDecided }, samples.sumOf { it.occupiedDecided })),
+                        "undecidedRatio" to num(ratio(samples.sumOf { it.undecided }, occupied)),
+                    ),
+                ),
+                "completenessAllPixelsWallObject" to num(
+                    listOf(Element.WALL, Element.OBJECT).let { e ->
+                        val v = e.sumOf { el -> samples.sumOf { it.visibleAll[el.ordinal] } }
+                        if (v == 0) null else e.sumOf { el -> samples.sumOf { it.coveredAll[el.ordinal] } }.toDouble() / v
+                    },
+                ),
                 "labelAgreement" to num(labelAgreement()),
                 "labelConfusion" to JsonObject(
                     Element.entries.associate { t ->

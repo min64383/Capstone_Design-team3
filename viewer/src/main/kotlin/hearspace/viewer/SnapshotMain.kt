@@ -17,6 +17,8 @@ import javax.swing.JPanel
  * `compare`를 주면 아래 줄에 D 대신 그 변형을 같은 정렬(위 줄의 정렬, 재생 `alignFrom`과 같음)로 그린다(M32: B 대 R3).
  * `alignDir`를 주면 두 줄 모두 `<alignDir>/<세션ID>/align.json`의 정렬을 쓴다(M32: 파이프라인 바닥과 독립된 정렬, tools/analysis/floor_ref.py).
  *
+ * `times`(쉼표로 나눈 초, 세션 시작 기준)를 주면 책갈피 대신 그 시각들을 그린다(M33 정답 밖 물체 점검).
+ *
  * 세션을 주지 않으면 `viewer/bookmarks.json`의 모든 세션. 출력은 `<out>/<세션ID>_<번호>.png`(기본 build/snapshots).
  */
 fun main(args: Array<String>) {
@@ -28,7 +30,8 @@ fun main(args: Array<String>) {
     val ids = opt["session"]?.takeIf { it.isNotBlank() }?.let { listOf(Sessions.resolve(it).name) } ?: Bookmarks.sessionIds()
     for (id in ids) {
         val dir = Sessions.resolve(id)
-        val (marks, _) = Bookmarks.of(dir.name)
+        val times = opt["times"]?.takeIf { it.isNotBlank() }?.split(',')?.map { it.trim().toFloat() }
+        val marks = times?.map { Bookmark(it.toDouble(), "t") } ?: Bookmarks.of(dir.name).first
         if (marks.isEmpty()) { println("$id: 책갈피 없음"); continue }
         val alignFile = opt["alignDir"]?.takeIf { it.isNotBlank() }?.let { File(it, "${dir.name}/align.json") }?.takeIf { it.isFile }
         val a0 = ReplayRunner.run(dir, overrides, hrtf, label = "A: ${variant ?: "기본값"}")

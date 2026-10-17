@@ -14,7 +14,8 @@ import kotlin.math.atan2
 import kotlin.math.hypot
 
 /** 정답 물체 종류(IMPROVE_SPEC §9.1). 구조물(벽·문 같은 큰 평면)은 물체 탐지율 분모에서 뺀다. */
-enum class TruthKind { OBJECT, STRUCTURE }
+/** 정답 종류. UNMODELED = 정답에 없던 실제 물체(M33 정답 밖 물체 점검에서 개발자가 RGB로 확인, 크기는 눈대중): 장면 지표 채점에서 뺀다. */
+enum class TruthKind { OBJECT, STRUCTURE, UNMODELED }
 
 /**
  * 정답 장애물 하나. 좌표는 **정답 좌표**(원점 = 시작 때 머리 아래 바닥, +x 오른쪽, +y 위(바닥 0), +z 보행선 앞, m)이며
@@ -105,7 +106,8 @@ data class GroundTruth(
                 kind = when (val k = str("kind") ?: "object") {
                     "object" -> TruthKind.OBJECT
                     "structure" -> TruthKind.STRUCTURE
-                    else -> throw IllegalArgumentException("obstacles.json: kind must be object or structure, got $k")
+                    "unmodeled" -> TruthKind.UNMODELED
+                    else -> throw IllegalArgumentException("obstacles.json: kind must be object, structure or unmodeled, got $k")
                 },
                 minM = vec("min"),
                 maxM = vec("max"),

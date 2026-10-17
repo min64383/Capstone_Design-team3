@@ -70,7 +70,7 @@ tasks.register<JavaExec>("snapshot") {
     maxHeapSize = "4g"
     systemProperty("hearspace.repoRoot", rootProject.projectDir.absolutePath)
     systemProperty("java.awt.headless", "true")
-    args = listOf("session", "variant", "compare", "alignDir", "out").mapNotNull { k ->
+    args = listOf("session", "variant", "compare", "alignDir", "out", "times").mapNotNull { k ->
         (project.findProperty(k) as String?)?.let { v -> "$k=${if (k == "out" || k == "alignDir") rootProject.file(v).absolutePath else v}" }
     }
 }

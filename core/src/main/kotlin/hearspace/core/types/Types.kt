@@ -49,6 +49,15 @@ enum class MapMode { HITS, LOG_ODDS, TSDF, TRISTATE }
  */
 enum class HitWeighting { NONE, DISTANCE }
 
+/** TRISTATE 관측 가중 곡선(M33). */
+enum class TriWeight { SIGMA, SIGMA_INCIDENCE, DISTANCE }
+
+/** TRISTATE 빈 증거 판정(M33). */
+enum class TriFree { RAY, PROJECTION }
+
+/** TRISTATE 빈 곳 판정(M33). NOT_OCCUPIED = M32(기록이 있고 점유가 아님), EVIDENCE = F > H이고 F ≥ `minPrecision`. */
+enum class TriFreeRule { NOT_OCCUPIED, EVIDENCE }
+
 /** 로컬 맵의 건강 상태. */
 enum class MapHealth { OK, DEGRADED }
 

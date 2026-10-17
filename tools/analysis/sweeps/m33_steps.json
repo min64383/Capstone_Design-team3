@@ -1,0 +1,142 @@
+{
+ "variants": [
+  {
+   "name": "R3e",
+   "overrides": {
+    "map": {
+     "mode": "TRISTATE",
+     "triFreeRule": "EVIDENCE"
+    },
+    "depth": {
+     "source": "RAW",
+     "minConfidence": 1
+    }
+   },
+   "replay": {
+    "alignFrom": "data/sweeps/m32/align_ref/{session}/align.json"
+   }
+  },
+  {
+   "name": "V1",
+   "overrides": {
+    "map": {
+     "mode": "TRISTATE",
+     "triFreeRule": "EVIDENCE",
+     "triSameFrame": true
+    },
+    "depth": {
+     "source": "RAW",
+     "minConfidence": 1
+    }
+   },
+   "replay": {
+    "alignFrom": "data/sweeps/m32/align_ref/{session}/align.json"
+   }
+  },
+  {
+   "name": "V2",
+   "overrides": {
+    "map": {
+     "mode": "TRISTATE",
+     "triFreeRule": "EVIDENCE",
+     "triSameFrame": true,
+     "triWeight": "SIGMA",
+     "triMargin": true
+    },
+    "depth": {
+     "source": "RAW",
+     "minConfidence": 1
+    }
+   },
+   "replay": {
+    "alignFrom": "data/sweeps/m32/align_ref/{session}/align.json"
+   }
+  },
+  {
+   "name": "V3",
+   "overrides": {
+    "map": {
+     "mode": "TRISTATE",
+     "triFreeRule": "EVIDENCE",
+     "triSameFrame": true,
+     "triWeight": "SIGMA",
+     "triMargin": true,
+     "triDecayS": 9.0,
+     "prunePassed": false,
+     "maxUnseenS": 9.0
+    },
+    "depth": {
+     "source": "RAW",
+     "minConfidence": 1
+    }
+   },
+   "replay": {
+    "alignFrom": "data/sweeps/m32/align_ref/{session}/align.json"
+   }
+  },
+  {
+   "name": "RM",
+   "overrides": {
+    "map": {
+     "mode": "TRISTATE",
+     "triFreeRule": "EVIDENCE",
+     "triSameFrame": true,
+     "triWeight": "SIGMA",
+     "triMargin": true,
+     "triDecayS": 9.0,
+     "prunePassed": false,
+     "maxUnseenS": 9.0,
+     "triFree": "PROJECTION"
+    },
+    "depth": {
+     "source": "RAW",
+     "minConfidence": 1
+    }
+   },
+   "replay": {
+    "alignFrom": "data/sweeps/m32/align_ref/{session}/align.json"
+   }
+  },
+  {
+   "name": "V2dist",
+   "overrides": {
+    "map": {
+     "mode": "TRISTATE",
+     "triFreeRule": "EVIDENCE",
+     "triSameFrame": true,
+     "triWeight": "DISTANCE",
+     "triMargin": true
+    },
+    "depth": {
+     "source": "RAW",
+     "minConfidence": 1
+    }
+   },
+   "replay": {
+    "alignFrom": "data/sweeps/m32/align_ref/{session}/align.json"
+   }
+  },
+  {
+   "name": "V3clamp",
+   "overrides": {
+    "map": {
+     "mode": "TRISTATE",
+     "triFreeRule": "EVIDENCE",
+     "triSameFrame": true,
+     "triWeight": "SIGMA",
+     "triMargin": true,
+     "triClamp": 4.1,
+     "prunePassed": false,
+     "maxUnseenS": 9.0
+    },
+    "depth": {
+     "source": "RAW",
+     "minConfidence": 1
+    }
+   },
+   "replay": {
+    "alignFrom": "data/sweeps/m32/align_ref/{session}/align.json"
+   }
+  }
+ ]
+}

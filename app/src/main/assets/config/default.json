@@ -18,7 +18,13 @@
     "rawSigma0M": 0.0057,
     "rawSigmaPerM2": 0.0091,
     "smoothedSigma0M": -0.002,
-    "smoothedSigmaPerM2": 0.0101
+    "smoothedSigmaPerM2": 0.0101,
+    "rawIncidenceK": 0.0,
+    "smoothedIncidenceK": 0.0,
+    "rawBias0M": 0.0,
+    "rawBiasPerM": 0.0,
+    "smoothedBias0M": 0.0,
+    "smoothedBiasPerM": 0.0
   },
   "frontend": {
     "enabled": false,
@@ -86,7 +92,15 @@
     "freeEvidenceDecay": 0.0,
     "decayBehind": false,
     "sigmaMultiple": 2.0,
-    "minPrecision": 1.0
+    "minPrecision": 1.0,
+    "triSameFrame": false,
+    "triWeight": "SIGMA",
+    "triMargin": false,
+    "triDecayS": 0.0,
+    "triClamp": 0.0,
+    "triFree": "RAY",
+    "prunePassed": true,
+    "triFreeRule": "NOT_OCCUPIED"
   },
   "floor": {
     "searchBandM": 0.5,
