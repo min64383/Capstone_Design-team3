@@ -88,7 +88,6 @@ class UserModeActivity : Activity(), GLSurfaceView.Renderer {
         focus = AudioFocus(this)
         a11y = getSystemService(AccessibilityManager::class.java)
         window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
-        window.attributes = window.attributes.apply { screenBrightness = MIN_BRIGHTNESS }
         buildLayout()
         render()
     }
@@ -293,6 +292,5 @@ class UserModeActivity : Activity(), GLSurfaceView.Renderer {
 
     companion object {
         private const val UI_REFRESH_MS = 200L
-        private const val MIN_BRIGHTNESS = 0.01f
     }
 }
