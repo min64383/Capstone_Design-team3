@@ -96,7 +96,7 @@ def m32_real(root: Path, base: str, variants: list[str], scene: str | None) -> d
 # M33 미리 정한 주 지표(설계 표 7)와 나빠지는 방향(+1 = 클수록 나쁨). 세션 평균, 비교는 같은 세션끼리의 차(변형 − 기준).
 M33_GUIDE = {"falseAlarmPer10m": +1, "endWallFirstWarn": -1, "unknownState": +1}
 M33_MAP = {"footprint": +1, "contradictionRaw": +1, "wallThicknessM": +1, "floorFlatnessM": +1, "floorBelow": +1, "roundTripSideM": +1, "roundTripFloorM": +1}
-M33_REPORT = ["contradictionSmoothed", "contradictionOwn", "distanceErrorP50M", "sideWallWarnFraction", "bandedFalseRatio", "undecidedRatio",
+M33_REPORT = ["contradictionSmoothed", "contradictionOwn", "distanceErrorP50M", "distanceErrorFloorP50M", "distanceErrorAboveP50M", "edgeUndecidedWarnFraction", "sideWallWarnFraction", "bandedFalseRatio", "undecidedRatio",
               "completenessAllPixelsWallObject", "falseRatioNoFloor", "erasedRatio", "unknownRatio"]
 
 
@@ -130,6 +130,9 @@ def m33_row(run: Path) -> dict:
         "roundTripSideM": float(np.mean(side)) if side else np.nan,
         "roundTripFloorM": abs(float(rt["floor"])) if "floor" in rt else np.nan,
         "distanceErrorP50M": np.nan if (dg.get("distanceErrorM") or {}).get("p50") is None else float(dg["distanceErrorM"]["p50"]),
+        "distanceErrorFloorP50M": np.nan if (dg.get("distanceErrorFloorM") or {}).get("p50") is None else float(dg["distanceErrorFloorM"]["p50"]),
+        "distanceErrorAboveP50M": np.nan if (dg.get("distanceErrorAboveM") or {}).get("p50") is None else float(dg["distanceErrorAboveM"]["p50"]),
+        "edgeUndecidedWarnFraction": np.nan if dg.get("edgeUndecidedWarnFraction") is None else float(dg["edgeUndecidedWarnFraction"]),
         "sideWallWarnFraction": np.nan if dg.get("sideWallWarnFraction") is None else float(dg["sideWallWarnFraction"]),
         "bandedFalseRatio": np.nan if (s.get("banded") or {}).get("falseRatio") is None else float(s["banded"]["falseRatio"]),
         "undecidedRatio": np.nan if (s.get("banded") or {}).get("undecidedRatio") is None else float(s["banded"]["undecidedRatio"]),
