@@ -9,8 +9,10 @@ import hearspace.core.types.MapConfig
 import hearspace.core.types.MapMode
 import hearspace.core.types.TriFreeRule
 import kotlin.math.abs
+import kotlin.math.cos
 import kotlin.math.exp
 import kotlin.math.floor
+import kotlin.math.ln
 import kotlin.math.max
 import kotlin.math.min
 import kotlin.math.roundToInt
@@ -92,11 +94,26 @@ class VoxelMap(private val cfg: MapConfig) {
         var free: Float = 0f, var lastFreeFrame: Long = -1,
         /** 마지막으로 증거를 받은 시각(M33 시간 감쇠). MIN = 아직 없음. */
         var lastUpdNs: Long = Long.MIN_VALUE,
+        /** RV 시점 묶음(M39). null = 아직 증거 없음 또는 RV 꺼짐. */
+        var group: ViewGroup? = null,
     )
+
+    /**
+     * RV 칸의 시점 묶음(M39 설계 3.2절): 확정된 묶음 합 [hc]·[fc], 지금 묶음을 연 관측의 거리 [r0]·방향([d0x], [d0y], [d0z]), 지금 묶음 안
+     * 맞은·빈 가중 합 [h]·[f]와 장 수 [n].
+     */
+    private class ViewGroup(
+        var hc: Float = 0f, var fc: Float = 0f, var h: Float = 0f, var f: Float = 0f, var n: Int = 0,
+        var r0: Float = 0f, var d0x: Float = 0f, var d0y: Float = 0f, var d0z: Float = 0f,
+    ) {
+        fun scale(s: Float) { hc *= s; fc *= s; h *= s; f *= s }
+    }
 
     private val logOdds = cfg.mode == MapMode.LOG_ODDS
     private val tsdf = cfg.mode == MapMode.TSDF
     private val tristate = cfg.mode == MapMode.TRISTATE
+    private val viewGroups = cfg.triViewRho > 0f
+    private val cosViewAngle = cos(Math.toRadians(cfg.triViewAngleDeg.toDouble())).toFloat()
     /** 표면이 칸을 지나면 그 칸 중심까지의 거리는 반 대각선 이하(기하, 설정값이 아님). */
     private val surfaceBandM = cfg.voxelSizeM * sqrt(3f) / 2f
     /** TSDF 빈 곳 관측 한 번에 깎는 가중치: HITS의 감쇠 ÷ 증가(관측 한 장의 무게 1에 대한 비율). */
@@ -157,6 +174,7 @@ class VoxelMap(private val cfg: MapConfig) {
      *    가중을 더한다(PROJECTION, 성질 ④). 어느 쪽이든 맞은 칸은 빈 증거를 받지 않는다(성질 ①, OctoMap computeUpdate).
      * 3. 맞은 칸에 맞은 증거를 더한다.
      * 증거를 받는 칸만 받기 직전에 H·F에 exp(−Δt / `triDecayS`)를 곱한다(성질 ⑤). 증거를 받지 않는 칸(시야 밖·깊이 무효·표면 자리)은 그대로다.
+     * `triViewRho` > 0이면 증거를 칸의 시점 묶음에 넣는다([viewEvidence], M39 RV).
      */
     fun insertTriFrame(pointsW: FloatArray, weights: FloatArray, margins: FloatArray, cameraW: Vec3, tNs: Long, projection: TriProjection?) {
         val n = weights.size
@@ -169,7 +187,7 @@ class VoxelMap(private val cfg: MapConfig) {
                     if (k !in hitW) freeW.merge(k, weights[i], ::max)
                 }
             }
-            for ((k, w) in freeW) addFree(voxels.getOrPut(k) { emptyVoxel(tNs) }, w, tNs)
+            for ((k, w) in freeW) addFree(k, voxels.getOrPut(k) { emptyVoxel(tNs) }, w, tNs, cameraW)
         } else {
             for (i in 0 until n) {
                 traverse(cameraW, Vec3(pointsW[3 * i], pointsW[3 * i + 1], pointsW[3 * i + 2]), margins[i]) { k ->
@@ -187,13 +205,14 @@ class VoxelMap(private val cfg: MapConfig) {
                 val mm = projection.depthMm[w * kk.width + u].toInt() and 0xFFFF
                 if (mm == 0) continue
                 val d = mm / 1000f
-                if (d > pCv.z + projection.marginAt(u, w, d)) addFree(v, projection.weightAt(u, w, d), tNs)
+                if (d > pCv.z + projection.marginAt(u, w, d)) addFree(k, v, projection.weightAt(u, w, d), tNs, cameraW)
             }
         }
         for ((k, w) in hitW) {
             val v = voxels.getOrPut(k) { emptyVoxel(tNs) }
             decay(v, tNs)
             hit(k, tNs, w, false)
+            if (viewGroups) viewEvidence(k, v, cameraW, w, true)
             if (cfg.triClamp > 0f) v.weightedHits = min(v.weightedHits, cfg.triClamp)
         }
     }
@@ -209,11 +228,45 @@ class VoxelMap(private val cfg: MapConfig) {
 
     private fun emptyVoxel(tNs: Long) = Voxel(0, 0f, tNs, -1, 0f, 0f, 0, -1)
 
-    private fun addFree(v: Voxel, w: Float, tNs: Long) {
+    private fun addFree(key: Long, v: Voxel, w: Float, tNs: Long, cameraW: Vec3) {
         decay(v, tNs)
         v.free += w
         if (cfg.triClamp > 0f) v.free = min(v.free, cfg.triClamp)
         if (v.hits == 0) v.lastSeenNs = max(v.lastSeenNs, tNs)
+        if (viewGroups) viewEvidence(key, v, cameraW, w, false)
+    }
+
+    /**
+     * RV(M39): 이 장의 맞은([hit]) 또는 빈 증거 [w]를 칸의 시점 묶음에 넣고 H·F를 확정 묶음 합 + 지금 묶음 합 / (1 + (n − 1)ρ)로 다시 쓴다.
+     * 카메라→칸 거리 r이 묶음 첫 관측 거리 r₀에서 |ln(r / r₀)| ≥ `triViewRangeLn`이거나 시선각이 `triViewAngleDeg` 이상이면 지금 묶음을
+     * 확정하고 새로 연다. 감쇠([decay])는 묶음 합에도 같이 걸고, n은 감쇠하지 않는다(정보량이 아니라 상관 구조).
+     */
+    private fun viewEvidence(key: Long, v: Voxel, cameraW: Vec3, w: Float, hit: Boolean) {
+        val c = center(key)
+        val dx = c.x - cameraW.x
+        val dy = c.y - cameraW.y
+        val dz = c.z - cameraW.z
+        val r = max(sqrt(dx * dx + dy * dy + dz * dz), 1e-6f)
+        val g = v.group ?: ViewGroup().also { v.group = it }
+        if (g.n > 0 && (abs(ln(r / g.r0)) >= cfg.triViewRangeLn || (dx * g.d0x + dy * g.d0y + dz * g.d0z) / r <= cosViewAngle)) {
+            val s = 1f / (1f + (g.n - 1) * cfg.triViewRho)
+            g.hc += g.h * s
+            g.fc += g.f * s
+            g.h = 0f
+            g.f = 0f
+            g.n = 0
+        }
+        if (g.n == 0) {
+            g.r0 = r
+            g.d0x = dx / r
+            g.d0y = dy / r
+            g.d0z = dz / r
+        }
+        g.n++
+        if (hit) g.h += w else g.f += w
+        val s = 1f / (1f + (g.n - 1) * cfg.triViewRho)
+        v.weightedHits = g.hc + g.h * s
+        v.free = g.fc + g.f * s
     }
 
     /** 성질 ⑤: 증거를 받기 직전, 마지막으로 받은 뒤 지난 시간만큼 H·F를 줄인다(`triDecayS` 0이면 그대로). */
@@ -222,6 +275,7 @@ class VoxelMap(private val cfg: MapConfig) {
             val f = exp(-((tNs - v.lastUpdNs) / 1e9) / cfg.triDecayS).toFloat()
             v.weightedHits *= f
             v.free *= f
+            v.group?.scale(f)
         }
         v.lastUpdNs = tNs
     }
@@ -518,7 +572,7 @@ class VoxelMap(private val cfg: MapConfig) {
             return
         }
         if (tristate) { // 맞은·빈 증거를 같은 비율로: 비율 판정은 그대로, 정밀도 문턱 쪽으로 모름에 가까워진다
-            for (v in voxels.values) { v.weightedHits *= factor; v.free *= factor }
+            for (v in voxels.values) { v.weightedHits *= factor; v.free *= factor; v.group?.scale(factor) }
             return
         }
         for (v in voxels.values) v.score = max(0f, min(1f, v.score * factor))
