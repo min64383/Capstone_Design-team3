@@ -150,7 +150,11 @@ object ConfigLoader {
                     triFree = enumValue<TriFree>("triFree"),
                     prunePassed = boolean("prunePassed"),
                     triFreeRule = enumValue<TriFreeRule>("triFreeRule"),
+                    triViewRho = unit("triViewRho"),
+                    triViewRangeLn = positive("triViewRangeLn"),
+                    triViewAngleDeg = positive("triViewAngleDeg"),
                 ).also { m ->
+                    if (m.triViewRho > 0f && m.triClamp > 0f) throw ConfigException("map", "triViewRho and triClamp cannot both be on")
                     if (!(m.logMin < m.logOccupied && m.logOccupied < m.logMax)) {
                         throw ConfigException("map", "must satisfy logMin < logOccupied < logMax")
                     }

@@ -281,6 +281,15 @@ data class MapConfig(
     val prunePassed: Boolean,
     /** 빈 곳 판정 규칙([TriFreeRule], M33 구현 중 성질로 추가). 복셀 지도의 갱신·점유는 바꾸지 않고 칸 상태 읽기만 바꾼다(평가·M39용). */
     val triFreeRule: TriFreeRule,
+    /**
+     * 시점 묶음 규칙 RV(M39): 칸마다 시점 묶음을 두고, 묶음 안 n장을 상관 ρ인 등상관 관측으로 보아 맞은·빈 가중 합을 1 + (n − 1)ρ로 나눈다.
+     * 묶음끼리는 독립으로 더한다. 0 = 모든 장이 독립(M33 RM). `triSameFrame`일 때만 쓴다. ρ 0.5는 같은 시점 쌍의 표면 오차 상관 0.51(M39 측정).
+     */
+    val triViewRho: Float,
+    /** RV 묶음 경계 거리비 β: 칸까지 거리가 묶음 첫 관측 거리 r₀에서 |ln(r / r₀)| ≥ β이면 새 묶음. 0.25 = 표면 오차 상관이 0.1 아래로 떨어지는 첫 구간(M39 측정). */
+    val triViewRangeLn: Float,
+    /** RV 묶음 경계 시선각 α(도): 칸에서 본 시선 방향이 묶음 첫 관측과 이만큼 이상 다르면 새 묶음. 40° = 상관이 0 근처인 것을 확인한 각(M39, 작은 각은 측정 부족). */
+    val triViewAngleDeg: Float,
 )
 
 /** 바닥 추정 설정. */

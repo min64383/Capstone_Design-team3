@@ -29,6 +29,8 @@ CLUSTER_EVAL_ALONG_M = (0.5, 3.0)  # 군집 평가 단계: 정답 통로 안 최
 FLICKER_STEPS = 10  # 깜빡이는 출력: 이 단계 수(약 0.33 s) 이하로 출력되고 사라진 track(M25 설계 3.4절)
 FLICKER_SPOT_M = {"end": 0.2, "top": 0.1, "side": 0.1}  # 깜빡임 자리: 통로 끝·위·옆 경계에서 이만큼 안이면 그 자리(M25 사전 측정과 같은 값)
 SIDE_WALL_TOL_M = 0.10  # 옆 벽 경고: 대표점이 실측 옆 벽 면에서 이만큼 안(M33, CLUSTER_TOL_M과 같은 값)
+HEIGHT_EDGE_M = 0.05 * 3 ** 0.5 / 2  # 통로 높이 경계 판정 불가 폭 τ(칸 대각선 절반, M30): 아랫면이 heightM ± τ인 상자(끝 벽 위 보)는 통로 안인지 가를 수 없다(M39)
+FLOOR_LEVEL_M = 0.3  # 거리 오차를 나누는 대표점 높이: 정답 바닥 위 이 높이 이하 = 바닥 높이 군집(M39 설계 2.2절, 자체 선택)
 WALK_SIGN_WINDOW_S = 1.0  # 정답 진행 부호의 창: 앱 heading.windowS(M18에서 2.0으로)와 떼어 M12.2 정답을 그대로 둔다
 
 
@@ -484,13 +486,18 @@ def distance_guidance(rows: list[dict], truth: list[dict], pol: dict) -> dict:
       걸은 10 m당(머리 경로 길이), 분당 횟수로 낸다.
     - 대상별 첫 경고·첫 STOP 거리: 정상 상태에서 그 대상이 통로 안 가장 가까운 정답일 때 처음 WARN·STOP이 난 블록의 진행 방향 거리.
     - 옆 벽 경고: 경고 블록 중 대표점이 실측 옆 벽 면 SIDE_WALL_TOL_M 안인 비율(옆 벽은 통로 밖이다).
-    - 거리 오차: 오경보가 아닌 경고 블록의 안내 거리 − 통로 안 가장 가까운 정답의 진행 방향 거리(음수 = 실제보다 가깝게 안내)."""
+    - 거리 오차: 오경보가 아닌 경고 블록의 안내 거리 − 통로 안 가장 가까운 정답의 진행 방향 거리(음수 = 실제보다 가깝게 안내).
+      대표점 높이 FLOOR_LEVEL_M 이하(바닥 높이 군집)와 그 위로도 따로 낸다(M39).
+    - 판정 불가 띠(M39): 아랫면이 통로 높이 ± HEIGHT_EDGE_M인 상자(끝 벽 위 보)가 통로 안 가장 가까운 정답보다 가까우면, 참 거리는
+      [그 상자 거리, 가장 가까운 정답 거리] 어딘가다(상자가 통로 안인지 가를 수 없다). 안내 거리가 띠 안이면 그 블록은 거리 오차에서 빼고,
+      띠 밖이면 가까운 경계와의 차를 쓴다. 오경보는 띠의 가까운 끝으로 정한다."""
     far = pol["warnMaxM"] + pol["hysteresisM"] + MATCH_MARGIN_M
     side_x = [min(ob["min"][0], ob["max"][0], key=abs) for ob in truth
               if ob["kind"] == "structure" and ob["max"][0] - ob["min"][0] < 0.5 and ob["max"][2] - ob["min"][2] > 1.0]
     onsets = fa = n_warn = n_side = 0
     first_warn, first_stop = {}, {}
-    dist_err = []
+    dist_err, err_floor, err_above = [], [], []
+    n_edge = 0
     walked = 0.0
     prev_warn, prev_head = False, None
     for r in rows:
@@ -500,19 +507,30 @@ def distance_guidance(rows: list[dict], truth: list[dict], pol: dict) -> dict:
         warned = r["band"] in ("WARN", "STOP")
         cands = [(v[0], i) for i, v in enumerate(r["tn"]) if v is not None]
         near = min(cands) if cands else None
+        edge = min((v[0] for v in r.get("tnEdge", []) if v is not None), default=None)
+        undecided = edge is not None and (near is None or edge < near[0])
+        lo = edge if undecided else (near[0] if near is not None else None)
+        hi = near[0] if near is not None else lo
         if warned and r["state"] in ACTIVE:
             n_warn += 1
+            in_band = undecided and r["dist"] is not None and not np.isnan(r["dist"]) and lo <= float(r["dist"]) <= hi
+            n_edge += int(in_band)
             if r["rep"] is not None and any(abs(r["rep"][0] - x) <= SIDE_WALL_TOL_M for x in side_x):
                 n_side += 1
+            if lo is not None and lo <= far:
+                if r["dist"] is not None and not np.isnan(r["dist"]) and not in_band:
+                    d = float(r["dist"])
+                    e = d - (lo if d < lo else hi)
+                    dist_err.append(e)
+                    if r.get("repY") is not None:
+                        (err_floor if r["repY"] <= FLOOR_LEVEL_M else err_above).append(e)
             if near is not None and near[0] <= far:
-                if r["dist"] is not None and not np.isnan(r["dist"]):
-                    dist_err.append(float(r["dist"]) - near[0])
                 first_warn.setdefault(truth[near[1]]["name"], round(near[0], 3))
                 if r["band"] == "STOP":
                     first_stop.setdefault(truth[near[1]]["name"], round(near[0], 3))
             if not prev_warn:
                 onsets += 1
-                fa += int(near is None or near[0] > far)
+                fa += int(lo is None or lo > far)
         prev_warn = warned
     dur_min = (rows[-1]["t"] - rows[0]["t"]) / 60 if len(rows) > 1 else 0.0
     return {
@@ -522,6 +540,9 @@ def distance_guidance(rows: list[dict], truth: list[dict], pol: dict) -> dict:
         "firstWarnAlongM": first_warn, "firstStopAlongM": first_stop,
         "sideWallWarnFraction": n_side / n_warn if n_warn else None,
         "distanceErrorM": {"p05": p(dist_err, 5), "p50": p(dist_err, 50), "p95": p(dist_err, 95), "n": len(dist_err)},
+        "distanceErrorFloorM": {"p50": p(err_floor, 50), "n": len(err_floor)},
+        "distanceErrorAboveM": {"p50": p(err_above, 50), "n": len(err_above)},
+        "edgeUndecidedWarnFraction": n_edge / n_warn if n_warn else None,
     }
 
 
@@ -559,7 +580,7 @@ def block_rows(session: Path, run_dir: Path, cfg: dict, frames: pd.DataFrame, g:
         try:
             r = obs_idx.loc[(int(snap_t), int(oid))]
         except KeyError:
-            return None, None, None
+            return None, None, None, None
         x, y, z = to_truth(al, r[rep_cols[0]], r[rep_cols[1]], r[rep_cols[2]])
         best, bd = None, MATCH_MARGIN_M
         for i, ob in enumerate(truth):
@@ -569,21 +590,26 @@ def block_rows(session: Path, run_dir: Path, cfg: dict, frames: pd.DataFrame, g:
             d = np.hypot(max(x0 - x, 0, x - x1), max(z0 - z, 0, z - z1))
             if d <= bd:
                 best, bd = i, d
-        return best, r["heightClass"], (float(x), float(z))
+        return best, r["heightClass"], (float(x), float(z)), float(y)
 
+    # 아랫면이 통로 높이 경계 ± τ인 상자(끝 벽 위 보): 높이를 τ만큼 넓힌 통로로 따로 구해 판정 불가 블록을 가른다(distance_guidance, M39)
+    hc = cfg["corridor"]["heightM"]
+    cfg_edge = {**cfg, "corridor": {**cfg["corridor"], "heightM": hc + HEIGHT_EDGE_M}}
+    edge_obs = [ob for ob in truth if abs(ob["min"][1] - hc) <= HEIGHT_EDGE_M]
     rows = []
     for k, (_, b) in enumerate(blocks.iterrows()):
         tn = [truth_nearest(ob, hx[k], hz[k], cfg, sgn[k]) for ob in truth]
+        tn_edge = [truth_nearest(ob, hx[k], hz[k], cfg_edge, sgn[k]) for ob in edge_obs]
         est = g[g.tBlockNs == b.tBlockNs] if len(blocks) != len(g) else g.iloc[[k]]
         e = est.iloc[0]
-        mi = mh = rep = None
+        mi = mh = rep = rep_y = None
         if pd.notna(e.obstacleId):
-            mi, mh, rep = match(e.snapshotTNs, e.obstacleId)
+            mi, mh, rep, rep_y = match(e.snapshotTNs, e.obstacleId)
         rows.append({"t": tS[k], "state": b.state, "tn": tn, "band": e.band if pd.notna(e.band) else None,
                      "oid": int(e.obstacleId) if pd.notna(e.obstacleId) else None,
                      "az": e.azimuthDeg, "dist": e.distanceM, "match": mi, "hclass": mh, "pose": b.poseTNs,
                      "snap": int(e.snapshotTNs) if pd.notna(e.snapshotTNs) else None,
-                     "head": (float(hx[k]), float(hz[k])), "sgn": float(sgn[k]), "rep": rep})
+                     "head": (float(hx[k]), float(hz[k])), "sgn": float(sgn[k]), "rep": rep, "repY": rep_y, "tnEdge": tn_edge})
     return rows, {"tS": tS, "cz": cz, "sgn": sgn}
 
 

@@ -1,0 +1,76 @@
+{
+ "variants": [
+  {
+   "name": "RM",
+   "overrides": {
+    "map": {
+     "mode": "TRISTATE",
+     "triFreeRule": "EVIDENCE",
+     "triSameFrame": true,
+     "triWeight": "SIGMA",
+     "triMargin": true,
+     "triDecayS": 9.0,
+     "prunePassed": false,
+     "maxUnseenS": 9.0,
+     "triFree": "PROJECTION"
+    },
+    "depth": {
+     "source": "RAW",
+     "minConfidence": 1
+    }
+   },
+   "replay": {
+    "alignFrom": "data/sweeps/m32/align_ref/{session}/align.json"
+   }
+  },
+  {
+   "name": "RV",
+   "overrides": {
+    "map": {
+     "mode": "TRISTATE",
+     "triFreeRule": "EVIDENCE",
+     "triSameFrame": true,
+     "triWeight": "SIGMA",
+     "triMargin": true,
+     "triDecayS": 9.0,
+     "prunePassed": false,
+     "maxUnseenS": 9.0,
+     "triFree": "PROJECTION",
+     "triViewRho": 0.5,
+     "minPrecision": 0.111
+    },
+    "depth": {
+     "source": "RAW",
+     "minConfidence": 1
+    }
+   },
+   "replay": {
+    "alignFrom": "data/sweeps/m32/align_ref/{session}/align.json"
+   }
+  },
+  {
+   "name": "RMth",
+   "overrides": {
+    "map": {
+     "mode": "TRISTATE",
+     "triFreeRule": "EVIDENCE",
+     "triSameFrame": true,
+     "triWeight": "SIGMA",
+     "triMargin": true,
+     "triDecayS": 9.0,
+     "prunePassed": false,
+     "maxUnseenS": 9.0,
+     "triFree": "PROJECTION",
+     "minPrecision": 0.111
+    },
+    "depth": {
+     "source": "RAW",
+     "minConfidence": 1
+    }
+   },
+   "replay": {
+    "alignFrom": "data/sweeps/m32/align_ref/{session}/align.json"
+   }
+  }
+ ]
+}

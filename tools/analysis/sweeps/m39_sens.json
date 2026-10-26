@@ -1,0 +1,156 @@
+{
+ "variants": [
+  {
+   "name": "RV_rho0.25",
+   "overrides": {
+    "map": {
+     "mode": "TRISTATE",
+     "triFreeRule": "EVIDENCE",
+     "triSameFrame": true,
+     "triWeight": "SIGMA",
+     "triMargin": true,
+     "triDecayS": 9.0,
+     "prunePassed": false,
+     "maxUnseenS": 9.0,
+     "triFree": "PROJECTION",
+     "triViewRho": 0.25,
+     "minPrecision": 0.111
+    },
+    "depth": {
+     "source": "RAW",
+     "minConfidence": 1
+    }
+   },
+   "replay": {
+    "alignFrom": "data/sweeps/m32/align_ref/{session}/align.json"
+   }
+  },
+  {
+   "name": "RV_rho0.75",
+   "overrides": {
+    "map": {
+     "mode": "TRISTATE",
+     "triFreeRule": "EVIDENCE",
+     "triSameFrame": true,
+     "triWeight": "SIGMA",
+     "triMargin": true,
+     "triDecayS": 9.0,
+     "prunePassed": false,
+     "maxUnseenS": 9.0,
+     "triFree": "PROJECTION",
+     "triViewRho": 0.75,
+     "minPrecision": 0.111
+    },
+    "depth": {
+     "source": "RAW",
+     "minConfidence": 1
+    }
+   },
+   "replay": {
+    "alignFrom": "data/sweeps/m32/align_ref/{session}/align.json"
+   }
+  },
+  {
+   "name": "RV_b0.125",
+   "overrides": {
+    "map": {
+     "mode": "TRISTATE",
+     "triFreeRule": "EVIDENCE",
+     "triSameFrame": true,
+     "triWeight": "SIGMA",
+     "triMargin": true,
+     "triDecayS": 9.0,
+     "prunePassed": false,
+     "maxUnseenS": 9.0,
+     "triFree": "PROJECTION",
+     "triViewRho": 0.5,
+     "triViewRangeLn": 0.125,
+     "minPrecision": 0.111
+    },
+    "depth": {
+     "source": "RAW",
+     "minConfidence": 1
+    }
+   },
+   "replay": {
+    "alignFrom": "data/sweeps/m32/align_ref/{session}/align.json"
+   }
+  },
+  {
+   "name": "RV_b0.5",
+   "overrides": {
+    "map": {
+     "mode": "TRISTATE",
+     "triFreeRule": "EVIDENCE",
+     "triSameFrame": true,
+     "triWeight": "SIGMA",
+     "triMargin": true,
+     "triDecayS": 9.0,
+     "prunePassed": false,
+     "maxUnseenS": 9.0,
+     "triFree": "PROJECTION",
+     "triViewRho": 0.5,
+     "triViewRangeLn": 0.5,
+     "minPrecision": 0.111
+    },
+    "depth": {
+     "source": "RAW",
+     "minConfidence": 1
+    }
+   },
+   "replay": {
+    "alignFrom": "data/sweeps/m32/align_ref/{session}/align.json"
+   }
+  },
+  {
+   "name": "RV_th0.056",
+   "overrides": {
+    "map": {
+     "mode": "TRISTATE",
+     "triFreeRule": "EVIDENCE",
+     "triSameFrame": true,
+     "triWeight": "SIGMA",
+     "triMargin": true,
+     "triDecayS": 9.0,
+     "prunePassed": false,
+     "maxUnseenS": 9.0,
+     "triFree": "PROJECTION",
+     "triViewRho": 0.5,
+     "minPrecision": 0.056
+    },
+    "depth": {
+     "source": "RAW",
+     "minConfidence": 1
+    }
+   },
+   "replay": {
+    "alignFrom": "data/sweeps/m32/align_ref/{session}/align.json"
+   }
+  },
+  {
+   "name": "RV_th0.222",
+   "overrides": {
+    "map": {
+     "mode": "TRISTATE",
+     "triFreeRule": "EVIDENCE",
+     "triSameFrame": true,
+     "triWeight": "SIGMA",
+     "triMargin": true,
+     "triDecayS": 9.0,
+     "prunePassed": false,
+     "maxUnseenS": 9.0,
+     "triFree": "PROJECTION",
+     "triViewRho": 0.5,
+     "minPrecision": 0.222
+    },
+    "depth": {
+     "source": "RAW",
+     "minConfidence": 1
+    }
+   },
+   "replay": {
+    "alignFrom": "data/sweeps/m32/align_ref/{session}/align.json"
+   }
+  }
+ ]
+}

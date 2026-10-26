@@ -1,6 +1,6 @@
 # M31 보정 녹화 K01 체크리스트
 
-기준: `docs/IMPROVE_SPEC.md` v0.3.29 §11.2, milepost M31 설계(`docs/reports/scene-map/M31-design.pdf`, 로컬 전용). 절차는 `docs/M12_0_RECORDING.md`(M12.0 녹화)와 같고, 다른 점만 적는다.
+기준: `docs/IMPROVE_SPEC.md` v0.3.29 §11.2, milepost M31 설계(`milepost/pdf/scene-map/M31-design.pdf`, 로컬 전용). 절차는 `docs/M12_0_RECORDING.md`(M12.0 녹화)와 같고, 다른 점만 적는다.
 
 **목적:** 끝 벽까지 거리를 미리 정해 두고 찍어서, 깊이의 **절대 편향**과 **같은 거리에서 세션마다 달라지는 편향**을 잰다. M30 오차 모델은 면마다 상수를 빼서 이 둘을 볼 수 없었다(교차 검사 12묶음 중 3묶음만 목표). 결과는 M32 원시 깊이 지도의 가중치·허용치 근거로 쓴다.
 
