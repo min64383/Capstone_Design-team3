@@ -709,3 +709,7 @@ O1 에뮬레이터 재생 · O2 깊이 신경망 보조 · O3 IMU 외삽 · O4 �
 | 시연 영상 | scrcpy 화면 녹화 | 팀 공유 드라이브 |
 
 세션 폴더 이름(`<yyyyMMdd_HHmmss>_<장면ID>`)은 바꾸지 않는다. `docs/FORMAT.md`와 보고서가 이 이름으로 세션을 가리킨다.
+
+### 녹화 재생에서 등장·소실 효과음 청취
+
+`./gradlew :viewer:run -Psession=20261003_130815_S01 -PobjectCues=true`로 켠다. 화면의 **등장·소실 효과음** 체크로 A/B 청취할 수 있다. [설정·WAV/이벤트 CSV 저장 방법](docs/VIEWER_OBJECT_CUES.md).

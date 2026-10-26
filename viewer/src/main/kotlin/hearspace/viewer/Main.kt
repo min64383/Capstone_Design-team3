@@ -47,10 +47,13 @@ class MainWindow(initialSession: String?) : JFrame("HEARSPACE 평가 GUI") {
     private val player = AudioPlayer()
     private val hrtf = ReplayRunner.loadHrtf()
     private var session: File? = null
+    private var replayGeneration = 0
 
     private val status = JLabel("세션을 여세요 (기본 폴더: testdata/sessions)")
     private val timeLabel = JLabel("0.00 / 0.00 s")
     private val playButton = JButton("▶ 재생")
+    private val cueCheck = JCheckBox("등장·소실 효과음", java.lang.Boolean.getBoolean("hearspace.objectCues"))
+    private val cueLabel = JLabel("효과음 꺼짐")
     private val exportCheck = JCheckBox("CSV + WAV 저장(재실행)")
     private val rerunButton = JButton("재실행")
     private val overrides = JTextArea("{}", 14, 30).apply { font = Font(Font.MONOSPACED, Font.PLAIN, 12) }
@@ -90,6 +93,10 @@ class MainWindow(initialSession: String?) : JFrame("HEARSPACE 평가 GUI") {
             add(JButton("⏮ 처음").apply { addActionListener { vm.result?.let { seek(it.t0Ns) } } })
             add(timeLabel)
             add(exportCheck)
+            add(cueCheck.apply {
+                toolTipText = "추적 ID 등장·소실을 알립니다. 소실은 안전하다는 뜻이 아닙니다. 변경하면 재실행합니다."
+                addActionListener { if (session != null) rerun() }
+            })
             add(JCheckBox("깊이 겹침", true).apply { addActionListener { vm.showDepth = isSelected; vm.fire() } })
             add(JCheckBox("지도 칸").apply {
                 toolTipText = "지도 칸을 겹친다(M30). 정답이 장면 전체인 세션(E)은 칸 분류 색: 초록 맞음, 회색 속, 빨강 헛, 흰 테 놓친 표면"
@@ -140,6 +147,7 @@ class MainWindow(initialSession: String?) : JFrame("HEARSPACE 평가 GUI") {
             }, BorderLayout.SOUTH)
         }, BorderLayout.CENTER)
         add(Box.createVerticalBox().apply {
+            add(row(cueLabel))
             add(row(rerunButton.apply { addActionListener { rerun() } }, JButton("기본값({})").apply { addActionListener { overrides.text = "{}" } }))
             add(row(JLabel("변형 이름"), variantName, JButton("저장").apply { addActionListener { saveVariant() } }))
             add(row(variantBox, JButton("불러오기").apply { addActionListener { loadVariant() } }))
@@ -248,7 +256,7 @@ class MainWindow(initialSession: String?) : JFrame("HEARSPACE 평가 GUI") {
         compareButton.isEnabled = false
         status.text = "비교 재실행 중… $name"
         object : SwingWorker<ReplayResult, Unit>() {
-            override fun doInBackground() = ReplayRunner.run(dir, text, hrtf, substitution = sub, label = "B: $name")
+            override fun doInBackground() = ReplayRunner.run(dir, text, hrtf, substitution = sub, label = "B: $name", objectCueSettings = base.objectCueSettings)
             override fun done() {
                 compareButton.isEnabled = true
                 val r = runCatching { get() }.getOrElse { e -> status.text = "비교 실패: ${(e.cause ?: e).message}"; return }
@@ -264,16 +272,26 @@ class MainWindow(initialSession: String?) : JFrame("HEARSPACE 평가 GUI") {
         val text = overrides.text.trim().ifEmpty { "{}" }
         val parseError = runCatching { MiniJson.parse(text) }.exceptionOrNull()
         if (parseError != null) { status.text = "설정 JSON 오류: ${parseError.message}"; return }
+        val cueSettings = runCatching { if (cueCheck.isSelected) ObjectCueOptions.load() else null }
+            .getOrElse { status.text = "효과음 설정 오류: ${it.message}"; return }
+        val renderedLabel = "A: ${variantName.text.trim()}"
+        val generation = ++replayGeneration
         val exportDir = if (exportCheck.isSelected) SonificationExport.newDirectory(dir) else null
         player.pause()
         timer.stop()
         rerunButton.isEnabled = false
+        cueCheck.isEnabled = false
+        playButton.isEnabled = false
         status.text = "재실행 중… ${Repo.relative(dir)}"
         object : SwingWorker<ReplayResult, Unit>() {
-            override fun doInBackground() = ReplayRunner.run(dir, text, hrtf, exportDir, label = "A: ${variantName.text.trim()}")
+            override fun doInBackground() = ReplayRunner.run(dir, text, hrtf, exportDir, label = renderedLabel, objectCueSettings = cueSettings)
             override fun done() {
+                if (generation != replayGeneration) return
                 rerunButton.isEnabled = true
+                cueCheck.isEnabled = true
+                playButton.isEnabled = true
                 val r = runCatching { get() }.getOrElse { e ->
+                    cueCheck.isSelected = vm.result?.objectCueSettings != null
                     status.text = "실패: ${(e.cause ?: e).message}"
                     return
                 }
@@ -283,6 +301,7 @@ class MainWindow(initialSession: String?) : JFrame("HEARSPACE 평가 GUI") {
                 playButton.text = "▶ 재생"
                 status.text = summary(r) + (exportDir?.let { " · 저장: ${it.absolutePath}" } ?: "")
                 applied.text = appliedOptionsText(r.overridesJson, listOf(Repo.appOverride, Repo.defaultConfig).map { MiniJson.parse(it.readText()) })
+                applied.append("\n등장·소실 효과음: " + (r.objectCueSettings?.let { "켜짐 (등장 ${it.appearHoldMs} ms / 소실 ${it.lostHoldMs} ms)" } ?: "꺼짐"))
                 applied.caretPosition = 0
             }
         }.execute()
@@ -297,6 +316,7 @@ class MainWindow(initialSession: String?) : JFrame("HEARSPACE 평가 GUI") {
     }
 
     private fun togglePlay() {
+        if (!playButton.isEnabled) return
         val r = vm.result ?: return
         if (player.isPlaying) {
             player.pause()
@@ -328,6 +348,11 @@ class MainWindow(initialSession: String?) : JFrame("HEARSPACE 평가 GUI") {
     private fun updateTimeLabel() {
         val r = vm.result ?: return
         timeLabel.text = "%.2f / %.2f s".format(r.secondsOf(vm.tNs), r.durationS)
+        val event = r.objectCues.lastOrNull { it.tNs <= vm.tNs }
+        cueLabel.text = if (r.objectCueSettings == null) "효과음 꺼짐" else if (event == null) "효과음 켜짐 · 이벤트 대기" else
+            "%.2f s · ID %d %s · %s".format(r.secondsOf(event.tNs), event.obstacleId,
+                if (event.kind == hearspace.core.audio.ObjectCueKind.APPEAR) "등장" else "소실",
+                if (event.disposition == "PLAYED") "재생" else "생략: ${event.disposition.removePrefix("SUPPRESSED_")}")
     }
 
     private fun saveVariant() {
@@ -379,7 +404,7 @@ class MainWindow(initialSession: String?) : JFrame("HEARSPACE 평가 GUI") {
             variant = variantName.text.trim(),
             overridesJson = r.overridesJson, // 실제로 들은 결과의 설정(편집 중인 글이 아님)
             ratings = ratings.mapValues { it.value.selectedItem as Int },
-            notes = vm.notes.toList(),
+            notes = vm.notes.toList() + Note(r.secondsOf(vm.tNs), "objectCues=${r.objectCueSettings ?: "OFF"}"),
             createdAt = Feedback.now(),
             compare = vm.compare?.label.orEmpty(),
             bookmarks = bookmarkScores.values.toList(),
