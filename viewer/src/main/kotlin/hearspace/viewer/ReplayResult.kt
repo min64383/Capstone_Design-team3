@@ -1,6 +1,9 @@
 package hearspace.viewer
 
 import hearspace.core.audio.BinauralRenderer
+import hearspace.core.audio.ObjectCueEvent
+import hearspace.core.audio.ObjectCueRenderer
+import hearspace.core.audio.ObjectCueSettings
 import hearspace.core.audio.Hrtf
 import hearspace.core.frontend.PlaneResult
 import hearspace.core.frontend.Segmenter
@@ -110,6 +113,8 @@ class ReplayResult(
     alignmentOverride: Alignment? = null,
     /** 화면에 붙일 이름(나란히 보기). */
     val label: String = "",
+    val objectCues: List<ObjectCueEvent> = emptyList(),
+    val objectCueSettings: ObjectCueSettings? = null,
 ) {
     val sampleRate = config.audio.sampleRate
     val blockSize = config.audio.blockSize
@@ -251,10 +256,12 @@ object ReplayRunner {
     /**
      * [substitution]을 주면 정답 대입 재생(M30 비교 D: 정답 깊이)이다. 정렬은 그 대입의 정렬([Substitution.align])을 쓴다.
      */
-    fun run(session: File, overridesJson: String, hrtf: Hrtf, exportDir: File? = null, substitution: Substitution? = null, label: String = ""): ReplayResult {
+    fun run(session: File, overridesJson: String, hrtf: Hrtf, exportDir: File? = null, substitution: Substitution? = null, label: String = "", objectCueSettings: ObjectCueSettings? = null): ReplayResult {
         val start = System.nanoTime()
         val config = Repo.loadConfig(overridesJson)
         val reader = SessionReader(session)
+        val cueRenderer = objectCueSettings?.let { ObjectCueRenderer(it, config.audio.sampleRate, config.policy.maxInfoAgeMs) }
+        val cueEvents = ArrayList<ObjectCueEvent>()
         val export = exportDir?.let { SonificationExport(it, config, session, overridesJson) }
         val renderer = BinauralRenderer(config, hrtf, export?.let { e -> { sample -> e.sample(sample) } })
         val n = config.audio.blockSize
@@ -277,6 +284,7 @@ object ReplayRunner {
                 val out = FloatArray(2 * n)
                 export?.begin(g)
                 renderer.render(g, out)
+                cueRenderer?.let { cueEvents += it.mix(tNs, snapshot, g, out) }
                 export?.end(out)
                 chunks += out
             }
@@ -285,6 +293,14 @@ object ReplayRunner {
             // RGB 안내 보정(M19·M23)은 MP4에서 꺼낸 매 프레임 밝기가 있으면 그것을 쓴다(재생 비교 -PrgbFrom=mp4와 같게). 녹화 JPEG는 3장마다라 거의 안 붙는다
             val rgb = if (File(session, "${RgbFrames.MP4_DIR}/index.csv").isFile) RgbSource.MP4 else RgbSource.RECORDED
             OfflineReplay(config, OfflineReplay.fixed(SLOW_PATH_MS), substitution, rgbSource = rgb).run(session, listener)
+            if (exportDir != null && objectCueSettings != null) {
+                File(exportDir, "object-cues.csv").bufferedWriter().use { writer ->
+                    writer.appendLine("elapsedS,tNs,obstacleId,event,disposition")
+                    val firstNs = blocks.firstOrNull()?.tNs ?: 0L
+                    cueEvents.forEach { e -> writer.appendLine("${(e.tNs - firstNs) / 1e9},${e.tNs},${e.obstacleId},${e.kind},${e.disposition}") }
+                }
+                File(exportDir, "object-cue-settings.txt").writeText(objectCueSettings.toString() + "\n")
+            }
             export?.complete()
         } finally {
             export?.close()
@@ -292,7 +308,7 @@ object ReplayRunner {
         require(blocks.isNotEmpty()) { "no audio blocks: session has no tracked pose" }
         val audio = FloatArray(chunks.size * 2 * n)
         chunks.forEachIndexed { i, c -> c.copyInto(audio, i * 2 * n) }
-        return ReplayResult(session, reader, config, overridesJson, blocks, slow, audio, (System.nanoTime() - start) / 1_000_000, substitution?.align, label)
+        return ReplayResult(session, reader, config, overridesJson, blocks, slow, audio, (System.nanoTime() - start) / 1_000_000, substitution?.align, label, cueEvents, objectCueSettings)
     }
 
     fun loadHrtf(): Hrtf = Hrtf.parse(Repo.hrtf.readBytes())

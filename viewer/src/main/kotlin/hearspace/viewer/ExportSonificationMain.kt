@@ -9,5 +9,6 @@ fun main(args: Array<String>) {
     val overrides = if (args.size > 1 && args[1].isNotEmpty()) File(args[1]).readText()
         else "{}" // 앱 음향 덮어쓰기는 ReplayRunner가 항상 쌓는다
     val dir = if (args.size > 2) File(args[2]) else SonificationExport.newDirectory(session)
-    ReplayRunner.run(session, overrides, ReplayRunner.loadHrtf(), dir)
+    ReplayRunner.run(session, overrides, ReplayRunner.loadHrtf(), dir,
+        objectCueSettings = if (java.lang.Boolean.getBoolean("hearspace.objectCues")) ObjectCueOptions.load() else null)
 }

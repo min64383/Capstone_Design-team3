@@ -33,6 +33,7 @@ application {
 tasks.named<JavaExec>("run") {
     workingDir = rootProject.projectDir
     systemProperty("hearspace.repoRoot", rootProject.projectDir.absolutePath)
+    systemProperty("hearspace.objectCues", (project.findProperty("objectCues") as String?) ?: "false")
     (project.findProperty("session") as String?)?.let { args(it) }
 }
 
@@ -50,6 +51,7 @@ tasks.register<JavaExec>("exportSonification") {
     mainClass.set("hearspace.viewer.ExportSonificationMainKt")
     workingDir = rootProject.projectDir
     systemProperty("hearspace.repoRoot", rootProject.projectDir.absolutePath)
+    systemProperty("hearspace.objectCues", (project.findProperty("objectCues") as String?) ?: "false")
     val session = project.findProperty("session") as String?
     val overrides = project.findProperty("overridesFile") as String?
     val out = project.findProperty("out") as String?
