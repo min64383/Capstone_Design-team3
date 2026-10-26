@@ -1,0 +1,10 @@
+{
+  "version": 2,
+  "scene": "O01",
+  "distanceFrom": "camera",
+  "estimated": false,
+  "note": "O01 야외 벽 정면(광택 없는 화강석 판), 카메라→벽 2.0 m(줄자), 손 파지 정지 10 s. 벽 좌우·높이 범위는 재지 않고 시야를 덮는 값(x ±3, y 0~4 m), 두께 0.10 m도 실측 아님(K01과 같음). 2026-10-24",
+  "obstacles": [
+    { "name": "wall_end", "type": "FLOOR", "kind": "structure", "min": [-3.0, 0.0, 2.0], "max": [3.0, 4.0, 2.1] }
+  ]
+}
