@@ -100,7 +100,10 @@
     "triClamp": 0.0,
     "triFree": "RAY",
     "prunePassed": true,
-    "triFreeRule": "NOT_OCCUPIED"
+    "triFreeRule": "NOT_OCCUPIED",
+    "triViewRho": 0.0,
+    "triViewRangeLn": 0.25,
+    "triViewAngleDeg": 40.0
   },
   "floor": {
     "searchBandM": 0.5,
