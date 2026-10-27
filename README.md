@@ -79,7 +79,7 @@ setup-windows.ps1    (폰에서 직접)     check-device.ps1     (폰에서 직�
 | Git | 최신 | 저장소 받기 | 없으면 `winget install Git.Git` |
 | Android Studio | 최신 안정판 | 내장 JDK(JBR)로 Gradle 실행, 디버깅 | 없으면 `winget install Google.AndroidStudio` |
 | JDK | 17 이상 (Android Studio 내장 JBR) | AGP 9.4 빌드 | 버전만 확인 |
-| Android SDK cmdline-tools | 최신 | SDK 패키지 설치 | 없으면 Google SDK 저장소에서 받아 SHA-1 확인 후 설치 |
+| Android SDK cmdline-tools | 최신 | SDK 패키지 설치 | 없으면 Google SDK 저장소에서 받아 체크섬(저장소 목록에 적힌 형식, 지금 SHA-1) 확인 후 설치. 목록에 체크섬이 없으면 설치하지 않고 멈춘다 |
 | Android SDK platform-tools | 최신 | `adb` | 없으면 설치 |
 | Android SDK Platform | `compileSdk` (현재 37) | 앱 컴파일 | `app/build.gradle.kts`에서 읽어 없으면 설치 |
 | uv + Python | Python 3.11 | 분석 도구 `.venv` | 없으면 `winget install astral-sh.uv` → Python 3.11 설치 → `.venv` 생성 → `requirements.txt` 설치 |
@@ -99,6 +99,7 @@ powershell -ExecutionPolicy Bypass -File tools\setup\setup-windows.ps1          
 
 - 여러 번 실행해도 안전하다. 이미 있는 것은 건너뛰고, 끝에 항목별 상태 표를 보여 준다. 준비되지 않은 항목이 남으면 종료 코드 1.
 - Android Studio·Git 설치 중 **관리자 권한 확인 창**이 뜨면 허용한다.
+- **약관·라이선스 동의**: 스크립트는 설치할 때 사용자를 대신해 winget 패키지·원본 약관(`--accept-package-agreements --accept-source-agreements`: Git, Android Studio, uv, scrcpy)과 Android SDK 라이선스(Android CLI가 설치 중 만드는 라이선스 파일, 없으면 `sdkmanager --licenses`에 모두 `y`)에 동의한다. 동의하지 않으려면 `-CheckOnly`로 확인만 하고 직접 설치한다.
 - Android Studio를 기본 위치가 아닌 곳에 설치했다면 `-StudioDir "D:\Android Studio"`, SDK 위치를 바꾸려면 `-SdkRoot <경로>`를 붙인다.
 - 끝나면 **새 PowerShell 창**을 열어야 바뀐 환경 변수가 적용된다.
 
@@ -108,14 +109,14 @@ powershell -ExecutionPolicy Bypass -File tools\setup\setup-windows.ps1          
 
 | 변수 | 값 | 이유 |
 |---|---|---|
-| `JAVA_HOME` | `C:\Program Files\Android\Android Studio\jbr` | `gradlew`가 이 JDK로 실행됨 |
+| `JAVA_HOME` | `C:\Program Files\Android\Android Studio\jbr` (이미 17 이상 JDK를 가리키는 값이 있으면 그대로 둔다) | `gradlew`가 이 JDK로 실행됨 |
 | `ANDROID_HOME` | `%LOCALAPPDATA%\Android\Sdk` | Gradle·도구가 SDK를 찾음 |
 | `Path`에 추가 | `<SDK>\platform-tools`, `<SDK>\cmdline-tools\latest\bin` | `adb`, `sdkmanager`를 어디서나 실행 |
 
 - `Path`는 원문(`%VAR%` 포함)을 그대로 보존하고 형식(`REG_EXPAND_SZ`)을 유지한다. 중복 항목과 빈 항목은 정리한다.
 - 예전 변수 `ANDROID_SDK_ROOT`가 `ANDROID_HOME`과 다르면 경고한다(두 값이 다르면 Gradle이 오류를 낸다).
 - 저장소의 `local.properties`(git 제외)의 `sdk.dir`도 같은 SDK 경로로 맞춘다.
-- 되돌리기: `powershell -ExecutionPolicy Bypass -File tools\setup\setup-windows.ps1 -RemoveEnv` — `JAVA_HOME`, `ANDROID_HOME`, `Path`의 SDK 항목을 지운다(먼저 백업). 설치한 프로그램은 지우지 않는다(필요하면 `winget uninstall <ID>`).
+- 되돌리기: `powershell -ExecutionPolicy Bypass -File tools\setup\setup-windows.ps1 -RemoveEnv` — `JAVA_HOME`·`ANDROID_HOME`이 이 스크립트가 쓴 값이면 백업에서 설정 전 값을 찾아 되돌리고(없었으면 지운다), 다른 값이면 그대로 둔다. `Path`의 SDK 항목은 지운다(먼저 백업). 설치 때 `-StudioDir`·`-SdkRoot`를 줬다면 같이 준다. 설치한 프로그램은 지우지 않는다(필요하면 `winget uninstall <ID>`).
 
 #### 확인: core 테스트 (기기 없이)
 
@@ -325,7 +326,7 @@ powershell -ExecutionPolicy Bypass -File tools\setup\setup-viewer.ps1 -SkipTest 
 | Python (`-WithPython`) | uv, Python 3.11, `.venv`, `tools/analysis/requirements.txt` (§3.1과 같은 동작) |
 | 검증 | `./gradlew :viewer:test` — core·viewer를 빌드하고 정답 세션을 재생·렌더해 본다. **처음에는 Gradle과 라이브러리를 내려받아 수 분 걸린다**(인터넷 필요) |
 
-끝에 표가 나오고, 모두 OK면 `viewer 준비 완료`와 실행 명령이 나온다. 바꾼 환경 변수를 되돌리려면 백업 파일을 보거나 `setup-windows.ps1 -RemoveEnv`(JAVA_HOME·ANDROID_HOME 제거)를 쓴다.
+끝에 표가 나오고, 모두 OK면 `viewer 준비 완료`와 실행 명령이 나온다. 이 스크립트가 바꾼 `JAVA_HOME`은 백업 파일(`%LOCALAPPDATA%\HEARSPACE\env-backup-<시각>.json`)의 값을 보고 직접 되돌린다(`setup-windows.ps1 -RemoveEnv`는 Android Studio JBR을 가리키는 값만 되돌린다). 설치할 때 사용자를 대신해 winget 패키지·원본 약관(Git, Temurin JDK, uv)에 동의한다. 동의하지 않으려면 `-CheckOnly`로 확인만 하고 직접 설치한다.
 
 Android SDK는 **필요 없다**(`:app`만 SDK가 필요하고 `:core`·`:viewer`는 SDK 없는 PC에서 테스트로 확인했다). Windows가 아닌 PC는 JDK 17 이상과 git을 직접 설치하고 `JAVA_HOME`을 설정한 뒤 아래 실행으로 넘어간다. 헤드폰은 공간 음향의 방향을 듣는 데 필요하다.
 
