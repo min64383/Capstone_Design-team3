@@ -45,9 +45,10 @@ enum class FloorDecompose { BAND, REGION_PLANE }
 
 /**
  * 통로 판정 방식(M44): BOX = 진행 방향 고정 폭 상자 + 가장자리 구조물 제거(기준선),
- * WALKABLE = 단면마다 보행선을 포함하는 빈 좌우 구간이 몸 폭(`corridor.widthM`)보다 좁을 때만 그 단면의 몸 폭 안 칸을 장애물로(걸을 수 있는 영역).
+ * WALKABLE = 단면마다 보행선을 포함하는 빈 좌우 구간이 몸 폭(`corridor.widthM`)보다 좁을 때만 그 단면의 몸 폭 안 칸을 장애물로(걸을 수 있는 영역, M44 첫 설계 F),
+ * BOUNDARY = BOX에서 진행 방향 ±α 안의 길게 이어진 옆 경계(벽)를 더 빼되 양쪽 경계 사이가 몸 폭보다 좁은 곳은 남김(M44 재설계).
  */
-enum class CorridorJudgeMode { BOX, WALKABLE }
+enum class CorridorJudgeMode { BOX, WALKABLE, BOUNDARY }
 
 /**
  * 지도 갱신 규칙(IMPROVE_SPEC §6.1.1): HITS = 관측 횟수·점수(기준선), LOG_ODDS = 로그 오즈 점유(OctoMap, M13.2),

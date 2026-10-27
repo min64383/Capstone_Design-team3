@@ -6,6 +6,7 @@ import hearspace.core.guidance.Corridor
 import hearspace.core.guidance.MapAction
 import hearspace.core.guidance.walkableInPath
 import hearspace.core.guidance.withoutEdgeStructures
+import hearspace.core.guidance.withoutParallelBoundaries
 import hearspace.core.guidance.wallAlignedHeading
 import hearspace.core.mapping.LocalMap
 import hearspace.core.mapping.MapUpdate
@@ -94,10 +95,12 @@ class SlowPath(
             wallAlignedHeading(headingW, occupied.map { it.centerW }, userPosW, floorY, config.corridor, config.map.voxelSizeM)
         } else headingW
         val corridor = Corridor(userPosW, corridorHeadingW, floorY, config.corridor)
-        val voxels = if (config.corridor.judge == CorridorJudgeMode.WALKABLE) {
-            walkableInPath(occupied, corridor, config)
-        } else {
-            withoutEdgeStructures(occupied, occupied.filter { corridor.contains(it.centerW) }, corridor, config)
+        val voxels = when (config.corridor.judge) {
+            CorridorJudgeMode.WALKABLE -> walkableInPath(occupied, corridor, config)
+            CorridorJudgeMode.BOX -> withoutEdgeStructures(occupied, occupied.filter { corridor.contains(it.centerW) }, corridor, config)
+            CorridorJudgeMode.BOUNDARY -> withoutParallelBoundaries(
+                occupied, withoutEdgeStructures(occupied, occupied.filter { corridor.contains(it.centerW) }, corridor, config), corridor, config,
+            )
         }
         // C2: 남은 칸을 벽 칸과 나머지로 나눠 따로 묶는다(벽도 장애물로 남는다). 끄면 한 묶음(기준선). 가장자리 구조물 규칙을 먼저 전체에
         // 적용해야 한다: 벽 칸을 먼저 떼면 라벨 없는 옆 벽 밑동 조각이 짧은 덩어리로 남아 오경보가 됐다(S02 130646 0.11 → 0.22)

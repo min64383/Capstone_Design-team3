@@ -145,3 +145,79 @@ fun walkableInPath(occupied: List<VoxelView>, corridor: Corridor, config: Config
     return out
 }
 
+
+/**
+ * 나란한 경계 판정(M44 재설계, `corridor.judge` BOUNDARY): [kept](상자 + 가장자리 규칙 뒤 통로 안 칸)에서 옆 경계 칸을 더 뺀다.
+ * - 경계 찾기: 방향 φ를 ±α(= asin((widthM/2 − edgeInnerM)/edgeMinLengthM), 지금 가장자리 규칙이 견디는 각도와 같은 값)에서 칸 크기/lengthM 각
+ *   간격으로 훑어, φ 방향 좌우 칸 줄마다 진행 방향 칸이 `cluster.epsM` 이하 틈으로 이어진 가장 긴 사슬이 `edgeMinLengthM` 이상이면 경계 줄로 본다.
+ *   칸은 줄 ±1칸(벽 두께·잡음)이고 사슬 범위 안이면 그 줄에 속하고, 칸마다 가장 긴 줄을 고른다.
+ * - 줄의 좌우 위치는 φ 방향 수직 거리라 진행 방향 오차가 α 안이면 오차와 무관하다. 그 거리가 widthM/2 − edgeInnerM 이상인 줄만 옆 경계다
+ *   (사용자 바로 앞의 긴 물체는 물체로 남는다).
+ * - 옆 경계 칸은 뺀다. 다만 반대쪽 옆 경계 칸까지의 수평 거리가 widthM보다 짧은 칸(길이 몸 폭보다 좁아지는 곳)은 남긴다.
+ * 짧은 물체는 상자 규칙 그대로라 경고의 뜻은 바뀌지 않는다. 찾는 좌우 범위는 ±widthM(경계 사이 폭을 재려면 몸 폭 바깥 경계도 봐야 함).
+ * 벽을 앞길의 장애물이 아니라 길의 경계로 다루는 것은 Corridor-Walker·VFH+와 같은 생각이다(M44 재설계 2~3절).
+ */
+fun withoutParallelBoundaries(occupied: List<VoxelView>, kept: List<VoxelView>, corridor: Corridor, config: Config): List<VoxelView> {
+    if (kept.isEmpty()) return kept
+    val c = config.corridor
+    val v = config.map.voxelSizeM
+    val pts = occupied.filter { corridor.contains(it.centerW, c.widthM + v / 2) }
+    val side = c.widthM / 2 - c.edgeInnerM
+    val maxRad = kotlin.math.asin((side / c.edgeMinLengthM).coerceIn(0f, 1f))
+    val step = kotlin.math.atan(v / c.lengthM)
+    val n = (maxRad / step).toInt()
+    val maxGap = kotlin.math.floor(config.cluster.epsM / v).toInt() + 1
+    val h = corridor.headingW
+    val bestLen = FloatArray(pts.size)
+    val bestOff = FloatArray(pts.size)
+    val lat = IntArray(pts.size)
+    val alo = IntArray(pts.size)
+    for (k in -n..n) {
+        val cs = kotlin.math.cos(k * step)
+        val sn = kotlin.math.sin(k * step)
+        val d = Vec3(h.x * cs - h.z * sn, 0f, h.x * sn + h.z * cs)
+        val r = d cross Vec3.UP
+        val lines = HashMap<Int, java.util.TreeSet<Int>>()
+        for ((i, p) in pts.withIndex()) {
+            val q = (p.centerW - corridor.originW).horizontal()
+            lat[i] = kotlin.math.floor((q dot r) / v).toInt()
+            alo[i] = kotlin.math.floor((q dot d) / v).toInt()
+            lines.getOrPut(lat[i]) { java.util.TreeSet() } += alo[i]
+        }
+        // 줄마다 가장 긴 사슬(진행 방향 칸 범위)
+        val chain = HashMap<Int, IntArray>()
+        for ((line, bins) in lines) {
+            var start = bins.first()
+            var prev = start
+            var best = intArrayOf(start, start)
+            for (b in bins) {
+                if (b - prev > maxGap) start = b
+                prev = b
+                if (b - start > best[1] - best[0]) best = intArrayOf(start, b)
+            }
+            chain[line] = best
+        }
+        for (i in pts.indices) for (dl in -1..1) {
+            val ch = chain[lat[i] + dl] ?: continue
+            if (alo[i] < ch[0] || alo[i] > ch[1]) continue
+            val len = (ch[1] - ch[0] + 1) * v
+            if (len > bestLen[i]) {
+                bestLen[i] = len
+                bestOff[i] = (lat[i] + dl + 0.5f) * v
+            }
+        }
+    }
+    val boundary = pts.indices.filter { bestLen[it] >= c.edgeMinLengthM && kotlin.math.abs(bestOff[it]) >= side }
+    if (boundary.isEmpty()) return kept
+    val left = boundary.filter { bestOff[it] < 0f }.map { pts[it].centerW }
+    val right = boundary.filter { bestOff[it] > 0f }.map { pts[it].centerW }
+    val w2 = c.widthM * c.widthM
+    val removed = HashSet<VoxelView>()
+    for (i in boundary) {
+        val p = pts[i].centerW
+        // ponytail: 양쪽 경계 칸 전부 짝 비교(O(n²)), 칸이 수천 개를 넘어 느려지면 격자 해시로
+        val narrow = (if (bestOff[i] < 0f) right else left).any { val dx = it.x - p.x; val dz = it.z - p.z; dx * dx + dz * dz < w2 }
+        if (!narrow) removed += pts[i]
+    }
+    return if (removed.isEmpty()) kept else kept.filter { it !in removed }
+}
