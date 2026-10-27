@@ -290,6 +290,7 @@ object ConfigLoader {
                     depthEveryN = atLeast1("depthEveryN"),
                     rgbEveryN = atLeast1("rgbEveryN"),
                     deviceLogIntervalS = positive("deviceLogIntervalS"),
+                    maxRuns = atLeast1("maxRuns"),
                 )
             },
             align = root.section("align") {

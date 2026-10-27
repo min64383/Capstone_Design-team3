@@ -46,6 +46,7 @@ import java.io.File
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
+import kotlin.concurrent.thread
 import javax.microedition.khronos.egl.EGLConfig
 import javax.microedition.khronos.opengles.GL10
 
@@ -207,8 +208,9 @@ class UserModeActivity : Activity(), GLSurfaceView.Renderer {
         feeder.resetClock()
         focus.request()
         val stamp = SimpleDateFormat("yyyyMMdd_HHmmss", Locale.US).format(Date())
+        val runs = File(getExternalFilesDir(null), RunSession.RUNS_DIR)
         val r = try {
-            RunSession(config, hrtf, File(getExternalFilesDir(null), "runs/$stamp"), feeder::nowNs)
+            RunSession(config, hrtf, File(runs, stamp), feeder::nowNs)
         } catch (e: Exception) {
             Log.e(TAG, "run start failed", e) // 오디오 출력을 열지 못함(A1 FA3)
             stop()
@@ -216,6 +218,7 @@ class UserModeActivity : Activity(), GLSurfaceView.Renderer {
             message = "소리 출력을 시작할 수 없습니다"
             return
         }
+        thread(name = "RunsTrim") { RunSession.trimRuns(runs, config.record.maxRuns) }
         run = r.also {
             it.pipeline.onAlert = { kind ->
                 haptics.on(kind)

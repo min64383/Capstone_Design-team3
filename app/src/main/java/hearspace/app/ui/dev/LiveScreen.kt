@@ -28,6 +28,7 @@ import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
 import java.util.concurrent.atomic.AtomicReference
+import kotlin.concurrent.thread
 import javax.microedition.khronos.egl.EGLConfig
 import javax.microedition.khronos.opengles.GL10
 
@@ -122,9 +123,11 @@ class LiveScreen : Activity(), GLSurfaceView.Renderer {
 
     private fun startRun() {
         val stamp = SimpleDateFormat("yyyyMMdd_HHmmss", Locale.US).format(Date())
-        val dir = sessionDir?.let { File(it, "run_log/$stamp") } ?: File(getExternalFilesDir(null), "runs/$stamp")
+        val runs = File(getExternalFilesDir(null), RunSession.RUNS_DIR)
+        val dir = sessionDir?.let { File(it, "run_log/$stamp") } ?: File(runs, stamp)
         feeder.resetClock()
         run = RunSession(config, hrtf, dir, feeder::nowNs).also { feeder.pipeline = it.pipeline }
+        if (sessionDir == null) thread(name = "RunsTrim") { RunSession.trimRuns(runs, config.record.maxRuns) }
     }
 
     private fun stopRun() {

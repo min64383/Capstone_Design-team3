@@ -38,4 +38,16 @@ class RunSession(config: Config, hrtf: Hrtf, val dir: File, clockNs: () -> Long)
         logger.close()
         Log.i(TAG, "run log: $dir")
     }
+
+    companion object {
+        /** 실시간 실행 로그 폴더 이름(앱 전용 외부 폴더 아래). */
+        const val RUNS_DIR = "runs"
+
+        /** [runsDir]에서 이름(시각) 순으로 가장 최근 [keep]개만 남기고 지운다(A1 FA4: 실행 로그가 저장 공간을 채우지 않게). 백그라운드에서 부른다. */
+        fun trimRuns(runsDir: File, keep: Int) {
+            val old = runsDir.listFiles { f -> f.isDirectory }.orEmpty().sortedBy { it.name }.dropLast(keep)
+            for (d in old) if (!d.deleteRecursively()) Log.w(TAG, "run log delete incomplete: $d")
+            if (old.isNotEmpty()) Log.i(TAG, "run logs trimmed: ${old.size} removed, keep $keep")
+        }
+    }
 }

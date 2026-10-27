@@ -518,6 +518,8 @@ data class RecordConfig(
     val rgbEveryN: Int,
     /** device.csv(발열·배터리) 기록 주기. */
     val deviceLogIntervalS: Float,
+    /** 앱이 남길 실시간 실행 로그(`runs/<시각>/`) 수. 새 실행마다 오래된 것부터 지운다(M40, A1 FA4). */
+    val maxRuns: Int,
 )
 
 /**

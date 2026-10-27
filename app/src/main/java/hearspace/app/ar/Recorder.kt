@@ -26,6 +26,7 @@ import hearspace.core.session.SessionStats
 import hearspace.core.types.RecordConfig
 import java.io.BufferedWriter
 import java.io.File
+import java.io.IOException
 import java.util.concurrent.ConcurrentLinkedQueue
 import java.util.concurrent.Semaphore
 import java.util.concurrent.TimeUnit
@@ -49,7 +50,8 @@ data class RecorderStats(
  * 스레드: [start]·[onFrame]·[stop]은 GL 스레드(또는 GL 스레드가 멈춘 뒤의 UI 스레드)에서만 호출한다.
  * - 자세 행: 모든 프레임을 기록해야 하므로(§8.1) 저장 스레드로 큐 전달. 행은 작아서 밀려도 부담이 작다.
  * - 파일 작업: 슬롯 1개. 슬롯이 비어 있을 때만 이번 프레임의 파일을 복사해 넣고, 차 있으면 이번 파일을 건너뛴다.
- *   건너뛴 파일은 행에 이름을 쓰지 않으므로, 행에 적힌 파일은 모두 실제로 저장된다(오류 시 nWriteErrors).
+ *   건너뛴 파일은 행에 이름을 쓰지 않으므로, 행에 적힌 파일은 쓰기 오류가 없으면 모두 실제로 저장된다(오류는 nWriteErrors에 센다).
+ * - `frames.csv`·`device.csv` 쓰기 오류(저장 공간 부족 등)는 앱을 죽이지 않는다: 그 뒤 행은 버리고 정지 때 meta.json은 마저 쓴다(A1 FA7).
  */
 class Recorder(
     private val dir: File,
@@ -191,7 +193,14 @@ class Recorder(
             ),
             stats = null,
         )
-        pendingFinish = { writeFinalMeta(finalMeta, durationS); onDone(dir) }
+        pendingFinish = {
+            try {
+                writeFinalMeta(finalMeta, durationS)
+            } catch (e: IOException) {
+                Log.e(TAG, "final meta.json write failed: $dir", e) // 처음 meta.json(통계 없음 = "미완료")이 남는다
+            }
+            onDone(dir)
+        }
         stopping = true
         wake.release()
     }
@@ -204,37 +213,57 @@ class Recorder(
         val done = meta.copy(
             stats = SessionStats(s.nFrames, s.nDepthSaved, s.nRawDepthSaved, s.nRgbSaved, s.nFileJobsSkipped, s.nWriteErrors, durationS),
         )
-        File(dir, SessionFormat.META_FILE).writeText(done.toJson())
+        // 임시 파일에 다 쓴 뒤 바꾼다: 쓰다 실패해도(저장 공간 부족) 처음 meta.json이 그대로 남는다
+        val tmp = File(dir, SessionFormat.META_FILE + ".tmp")
+        tmp.writeText(done.toJson())
+        if (!tmp.renameTo(File(dir, SessionFormat.META_FILE))) throw IOException("rename failed: $tmp")
         Log.i(TAG, "recording finished: $dir stats=${done.stats}")
     }
 
     private fun writerLoop() {
         val intervalNs = (cfg.deviceLogIntervalS * 1e9).toLong()
         var nextDeviceNs = 0L
-        File(dir, SessionFormat.FRAMES_FILE).bufferedWriter().use { frames ->
-            File(dir, SessionFormat.DEVICE_FILE).bufferedWriter().use { device ->
-                frames.line(FramesCsv.headerLine())
-                device.line(DeviceCsv.headerLine())
-                while (true) {
-                    wake.tryAcquire(WAKE_TIMEOUT_MS, TimeUnit.MILLISECONDS)
-                    wake.drainPermits()
-                    val finishing = stopping
-                    slot.getAndSet(null)?.let(::writeFiles)
-                    while (true) frames.line(FramesCsv.format(rows.poll() ?: break))
-                    val now = SystemClock.elapsedRealtimeNanos()
-                    if (now >= nextDeviceNs) {
-                        val row = thermal.sample()
-                        lastDevice.set(row)
-                        device.line(DeviceCsv.format(row))
-                        nextDeviceNs = now + intervalNs
+        try {
+            File(dir, SessionFormat.FRAMES_FILE).bufferedWriter().use { frames ->
+                File(dir, SessionFormat.DEVICE_FILE).bufferedWriter().use { device ->
+                    frames.line(FramesCsv.headerLine())
+                    device.line(DeviceCsv.headerLine())
+                    while (true) {
+                        val finishing = waitWork()
+                        slot.getAndSet(null)?.let(::writeFiles)
+                        while (true) frames.line(FramesCsv.format(rows.poll() ?: break))
+                        val now = SystemClock.elapsedRealtimeNanos()
+                        if (now >= nextDeviceNs) {
+                            val row = thermal.sample()
+                            lastDevice.set(row)
+                            device.line(DeviceCsv.format(row))
+                            nextDeviceNs = now + intervalNs
+                        }
+                        if (finishing) break
                     }
-                    if (finishing) break
+                    frames.flush()
+                    device.flush()
                 }
-                frames.flush()
-                device.flush()
+            }
+        } catch (e: IOException) {
+            // 저장 공간 부족 등: 오류 1회로 세고 이후 행·파일은 버린다. 정지를 기다려 meta.json은 마저 쓴다(A1 FA7)
+            nWriteErrors.incrementAndGet()
+            Log.e(TAG, "frames.csv/device.csv write failed, rows after this are dropped: $dir", e)
+            while (true) {
+                val finishing = waitWork()
+                slot.set(null)
+                while (rows.poll() != null) Unit
+                if (finishing) break
             }
         }
         pendingFinish?.invoke()
+    }
+
+    /** 일거리나 [WAKE_TIMEOUT_MS]를 기다린 뒤 정지 요청 여부를 돌려준다(요청이 있어도 이번에 남은 행까지 처리하고 끝낸다). */
+    private fun waitWork(): Boolean {
+        wake.tryAcquire(WAKE_TIMEOUT_MS, TimeUnit.MILLISECONDS)
+        wake.drainPermits()
+        return stopping
     }
 
     private fun writeFiles(job: FileJob) {
