@@ -6,6 +6,7 @@ import hearspace.core.audio.Hrtf
 import hearspace.core.session.DeviceCsv
 import hearspace.core.types.Config
 import java.io.File
+import kotlin.concurrent.thread
 
 /**
  * 실행 하나: 실행 로그 + 파이프라인 + 오디오 출력. 만들면 시작하고 [close]로 오디오 → 파이프라인 → 로그 순으로 멈춘다.
@@ -32,11 +33,14 @@ class RunSession(config: Config, hrtf: Hrtf, val dir: File, clockNs: () -> Long)
         logger.device(DeviceCsv.format(thermal.sample().copy(audioOutputLatencyMs = output.latencyMs)))
     }
 
+    /** 소리는 부른 스레드에서 바로 멈추고, 파이프라인·로그 정리(최대 2 s + 5 s 대기)는 다른 스레드에서 한다(A1 CO4: UI 스레드를 막지 않는다). */
     override fun close() {
         output.close()
-        pipeline.close()
-        logger.close()
-        Log.i(TAG, "run log: $dir")
+        thread(name = "RunClose") {
+            pipeline.close()
+            logger.close()
+            Log.i(TAG, "run log: $dir")
+        }
     }
 
     companion object {

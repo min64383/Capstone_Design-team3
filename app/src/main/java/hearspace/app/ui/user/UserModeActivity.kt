@@ -221,9 +221,12 @@ class UserModeActivity : Activity(), GLSurfaceView.Renderer {
         thread(name = "RunsTrim") { RunSession.trimRuns(runs, config.record.maxRuns) }
         run = r.also {
             it.pipeline.onAlert = { kind ->
-                haptics.on(kind)
-                Log.i(TAG, "alert $kind")
-                ui.post { render() }
+                // 오디오 스레드에서 불린다: 진동(바인더 호출)·로그는 UI 스레드로 넘긴다(A1 CO5)
+                ui.post {
+                    haptics.on(kind)
+                    Log.i(TAG, "alert $kind")
+                    render()
+                }
             }
             it.pipeline.requestAlert(AlertKind.START)
             feeder.pipeline = it.pipeline
