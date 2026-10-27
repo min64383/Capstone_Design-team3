@@ -10,7 +10,8 @@
     "edgeMinLengthM": 0.8,
     "edgeOutsideM": 0.0,
     "cutEnd": false,
-    "wallAlign": false
+    "wallAlign": false,
+    "judge": "BOX"
   },
   "depth": {
     "subsample": 2,
