@@ -49,12 +49,39 @@ def wilson(k: int, n: int, z: float = 1.96) -> tuple[float, float, float]:
     return p, c - h, c + h
 
 
+def unknown_state(m: dict) -> float:
+    """UNKNOWN 상태 시간 비율. 상태 비율이 없으면(지표가 없음) 0이 아니라 NaN(A1 FA11: 빠진 값이 안전 관문을 그냥 통과시키지 않게)."""
+    sf = m.get("stateFraction")
+    return np.nan if sf is None else float(sf.get("UNKNOWN", 0.0))
+
+
+def with_metrics(runs: list[Path], dropped: list[Path]) -> list[Path]:
+    """metrics.json이 있는 재생 폴더만 돌려주고 나머지는 [dropped]에 넣는다(A1 FA11: 중단된 sweep의 폴더가 STOP 누락 0·UNKNOWN 0으로
+    들어가지 않게)."""
+    keep = [r for r in runs if (r / "metrics.json").is_file()]
+    dropped += [r for r in runs if not (r / "metrics.json").is_file()]
+    return keep
+
+
+def report_dropped(dropped: list[Path], out: dict) -> None:
+    """뺀 재생을 결과(`droppedNoMetrics`)와 stderr에 남긴다."""
+    out["droppedNoMetrics"] = [str(p) for p in dropped]
+    if dropped:
+        print(f"주의: metrics.json 없는 재생 {len(dropped)}개를 뺐다: {', '.join(str(p) for p in dropped[:5])}{' …' if len(dropped) > 5 else ''}",
+              file=sys.stderr)
+
+
+def missed_stop(sub: pd.DataFrame) -> dict:
+    """STOP 누락 합(값이 있는 세션만)과 값이 없는 세션 수. 없는 세션이 있으면 "누락 없음"이라 하지 않는다."""
+    return {"missedStop": int(sub.missedStop.dropna().sum()), "missedStopUnknown": int(sub.missedStop.isna().sum())}
+
+
 def m32_row(f: Path) -> dict:
     """재생 폴더 하나의 M32 지표(장면 지표 + 안전 지표)."""
     d = load(f)
     m = json.loads((f.parent / "metrics.json").read_text(encoding="utf-8")) if (f.parent / "metrics.json").is_file() else {}
     r = {k: (np.nan if d.get(k) is None else float(d[k])) for k in [*HEADLINE32, *EXTRA32]}
-    r.update({"scene": m.get("scene", ""), "unknownState": (m.get("stateFraction") or {}).get("UNKNOWN", 0.0),
+    r.update({"scene": m.get("scene", ""), "unknownState": unknown_state(m),
               "missedStop": m.get("missedStop"), "stopNeeded": m.get("stopNeeded"),
               "infoAgeMaxMs": (m.get("infoAgeMs") or {}).get("max"), "falseAlarm": m.get("falseAlarmFraction"),
               "firstWarn": m.get("firstWarnDistanceM") or {}, "firstStop": m.get("firstStopDistanceM") or {}})
@@ -63,21 +90,22 @@ def m32_row(f: Path) -> dict:
 
 def m32_real(root: Path, base: str, variants: list[str], scene: str | None) -> dict:
     """완료 기준 ②(헛 칸 비율 구간이 기준보다 낮게 분리, 표면 오차·완전성은 평균이 기준 구간 안이거나 더 좋음)와 ④(STOP 누락·확인 불가)."""
-    rows = []
+    rows, dropped = [], []
     for v in [base, *variants]:
-        for f in sorted((root / v).glob("*/scene_eval.json")):
-            r = m32_row(f)
+        for run in with_metrics([f.parent for f in sorted((root / v).glob("*/scene_eval.json"))], dropped):
+            r = m32_row(run / "scene_eval.json")
             if scene and not r["scene"].startswith(scene):
                 continue
-            rows.append({"variant": v, "session": f.parent.name, **r})
+            rows.append({"variant": v, "session": run.name, **r})
     df = pd.DataFrame(rows)
     keys = [*HEADLINE32, *EXTRA32, "unknownState"]
     ci = {v: {k: boot_ci(df[df.variant == v][k].to_numpy(float)) for k in keys} for v in [base, *variants]}
     out = {"sessions": int(df.session.nunique()), "variants": {}}
+    report_dropped(dropped, out)
     for v in [base, *variants]:
         sub = df[df.variant == v]
         e: dict = {k: {"mean": ci[v][k][0], "lo": ci[v][k][1], "hi": ci[v][k][2]} for k in keys}
-        e["missedStop"] = int(sub.missedStop.fillna(0).sum())
+        e.update(missed_stop(sub))
         e["infoAgeMaxMs"] = float(sub.infoAgeMaxMs.max())
         if v != base:
             b = ci[base]
@@ -86,7 +114,8 @@ def m32_real(root: Path, base: str, variants: list[str], scene: str | None) -> d
                 "p90NotWorse": bool(ci[v]["surfaceErrorP90NoFloorM"][0] <= b["surfaceErrorP90NoFloorM"][2]),
                 "completenessNotWorse": bool(ci[v]["completenessWallObject"][0] >= b["completenessWallObject"][1]),
             }
-            e["criterion4"] = {"noMissedStop": e["missedStop"] == 0, "unknownNotWorse": bool(ci[v]["unknownState"][0] <= b["unknownState"][2])}
+            e["criterion4"] = {"noMissedStop": e["missedStop"] == 0 and e["missedStopUnknown"] == 0,
+                               "unknownNotWorse": bool(ci[v]["unknownState"][0] <= b["unknownState"][2])}
         out["variants"][v] = e
     df.drop(columns=["firstWarn", "firstStop"]).to_csv(root / f"m32_{base}_{'_'.join(variants)}.csv", index=False)
     out["firstWarnStop"] = {f"{r.variant}/{r.session}": {"warn": r.firstWarn, "stop": r.firstStop} for r in df.itertuples()}
@@ -119,7 +148,7 @@ def m33_row(run: Path) -> dict:
         "missedStop": m.get("missedStop"),
         "falseAlarmPer10m": np.nan if dg.get("falseAlarmPer10m") is None else float(dg["falseAlarmPer10m"]),
         "endWallFirstWarn": float("wall_end" in (dg.get("firstWarnAlongM") or {})) if dg.get("walkedM", 0) >= 1.0 else np.nan,
-        "unknownState": (m.get("stateFraction") or {}).get("UNKNOWN", 0.0),
+        "unknownState": unknown_state(m),
         "footprint": r(c.get("footprint")),
         "contradictionRaw": r(contra.get("raw")),
         "contradictionSmoothed": r(contra.get("smoothed")),
@@ -148,9 +177,9 @@ def paired_ci(a: np.ndarray, b: np.ndarray, n: int = N_BOOT, seed: int = SEED) -
 
 
 def m33_real(root: Path, base: str, variants: list[str], scene: str | None) -> dict:
-    rows = []
+    rows, dropped = [], []
     for v in [base, *variants]:
-        for run in sorted(p for p in (root / v).iterdir() if p.is_dir()):
+        for run in with_metrics(sorted(p for p in (root / v).iterdir() if p.is_dir()), dropped):
             r = m33_row(run)
             if scene and not r["scene"].startswith(scene):
                 continue
@@ -158,10 +187,11 @@ def m33_real(root: Path, base: str, variants: list[str], scene: str | None) -> d
     df = pd.DataFrame(rows)
     keys = [*M33_GUIDE, *M33_MAP, *M33_REPORT]
     out = {"sessions": int(df.session.nunique()), "variants": {}}
+    report_dropped(dropped, out)
     piv = {k: df.pivot(index="session", columns="variant", values=k) for k in keys}
     for v in [base, *variants]:
         sub = df[df.variant == v]
-        e: dict = {"missedStop": int(sub.missedStop.fillna(0).sum())}
+        e: dict = missed_stop(sub)
         for k in keys:
             mean, lo, hi = boot_ci(sub[k].to_numpy(float))
             e[k] = {"mean": mean, "lo": lo, "hi": hi}
@@ -182,12 +212,14 @@ def m32_synth(roots: dict[str, Path], s: float) -> dict:
     from metrics import compute
     out = {}
     for name, root in roots.items():
-        rows, need, missed, first_stop = [], 0, 0, []
+        rows, need, missed, first_stop, dropped = [], 0, 0, [], []
         for f in sorted(root.glob(f"*/s{s}/scene_eval.json")):
             run = f.parent
             mf = run / "metrics.json"
             if not mf.is_file() and (run / "session").is_dir():
                 mf.write_text(json.dumps(compute(run / "session", run), ensure_ascii=False, default=float), encoding="utf-8")
+            if not with_metrics([run], dropped):
+                continue
             r = m32_row(f)
             rows.append(r)
             need += r["stopNeeded"] or 0
@@ -196,6 +228,8 @@ def m32_synth(roots: dict[str, Path], s: float) -> dict:
         df = pd.DataFrame(rows)
         e: dict = {k: dict(zip(("mean", "lo", "hi"), boot_ci(df[k].to_numpy(float)))) for k in [*HEADLINE32, *EXTRA32, "unknownState"]}
         e["scenes"] = len(df)
+        e.update(requested(root, len(df)))
+        report_dropped(dropped, e)
         e["encounters"] = need
         e["stopDetection"] = dict(zip(("p", "lo", "hi"), wilson(need - missed, need)))
         e["firstStopM"] = {"p10": float(np.percentile(first_stop, 10)), "p50": float(np.median(first_stop))} if first_stop else None
@@ -211,6 +245,19 @@ def boot_ci(v: np.ndarray, n: int = N_BOOT, seed: int = SEED) -> tuple[float, fl
     rng = np.random.default_rng(seed)
     m = rng.choice(v, size=(n, len(v)), replace=True).mean(axis=1)
     return float(v.mean()), float(np.percentile(m, 2.5)), float(np.percentile(m, 97.5))
+
+
+def requested(root: Path, n_scenes: int) -> dict:
+    """합성 일괄 재생이 요청한 장면 수와 실패한 시드(`run_info.json`, M41). 모인 장면이 요청보다 적거나 실패한 시드가 있으면 stderr로
+    알린다(A1 FA10: 실패한 장면이 통계에서 말없이 빠지지 않게)."""
+    f = root / "run_info.json"
+    if not f.is_file():
+        return {}
+    info = json.loads(f.read_text(encoding="utf-8"))
+    failed = info.get("failedSeeds", [])
+    if n_scenes < info.get("scenes", 0) or failed:
+        print(f"주의: {root} 장면 {n_scenes}개 / 요청 {info.get('scenes')}개, 실패한 시드 {failed}", file=sys.stderr)
+    return {"scenesRequested": info.get("scenes"), "failedSeeds": failed}
 
 
 def synth_table(root: Path) -> pd.DataFrame:
@@ -343,6 +390,7 @@ def main(args: list[str]) -> None:
         root = Path(args[1])
         df = synth_table(root)
         res = judge_synth(df)
+        res.update(requested(root, res["scenes"]))
         (root / "summary.json").write_text(json.dumps(res, indent=1, ensure_ascii=False), encoding="utf-8")
         df.to_csv(root / "summary.csv", index=False)
         print(f"합성 {res['scenes']}장면, 강도 {res['strengths']}")
@@ -375,7 +423,7 @@ def main(args: list[str]) -> None:
         (root / f"m33_{base}_{'_'.join(variants)}.json").write_text(json.dumps(res, indent=1, ensure_ascii=False, default=float), encoding="utf-8")
         print(f"녹화 {res['sessions']}세션 ({scene or '전체'}), 차 = 변형 − {base} (세션 쌍 95% 구간)")
         for v, e in res["variants"].items():
-            print(f"== {v}  STOP 누락 {e['missedStop']}")
+            print(f"== {v}  STOP 누락 {e['missedStop']} (값 없는 세션 {e['missedStopUnknown']})")
             for k in [*M33_GUIDE, *M33_MAP, *M33_REPORT]:
                 m = e[k]
                 d = m.get("diff")
@@ -406,4 +454,5 @@ def main(args: list[str]) -> None:
 
 if __name__ == "__main__":
     sys.stdout.reconfigure(encoding="utf-8")
+    sys.stderr.reconfigure(encoding="utf-8")  # 빠진 재생·장면 알림(M41)
     main(sys.argv[1:])

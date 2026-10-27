@@ -459,6 +459,28 @@ def check_scene_eval():
     assert all(res["metrics"][k]["monotone"] and res["metrics"][k]["separated01"] for k in ("surfaceErrorP90M", "falseRatio", "completenessWallObject")), res
 
 
+def check_scene_eval_missing():
+    """M41(A1 FA11): metrics.json 없는 재생은 빼고 알리며, 상태 비율·STOP 누락이 없는 값은 0이 아니라 NaN·"값 없음"으로 센다."""
+    import contextlib
+    import io
+    from scene_eval import m33_real
+    with tempfile.TemporaryDirectory() as d:
+        root = Path(d)
+        runs = {("B", "s1"): {"missedStop": 0, "stateFraction": {"NORMAL": 1.0}}, ("B", "s2"): {"missedStop": 1, "stateFraction": {"UNKNOWN": 0.5}},
+                ("V", "s1"): {"missedStop": None}, ("V", "s2"): None}
+        for (v, s), m in runs.items():
+            (root / v / s).mkdir(parents=True)
+            if m is not None:
+                (root / v / s / "metrics.json").write_text(json.dumps(m), encoding="utf-8")
+        err = io.StringIO()
+        with contextlib.redirect_stderr(err):
+            out = m33_real(root, "B", ["V"], None)
+    assert out["droppedNoMetrics"] == [str(root / "V" / "s2")] and "1개" in err.getvalue(), (out["droppedNoMetrics"], err.getvalue())
+    b, v = out["variants"]["B"], out["variants"]["V"]
+    assert b["missedStop"] == 1 and b["missedStopUnknown"] == 0 and abs(b["unknownState"]["mean"] - 0.25) < 1e-9, b
+    assert v["missedStop"] == 0 and v["missedStopUnknown"] == 1 and np.isnan(v["unknownState"]["mean"]), v
+
+
 def check_depth_absolute():
     """M31 K01: 면 상수를 빼지 않은 끝 벽 편향. 합성 정지 세션(M12SessionsTest e01, 끝 벽 카메라 4.0 m)에서 정답 그대로면 0,
     정답 끝 벽을 5 cm 멀리 적으면 +0.05(카메라 쪽 +). 같은 거리 두 세션의 차를 낸다.
@@ -537,6 +559,7 @@ def main():
     check_output_flicker()
     check_floor_rgb()
     check_scene_eval()
+    check_scene_eval_missing()
     check_depth_absolute()
     print("analysis self-check ok")
 
