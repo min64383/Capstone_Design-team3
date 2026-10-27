@@ -1,6 +1,6 @@
 {
   "head": { "offsetFromCameraM": [0.0, 0.5, -0.39] },
-  "heading": { "windowS": 2.0, "minTravelM": 0.15 },
+  "heading": { "windowS": 2.0, "minTravelM": 0.15, "swayM": 0.016, "cameraSigmaDeg": 0.0 },
   "corridor": {
     "widthM": 0.8,
     "heightM": 2.0,
@@ -9,7 +9,8 @@
     "edgeInnerM": 0.25,
     "edgeMinLengthM": 0.8,
     "edgeOutsideM": 0.0,
-    "cutEnd": false
+    "cutEnd": false,
+    "wallAlign": false
   },
   "depth": {
     "subsample": 2,

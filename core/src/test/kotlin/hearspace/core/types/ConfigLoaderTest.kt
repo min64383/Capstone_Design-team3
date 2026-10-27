@@ -26,7 +26,7 @@ class ConfigLoaderTest {
     fun `default json matches spec section 12 table`() {
         val c = load()
         assertEquals(Vec3(0f, 0.5f, -0.39f), c.head.offsetFromCameraM)
-        assertEquals(HeadingConfig(2.0f, 0.15f), c.heading)
+        assertEquals(HeadingConfig(2.0f, 0.15f, swayM = 0.016f, cameraSigmaDeg = 0f), c.heading) // M42: 결합 값은 측정값, 끔(cameraSigmaDeg 0)
         assertEquals(CorridorConfig(0.8f, 2.0f, 3.5f, 0.2f, 0.25f, 0.8f, 0f, false), c.corridor)
         assertEquals(DepthConfig(2, DepthSource.SMOOTHED, 0, 0.0057f, 0.0091f, -0.002f, 0.0101f, 0f, 0f, 0f, 0f, 0f, 0f), c.depth)
         assertEquals(FrontendConfig(false, 6, 0.1f, 0.05f, 0.02f, 0.05f, 0.02f, 0.15f, PlaneMode.NONE, 0.03f, 0.02f, 0.08f, 0.3f, 150, 0.12f, 0.6f, 3.0f, -0.03f, 0.35f, 0.2f, 0.1f, 0.5f, 2.0f, 0.9f, 0.8f, 80, 0.8f, 0.2f, 0.3f, 3, 120, RgbGuideMode.NONE, 3, 12f, 20f, 25, SegmentMode.NONE), c.frontend)
