@@ -1,6 +1,8 @@
-# 분석 도구 의존성 (MVP_SPEC §3). 버전은 첫 스크립트 작성 시(M8) 고정한다.
-numpy
-pandas
-matplotlib
-h5py
-av
+# 분석 도구 의존성 (MVP_SPEC §3). 버전은 docs/LICENSES.md에 기록한 .venv 기준값으로 고정한다(M41, A1 SU1).
+# 바꿀 때는 LICENSES.md를 같이 고치고 python tools/analysis/test_analysis.py로 확인한다.
+numpy==2.4.6
+pandas==3.0.6
+matplotlib==3.11.2
+h5py==3.16.0
+av==18.1.0
+pillow==12.3.0
