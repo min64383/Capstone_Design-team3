@@ -60,6 +60,7 @@ object ConfigLoader {
                     edgeOutsideM = nonNegative("edgeOutsideM"),
                     cutEnd = boolean("cutEnd"),
                     wallAlign = boolean("wallAlign"),
+                    judge = enumValue<CorridorJudgeMode>("judge"),
                 )
             },
             depth = root.section("depth") {

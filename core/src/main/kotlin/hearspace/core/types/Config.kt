@@ -73,6 +73,8 @@ data class CorridorConfig(
      * α = asin((widthM/2 − edgeInnerM)/edgeMinLengthM): 가장자리 구조물 규칙이 이미 "나란한 벽"으로 보는 각. false = 기준선.
      */
     val wallAlign: Boolean = false,
+    /** 통로 판정 방식([CorridorJudgeMode], M44). BOX = 기준선. */
+    val judge: CorridorJudgeMode = CorridorJudgeMode.BOX,
 )
 
 /** 깊이 입력·역투영 설정. */

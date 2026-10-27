@@ -112,3 +112,36 @@ fun wallAlignedHeading(headingW: Vec3, cellsW: List<Vec3>, userPosW: Vec3, floor
     }
     return best
 }
+
+/**
+ * 걸을 수 있는 영역 판정(M44, `corridor.judge` WALKABLE): 진행 방향 거리를 칸 크기 단면으로 나누고, 단면마다 보행선(좌우 0)을 포함하는
+ * 빈 좌우 구간을 점유 칸(통로 높이 안, 칸 폭 ± 반 칸)으로 잰다. 보행선이 칸에 막혔거나 구간 폭이 몸 폭(`corridor.widthM`)보다 좁으면
+ * 그 단면의 몸 폭 안(|좌우| ≤ widthM/2) 칸을 장애물로 넘긴다. 벽만 있는 복도는 구간 폭이 복도 폭이라 넘기지 않는다.
+ * 구간 폭은 진행 방향과 수직으로 재므로 진행 방향이 θ 틀려도 복도 폭/cosθ로 거의 바뀌지 않는다(고정 상자는 벽이 거리 × tanθ만큼 들어온다).
+ * 찾는 좌우 범위는 ±widthM: 폭 widthM 이상인 구간이 보행선을 포함하면 그 안에 있다.
+ * Yang 2016(걸을 수 있는 영역)·Corridor-Walker의 걸을 수 있는 격자를 진행 방향 단면으로 근사한 것이다(M44 설계 3.1~3.2절).
+ * 옆으로 비켜 지나갈 수 있는 물체(구간 폭 ≥ widthM)는 넘기지 않는다: 경고의 뜻이 "진행선 위 물체"에서 "길이 막힘"으로 바뀐다(결정은 M36).
+ */
+fun walkableInPath(occupied: List<VoxelView>, corridor: Corridor, config: Config): List<VoxelView> {
+    val c = config.corridor
+    val half = config.map.voxelSizeM / 2
+    val reach = c.widthM
+    val cand = occupied.filter { corridor.contains(it.centerW, reach + half) }
+    val out = ArrayList<VoxelView>()
+    for ((_, cells) in cand.groupBy { kotlin.math.floor(corridor.alongM(it.centerW) / config.map.voxelSizeM).toInt() }) {
+        var left = -reach
+        var right = reach
+        var lineBlocked = false
+        for (v in cells) {
+            val l = corridor.lateralM(v.centerW)
+            when {
+                l - half <= 0f && l + half >= 0f -> lineBlocked = true
+                l + half < 0f -> left = kotlin.math.max(left, l + half)
+                else -> right = kotlin.math.min(right, l - half)
+            }
+        }
+        if (lineBlocked || right - left < c.widthM) out += cells.filter { kotlin.math.abs(corridor.lateralM(it.centerW)) <= c.widthM / 2 }
+    }
+    return out
+}
+
