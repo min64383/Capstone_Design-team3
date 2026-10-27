@@ -121,8 +121,8 @@ class LivePipeline(
         renderer.render(g, out)
         lastOutput.set(g)
         lastHead.set(fast.head)
-        // ponytail: 블록마다 문자열 로그(약 190줄/초). 할당이 끊김을 만들면 N블록마다로 줄인다(§10.1 허용).
-        logger?.guidance(RunLog.guidanceLines(g, p.tCaptureNs, snap?.tCaptureNs))
+        // 블록마다 로그 한 건(약 190건/초). 문자열은 로그 스레드가 만든다(A1 CO5)
+        logger?.guidance(g, p.tCaptureNs, snap?.tCaptureNs)
     }
 
     // ---- 느린 경로 워커 ----

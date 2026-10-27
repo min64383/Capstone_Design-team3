@@ -66,7 +66,7 @@ class ConfigLoaderTest {
             c.audio,
         )
         assertEquals(HapticsConfig(40, 40, 80, 400, 600), c.haptics)
-        assertEquals(RecordConfig(1, 3, 1.0f), c.record)
+        assertEquals(RecordConfig(1, 3, 1.0f, 20), c.record)
         assertEquals(AlignConfig(2.0f, 0.5f, 3.0f), c.align)
         assertEquals(SlowPathConfig(0f), c.slowPath)
     }
@@ -126,6 +126,16 @@ class ConfigLoaderTest {
         assertConfigError("depth.source", """{ "depth": { "source": "TOF" } }""")
         assertConfigError("floor", """{ "floor": { "belowMarginM": 0.04 } }""")
         assertConfigError("corridor", """{ "corridor": { "edgeInnerM": 0.4 } }""")
+    }
+
+    @Test
+    fun `safety keys cannot silence guidance or accept stale information (M40)`() {
+        assertConfigError("policy.maxInfoAgeMs", """{ "policy": { "maxInfoAgeMs": 100000 } }""")
+        assertConfigError("policy.maxInfoAgeMs", """{ "policy": { "maxInfoAgeMs": 1000 } }""") // 1 m/s × 1 s = stopM 1.0
+        assertConfigError("slowPath.maxRateHz", """{ "slowPath": { "maxRateHz": 2 } }""") // 500 ms ≥ 350 ms
+        assertConfigError("audio.limiterCeiling", """{ "audio": { "limiterCeiling": 0 } }""")
+        assertConfigError("audio.masterGainDb", """{ "audio": { "masterGainDb": -200 } }""")
+        load("""{ "policy": { "maxInfoAgeMs": 400 }, "slowPath": { "maxRateHz": 10 } }""") // M10 후보·M13.4 상한은 그대로 통과
     }
 
     @Test

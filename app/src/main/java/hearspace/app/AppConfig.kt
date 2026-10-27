@@ -14,19 +14,25 @@ object AppConfig {
     /** `/sdcard/Android/data/<패키지>/files/config.override.json`. */
     const val DEVICE_OVERRIDE_FILE = "config.override.json"
 
-    @Volatile
-    private var cached: Config? = null
+    /** 기기 덮어쓰기를 쓴 설정(true)과 앱 자산만의 설정(false). */
+    private val cached = HashMap<Boolean, Config>()
 
-    /** 설정을 읽는다. 형식 오류는 [hearspace.core.types.ConfigException]. */
-    fun get(context: Context): Config = cached ?: synchronized(this) {
-        cached ?: run {
+    /**
+     * 설정을 읽는다. 형식 오류는 [hearspace.core.types.ConfigException].
+     * [deviceOverride]가 false면 기기 파일을 읽지 않는다(사용자 모드: 기기 파일이 잘못됐을 때 앱 기본 설정으로 안내, A1 FA2).
+     */
+    fun get(context: Context, deviceOverride: Boolean = true): Config = synchronized(this) {
+        cached.getOrPut(deviceOverride) {
             val base = context.assets.open(CONFIG_ASSET).bufferedReader().use { it.readText() }
             val override = context.assets.open(SONIFY_OVERRIDE_ASSET).bufferedReader().use { it.readText() }
-            val device = context.getExternalFilesDir(null)?.let { java.io.File(it, DEVICE_OVERRIDE_FILE) }?.takeIf { it.isFile }?.readText()
+            val device = if (deviceOverride) deviceOverrideFile(context)?.takeIf { it.isFile }?.readText() else null
             if (device != null) android.util.Log.i(TAG, "device config override: $device")
-            ConfigLoader.load(base, listOfNotNull(override, device)).also { cached = it }
+            ConfigLoader.load(base, listOfNotNull(override, device))
         }
     }
+
+    /** 기기 덮어쓰기 파일 경로(없을 수도 있다). */
+    fun deviceOverrideFile(context: Context): java.io.File? = context.getExternalFilesDir(null)?.let { java.io.File(it, DEVICE_OVERRIDE_FILE) }
 }
 
 /** 앱 자산의 HRIR(SADIE II D1, M6). */

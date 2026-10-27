@@ -8,6 +8,12 @@ import hearspace.core.geometry.Vec3
  */
 object ConfigLoader {
 
+    /** 기준 보행 속도(MVP_SPEC §2.1 "초속 약 1 m"). 정보 나이 상한 검사에만 쓴다: 이 속도로 정보 나이 동안 STOP 거리를 다 걸으면 안 된다. */
+    private const val REFERENCE_WALK_SPEED_MPS = 1.0f
+
+    /** 16비트 출력 한 단계 20·log10(2⁻¹⁵) ≈ −90.3 dB. 주 음량이 이보다 작으면 모든 소리가 사라진다(확실한 무음만 막는 하한). */
+    private const val MIN_AUDIBLE_GAIN_DB = -90.3f
+
     /** [baseJson]을 읽고, [overrideJson]이 있으면 그 값을 덮어쓴 설정을 만든다. */
     fun load(baseJson: String, overrideJson: String? = null): Config = load(baseJson, listOfNotNull(overrideJson))
 
@@ -284,6 +290,7 @@ object ConfigLoader {
                     depthEveryN = atLeast1("depthEveryN"),
                     rgbEveryN = atLeast1("rgbEveryN"),
                     deviceLogIntervalS = positive("deviceLogIntervalS"),
+                    maxRuns = atLeast1("maxRuns"),
                 )
             },
             align = root.section("align") {
@@ -345,6 +352,18 @@ object ConfigLoader {
             throw ConfigException("sonify.historyS", "history window is too large")
         if (!(p.stopM < p.warnMaxM && p.warnMaxM < p.silentMaxM)) {
             throw ConfigException("policy", "must satisfy stopM < warnMaxM < silentMaxM")
+        }
+        // 안전 키(M40, A1 TR4): 덮어쓰기 파일이 안내를 조용히 끄거나 오래된 정보를 허용하지 못하게 한다
+        if (p.maxInfoAgeMs / 1000f * REFERENCE_WALK_SPEED_MPS >= p.stopM) {
+            throw ConfigException("policy.maxInfoAgeMs", "must satisfy maxInfoAgeMs × $REFERENCE_WALK_SPEED_MPS m/s < stopM (walking past STOP on stale information)")
+        }
+        val rate = c.slowPath.maxRateHz
+        if (rate > 0f && 1000f / rate >= p.maxInfoAgeMs) {
+            throw ConfigException("slowPath.maxRateHz", "must satisfy 1/maxRateHz < policy.maxInfoAgeMs (guidance would stay UNKNOWN)")
+        }
+        if (c.audio.limiterCeiling <= 0f) throw ConfigException("audio.limiterCeiling", "must be > 0 (0 silences all output)")
+        if (c.audio.masterGainDb < MIN_AUDIBLE_GAIN_DB) {
+            throw ConfigException("audio.masterGainDb", "must be >= $MIN_AUDIBLE_GAIN_DB dB (below one 16-bit step, silent)")
         }
         if (c.corridor.edgeInnerM >= c.corridor.widthM / 2) {
             throw ConfigException("corridor", "must satisfy edgeInnerM < widthM / 2")

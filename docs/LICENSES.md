@@ -20,7 +20,7 @@
 
 ### ARCore 약관 메모
 
-- 앱을 배포(사용자 평가 포함)할 때는 앱 안내문에 "ARCore 기능을 포함하며 Google 서비스 약관·개인정보처리방침이 적용된다"는 고지가 필요하다(ARCore Additional Terms). M9 사용자 모드에서 반영.
+- 앱을 배포(사용자 평가 포함)할 때는 앱 안내문에 "ARCore 기능을 포함하며 Google 서비스 약관·개인정보처리방침이 적용된다"는 고지가 필요하다(ARCore Additional Terms). M9에서 빠졌던 것을 M40에서 반영(A1 TR7): 사용자 모드 시작 화면 아래에 늘 보이고, 처음 시작하기 전까지는 TalkBack이 화면 설명과 함께 읽는다(`UserModeActivity.ARCORE_NOTICE`). 약관 원문(https://developers.google.com/ar/develop/terms, 2026-10-27 확인)은 앱의 최종 사용자 약관에서 알리라고 하며 문구는 정하지 않는다: 앱 밖 약관·안내문(사용자 평가 동의서 등)을 만들면 같은 문장을 넣는다.
 - 공식 샘플(hello_ar, Apache-2.0) 코드는 복사하지 않았다. `render/BackgroundRenderer.kt`는 샘플의 방식(OES 텍스처 + `transformCoordinates2d`)을 참고해 새로 작성.
 
 ## 모델 가중치
