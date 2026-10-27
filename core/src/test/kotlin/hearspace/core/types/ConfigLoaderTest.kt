@@ -129,6 +129,16 @@ class ConfigLoaderTest {
     }
 
     @Test
+    fun `safety keys cannot silence guidance or accept stale information (M40)`() {
+        assertConfigError("policy.maxInfoAgeMs", """{ "policy": { "maxInfoAgeMs": 100000 } }""")
+        assertConfigError("policy.maxInfoAgeMs", """{ "policy": { "maxInfoAgeMs": 1000 } }""") // 1 m/s × 1 s = stopM 1.0
+        assertConfigError("slowPath.maxRateHz", """{ "slowPath": { "maxRateHz": 2 } }""") // 500 ms ≥ 350 ms
+        assertConfigError("audio.limiterCeiling", """{ "audio": { "limiterCeiling": 0 } }""")
+        assertConfigError("audio.masterGainDb", """{ "audio": { "masterGainDb": -200 } }""")
+        load("""{ "policy": { "maxInfoAgeMs": 400 }, "slowPath": { "maxRateHz": 10 } }""") // M10 후보·M13.4 상한은 그대로 통과
+    }
+
+    @Test
     fun `malformed json is reported as config error`() {
         val e = assertThrows<ConfigException> { load("""{ "map": """) }
         assertTrue(e.path == "<override>")
