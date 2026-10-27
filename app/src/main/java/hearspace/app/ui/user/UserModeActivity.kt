@@ -87,6 +87,9 @@ class UserModeActivity : Activity(), GLSurfaceView.Renderer {
     /** 기기 설정 덮어쓰기 표시(적용 중이거나 형식 오류로 버림). 없으면 null. */
     private var overrideNotice: String? = null
 
+    /** ARCore 고지를 TalkBack으로 읽힌 뒤 처음 시작했는지(그 뒤로는 화면에만 둔다). */
+    private val prefs get() = getSharedPreferences(PREFS, MODE_PRIVATE)
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         config = try {
@@ -131,7 +134,7 @@ class UserModeActivity : Activity(), GLSurfaceView.Renderer {
             setTextColor(Color.WHITE)
             textSize = 16f
             setPadding(32, 32, 32, 48)
-            text = overrideNotice.orEmpty()
+            text = listOfNotNull(overrideNotice, ARCORE_NOTICE).joinToString("\n\n")
             importantForAccessibility = View.IMPORTANT_FOR_ACCESSIBILITY_NO // 버튼(root)이 읽는다
         }
         val detector = GestureDetector(this, object : GestureDetector.SimpleOnGestureListener() {
@@ -222,6 +225,7 @@ class UserModeActivity : Activity(), GLSurfaceView.Renderer {
             it.pipeline.requestAlert(AlertKind.START)
             feeder.pipeline = it.pipeline
         }
+        prefs.edit().putBoolean(PREF_NOTICE_READ, true).apply()
         glView.onResume()
         ui.post(uiTick)
     }
@@ -284,8 +288,11 @@ class UserModeActivity : Activity(), GLSurfaceView.Renderer {
         if (stateText.text != line) {
             stateText.text = line
             val hint = if (run == null) "두 번 탭하여 시작, 길게 눌러 종료" else "두 번 탭하여 일시정지 또는 재개, 길게 눌러 종료"
-            // 기기 설정 덮어쓰기는 늘 읽는다(TR4)
-            val notice = listOfNotNull(overrideNotice).joinToString("") { "$it. " }
+            // 처음 시작하기 전에는 ARCore 고지(TR7)를 함께 읽는다. 기기 설정 덮어쓰기는 늘 읽는다(TR4)
+            val notice = listOfNotNull(
+                overrideNotice,
+                ARCORE_NOTICE.takeIf { run == null && !prefs.getBoolean(PREF_NOTICE_READ, false) },
+            ).joinToString("") { "$it. " }
             root.contentDescription = "HEARSPACE, $line. $notice$hint"
         }
         val cmd = g?.commands?.firstOrNull()?.takeIf { it.band != Band.SILENT && g.state != GuidanceState.UNKNOWN }
@@ -356,5 +363,11 @@ class UserModeActivity : Activity(), GLSurfaceView.Renderer {
 
     companion object {
         private const val UI_REFRESH_MS = 200L
+        private const val PREFS = "user_mode"
+        private const val PREF_NOTICE_READ = "arcoreNoticeRead"
+
+        /** ARCore Additional Terms의 고지(docs/LICENSES.md). 문구는 정해져 있지 않고 "ARCore 기능 포함 + Google 약관·개인정보처리방침 적용"을 알리면 된다. */
+        private const val ARCORE_NOTICE = "이 앱은 Google의 ARCore 기능을 포함합니다. ARCore 사용에는 Google 서비스 약관(policies.google.com/terms)과 " +
+            "Google 개인정보처리방침(google.com/policies/privacy)의 최신 버전이 적용됩니다"
     }
 }
