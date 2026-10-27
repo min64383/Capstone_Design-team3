@@ -44,7 +44,10 @@ object ClusterEval {
         val fits get() = nAttached > 0 && listOf(frontM, backM, leftM, rightM, topM).all { kotlin.math.abs(it) <= TOL_M }
     }
 
-    /** 머리 [headT](정답 좌표)에서 정답 통로 안에 있는 물체마다 한 줄. [clusters]는 그 단계의 군집 전부. */
+    /**
+     * 머리 [headT](정답 좌표)에서 정답 통로 안에 있는 물체마다 한 줄. [clusters]는 그 단계의 군집 전부. 통로와 앞·뒤 면은 +z로 걷는 것으로
+     * 본다(한 방향 보행 장면용. 왕복의 돌아오는 길은 맞지 않는다, A1 MA3).
+     */
     fun evaluate(headT: Vec3, clusters: List<Cells>, truth: GroundTruth, corridor: CorridorConfig, voxelM: Float): List<Row> =
         truth.obstacles.mapNotNull { o ->
             if (o.kind != TruthKind.OBJECT) return@mapNotNull null

@@ -369,6 +369,38 @@ def check_zone_stats():
     assert zone_stats([], truth, pol)["missedWarnFraction"] is None
 
 
+def check_distance_guidance():
+    """M33·M39 실측 거리 안내 채점(A1 MA2): 오경보 시작(통로 안 정답 없음 = 오경보, 가까운 정답 = 아님), 걸은 10 m당·분당, 옆 벽 경고,
+    거리 오차(바닥 높이·위 나눔), 판정 불가 띠(끝 벽 위 보: 띠 안 안내는 빼고 띠 밖은 가까운 경계와의 차), 첫 경고·STOP 거리."""
+    from metrics import distance_guidance
+    pol = {"stopM": 1.0, "warnMaxM": 2.5, "hysteresisM": 0.2, "silentMaxM": 3.0}  # 오경보 경계 2.5 + 0.2 + MATCH_MARGIN_M 0.3 = 3.0 m
+    truth = [{"name": "box", "kind": "object"},
+             {"name": "wall_left", "kind": "structure", "min": [-0.62, 0.0, 0.0], "max": [-0.6, 2.4, 6.0]}]  # 실측 옆 벽 면 x = −0.6
+    box = lambda a: [(a, a, 0.0), None]  # noqa: E731  통로 안 가장 가까운 정답 = 상자, 진행 방향 거리 a
+    none = [None, None]
+    # (띠, 통로 안 정답, 안내 거리, 대표점(x, z), 대표점 높이, 판정 불가 상자 거리)
+    spec = [(None, box(3.5), None, None, None, None),
+            ("WARN", box(2.0), 2.1, (0.0, 2.0), 0.5, None),      # 경고 시작, 맞음: 오차 +0.1(위)
+            ("STOP", box(1.5), 1.4, (0.0, 1.5), 0.2, None),      # 이어짐: 오차 −0.1(바닥), 첫 STOP 1.5
+            (None, box(1.2), None, None, None, None),
+            ("WARN", none, 3.0, (-0.65, 3.0), 1.0, None),        # 오경보: 옆 벽 면 0.05 m 안
+            (None, none, None, None, None, None),
+            ("STOP", none, 1.0, (0.1, 1.0), 0.1, None),          # 오경보: 바닥 높이
+            (None, none, None, None, None, None),
+            ("WARN", none, 2.0, None, None, None),               # 오경보: 대표점 없음 → 그 밖
+            ("WARN", box(2.4), 2.0, (0.0, 2.0), None, 1.8),      # 띠 [1.8, 2.4] 안: 오차에서 뺌
+            ("WARN", box(2.4), 1.5, (0.0, 1.5), None, 1.8)]      # 띠 밖: 1.5 − 1.8 = −0.3
+    rows = [{"t": float(k), "state": "NORMAL", "band": b, "tn": tn, "dist": d, "rep": rep, "repY": y, "head": (0.0, 0.5 * k),
+             "tnEdge": [] if e is None else [(e, e, 0.0)]} for k, (b, tn, d, rep, y, e) in enumerate(spec)]
+    g = distance_guidance(rows, truth, pol)
+    assert g["warnOnsets"] == 4 and g["falseAlarmOnsets"] == 3, g
+    assert g["walkedM"] == 5.0 and abs(g["falseAlarmPer10m"] - 6.0) < 1e-9 and abs(g["falseAlarmPerMin"] - 18.0) < 1e-9, g
+    assert g["firstWarnAlongM"] == {"box": 2.0} and g["firstStopAlongM"] == {"box": 1.5}, g
+    assert abs(g["sideWallWarnFraction"] - 1 / 7) < 1e-9 and abs(g["edgeUndecidedWarnFraction"] - 1 / 7) < 1e-9, g
+    assert g["distanceErrorM"]["n"] == 3 and abs(g["distanceErrorM"]["p50"] + 0.1) < 1e-9, g["distanceErrorM"]
+    assert abs(g["distanceErrorFloorM"]["p50"] + 0.1) < 1e-9 and abs(g["distanceErrorAboveM"]["p50"] - 0.1) < 1e-9, g
+
+
 def check_miss_reasons():
     """S5 놓침 사유(M12.3): 바닥 없음 3블록, 군집 없음 2블록, SILENT 1블록, 군집 전부 거름·추적 미확인·구간 밖 각 1블록."""
     import tempfile
@@ -551,6 +583,7 @@ def main():
     check_round_trip_corridor()
     check_walk_sign()
     check_zone_stats()
+    check_distance_guidance()
     check_miss_reasons()
     check_heading_floor_error()
     check_scorecard()
