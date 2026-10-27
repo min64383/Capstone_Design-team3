@@ -29,6 +29,7 @@
 | 통로 판정 | `corridor.edgeOutsideM` 0 → 0.15 (M22 W) | M22 꺼진 옵션 | 0 | M44 |
 | 통로 판정 | `corridor.cutEnd` (M25 E) | M25 꺼진 옵션 | false | M44 |
 | 통로 판정 | `corridor.wallAlign` (M42 C) | M42 이전 판 확인 재생: 오경보 늘어 채택 안 함 | false | M44 |
+| 통로 판정 | `corridor.judge` BOX → WALKABLE | M44: 옆 벽 오경보 안 줄고 합성 STOP 검출 −0.14로 F | BOX | M38 녹화에서 진행 방향 결합과 함께(M36) |
 | 안내 | `repPoint.strategy` CORRIDOR_NEAREST → CORRIDOR_BAND | M21 기본값(평활 깊이에서 방향 불합격 7/15 → 4/15) | CORRIDOR_BAND | M42 |
 | 안내 | `policy.prioritizeStop`, `policy.maxSources` | 팀 소리 후보(IMPROVE_SPEC §15) | false / 1 | M42, 소리는 M36 |
 
@@ -40,3 +41,5 @@
 - 2026-10-27 · M42 · `policy.prioritizeStop` · 무작위 합성 s = 0, maxSources 1에서 안내 출력이 다른 블록 0 / 224,305 · 기본 설정에서 효과 없음, maxSources 2는 M36(팀)
 - 2026-10-27 · M35 · `floor.decompose` REGION_PLANE · 앞 단계 정답 없음(원시 지도 RV, E 6세션) · 바닥 높이 오경보 10 m당 2.08 → 2.97, 낮은 군집 깜빡임 분당 92.1 → 102.2, 물체 세션 STOP 누락 0 → 1(130834) · F, 꺼진 옵션으로 둠
 - 2026-10-27 · M35 · `frontend.planes`·`floor.holdWhenLost`·`floor.minBelowCameraM`·`cluster.separateWalls`·군집·추적 옵션 · 재판정 안 함(M35를 영역별 바닥면 하나로 줄임) · 재판정 마일스톤 그대로 M35(다시 설계 시)
+- 2026-10-27 · M44 · `corridor.judge` WALKABLE · 앞 단계 정답 D(깊이), 진행 방향은 앱 · 옆 벽 오경보 시작 17 → 17, 합성 마주침 STOP 검출 −0.14, 물체 세션 누락 증가 0 · F, 꺼진 옵션
+- 2026-10-27 · M44 · `corridor.edgeOutsideM`(M22 W)·`corridor.cutEnd`(M25 E)·`corridor.wallAlign`(M42 C) · 재판정 안 함(M44를 단면 판정 하나로 줄임) · 재판정 마일스톤 M36
