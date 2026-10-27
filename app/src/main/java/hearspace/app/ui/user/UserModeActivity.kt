@@ -42,6 +42,7 @@ import hearspace.core.types.Band
 import hearspace.core.types.Config
 import hearspace.core.types.ConfigException
 import hearspace.core.types.GuidanceState
+import hearspace.core.types.MapHealth
 import java.io.File
 import java.text.SimpleDateFormat
 import java.util.Date
@@ -289,6 +290,7 @@ class UserModeActivity : Activity(), GLSurfaceView.Renderer {
             run!!.pipeline.paused -> "일시정지"
             g == null || g.state == GuidanceState.UNKNOWN -> "준비 중"
             g.state == GuidanceState.PAUSED -> "일시정지"
+            run!!.pipeline.snapshot.get()?.mapHealth == MapHealth.DEGRADED -> "바닥 확인 중" // 물체를 볼 수 없다(M40, 대기음과 함께)
             else -> "안내 중"
         }
         if (stateText.text != line) {
