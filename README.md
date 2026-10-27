@@ -270,8 +270,8 @@ powershell -ExecutionPolicy Bypass -File tools\setup\pull-sessions.ps1 -All     
 `pull-sessions.ps1`의 동작:
 
 1. 기기의 세션마다 **크기·파일 수·정상 종료 여부**(`meta.json`에 `stats`가 있는지)·**PC에 이미 있는지**를 표로 보여 준다.
-2. 고른 세션을 `adb pull`로 `data/sessions/`에 받는다. 이미 있는 세션은 건너뛴다(`-Force`면 다시 받기). 정상 종료되지 않은 세션은 경고하고 받는다.
-3. 기기와 PC의 **파일 수를 비교해 검증**한다.
+2. 고른 세션을 `adb pull`로 임시 폴더 `data/.pull/`에 받는다. 이미 있는 세션은 건너뛴다(`-Force`면 다시 받기). 정상 종료되지 않은 세션은 경고하고 받는다. 이름이 `<yyyyMMdd_HHmmss>_<장면ID>` 형식(구분자 없음)이 아닌 기기 폴더는 건너뛴다.
+3. 기기와 PC의 **파일 수를 비교해 검증**하고, 맞을 때만 `data/sessions/`로 옮긴다(실패·중단된 사본은 남기지 않는다. `-Force`도 새 사본을 확인한 뒤에 옛 사본을 지운다).
 4. `-Analyze`면 `spike_check.py`를 실행해 결과를 화면과 `data/sessions/<세션ID>/spike_check.txt`에 남긴다.
 5. 기기의 세션은 지우지 않는다. 공간이 필요하면 PC에 받은 것을 확인한 뒤 앱의 `세션 목록`에서 삭제한다.
 
