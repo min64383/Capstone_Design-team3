@@ -492,7 +492,8 @@ def distance_guidance(rows: list[dict], truth: list[dict], pol: dict) -> dict:
     """실측 거리만으로 하는 안내 채점(M33 설계 3.2절). 상자 짝짓기(`MATCH_MARGIN_M`) 대신 블록마다 통로 안 가장 가까운 정답의 진행 방향
     거리만 쓴다. 정렬 각이 틀려도 진행 방향 거리는 거의 그대로다(4 m에서 1.2°면 1 mm 미만).
     - 경고(WARN·STOP)가 시작된 블록에서 그 거리가 warnMaxM + hysteresisM + MATCH_MARGIN_M보다 멀거나 통로 안 정답이 없으면 오경보.
-      걸은 10 m당(머리 경로 길이), 분당 횟수로 낸다.
+      걸은 10 m당(머리 경로 길이), 분당 횟수로 낸다. 오경보 시작은 안내한 대표점 자리로도 나눈다(`falseAlarmOnsetsBy`, M41 C1 진단):
+      옆 벽(실측 옆 벽 면 SIDE_WALL_TOL_M 안), 바닥(대표점 높이 FLOOR_LEVEL_M 이하, 옆 벽 아님), 그 밖(대표점 없음 포함).
     - 대상별 첫 경고·첫 STOP 거리: 정상 상태에서 그 대상이 통로 안 가장 가까운 정답일 때 처음 WARN·STOP이 난 블록의 진행 방향 거리.
     - 옆 벽 경고: 경고 블록 중 대표점이 실측 옆 벽 면 SIDE_WALL_TOL_M 안인 비율(옆 벽은 통로 밖이다).
     - 거리 오차: 오경보가 아닌 경고 블록의 안내 거리 − 통로 안 가장 가까운 정답의 진행 방향 거리(음수 = 실제보다 가깝게 안내).
@@ -504,6 +505,7 @@ def distance_guidance(rows: list[dict], truth: list[dict], pol: dict) -> dict:
     side_x = [min(ob["min"][0], ob["max"][0], key=abs) for ob in truth
               if ob["kind"] == "structure" and ob["max"][0] - ob["min"][0] < 0.5 and ob["max"][2] - ob["min"][2] > 1.0]
     onsets = fa = n_warn = n_side = 0
+    fa_by = {"sideWall": 0, "floor": 0, "other": 0}
     first_warn, first_stop = {}, {}
     dist_err, err_floor, err_above = [], [], []
     n_edge = 0
@@ -524,8 +526,8 @@ def distance_guidance(rows: list[dict], truth: list[dict], pol: dict) -> dict:
             n_warn += 1
             in_band = undecided and r["dist"] is not None and not np.isnan(r["dist"]) and lo <= float(r["dist"]) <= hi
             n_edge += int(in_band)
-            if r["rep"] is not None and any(abs(r["rep"][0] - x) <= SIDE_WALL_TOL_M for x in side_x):
-                n_side += 1
+            on_side = r["rep"] is not None and any(abs(r["rep"][0] - x) <= SIDE_WALL_TOL_M for x in side_x)
+            n_side += int(on_side)
             if lo is not None and lo <= far:
                 if r["dist"] is not None and not np.isnan(r["dist"]) and not in_band:
                     d = float(r["dist"])
@@ -539,11 +541,13 @@ def distance_guidance(rows: list[dict], truth: list[dict], pol: dict) -> dict:
                     first_stop.setdefault(truth[near[1]]["name"], round(near[0], 3))
             if not prev_warn:
                 onsets += 1
-                fa += int(lo is None or lo > far)
+                if lo is None or lo > far:
+                    fa += 1
+                    fa_by["sideWall" if on_side else "floor" if r.get("repY") is not None and r["repY"] <= FLOOR_LEVEL_M else "other"] += 1
         prev_warn = warned
     dur_min = (rows[-1]["t"] - rows[0]["t"]) / 60 if len(rows) > 1 else 0.0
     return {
-        "falseAlarmOnsets": int(fa), "warnOnsets": int(onsets), "walkedM": round(walked, 3), "durationMin": round(dur_min, 3),
+        "falseAlarmOnsets": int(fa), "falseAlarmOnsetsBy": fa_by, "warnOnsets": int(onsets), "walkedM": round(walked, 3), "durationMin": round(dur_min, 3),
         "falseAlarmPer10m": fa / walked * 10 if walked >= 1.0 else None,
         "falseAlarmPerMin": fa / dur_min if dur_min > 0 else None,
         "firstWarnAlongM": first_warn, "firstStopAlongM": first_stop,

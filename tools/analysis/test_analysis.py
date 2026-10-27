@@ -399,6 +399,39 @@ def check_distance_guidance():
     assert abs(g["sideWallWarnFraction"] - 1 / 7) < 1e-9 and abs(g["edgeUndecidedWarnFraction"] - 1 / 7) < 1e-9, g
     assert g["distanceErrorM"]["n"] == 3 and abs(g["distanceErrorM"]["p50"] + 0.1) < 1e-9, g["distanceErrorM"]
     assert abs(g["distanceErrorFloorM"]["p50"] + 0.1) < 1e-9 and abs(g["distanceErrorAboveM"]["p50"] - 0.1) < 1e-9, g
+    assert g["falseAlarmOnsetsBy"] == {"sideWall": 1, "floor": 1, "other": 1}, g["falseAlarmOnsetsBy"]  # C1 진단(diagnose.py)의 자리 나눔
+
+
+def check_diagnose():
+    """C1 진단 도구(diagnose.py, M41): 깜빡임 세기, 변형 합계(10 m당은 합끼리, STOP 시험 범위), 합성 재생 한 쌍의 알려진 답,
+    재생 없는 (변형, 세션)은 빼고 알림."""
+    import contextlib
+    import io
+    from diagnose import diagnose, flicker, summarize
+    with tempfile.TemporaryDirectory() as d:
+        d = Path(d)
+        pd.DataFrame({"tCaptureNs": range(6)}).to_csv(d / "slow_path.csv", index=False)
+        low, high = [1, 1, 0, 0, 1, 1], [0, 1, 1, 1, 0, 0]  # 통로 안 낮은(바닥 위 0.1 m)·높은(1.0 m) 장애물 수: 바뀜 각 2번
+        rows = [{"tCaptureNs": t, "inCorridor": True, "repCORRIDOR_BAND_y": y} for t in range(6) for y, n in ((-0.9, low[t]), (0.0, high[t])) for _ in range(n)]
+        rows += [{"tCaptureNs": 2, "inCorridor": False, "repCORRIDOR_BAND_y": -0.9}]  # 통로 밖은 세지 않는다
+        pd.DataFrame(rows).to_csv(d / "obstacles.csv", index=False)
+        assert flicker(d, "CORRIDOR_BAND", -1.0) == {"low": 2, "high": 2}, flicker(d, "CORRIDOR_BAND", -1.0)
+    base = {"distErrP50M": 0.1, "missedStop": 0, "unknown": 0.0, "degraded": 0.0, "flickLow": 1, "flickHigh": 2, "headingErrP50Deg": 1.0}
+    df = pd.DataFrame([{**base, "variant": "B", "walkedM": 2.0, "minutes": 0.5, "fa": 1, "faSideWall": 1, "faFloor": 0, "faOther": 0, "stopEntered": True},
+                       {**base, "variant": "B", "walkedM": 8.0, "minutes": 0.5, "fa": 3, "faSideWall": 0, "faFloor": 2, "faOther": 1, "stopEntered": False},
+                       {**base, "variant": "D", "walkedM": 10.0, "minutes": 1.0, "fa": 0, "faSideWall": 0, "faFloor": 0, "faOther": 0, "stopEntered": True}])
+    s = summarize(df)
+    assert list(s.index) == ["B", "D"] and s.loc["B", "faPer10m"] == 4.0 and s.loc["B", "faFloorPer10m"] == 2.0 and s.loc["D", "faPer10m"] == 0.0, s
+    assert s.loc["B", "stopSessions"] == "1/2" and s.loc["B", "flickHighPerMin"] == 4.0, s
+    # 합성 재생(core 테스트의 clean: 4 m 앞 상자로 걸어 STOP 구간까지 들어감)을 변형 A의 세션으로, 변형 X는 그 세션 재생이 없음
+    import shutil
+    err = io.StringIO()
+    with tempfile.TemporaryDirectory() as e, contextlib.redirect_stderr(err):
+        shutil.copytree(ROOT / "clean" / "run", Path(e) / "A" / "session")
+        out, missing = diagnose([("A", Path(e) / "A"), ("X", Path(e) / "X")], [ROOT / "clean" / "session"])
+    assert missing == ["X/session"] and "1개" in err.getvalue(), (missing, err.getvalue())
+    r = out.iloc[0]
+    assert r.fa == 0 and r.missedStop == 0 and r.stopEntered and r.stopNeeded == 1 and r.walkedM > 3.0, r.to_dict()
 
 
 def check_miss_reasons():
@@ -584,6 +617,7 @@ def main():
     check_walk_sign()
     check_zone_stats()
     check_distance_guidance()
+    check_diagnose()
     check_miss_reasons()
     check_heading_floor_error()
     check_scorecard()
