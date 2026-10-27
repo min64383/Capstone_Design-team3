@@ -317,11 +317,46 @@ class WaitingAlertTest {
     private val frameNs = 33_333_333L
 
     /** [n]프레임을 진행하며 나온 (시각, 알림). */
-    private fun StateMachine.run(fromNs: Long, n: Int, tracking: TrackingState, paused: Boolean = false, age: Float? = 50f) =
-        (0 until n).mapNotNull { i ->
-            val t = fromNs + i * frameNs
-            step(t, true, tracking, false, age, MapHealth.OK, paused).alert?.let { t to it }
-        }
+    private fun StateMachine.run(
+        fromNs: Long, n: Int, tracking: TrackingState, paused: Boolean = false, age: Float? = 50f, health: MapHealth = MapHealth.OK,
+    ) = (0 until n).mapNotNull { i ->
+        val t = fromNs + i * frameNs
+        step(t, true, tracking, false, age, health, paused).alert?.let { t to it }
+    }
+
+    @Test
+    fun `floor unknown at start - waiting, no READY until the floor is known (M40)`() {
+        val sm = StateMachine(config.state, config.policy.maxInfoAgeMs)
+        val noFloor = sm.run(0L, 300, TrackingState.TRACKING, health = MapHealth.DEGRADED) // 추적·정보 나이는 정상, 바닥만 모름 10 s
+        assertEquals(listOf(AlertKind.WAITING), noFloor.map { it.second }.distinct())
+        assertEquals(3, noFloor.size)
+        assertEquals(GuidanceState.UNKNOWN, sm.state)
+        val ready = sm.run(300 * frameNs, 20, TrackingState.TRACKING).map { it.second }
+        assertEquals(listOf(AlertKind.READY), ready)
+    }
+
+    @Test
+    fun `floor lost during guidance - DEGRADED kept, waiting repeats, nothing once the floor is back (M40)`() {
+        val sm = StateMachine(config.state, config.policy.maxInfoAgeMs)
+        sm.run(0L, 20, TrackingState.TRACKING)
+        val lost = sm.run(20 * frameNs, 300, TrackingState.TRACKING, health = MapHealth.DEGRADED)
+        assertEquals(GuidanceState.DEGRADED, sm.state)
+        assertEquals(listOf(AlertKind.WAITING), lost.map { it.second }.distinct())
+        assertEquals(4, lost.size) // 들어갈 때 + 3, 6, 9 s
+        assertEquals(20 * frameNs, lost[0].first)
+        assertTrue(sm.run(320 * frameNs, 300, TrackingState.TRACKING).isEmpty())
+        assertEquals(GuidanceState.NORMAL, sm.state)
+    }
+
+    @Test
+    fun `floor unknown after a loss keeps the unknown repeat, not READY (M40)`() {
+        val sm = StateMachine(config.state, config.policy.maxInfoAgeMs)
+        sm.run(0L, 20, TrackingState.TRACKING)
+        sm.run(20 * frameNs, 5, TrackingState.PAUSED) // 확인 불가 알림
+        val alerts = sm.run(25 * frameNs, 300, TrackingState.TRACKING, health = MapHealth.DEGRADED).map { it.second }
+        assertEquals(listOf(AlertKind.UNKNOWN), alerts.distinct())
+        assertEquals(GuidanceState.UNKNOWN, sm.state)
+    }
 
     @Test
     fun `waiting repeats until ready at start`() {
