@@ -7,13 +7,23 @@ import hearspace.core.session.DeviceCsv
 import hearspace.core.types.Config
 import java.io.File
 
-/** 실행 하나: 실행 로그 + 파이프라인 + 오디오 출력. 만들면 시작하고 [close]로 오디오 → 파이프라인 → 로그 순으로 멈춘다. */
+/**
+ * 실행 하나: 실행 로그 + 파이프라인 + 오디오 출력. 만들면 시작하고 [close]로 오디오 → 파이프라인 → 로그 순으로 멈춘다.
+ * 오디오 출력을 열지 못하면 이미 시작한 파이프라인·로그 스레드를 닫고 예외를 그대로 낸다(A1 FA3).
+ */
 class RunSession(config: Config, hrtf: Hrtf, val dir: File, clockNs: () -> Long) : AutoCloseable {
     val logger = RunLogger(dir)
     val pipeline = LivePipeline(config, hrtf, logger, clockNs)
-    val output = BinauralOutput(config.audio, pipeline::renderBlock).also { it.start() }
+    val output = BinauralOutput(config.audio, pipeline::renderBlock)
 
     init {
+        try {
+            output.start()
+        } catch (e: Exception) {
+            pipeline.close()
+            logger.close()
+            throw e
+        }
         Log.i(TAG, "run started: $dir")
     }
 

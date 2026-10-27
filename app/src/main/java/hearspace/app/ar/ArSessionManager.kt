@@ -57,9 +57,15 @@ class ArSessionManager(private val activity: Activity, private val playbackMp4: 
                     ArCoreApk.InstallStatus.INSTALLED -> Unit
                 }
                 val s = Session(activity)
-                depthSupport = configure(s)
-                // VERIFY: 재생 데이터셋은 세션이 일시정지 상태일 때(첫 resume 전) 지정해야 한다(ARCore Playback API 문서)
-                playbackMp4?.let { s.setPlaybackDatasetUri(Uri.fromFile(it)) }
+                try {
+                    depthSupport = configure(s)
+                    // VERIFY: 재생 데이터셋은 세션이 일시정지 상태일 때(첫 resume 전) 지정해야 한다(ARCore Playback API 문서)
+                    playbackMp4?.let { s.setPlaybackDatasetUri(Uri.fromFile(it)) }
+                } catch (e: Exception) {
+                    s.close() // 설정에 실패한 세션을 남기지 않는다(A1 FA13)
+                    depthSupport = null
+                    throw e
+                }
                 session = s
             } catch (e: UnavailableException) {
                 Log.e(TAG, "ARCore unavailable", e)
@@ -74,7 +80,7 @@ class ArSessionManager(private val activity: Activity, private val playbackMp4: 
             null
         } catch (e: CameraNotAvailableException) {
             Log.e(TAG, "camera not available", e)
-            session = null
+            close()
             "카메라를 열 수 없습니다. 앱을 다시 시작하세요"
         }
     }

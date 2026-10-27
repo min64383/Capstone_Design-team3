@@ -1,5 +1,6 @@
 package hearspace.app.ui.user
 
+import android.Manifest
 import android.app.Activity
 import android.content.Context
 import android.content.pm.PackageManager
@@ -39,6 +40,7 @@ import hearspace.core.audio.Hrtf
 import hearspace.core.types.AlertKind
 import hearspace.core.types.Band
 import hearspace.core.types.Config
+import hearspace.core.types.ConfigException
 import hearspace.core.types.GuidanceState
 import java.io.File
 import java.text.SimpleDateFormat
@@ -73,13 +75,29 @@ class UserModeActivity : Activity(), GLSurfaceView.Renderer {
     private lateinit var stateText: TextView
     private lateinit var arrow: ArrowView
 
+    private lateinit var noticeText: TextView
+
     private val ui = Handler(Looper.getMainLooper())
     private var run: RunSession? = null
     private var lastDeviceMs = 0L
 
+    /** 안내 중이 아닐 때 상태 줄 대신 보일 사유(시작 실패·중단). 다음 시작에서 지운다. */
+    private var message: String? = null
+
+    /** 기기 설정 덮어쓰기 표시(적용 중이거나 형식 오류로 버림). 없으면 null. */
+    private var overrideNotice: String? = null
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        config = AppConfig.get(this)
+        config = try {
+            AppConfig.get(this)
+        } catch (e: ConfigException) {
+            // 기기 덮어쓰기 파일이 잘못됐으면 버리고 앱 기본 설정으로 안내한다(A1 FA2: 실행마다 죽지 않게). 앱 자산 설정은 테스트가 검사한다
+            Log.e(TAG, "device config override rejected", e)
+            overrideNotice = "기기 설정 파일 오류: 기본 설정으로 안내합니다"
+            AppConfig.get(this, deviceOverride = false)
+        }
+        if (overrideNotice == null && AppConfig.deviceOverrideFile(this)?.isFile == true) overrideNotice = "기기 설정 덮어쓰기 적용 중"
         hrtf = loadHrtf(this)
         ar = ArSessionManager(this)
         feeder = ArFeeder(config, replay = false, drawCamera = false)
@@ -109,6 +127,13 @@ class UserModeActivity : Activity(), GLSurfaceView.Renderer {
             importantForAccessibility = View.IMPORTANT_FOR_ACCESSIBILITY_NO // 버튼(root)이 읽는다
         }
         arrow = ArrowView(this).apply { importantForAccessibility = View.IMPORTANT_FOR_ACCESSIBILITY_NO }
+        noticeText = TextView(this).apply {
+            setTextColor(Color.WHITE)
+            textSize = 16f
+            setPadding(32, 32, 32, 48)
+            text = overrideNotice.orEmpty()
+            importantForAccessibility = View.IMPORTANT_FOR_ACCESSIBILITY_NO // 버튼(root)이 읽는다
+        }
         val detector = GestureDetector(this, object : GestureDetector.SimpleOnGestureListener() {
             override fun onDown(e: MotionEvent) = true
             // 두 번째 탭을 뗄 때 처리: 누를 때 처리하면 시작(약 0.6 s)이 UI를 막는 동안 길게 누르기로 오인된다(M9 실측)
@@ -139,6 +164,7 @@ class UserModeActivity : Activity(), GLSurfaceView.Renderer {
             addView(glView, FrameLayout.LayoutParams(MATCH_PARENT, MATCH_PARENT)) // ARCore 입력용, 검은색만 그린다
             addView(stateText, FrameLayout.LayoutParams(MATCH_PARENT, WRAP_CONTENT, Gravity.TOP))
             addView(arrow, FrameLayout.LayoutParams(MATCH_PARENT, MATCH_PARENT))
+            addView(noticeText, FrameLayout.LayoutParams(MATCH_PARENT, WRAP_CONTENT, Gravity.BOTTOM))
         }
         setContentView(root)
     }
@@ -161,15 +187,33 @@ class UserModeActivity : Activity(), GLSurfaceView.Renderer {
     }
 
     private fun start() {
-        ar.resume()?.let {
-            stateText.text = it
+        message = null
+        val reason = try {
+            ar.resume()
+        } catch (e: Exception) {
+            Log.e(TAG, "ARCore start failed", e)
+            "ARCore를 시작할 수 없습니다"
+        }
+        if (reason != null) {
+            // 권한 창이 뜬 경우는 그 창이 안내한다. 나머지 실패는 긴 진동 + 상태 줄(TalkBack)로 알린다(A1 TR1: 소리 출력은 아직 없다)
+            if (checkSelfPermission(Manifest.permission.CAMERA) == PackageManager.PERMISSION_GRANTED) haptics.on(AlertKind.UNKNOWN)
+            message = reason
             return
         }
         feeder.session = ar.session
         feeder.resetClock()
         focus.request()
         val stamp = SimpleDateFormat("yyyyMMdd_HHmmss", Locale.US).format(Date())
-        run = RunSession(config, hrtf, File(getExternalFilesDir(null), "runs/$stamp"), feeder::nowNs).also {
+        val r = try {
+            RunSession(config, hrtf, File(getExternalFilesDir(null), "runs/$stamp"), feeder::nowNs)
+        } catch (e: Exception) {
+            Log.e(TAG, "run start failed", e) // 오디오 출력을 열지 못함(A1 FA3)
+            stop()
+            haptics.on(AlertKind.UNKNOWN)
+            message = "소리 출력을 시작할 수 없습니다"
+            return
+        }
+        run = r.also {
             it.pipeline.onAlert = { kind ->
                 haptics.on(kind)
                 Log.i(TAG, "alert $kind")
@@ -180,6 +224,14 @@ class UserModeActivity : Activity(), GLSurfaceView.Renderer {
         }
         glView.onResume()
         ui.post(uiTick)
+    }
+
+    /** 안내 중에 멈췄음을 알린다: 진동 + 상태 줄(TalkBack). 소리 출력이 없거나 곧 닫히므로 진동으로 낸다(A1 TR2·TR3). */
+    private fun stopWithNotice(reason: String, vibrate: () -> Unit) {
+        vibrate()
+        stop()
+        message = reason
+        render()
     }
 
     private fun stop() {
@@ -194,7 +246,9 @@ class UserModeActivity : Activity(), GLSurfaceView.Renderer {
 
     override fun onPause() {
         super.onPause()
-        stop() // 앱을 떠나면 안내를 멈춘다. 돌아오면 다시 두 번 탭으로 시작
+        // 앱을 떠나면(화면 잠금·전화) 안내를 멈춘다. 돌아오면 다시 두 번 탭으로 시작
+        // VERIFY: 화면이 꺼지는 중(onPause)에도 진동이 전달되는지(Android 13+ 백그라운드 진동 제한) 기기에서 확인
+        if (run != null) stopWithNotice("화면을 떠나 안내를 멈췄습니다", haptics::exit) else stop()
         render()
     }
 
@@ -207,17 +261,21 @@ class UserModeActivity : Activity(), GLSurfaceView.Renderer {
     @Deprecated("Activity API")
     override fun onRequestPermissionsResult(requestCode: Int, permissions: Array<out String>, grantResults: IntArray) {
         super.onRequestPermissionsResult(requestCode, permissions, grantResults)
-        if (requestCode == ArSessionManager.CAMERA_PERMISSION_REQUEST && grantResults.firstOrNull() == PackageManager.PERMISSION_GRANTED) {
+        if (requestCode != ArSessionManager.CAMERA_PERMISSION_REQUEST) return
+        if (grantResults.firstOrNull() == PackageManager.PERMISSION_GRANTED) {
             start()
-            render()
+        } else {
+            haptics.on(AlertKind.UNKNOWN) // A1 TR1: 거부도 알린다
+            message = "카메라 권한이 없어 시작할 수 없습니다"
         }
+        render()
     }
 
     /** 상태 한 줄 + 버튼 설명(TalkBack이 읽는 문장) + 화살표. */
     private fun render() {
         val g = run?.pipeline?.lastOutput?.get()
         val line = when {
-            run == null -> "시작 전"
+            run == null -> message ?: "시작 전"
             run!!.pipeline.paused -> "일시정지"
             g == null || g.state == GuidanceState.UNKNOWN -> "준비 중"
             g.state == GuidanceState.PAUSED -> "일시정지"
@@ -226,7 +284,9 @@ class UserModeActivity : Activity(), GLSurfaceView.Renderer {
         if (stateText.text != line) {
             stateText.text = line
             val hint = if (run == null) "두 번 탭하여 시작, 길게 눌러 종료" else "두 번 탭하여 일시정지 또는 재개, 길게 눌러 종료"
-            root.contentDescription = "HEARSPACE, $line. $hint"
+            // 기기 설정 덮어쓰기는 늘 읽는다(TR4)
+            val notice = listOfNotNull(overrideNotice).joinToString("") { "$it. " }
+            root.contentDescription = "HEARSPACE, $line. $notice$hint"
         }
         val cmd = g?.commands?.firstOrNull()?.takeIf { it.band != Band.SILENT && g.state != GuidanceState.UNKNOWN }
         arrow.show(cmd?.azimuthDeg, cmd?.band == Band.STOP)
@@ -234,6 +294,10 @@ class UserModeActivity : Activity(), GLSurfaceView.Renderer {
 
     private val uiTick = object : Runnable {
         override fun run() {
+            if (run?.output?.failed == true) { // 오디오 출력이 죽음(다시 만들기도 실패): 소리 없이 "안내 중"으로 남지 않는다(A1 TR2)
+                stopWithNotice("소리 출력이 멈춰 안내를 멈췄습니다") { haptics.on(AlertKind.UNKNOWN) }
+                return
+            }
             render()
             val now = SystemClock.elapsedRealtime()
             val r = run
