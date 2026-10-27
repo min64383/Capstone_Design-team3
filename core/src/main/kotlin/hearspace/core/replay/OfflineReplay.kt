@@ -116,7 +116,7 @@ class OfflineReplay(
         }
 
         val fast = FastPath(config, substitution?.headingSnap())
-        val slow = SlowPath(config, substitution?.fixedMap(config.map.voxelSizeM))
+        val slow = SlowPath(config, substitution?.fixedMap(config.map.voxelSizeM), floorOverrideY = substitution?.floorY())
         var pose: PoseFrame? = null
         var snapshot: ObstacleSnapshot? = null
         var heading: Vec3? = null

@@ -180,6 +180,8 @@ object ConfigLoader {
                     minBelowCameraM = nonNegative("minBelowCameraM"),
                     source = enumValue<FloorSource>("source"),
                     holdWhenLost = boolean("holdWhenLost"),
+                    decompose = enumValue<FloorDecompose>("decompose"),
+                    regionM = positive("regionM"),
                 )
             },
             cluster = root.section("cluster") {

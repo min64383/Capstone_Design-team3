@@ -38,6 +38,12 @@ class GuideImage(val tCaptureNs: Long, val luma: ByteArray, val K: Intrinsics)
 enum class FloorSource { HISTOGRAM, PLANE }
 
 /**
+ * 요소 분해에서 바닥 칸을 가르는 방식(M35, TRISTATE 지도만): BAND = 전역 바닥 추정 + 띠(M32 임시 규칙, 기준선),
+ * REGION_PLANE = `floor.regionM` 영역마다 지도 칸에 맞춘 바닥면 + 같은 띠(Patchwork++의 영역별 바닥면).
+ */
+enum class FloorDecompose { BAND, REGION_PLANE }
+
+/**
  * 지도 갱신 규칙(IMPROVE_SPEC §6.1.1): HITS = 관측 횟수·점수(기준선), LOG_ODDS = 로그 오즈 점유(OctoMap, M13.2),
  * TSDF = 부호 있는 거리의 가중 평균, 표면 근처 칸만 점유(M13.6).
  */

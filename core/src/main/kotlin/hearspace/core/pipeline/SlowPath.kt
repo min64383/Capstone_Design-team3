@@ -35,6 +35,8 @@ class SlowPath(
     private val config: Config,
     /** 고정 지도(정답 대입 O, M12.3 평가 전용). 있으면 바닥 추정·복셀 갱신을 건너뛰고 이 칸과 바닥을 쓴다. 앱은 넘기지 않는다. */
     private val fixedMap: FixedMap? = null,
+    /** 바닥 대입(F*, M35 전제 확인, 평가 전용): 있으면 지도의 바닥 추정 대신 이 높이를 요소 분해·통로·높이 분류에 쓴다. 앱은 넘기지 않는다. */
+    private val floorOverrideY: Float? = null,
     /** 단계별 처리 시간을 재는 시계(ns). 실행 결과에는 영향이 없고 [lastStageNs]에만 쓴다. */
     private val nanoTime: () -> Long = System::nanoTime,
 ) {
@@ -73,7 +75,7 @@ class SlowPath(
         lastMapUpdate = u
         lastUserPosW = userPosW
         val t1 = nanoTime()
-        val floorY = u.floorY
+        val floorY = if (u.floorY != null) floorOverrideY ?: u.floorY else null
         if (floorY == null) {
             lastClusterDebug = emptyList()
             lastClusters = emptyList()
