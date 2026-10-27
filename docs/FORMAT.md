@@ -16,6 +16,7 @@ F8(재생 모드)은 M7에서 확인한다.
 | 유지 | `meta.json`의 `elapsedMinusMonotonicNs` | F5 판별 근거 보존 |
 | 유지 | `depth/`, `raw_depth/`, `depth_conf/` 모두 저장 | F6: 느린 경로 입력(일반 vs 원시+신뢰도)은 M3에서 비교 후 결정 |
 | 유지 | 저장 간격 `record.depthEveryN` 1, `rgbEveryN` 3 | F7: 8.5분에 건너뜀 2%, 쓰기 오류 0 |
+| 추가(M41) | `meta.json`의 `gitHash`: 녹화한 앱 빌드의 코드 판(git 커밋 짧은 해시, 작업 트리가 바뀐 빌드면 `-dirty`, git이 없으면 `unknown`). 없는 옛 세션은 null로 읽는다(형식 버전은 그대로 v1) | 녹화와 코드 판을 잇는다(A1 MA10) |
 
 - `meta.formatVersion` = `"v1"`. `frames.csv` 헤더:
   `frameIndex,tNs,sysElapsedNs,tracking,trackingFailure,tx,ty,tz,qx,qy,qz,qw,depthTNs,depthFile,rawDepthTNs,rawDepthFile,confFile,rgbFile`
@@ -96,6 +97,12 @@ accepted), 요약 floorY·offsetP50M·offsetIqrM·noiseM(받아들인 짝 5개 �
 - 일반 깊이는 **새 시각의 이미지만** 저장한다(같은 깊이의 재투영 반복 제외). `record.depthEveryN`은 새 깊이 N개마다 1개.
 - 원시 깊이는 새 시각마다 저장한다. RGB는 `record.rgbEveryN` 프레임마다.
 - 파일 작업은 슬롯 1개로 저장 스레드에 넘긴다. 슬롯이 차 있으면 그 프레임의 파일은 건너뛰고 행에 파일 이름을 쓰지 않는다. **행에 적힌 파일은 모두 존재한다**(쓰기 오류는 `stats.nWriteErrors`).
+
+### PC 재생 출력 (`:core:replay`, M41)
+
+실행 로그(MVP §10.1)와 함께 `replay_info.json`(세션 경로·느린 경로 시간·`rgbSource`·`gitHash` = 재생한 코드 판·설정 덮어쓰기·정답 대입)을
+쓰고, 모든 출력(정답이 있으면 `map_eval.json`·`scene_eval.json`·`map_check.json` 등까지)을 쓴 뒤에 빈 파일 `replay_done`을 남긴다.
+예외로 끝난 재생은 기록 파일은 닫히지만 `replay_done`이 없다. `metrics.py`는 `gitHash`가 있는(M41 이후) 재생에 `replay_done`이 없으면 멈춘다.
 
 ### PC로 가져오기
 

@@ -295,3 +295,13 @@
 - 2026-10-27 · M40 · 설정 키 `record.maxRuns` 20(자체 선택): 실시간 runs/를 새 실행마다 최근 20개로. 실행 로그·녹화 쓰기 오류는 로그만 멈추고 앱을 죽이지 않으며, 녹화 meta.json은 임시 파일을 거쳐 마저 씀(A1 FA4, FA7, MA13)
 - 2026-10-27 · M40 · ARCore 고지(약관 원문 2026-10-27 확인, 문구 지정 없음): 사용자 모드 시작 화면에 늘 표시, 첫 시작 전 TalkBack이 읽음(A1 TR7)
 - 2026-10-27 · M40 · 오디오 스레드는 안내 로그를 잠금 없는 큐에 넣기만 하고 문자열은 로그 스레드가 만든다. 알림 진동은 UI 스레드, RunSession.close의 정리·세션 목록 크기 계산·삭제는 백그라운드(A1 CO1, CO4, CO5). 기기 확인 안 함
+- 2026-10-27 · M41 · 세션 ID는 `<yyyyMMdd_HHmmss>_<장면ID>`(구분자 없음)만 받고 경로는 루트 바로 아래여야 함. pull·export는 data/.pull·data/.export로 받아 개수 확인 뒤 이름 바꿈(A1 TR6, FA12)
+- 2026-10-27 · M41 · 재생 완료 표시: :core:replay·sceneEval은 모든 출력 뒤 빈 `replay_done`을 쓰고 예외에도 기록을 닫는다. metrics.py는 replay_info.json에 gitHash가 있는데(M41 뒤) 표시가 없으면 멈춘다. 옛 재생은 그대로(A1 FA9, FA10)
+- 2026-10-27 · M41 · 끊긴 녹화: SessionReader는 frames.csv의 읽을 수 없는 마지막 줄만 버리고, 잘리거나 손상된 PNG는 없는 파일처럼 다룬다. PNG 화소 상한은 meta.json의 가장 큰 영상(세션이 정함)(A1 FA8, TR8)
+- 2026-10-27 · M41 · 장면 평가: metrics.json 없는 재생은 빼고 알림, 빠진 UNKNOWN 비율은 NaN, STOP 누락 값 없는 세션은 따로 세어 noMissedStop을 false로, sceneEval은 실패한 시드가 있으면 종료 코드 1(A1 FA11, FA10)
+- 2026-10-27 · M41 · 코드 판: `git describe --always --dirty --exclude=*`를 BuildConfig.GIT_HASH → meta.json gitHash, replay_info.json gitHash에. 형식은 v1 유지(A1 MA10)
+- 2026-10-27 · M41 · CI: GitHub Actions 한 작업(windows-latest)이 check-agent-docs, :core:test :viewer:test, test_analysis.py를 돌림. references/·세션은 git 밖으로 옮기지 않음(A1 MA1, MA14)
+- 2026-10-27 · M41 · 설치: SDK 체크섬이 없거나 종류를 모르면 멈춤, JDK 17 이상 JAVA_HOME 유지, -RemoveEnv는 이 스크립트가 바꾼 값만 백업에서 되돌림, 약관 동의 명시(A1 TR5, SU3, SU5)
+- 2026-10-27 · M41 · 분석 의존성을 LICENSES.md의 .venv 버전으로 고정하고 pillow를 명시(A1 SU1). Gradle 검증 메타데이터(SU6)는 하지 않음(선택, 의존성마다 다시 만들어야 함)
+- 2026-10-27 · M41 · `nearestInCorridor`에 보행 방향 부호: −1이면 x·z를 뒤집음(`truth_nearest`와 같은 규칙). viewer는 블록의 앱 진행 방향에서, ClusterEval은 앞쪽 전용(A1 MA3)
+- 2026-10-27 · M41 · 진단 도구 `tools/analysis/diagnose.py`: 오경보 위치 나누기를 `distance_guidance.falseAlarmOnsetsBy`로(옆 벽 SIDE_WALL_TOL_M, 바닥 FLOOR_LEVEL_M). STOP 시험 범위 = 머리 앞 정답이 stopM 안에 zoneMinS 이상(`stopZoneAheadS`). C1 BH·DH 재현, STOP 시험 범위 0/7. 기존 stopZoneS·stopNeeded는 머리 옆·뒤 벽도 셈(성적표 판정 규칙은 고치지 않음, M36에서 결정)

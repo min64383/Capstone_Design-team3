@@ -17,7 +17,8 @@
 | `error_decomp.py` | M12.0, M20 | 오차 분해(IMPROVE_SPEC §11.1): 면 위치 오차·헛 점·바닥 흔들림·수렴·자세 점프·구간별 옆 벽·회전·루프 닫힘 → `<세션>/error_decomp.json`·`error_decomp_frames.csv`. `--source RAW`면 `_raw`가 붙은 이름(신뢰도 ≥ 30), 앞면은 가장 앞 점 `<대상>_p05`도 |
 | `front_diag.py` | M20 | 앞면 오차 진단: `causes <재생 로그>...`는 6° 초과 블록의 대표점 칸 원인 몫(추적 평활·시야 밖·확인 못 함·감쇠 중·지금 앞면 당김), `front <세션>...`은 앞면 오차의 거리·높이·접근 속도별 표 |
 | `view_corr.py` | M39 | 시점 간 재현·상관: 원시 깊이에서 헛 칸·표면 칸이 시선각 차·거리비·시간차에 따라 다시 맞는 확률과 표면 화소 오차의 쌍 상관 → json. RV 상수 ρ·β의 근거 |
-| `test_analysis.py` | M8, M12.0 | 합성 오프라인 재생·합성 세션으로 분석 도구 자체 점검 |
+| `diagnose.py` | C1, M41 | 사용자 수준 실패 진단: 변형(정답 대입 깊이 × 진행 방향 등)마다 걸은 10 m당 오경보 시작(옆 벽·바닥 높이·그 밖, `metrics.distance_guidance`의 `falseAlarmOnsetsBy`), 깜빡임(분당), 거리 오차, STOP 누락과 세션마다 STOP 구간에 들어갔는지(STOP 시험 범위) → `<접두어>_sessions.csv`·`<접두어>_variants.csv` |
+| `test_analysis.py` | M8, M12.0 | 합성 오프라인 재생·합성 세션으로 분석 도구 자체 점검(CI가 `:core:test` 뒤에 돌린다, M41) |
 | `extract_hrir.py` | M6 | SOFA HRTF → 앱용 수평면 HRIR 바이너리(`assets/hrtf/`) |
 
 환경 (PowerShell, 저장소 루트, Python 3.11):
@@ -96,6 +97,15 @@ cd tools/analysis
 ..\..\.venv\Scripts\python.exe sweep.py sweeps/m21_rep.json ../../data/sweeps/m21 ../../data/sessions/<세션ID> ...
 ..\..\.venv\Scripts\python.exe scorecard.py --compare direction,firstWarn,firstStop,falseAlarm ../../data/sweeps/m21/F1W/* ../../data/sweeps/m21/BN/*
 ..\..\.venv\Scripts\python.exe front_diag.py causes ../../data/sweeps/m21/BN/*
+```
+
+C1 진단 흐름 (M41, 정답 대입 변형을 나란히 놓고 어느 단계가 사용자에게 보이는 실패를 만드는지). 변형마다 `<폴더>/<세션ID>/`로 재생한다
+(대입 재생은 기준 정렬을 같이 쓴다). 재생이 없는 (변형, 세션)은 알리고 빼고, 끝나지 않은 재생(`replay_done` 없음)은 멈춘다:
+
+```powershell
+./gradlew -q :core:replay -Psession=data/sessions/<세션ID> -Pout=data/sweeps/c1/DH/<세션ID> -PslowMs=10 -Psubstitute=depth,heading -PalignFrom=data/sweeps/m32/align_ref/<세션ID>/align.json
+cd tools/analysis
+..\..\.venv\Scripts\python.exe diagnose.py ../../data/sweeps/c1/diag B=<기준 재생 폴더> BH=../../data/sweeps/c1/BH DH=../../data/sweeps/c1/DH --sessions ../../data/sessions/<세션ID> ...
 ```
 
 M12.0 흐름 (오차 분해, 지도 없이 세션만 읽음. `--runs`는 선택: core 바닥 추정 흔들림도 적는다):

@@ -75,4 +75,19 @@ class Png16Test {
         assertThrows<IllegalArgumentException> { Png16.decode(bytes) }
         assertThrows<IllegalArgumentException> { Png16.decode(byteArrayOf(1, 2, 3)) }
     }
+
+    @Test
+    fun `truncated or oversized images are rejected before allocating`() {
+        // A1 TR8·FA8: 잘린 파일, 상한을 넘는 크기, Int로 곱하면 넘치는 IHDR 크기(65536²)는 모두 IllegalArgumentException
+        val bytes = Png16.encode(GrayImage.of16(100, 100, depthLike(100, 100)))
+        assertThrows<IllegalArgumentException> { Png16.decode(bytes.copyOf(bytes.size / 2)) }
+        assertThrows<IllegalArgumentException> { Png16.decode(bytes, maxPixels = 100L * 99) }
+        assertEquals(100, Png16.decode(bytes, maxPixels = 100L * 100).width)
+        val huge = bytes.copyOf()
+        for (o in listOf(16, 20)) { huge[o] = 0; huge[o + 1] = 1; huge[o + 2] = 0; huge[o + 3] = 0 } // IHDR 폭·높이 = 65536
+        val crc = java.util.zip.CRC32().apply { update(huge, 12, 17) }.value.toInt() // 형식 이름 4 + IHDR 13바이트
+        for (i in 0..3) huge[29 + i] = (crc ushr (24 - 8 * i)).toByte()
+        val e = assertThrows<IllegalArgumentException> { Png16.decode(huge) }
+        assertEquals(true, "too large" in e.message!!, e.message)
+    }
 }

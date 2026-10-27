@@ -126,6 +126,23 @@ def check_output_flicker():
         assert m["spots"] == {"end": 1, "top": 0, "side": 0, "inner": 0} and abs(m["countChangeFraction"] - 2 / 20) < 1e-9, m
 
 
+def check_replay_done():
+    """M41(A1 FA9): gitHash가 있는 재생은 replay_done이 있어야 지표를 낸다. 표시가 생기기 전 재생(gitHash 없음)은 그대로 읽는다."""
+    from metrics import check_complete
+    with tempfile.TemporaryDirectory() as d:
+        d = Path(d)
+        (d / "replay_info.json").write_text(json.dumps({"configOverrides": {}}), encoding="utf-8")
+        check_complete(d)
+        (d / "replay_info.json").write_text(json.dumps({"gitHash": "abc1234", "configOverrides": {}}), encoding="utf-8")
+        try:
+            check_complete(d)
+            raise AssertionError("a replay without replay_done must fail")
+        except ValueError:
+            pass
+        (d / "replay_done").write_text("", encoding="utf-8")
+        check_complete(d)
+
+
 def check_run_only():
     """세션 없는 실행 로그(사용자 모드 T01): 2분, 둘째 분만 UNKNOWN 절반·발열 2 (M10)."""
     with tempfile.TemporaryDirectory() as d:
@@ -350,6 +367,77 @@ def check_zone_stats():
     assert abs(z["outsideCorridorFraction"] - 0.4) < 1e-9 and abs(z["missedWarnFraction"] - 0.25) < 1e-9, z
     assert z["startDistanceM"] == {"box": 2.0} and abs(z["warnZoneS"]["box"] - 0.8) < 1e-9 and z["stopZoneS"] == {}, z
     assert zone_stats([], truth, pol)["missedWarnFraction"] is None
+    # STOP 구간 시간: 머리 옆·뒤(통로 뒤 여유 안, 진행 방향 거리 < 0)도 stopZoneS에 들지만 stopZoneAheadS(M41 STOP 시험 범위)에는 앞만
+    rows = [row(0.0, [(-0.1, 0.1, 90.0), None], None, None), row(0.5, [(0.5, 0.5, 0.0), None], "STOP", 0, 0.5), row(1.0, [(0.4, 0.4, 0.0), None], "STOP", 0, 0.4)]
+    z = zone_stats(rows, truth, pol)
+    assert z["stopZoneS"] == {"box": 1.5} and z["stopZoneAheadS"] == {"box": 1.0}, (z["stopZoneS"], z["stopZoneAheadS"])
+
+
+def check_distance_guidance():
+    """M33·M39 실측 거리 안내 채점(A1 MA2): 오경보 시작(통로 안 정답 없음 = 오경보, 가까운 정답 = 아님), 걸은 10 m당·분당, 옆 벽 경고,
+    거리 오차(바닥 높이·위 나눔), 판정 불가 띠(끝 벽 위 보: 띠 안 안내는 빼고 띠 밖은 가까운 경계와의 차), 첫 경고·STOP 거리."""
+    from metrics import distance_guidance
+    pol = {"stopM": 1.0, "warnMaxM": 2.5, "hysteresisM": 0.2, "silentMaxM": 3.0}  # 오경보 경계 2.5 + 0.2 + MATCH_MARGIN_M 0.3 = 3.0 m
+    truth = [{"name": "box", "kind": "object"},
+             {"name": "wall_left", "kind": "structure", "min": [-0.62, 0.0, 0.0], "max": [-0.6, 2.4, 6.0]}]  # 실측 옆 벽 면 x = −0.6
+    box = lambda a: [(a, a, 0.0), None]  # noqa: E731  통로 안 가장 가까운 정답 = 상자, 진행 방향 거리 a
+    none = [None, None]
+    # (띠, 통로 안 정답, 안내 거리, 대표점(x, z), 대표점 높이, 판정 불가 상자 거리)
+    spec = [(None, box(3.5), None, None, None, None),
+            ("WARN", box(2.0), 2.1, (0.0, 2.0), 0.5, None),      # 경고 시작, 맞음: 오차 +0.1(위)
+            ("STOP", box(1.5), 1.4, (0.0, 1.5), 0.2, None),      # 이어짐: 오차 −0.1(바닥), 첫 STOP 1.5
+            (None, box(1.2), None, None, None, None),
+            ("WARN", none, 3.0, (-0.65, 3.0), 1.0, None),        # 오경보: 옆 벽 면 0.05 m 안
+            (None, none, None, None, None, None),
+            ("STOP", none, 1.0, (0.1, 1.0), 0.1, None),          # 오경보: 바닥 높이
+            (None, none, None, None, None, None),
+            ("WARN", none, 2.0, None, None, None),               # 오경보: 대표점 없음 → 그 밖
+            ("WARN", box(2.4), 2.0, (0.0, 2.0), None, 1.8),      # 띠 [1.8, 2.4] 안: 오차에서 뺌
+            ("WARN", box(2.4), 1.5, (0.0, 1.5), None, 1.8)]      # 띠 밖: 1.5 − 1.8 = −0.3
+    rows = [{"t": float(k), "state": "NORMAL", "band": b, "tn": tn, "dist": d, "rep": rep, "repY": y, "head": (0.0, 0.5 * k),
+             "tnEdge": [] if e is None else [(e, e, 0.0)]} for k, (b, tn, d, rep, y, e) in enumerate(spec)]
+    g = distance_guidance(rows, truth, pol)
+    assert g["warnOnsets"] == 4 and g["falseAlarmOnsets"] == 3, g
+    assert g["walkedM"] == 5.0 and abs(g["falseAlarmPer10m"] - 6.0) < 1e-9 and abs(g["falseAlarmPerMin"] - 18.0) < 1e-9, g
+    assert g["firstWarnAlongM"] == {"box": 2.0} and g["firstStopAlongM"] == {"box": 1.5}, g
+    assert abs(g["sideWallWarnFraction"] - 1 / 7) < 1e-9 and abs(g["edgeUndecidedWarnFraction"] - 1 / 7) < 1e-9, g
+    assert g["distanceErrorM"]["n"] == 3 and abs(g["distanceErrorM"]["p50"] + 0.1) < 1e-9, g["distanceErrorM"]
+    assert abs(g["distanceErrorFloorM"]["p50"] + 0.1) < 1e-9 and abs(g["distanceErrorAboveM"]["p50"] - 0.1) < 1e-9, g
+    assert g["falseAlarmOnsetsBy"] == {"sideWall": 1, "floor": 1, "other": 1}, g["falseAlarmOnsetsBy"]  # C1 진단(diagnose.py)의 자리 나눔
+
+
+def check_diagnose():
+    """C1 진단 도구(diagnose.py, M41): 깜빡임 세기, 변형 합계(10 m당은 합끼리, STOP 시험 범위), 합성 재생 한 쌍의 알려진 답,
+    재생 없는 (변형, 세션)은 빼고 알림."""
+    import contextlib
+    import io
+    from diagnose import ZONE_MIN_S, diagnose, flicker, summarize
+    with tempfile.TemporaryDirectory() as d:
+        d = Path(d)
+        pd.DataFrame({"tCaptureNs": range(6)}).to_csv(d / "slow_path.csv", index=False)
+        low, high = [1, 1, 0, 0, 1, 1], [0, 1, 1, 1, 0, 0]  # 통로 안 낮은(바닥 위 0.1 m)·높은(1.0 m) 장애물 수: 바뀜 각 2번
+        rows = [{"tCaptureNs": t, "inCorridor": True, "repCORRIDOR_BAND_y": y} for t in range(6) for y, n in ((-0.9, low[t]), (0.0, high[t])) for _ in range(n)]
+        rows += [{"tCaptureNs": 2, "inCorridor": False, "repCORRIDOR_BAND_y": -0.9}]  # 통로 밖은 세지 않는다
+        pd.DataFrame(rows).to_csv(d / "obstacles.csv", index=False)
+        assert flicker(d, "CORRIDOR_BAND", -1.0) == {"low": 2, "high": 2}, flicker(d, "CORRIDOR_BAND", -1.0)
+    base = {"distErrP50M": 0.1, "missedStop": 0, "unknown": 0.0, "degraded": 0.0, "flickLow": 1, "flickHigh": 2, "headingErrP50Deg": 1.0}
+    df = pd.DataFrame([{**base, "variant": "B", "walkedM": 2.0, "minutes": 0.5, "fa": 1, "faSideWall": 1, "faFloor": 0, "faOther": 0, "stopEntered": True},
+                       {**base, "variant": "B", "walkedM": 8.0, "minutes": 0.5, "fa": 3, "faSideWall": 0, "faFloor": 2, "faOther": 1, "stopEntered": False},
+                       {**base, "variant": "D", "walkedM": 10.0, "minutes": 1.0, "fa": 0, "faSideWall": 0, "faFloor": 0, "faOther": 0, "stopEntered": True}])
+    s = summarize(df)
+    assert list(s.index) == ["B", "D"] and s.loc["B", "faPer10m"] == 4.0 and s.loc["B", "faFloorPer10m"] == 2.0 and s.loc["D", "faPer10m"] == 0.0, s
+    assert s.loc["B", "stopSessions"] == "1/2" and s.loc["B", "flickHighPerMin"] == 4.0, s
+    # 합성 재생(core 테스트의 clean: 4 m 앞 상자로 걸어 STOP 구간에 막 들어간 뒤 끝남)을 변형 A의 세션으로, 변형 X는 그 세션 재생이 없음.
+    # STOP 구간에 든 시간이 zoneMinS(1 s)보다 짧아 STOP 시험은 아니다(성적표가 STOP 누락을 판정하지 않는 것과 같은 규칙)
+    import shutil
+    err = io.StringIO()
+    with tempfile.TemporaryDirectory() as e, contextlib.redirect_stderr(err):
+        shutil.copytree(ROOT / "clean" / "run", Path(e) / "A" / "session")
+        out, missing = diagnose([("A", Path(e) / "A"), ("X", Path(e) / "X")], [ROOT / "clean" / "session"])
+    assert missing == ["X/session"] and "1개" in err.getvalue(), (missing, err.getvalue())
+    r = out.iloc[0]
+    assert r.fa == 0 and r.missedStop == 0 and r.stopNeeded == 1 and r.walkedM > 3.0, r.to_dict()
+    assert 0.0 < r.stopAheadS < ZONE_MIN_S and not r.stopEntered, r.to_dict()
 
 
 def check_miss_reasons():
@@ -442,6 +530,28 @@ def check_scene_eval():
     assert all(res["metrics"][k]["monotone"] and res["metrics"][k]["separated01"] for k in ("surfaceErrorP90M", "falseRatio", "completenessWallObject")), res
 
 
+def check_scene_eval_missing():
+    """M41(A1 FA11): metrics.json 없는 재생은 빼고 알리며, 상태 비율·STOP 누락이 없는 값은 0이 아니라 NaN·"값 없음"으로 센다."""
+    import contextlib
+    import io
+    from scene_eval import m33_real
+    with tempfile.TemporaryDirectory() as d:
+        root = Path(d)
+        runs = {("B", "s1"): {"missedStop": 0, "stateFraction": {"NORMAL": 1.0}}, ("B", "s2"): {"missedStop": 1, "stateFraction": {"UNKNOWN": 0.5}},
+                ("V", "s1"): {"missedStop": None}, ("V", "s2"): None}
+        for (v, s), m in runs.items():
+            (root / v / s).mkdir(parents=True)
+            if m is not None:
+                (root / v / s / "metrics.json").write_text(json.dumps(m), encoding="utf-8")
+        err = io.StringIO()
+        with contextlib.redirect_stderr(err):
+            out = m33_real(root, "B", ["V"], None)
+    assert out["droppedNoMetrics"] == [str(root / "V" / "s2")] and "1개" in err.getvalue(), (out["droppedNoMetrics"], err.getvalue())
+    b, v = out["variants"]["B"], out["variants"]["V"]
+    assert b["missedStop"] == 1 and b["missedStopUnknown"] == 0 and abs(b["unknownState"]["mean"] - 0.25) < 1e-9, b
+    assert v["missedStop"] == 0 and v["missedStopUnknown"] == 1 and np.isnan(v["unknownState"]["mean"]), v
+
+
 def check_depth_absolute():
     """M31 K01: 면 상수를 빼지 않은 끝 벽 편향. 합성 정지 세션(M12SessionsTest e01, 끝 벽 카메라 4.0 m)에서 정답 그대로면 0,
     정답 끝 벽을 5 cm 멀리 적으면 +0.05(카메라 쪽 +). 같은 거리 두 세션의 차를 낸다.
@@ -499,6 +609,7 @@ def main():
     grip = run("grip_right")  # 폰이 몸 옆: 머리 기준 방향이 맞아야 한다
     assert grip["directionErrorDeg"]["p95"] < 3.0, grip["directionErrorDeg"]
 
+    check_replay_done()
     check_run_only()
     check_truth_v2()
     check_align_heading()
@@ -511,6 +622,8 @@ def main():
     check_round_trip_corridor()
     check_walk_sign()
     check_zone_stats()
+    check_distance_guidance()
+    check_diagnose()
     check_miss_reasons()
     check_heading_floor_error()
     check_scorecard()
@@ -519,6 +632,7 @@ def main():
     check_output_flicker()
     check_floor_rgb()
     check_scene_eval()
+    check_scene_eval_missing()
     check_depth_absolute()
     print("analysis self-check ok")
 

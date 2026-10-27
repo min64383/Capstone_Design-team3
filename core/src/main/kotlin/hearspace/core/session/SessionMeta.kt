@@ -87,6 +87,8 @@ data class SessionMeta(
     /** 좌표·시간 규약 설명(키 → 설명). */
     val conventions: Map<String, String>,
     val stats: SessionStats?,
+    /** 녹화한 앱 빌드의 코드 판(git 커밋 짧은 해시, 바뀐 작업 트리면 -dirty, M41). 이 필드가 생기기 전 세션·합성 세션은 null. */
+    val gitHash: String? = null,
 ) {
     /** JSON 텍스트로. */
     fun toJson(): String = MiniJson.write(toJsonValue())
@@ -96,6 +98,7 @@ data class SessionMeta(
         "sessionId" to str(sessionId),
         "sceneId" to str(sceneId),
         "createdAt" to str(createdAt),
+        "gitHash" to str(gitHash),
         "device" to obj(
             "manufacturer" to str(device.manufacturer),
             "model" to str(device.model),
@@ -177,6 +180,7 @@ data class SessionMeta(
                         it.long("nFileJobsSkipped"), it.long("nWriteErrors"), it.float("durationS"),
                     )
                 },
+                gitHash = r.strOpt("gitHash", missingIsNull = true),
             )
         }
 
@@ -206,7 +210,7 @@ data class SessionMeta(
             else -> bad(k, "an object or null")
         }
         fun str(k: String) = (get(k) as? JsonString)?.value ?: bad(k, "a string")
-        fun strOpt(k: String) = when (val v = get(k)) {
+        fun strOpt(k: String, missingIsNull: Boolean = false) = if (missingIsNull && o.fields[k] == null) null else when (val v = get(k)) {
             JsonNull -> null
             is JsonString -> v.value
             else -> bad(k, "a string or null")

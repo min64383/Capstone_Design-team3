@@ -179,6 +179,22 @@ class TruthTest {
     }
 
     @Test
+    fun `round trip corridor looks toward the walking direction like metrics truth_nearest`() {
+        // A1 MA3: test_analysis.check_round_trip_corridor와 같은 장면·답. +z로 갈 때는 끝 벽만, −z로 돌아올 때는 출발 뒤 상자만 통로 안이고
+        // 돌아올 때 x +0.2 상자는 사용자 왼쪽(방위 −)
+        val c = hearspace.core.types.CorridorConfig(widthM = 0.8f, heightM = 2.0f, lengthM = 3.5f, behindM = 0.2f, edgeInnerM = 0.25f, edgeMinLengthM = 0.8f, edgeOutsideM = 0f, cutEnd = false)
+        val wall = TruthObstacle("wall", HeightClass.FLOOR, TruthKind.STRUCTURE, Vec3(-0.62f, 0f, 4.0f), Vec3(0.62f, 2.4f, 4.1f), null)
+        val box = TruthObstacle("box", HeightClass.FLOOR, TruthKind.OBJECT, Vec3(0.1f, 0f, -1.2f), Vec3(0.3f, 0.5f, -1.0f), null)
+        val a = wall.nearestInCorridor(0f, 1f, c, sign = 1f)!!
+        close(3.0f, a.alongM); close(0f, a.azimuthDeg)
+        assertNull(box.nearestInCorridor(0f, 1f, c, sign = 1f))
+        assertNull(wall.nearestInCorridor(0f, 1f, c, sign = -1f))
+        val b = box.nearestInCorridor(0f, 1f, c, sign = -1f)!!
+        close(2.0f, b.alongM); close(Math.toDegrees(kotlin.math.atan2(-0.1, 2.0)).toFloat(), b.azimuthDeg, what = "left of the user")
+        assertEquals(wall.nearestInCorridor(0f, 1f, c), a) // 기본값 +z(기존 호출)
+    }
+
+    @Test
     fun `median floor matches numpy`() {
         assertEquals(2.0, Alignment.medianFloorY(listOf(3f, null, 1f, 2f)))
         assertEquals(2.5, Alignment.medianFloorY(listOf(4f, 1f, 2f, 3f)))
