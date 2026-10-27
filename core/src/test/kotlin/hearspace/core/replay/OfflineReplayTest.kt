@@ -70,6 +70,22 @@ class OfflineReplayTest {
     }
 
     @Test
+    fun `completion marker only after a replay that ran to the end`() {
+        // A1 FA9: 끝까지 돈 재생만 replay_done을 남기고, 예외로 끝나면 기록 파일은 닫히지만(머리 줄이 남음) 표시는 없다
+        val run = replay("clean", variants.getValue("clean"), runName = "run_done")
+        assertTrue(File(run, OfflineReplay.DONE_FILE).isFile)
+        val session = File(root, "clean/session_broken")
+        session.deleteRecursively()
+        SyntheticSessionWriter.write(variants.getValue("clean").generate(), session, "SYN")
+        val frames = File(session, "frames.csv")
+        frames.writeText(frames.readLines().mapIndexed { i, l -> if (i == 5) l.replaceFirst("TRACKING", "BOGUS") else l }.joinToString("\n"))
+        val replay = OfflineReplay(ConfigLoader.load(base, "{}"), OfflineReplay.fixed(10f))
+        org.junit.jupiter.api.assertThrows<IllegalArgumentException> { replay.run(session, run) }
+        assertTrue(!File(run, OfflineReplay.DONE_FILE).exists())
+        assertEquals(RunLog.header(RunLog.GUIDANCE_HEADER), File(run, RunLog.GUIDANCE_FILE).readLines().single())
+    }
+
+    @Test
     fun `stage timing has one row per slow path result`() {
         val run = replay("clean", variants.getValue("clean"), runName = "run_stage")
         val slow = File(run, RunLog.SLOW_PATH_FILE).readLines().drop(1)

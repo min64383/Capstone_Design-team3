@@ -44,6 +44,9 @@ fun main(args: Array<String>) {
         "recorded" -> RgbSource.RECORDED
         else -> error("rgbFrom must be mp4 or recorded: ${opts["rgbFrom"]}")
     }
-    OfflineReplay(config, slow, sub?.second, sub?.first?.path ?: "", rgbSource).run(session, out, overrides, note)
+    val replay = OfflineReplay(config, slow, sub?.second, sub?.first?.path ?: "", rgbSource)
+    replay.run(session, out, overrides, note)
+    // 끊긴 녹화(잘린 줄·손상된 PNG)는 건너뛰고 끝까지 돈다: 건너뛴 것을 알린다
+    if (replay.warnings.isNotEmpty()) System.err.println("session warnings ${replay.warnings.size}: ${replay.warnings.take(3).joinToString("; ")}")
     println("replay log: ${out.absolutePath}")
 }

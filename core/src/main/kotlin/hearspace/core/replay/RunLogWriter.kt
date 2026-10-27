@@ -5,12 +5,15 @@ import hearspace.core.session.RunLog
 import hearspace.core.types.GuidanceOutput
 import hearspace.core.types.ObstacleSnapshot
 import hearspace.core.types.PoseFrame
+import java.io.Closeable
 import java.io.File
 import java.io.Writer
 
 /**
  * 재생 결과를 실행 로그(MVP §10.1, 앱과 같은 형식)로 [outDir]에 쓴다. 단계별 처리 시간은 `stage_timing.csv`에 따로.
  * `replay_info.json`에는 세션 경로·느린 경로 시간 방식·설정 덮어쓰기를 남긴다(분석 도구가 같은 설정을 쓰도록).
+ * 재생이 예외로 끝나도 쌓인 줄을 잃지 않게 호출한 쪽이 [close]한다(`use`, A1 FA9). 끝까지 돈 표시(`replay_done`)는 호출한 쪽이
+ * 모든 출력을 쓴 뒤 [OfflineReplay.markDone]으로 남긴다. 같은 폴더에 남은 옛 표시는 여기서 지운다.
  */
 class RunLogWriter(
     outDir: File,
@@ -21,7 +24,7 @@ class RunLogWriter(
     substitutionJson: String? = null,
     /** RGB 안내 보정의 RGB 원천(M19, [RgbSource] 이름). */
     rgbSource: String = RgbSource.RECORDED.name,
-) : ReplayListener {
+) : ReplayListener, Closeable {
     private val slowOut: Writer
     private val guidOut: Writer
     private val obsOut: Writer
@@ -32,6 +35,7 @@ class RunLogWriter(
 
     init {
         outDir.mkdirs()
+        File(outDir, OfflineReplay.DONE_FILE).delete()
         File(outDir, OfflineReplay.INFO_FILE).writeText(
             "{\n  \"session\": \"${session.absolutePath.replace("\\", "/")}\",\n  \"slowPath\": \"$slowPathNote\",\n" +
                 "  \"rgbSource\": \"$rgbSource\",\n" +
@@ -64,7 +68,10 @@ class RunLogWriter(
         RunLog.guidanceLines(g, pose.tCaptureNs, snapshot?.tCaptureNs).forEach { guidOut.line(it) }
     }
 
-    override fun onEnd() {
+    override fun onEnd() = close()
+
+    /** 기록 파일을 모두 닫는다(여러 번 불러도 된다). */
+    override fun close() {
         listOfNotNull(slowOut, guidOut, obsOut, clusterOut, stageOut, planesOut).forEach { it.close() }
     }
 
