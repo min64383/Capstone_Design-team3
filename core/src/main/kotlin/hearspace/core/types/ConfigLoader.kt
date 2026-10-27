@@ -41,7 +41,7 @@ object ConfigLoader {
         val config = Config(
             head = root.section("head") { HeadConfig(offsetFromCameraM = vec3("offsetFromCameraM")) },
             heading = root.section("heading") {
-                HeadingConfig(windowS = positive("windowS"), minTravelM = nonNegative("minTravelM"))
+                HeadingConfig(windowS = positive("windowS"), minTravelM = nonNegative("minTravelM"), swayM = nonNegative("swayM"), cameraSigmaDeg = nonNegative("cameraSigmaDeg"))
             },
             corridor = root.section("corridor") {
                 CorridorConfig(
@@ -53,6 +53,7 @@ object ConfigLoader {
                     edgeMinLengthM = positive("edgeMinLengthM"),
                     edgeOutsideM = nonNegative("edgeOutsideM"),
                     cutEnd = boolean("cutEnd"),
+                    wallAlign = boolean("wallAlign"),
                 )
             },
             depth = root.section("depth") {
