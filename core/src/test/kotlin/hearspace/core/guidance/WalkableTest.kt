@@ -45,8 +45,8 @@ class WalkableTest {
     private val walls = wall(-0.545f) + wall(0.545f) // 폭 1.04 m 복도(벽 면 ±0.52)
 
     @Test
-    fun `walls only - nothing in path within warn range for heading errors up to 7 deg`() {
-        for (deg in listOf(0.0, 3.0, -5.0, 7.0)) {
+    fun `walls only - nothing in path within warn range for heading errors up to 10 deg`() {
+        for (deg in listOf(0.0, 3.0, -5.0, 7.0, 10.0, -10.0)) {
             val c = corridor(deg)
             val inPath = walkableInPath(walls, c, config).filter { c.alongM(it.centerW) < config.policy.warnMaxM }
             assertTrue(inPath.isEmpty()) { "heading $deg°: ${inPath.size} wall cells in path" }
@@ -54,10 +54,12 @@ class WalkableTest {
     }
 
     @Test
-    fun `box on the walking line is in path`() {
+    fun `box on the walking line is in path, also within stop range at 10 deg`() {
         val b = box(-0.15f, 0.15f, -2.0f, -2.3f)
-        val inPath = walkableInPath(walls + b, corridor(5.0), config)
-        assertTrue(b.any { it in inPath })
+        assertTrue(b.any { it in walkableInPath(walls + b, corridor(5.0), config) })
+        val near = box(-0.15f, 0.15f, -0.6f, -0.9f) // 진행 방향 거리 < policy.stopM
+        val c = corridor(10.0)
+        assertTrue(walkableInPath(walls + near, c, config).any { it in near && c.alongM(it.centerW) < config.policy.stopM })
     }
 
     @Test
