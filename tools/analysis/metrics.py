@@ -296,8 +296,17 @@ def floor_rgb(session: Path, run_dir: Path) -> dict | None:
     return {"offsetP50M": float(np.median(off)), "offsetIqrM": float(np.percentile(off, 75) - np.percentile(off, 25)), "nPairs": len(off)}
 
 
+def check_complete(run_dir: Path) -> None:
+    """M41 이후 PC 재생(`replay_info.json`에 `gitHash`)은 끝까지 돈 표시 `replay_done`이 있어야 한다(A1 FA9: 예외로 끊긴 재생의
+    잘린 기록을 지표로 쓰지 않게). 표시가 생기기 전 재생과 기기 실행 로그는 확인하지 않는다."""
+    info = run_dir / "replay_info.json"
+    if info.is_file() and "gitHash" in json.loads(info.read_text(encoding="utf-8")) and not (run_dir / "replay_done").is_file():
+        raise ValueError(f"{run_dir}: 재생이 끝나지 않았다(replay_done 없음). 다시 재생한다")
+
+
 def run_metrics(run_dir: Path, cfg: dict) -> dict:
     """정답·세션 없이 실행 로그만으로 되는 지표."""
+    check_complete(run_dir)
     g = pd.read_csv(run_dir / "guidance.csv")
     sp = pd.read_csv(run_dir / "slow_path.csv")
     blocks = g.drop_duplicates("tBlockNs")
@@ -614,6 +623,7 @@ def block_rows(session: Path, run_dir: Path, cfg: dict, frames: pd.DataFrame, g:
 
 
 def compute(session: Path, run_dir: Path) -> dict:
+    check_complete(run_dir)
     cfg = load_config(run_dir)
     pol = cfg["policy"]
     frames = load_frames(session)

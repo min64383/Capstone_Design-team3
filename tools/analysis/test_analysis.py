@@ -126,6 +126,23 @@ def check_output_flicker():
         assert m["spots"] == {"end": 1, "top": 0, "side": 0, "inner": 0} and abs(m["countChangeFraction"] - 2 / 20) < 1e-9, m
 
 
+def check_replay_done():
+    """M41(A1 FA9): gitHash가 있는 재생은 replay_done이 있어야 지표를 낸다. 표시가 생기기 전 재생(gitHash 없음)은 그대로 읽는다."""
+    from metrics import check_complete
+    with tempfile.TemporaryDirectory() as d:
+        d = Path(d)
+        (d / "replay_info.json").write_text(json.dumps({"configOverrides": {}}), encoding="utf-8")
+        check_complete(d)
+        (d / "replay_info.json").write_text(json.dumps({"gitHash": "abc1234", "configOverrides": {}}), encoding="utf-8")
+        try:
+            check_complete(d)
+            raise AssertionError("a replay without replay_done must fail")
+        except ValueError:
+            pass
+        (d / "replay_done").write_text("", encoding="utf-8")
+        check_complete(d)
+
+
 def check_run_only():
     """세션 없는 실행 로그(사용자 모드 T01): 2분, 둘째 분만 UNKNOWN 절반·발열 2 (M10)."""
     with tempfile.TemporaryDirectory() as d:
@@ -499,6 +516,7 @@ def main():
     grip = run("grip_right")  # 폰이 몸 옆: 머리 기준 방향이 맞아야 한다
     assert grip["directionErrorDeg"]["p95"] < 3.0, grip["directionErrorDeg"]
 
+    check_replay_done()
     check_run_only()
     check_truth_v2()
     check_align_heading()

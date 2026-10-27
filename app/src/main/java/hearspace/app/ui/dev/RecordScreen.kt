@@ -296,6 +296,7 @@ class RecordScreen : Activity(), GLSurfaceView.Renderer {
             rgbEveryN = config.record.rgbEveryN,
             conventions = CONVENTIONS,
             stats = null,
+            gitHash = BuildConfig.GIT_HASH,
         )
         return Recorder(dir, meta, config.record, thermal).also {
             it.start(s)

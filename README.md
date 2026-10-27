@@ -630,6 +630,7 @@ git push -u origin m2/geometry
 - 제목은 커밋 메시지 형식과 같게
 - 본문에 적을 것: 무엇을 바꿨는지, 관련 명세 절(§), 테스트 결과(`./gradlew :core:test`, 기기 확인 여부), `DECISIONS.md`에 추가한 줄
 - 에이전트 지침(`CLAUDE.md`, `.claude/rules/`, `AGENTS.md`)을 바꿨다면 `tools\setup\check-agent-docs.ps1` 통과 확인 (§4.7)
+- CI(GitHub Actions, `.github/workflows/ci.yml`)가 PR과 `main` push마다 `check-agent-docs.ps1`, `:core:test :viewer:test`, `tools/analysis/test_analysis.py`를 Windows에서 돌린다. 실패하면 병합하지 않는다
 - 다른 팀원 **1명 이상 확인** 후 병합. 병합 방식은 Squash 또는 Merge 중 팀에서 하나로 통일
 - 병합한 브랜치는 삭제
 

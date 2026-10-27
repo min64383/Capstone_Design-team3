@@ -39,6 +39,8 @@ class RunLogWriter(
         File(outDir, OfflineReplay.INFO_FILE).writeText(
             "{\n  \"session\": \"${session.absolutePath.replace("\\", "/")}\",\n  \"slowPath\": \"$slowPathNote\",\n" +
                 "  \"rgbSource\": \"$rgbSource\",\n" +
+                // 재생한 코드 판(M41, Gradle이 넘김: git 커밋 짧은 해시, 바뀐 작업 트리면 -dirty). 없으면 unknown
+                "  \"gitHash\": \"${System.getProperty("hearspace.gitHash") ?: "unknown"}\",\n" +
                 "  \"configOverrides\": $overridesJson" + (substitutionJson?.let { ",\n  \"substitution\": $it" } ?: "") + "\n}\n",
         )
         slowOut = File(outDir, RunLog.SLOW_PATH_FILE).bufferedWriter()
