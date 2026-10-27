@@ -433,7 +433,9 @@ def zone_stats(rows: list[dict], truth: list[dict], pol: dict, why=None) -> dict
     - missedWarnFraction: 정상 상태에서 정답 구간이 WARN·STOP인 블록 중 추정이 WARN·STOP이 아닌 비율
     - outsideCorridorFraction: 경고(WARN·STOP) 중 짝지은 정답이 그 블록에서 정답 통로 밖인 비율(옆 벽 등)
     - startDistanceM: 정상 상태에서 처음 정답 통로 안에 든 순간의 정답 거리(첫 경고 거리 판정의 분모)
-    - warnZoneS·stopZoneS: 정상 상태에서 정답이 WARN·STOP 구간 안에 있던 시간(s, 명세 탐지율의 "1 s 이상" 판정용)
+    - warnZoneS·stopZoneS: 정상 상태에서 정답이 WARN·STOP 구간 안에 있던 시간(s, 명세 탐지율의 "1 s 이상" 판정용). 통로 뒤 여유(behindM)
+      안의 머리 옆·뒤도 든다
+    - stopZoneAheadS: stopZoneS 중 정답이 머리 앞(진행 방향 거리 0 이상)인 시간(STOP 시험 범위, M41 diagnose.py)
     - missedWarnReasons: 경고 놓침 시간(s)을 사유별로(`why` = `miss_reason(실행 로그)`가 있을 때, M12.3)"""
     t = np.array([r["t"] for r in rows], dtype=float)
     dt = np.diff(t, append=t[-1] + (np.median(np.diff(t)) if len(t) > 1 else 0.0)) if len(t) else t
@@ -444,6 +446,7 @@ def zone_stats(rows: list[dict], truth: list[dict], pol: dict, why=None) -> dict
     start: dict[int, float] = {}
     warn_s: dict[int, float] = {}
     stop_s: dict[int, float] = {}
+    stop_ahead: dict[int, float] = {}
     for r, d in zip(rows, dt):
         warned = r["band"] in ("WARN", "STOP")
         if r["state"] in ACTIVE:
@@ -456,6 +459,8 @@ def zone_stats(rows: list[dict], truth: list[dict], pol: dict, why=None) -> dict
                     warn_s[i] = warn_s.get(i, 0.0) + d
                 if v[0] < pol["stopM"]:
                     stop_s[i] = stop_s.get(i, 0.0) + d
+                    if v[0] >= 0.0:
+                        stop_ahead[i] = stop_ahead.get(i, 0.0) + d
             if cands and band_of(min(cands)[0], pol) in ("WARN", "STOP"):
                 zone_n += 1
                 if not warned:
@@ -484,6 +489,7 @@ def zone_stats(rows: list[dict], truth: list[dict], pol: dict, why=None) -> dict
         "startDistanceM": name(start),
         "warnZoneS": name(warn_s),
         "stopZoneS": name(stop_s),
+        "stopZoneAheadS": name(stop_ahead),
         "missedWarnReasons": {k: round(float(v), 3) for k, v in sorted(reasons.items())},
     }
 

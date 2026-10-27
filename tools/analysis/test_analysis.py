@@ -367,6 +367,10 @@ def check_zone_stats():
     assert abs(z["outsideCorridorFraction"] - 0.4) < 1e-9 and abs(z["missedWarnFraction"] - 0.25) < 1e-9, z
     assert z["startDistanceM"] == {"box": 2.0} and abs(z["warnZoneS"]["box"] - 0.8) < 1e-9 and z["stopZoneS"] == {}, z
     assert zone_stats([], truth, pol)["missedWarnFraction"] is None
+    # STOP 구간 시간: 머리 옆·뒤(통로 뒤 여유 안, 진행 방향 거리 < 0)도 stopZoneS에 들지만 stopZoneAheadS(M41 STOP 시험 범위)에는 앞만
+    rows = [row(0.0, [(-0.1, 0.1, 90.0), None], None, None), row(0.5, [(0.5, 0.5, 0.0), None], "STOP", 0, 0.5), row(1.0, [(0.4, 0.4, 0.0), None], "STOP", 0, 0.4)]
+    z = zone_stats(rows, truth, pol)
+    assert z["stopZoneS"] == {"box": 1.5} and z["stopZoneAheadS"] == {"box": 1.0}, (z["stopZoneS"], z["stopZoneAheadS"])
 
 
 def check_distance_guidance():
@@ -407,7 +411,7 @@ def check_diagnose():
     재생 없는 (변형, 세션)은 빼고 알림."""
     import contextlib
     import io
-    from diagnose import diagnose, flicker, summarize
+    from diagnose import ZONE_MIN_S, diagnose, flicker, summarize
     with tempfile.TemporaryDirectory() as d:
         d = Path(d)
         pd.DataFrame({"tCaptureNs": range(6)}).to_csv(d / "slow_path.csv", index=False)
@@ -423,7 +427,8 @@ def check_diagnose():
     s = summarize(df)
     assert list(s.index) == ["B", "D"] and s.loc["B", "faPer10m"] == 4.0 and s.loc["B", "faFloorPer10m"] == 2.0 and s.loc["D", "faPer10m"] == 0.0, s
     assert s.loc["B", "stopSessions"] == "1/2" and s.loc["B", "flickHighPerMin"] == 4.0, s
-    # 합성 재생(core 테스트의 clean: 4 m 앞 상자로 걸어 STOP 구간까지 들어감)을 변형 A의 세션으로, 변형 X는 그 세션 재생이 없음
+    # 합성 재생(core 테스트의 clean: 4 m 앞 상자로 걸어 STOP 구간에 막 들어간 뒤 끝남)을 변형 A의 세션으로, 변형 X는 그 세션 재생이 없음.
+    # STOP 구간에 든 시간이 zoneMinS(1 s)보다 짧아 STOP 시험은 아니다(성적표가 STOP 누락을 판정하지 않는 것과 같은 규칙)
     import shutil
     err = io.StringIO()
     with tempfile.TemporaryDirectory() as e, contextlib.redirect_stderr(err):
@@ -431,7 +436,8 @@ def check_diagnose():
         out, missing = diagnose([("A", Path(e) / "A"), ("X", Path(e) / "X")], [ROOT / "clean" / "session"])
     assert missing == ["X/session"] and "1개" in err.getvalue(), (missing, err.getvalue())
     r = out.iloc[0]
-    assert r.fa == 0 and r.missedStop == 0 and r.stopEntered and r.stopNeeded == 1 and r.walkedM > 3.0, r.to_dict()
+    assert r.fa == 0 and r.missedStop == 0 and r.stopNeeded == 1 and r.walkedM > 3.0, r.to_dict()
+    assert 0.0 < r.stopAheadS < ZONE_MIN_S and not r.stopEntered, r.to_dict()
 
 
 def check_miss_reasons():

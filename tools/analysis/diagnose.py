@@ -12,8 +12,10 @@
   바닥 = 대표점 높이 FLOOR_LEVEL_M 이하, 그 밖). 변형 값은 세션 합 ÷ 걸은 거리 합 × 10.
 - 깜빡임: 느린 경로 단계마다 통로 안 장애물 수가 바뀐 횟수, 대표점 높이(정렬 바닥 위) FLOOR_LEVEL_M 이하(low)·위(high). 변형 값은 분당.
 - 거리 오차: distance_guidance distanceErrorM p50(세션). 변형 값은 세션 중앙값.
-- STOP 누락: metrics missedStop(합). STOP 시험 범위: 정답이 STOP 구간(policy.stopM 안)에 든 시간(stopZoneS 합)과 든 정답 수(stopNeeded).
-  한 번도 들지 않은 세션의 "누락 0"은 시험되지 않은 것이라 변형 값에 `stopSessions`(든 세션 수 / 세션 수)를 같이 낸다.
+- STOP 누락: metrics missedStop(합). STOP 시험 범위: 머리 앞(진행 방향 거리 0 이상) 정답이 STOP 구간(policy.stopM 안)에 든 시간
+  (metrics stopZoneAheadS, 정답마다)이 성적표 `zoneMinS`(scorecard.json, 명세 탐지율의 "1 s 이상") 이상인 정답이 있으면 stopEntered.
+  들지 않은 세션의 "누락 0"은 시험되지 않은 것이라 변형 값에 `stopSessions`(든 세션 수 / 세션 수)를 같이 낸다. 참고로 metrics의
+  stopZoneS(합)·stopNeeded는 통로 뒤 여유 안 머리 옆·뒤의 정답(옆 벽 등)도 센다.
 - 진행 방향 오차: metrics headingErrorDeg p50(걷는 블록, 정답 보행 방향 기준). 진행 방향 대입 변형은 0에 가깝다.
 """
 from __future__ import annotations
@@ -27,6 +29,8 @@ import pandas as pd
 
 from align import load_config
 from metrics import FLOOR_LEVEL_M, compute
+
+ZONE_MIN_S = json.loads((Path(__file__).parent / "scorecard.json").read_text(encoding="utf-8"))["zoneMinS"]  # 구간에 든 것으로 볼 최소 시간
 
 
 def flicker(run_dir: Path, strategy: str, floor_y: float) -> dict:
@@ -53,13 +57,14 @@ def run_row(session: Path, run_dir: Path) -> dict:
     by = dg["falseAlarmOnsetsBy"]
     sf = m.get("stateFraction") or {}
     fl = flicker(run_dir, cfg["repPoint"]["strategy"], al["floorY"])
-    stop_s = float(sum(m.get("stopZoneS", {}).values()))
-    num = lambda v: np.nan if v is None else float(v)  # noqa: E731  값 없음은 0이 아니라 NaN
+    ahead = m.get("stopZoneAheadS", {})
+    num =lambda v: np.nan if v is None else float(v)  # noqa: E731  값 없음은 0이 아니라 NaN
     return {
         "scene": m["scene"], "walkedM": dg["walkedM"], "minutes": dg["durationMin"],
         "fa": dg["falseAlarmOnsets"], "faSideWall": by["sideWall"], "faFloor": by["floor"], "faOther": by["other"],
         "distErrP50M": num(dg["distanceErrorM"]["p50"]), "distErrN": dg["distanceErrorM"]["n"],
-        "missedStop": m["missedStop"], "stopNeeded": m["stopNeeded"], "stopZoneS": round(stop_s, 3), "stopEntered": stop_s > 0,
+        "missedStop": m["missedStop"], "stopNeeded": m["stopNeeded"], "stopZoneS": round(float(sum(m.get("stopZoneS", {}).values())), 3),
+        "stopAheadS": round(max(ahead.values(), default=0.0), 3), "stopEntered": any(s >= ZONE_MIN_S for s in ahead.values()),
         "unknown": float(sf.get("UNKNOWN", 0.0)), "degraded": float(sf.get("DEGRADED", 0.0)),
         "flickLow": fl["low"], "flickHigh": fl["high"],
         "headingErrP50Deg": num((m.get("headingErrorDeg") or {}).get("p50")),
