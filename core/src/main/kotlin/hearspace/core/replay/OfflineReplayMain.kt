@@ -31,11 +31,11 @@ fun main(args: Array<String>) {
     // alignFrom만 있으면 대입 없이 그 정렬만 기록한다(M18: 바닥 규칙을 바꾼 변형도 기준 재생과 같은 정답을 쓴다)
     val subArg = opts["substitute"]?.takeIf { it.isNotBlank() } ?: opts["alignFrom"]?.takeIf { it.isNotBlank() }?.let { "" }
     val sub = subArg?.split(',')?.map { it.trim() }?.filter { it.isNotEmpty() }?.toSet()?.let { on ->
-        require(on.all { it in setOf("depth", "map", "heading") }) { "substitute must be depth, map, heading: $on" }
+        require(on.all { it in setOf("depth", "map", "heading", "floor") }) { "substitute must be depth, map, heading, floor: $on" }
         val alignFrom = File(opts["alignFrom"]?.takeIf { it.isNotBlank() } ?: error("substitute needs alignFrom=<align.json>"))
         val truth = GroundTruth.read(session, config.head.offsetFromCameraM) ?: error("substitute needs ${GroundTruth.FILE}")
         alignFrom to Substitution(
-            truth, Alignment.read(alignFrom), depth = "depth" in on, map = "map" in on, heading = "heading" in on,
+            truth, Alignment.read(alignFrom), depth = "depth" in on, map = "map" in on, heading = "heading" in on, floor = "floor" in on,
             depthNoisePerM = opts["depthNoisePerM"]?.takeIf { it.isNotBlank() }?.toFloat() ?: 0f,
         )
     }
