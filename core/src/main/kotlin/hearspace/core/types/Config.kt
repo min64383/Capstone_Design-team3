@@ -340,6 +340,13 @@ data class FloorConfig(
      * false면 잊는다(v0.2.7 기준선). 기본 true(M18 결과 검토, 2026-10-10).
      */
     val holdWhenLost: Boolean = false,
+    /** 요소 분해의 바닥 칸 가르기([FloorDecompose], M35). BAND = 기준선. */
+    val decompose: FloorDecompose = FloorDecompose.BAND,
+    /**
+     * REGION_PLANE의 영역 한 변(m). 원시 깊이 바닥 점의 평면 잔차가 깊이 잡음 σ(Z) 수준(0.044 대 0.045 m)인 가장 큰 크기 2 m
+     * (1 m 0.040, 전체 하나 0.054, M35 설계 표 2a).
+     */
+    val regionM: Float = 2f,
 )
 
 /** 군집·높이 분류 설정. */
