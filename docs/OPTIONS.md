@@ -19,6 +19,7 @@
 | 요소 분해 | `floor.holdWhenLost` | M18 기본값 | true | M35 |
 | 요소 분해 | `floor.minBelowCameraM` 0.8 | M12.1·v0.3.14 기본값 | 0.8 | M35 |
 | 요소 분해 | `cluster.separateWalls` (C2) | M13.5 뒤 꺼진 옵션 | false | M35 |
+| 요소 분해 | `floor.decompose` BAND → REGION_PLANE (`floor.regionM` 2) | M35: 원시 지도 바닥 높이 오경보 늘어 F | BAND | M35 다시 설계 시(바닥 가능도 검사 넣고) |
 | 군집·추적 | `track.matchByOverlap` (T1) | M13.3 기본값 | true | M35 |
 | 군집·추적 | `track.reidLost` (M22 R) | M22 꺼진 옵션 | false | M35 |
 | 군집·추적 | `track.smallClusterVoxels` (M25 S) | M25 꺼진 옵션 | 0 | M35 |
@@ -37,3 +38,5 @@
 - 2026-10-27 · M42 · `heading.cameraSigmaDeg` 2.3 · 앞 단계 정답 D(깊이) · 5° 넘는 블록 걷기 시작·돌아선 뒤 0.233 → 0.158, 걷지 않음 0.198 → 0.096, 정상 걷기 0.036 → 0.039 · 꺼진 옵션, 기본값은 M36
 - 2026-10-27 · M42 · `repPoint.strategy` CORRIDOR_BAND vs CORRIDOR_NEAREST · D + H(E 6세션)에서는 방위 지표가 정의되지 않고 거리·오경보 같음. 평활 깊이 물체 세션에서 BAND 방위 오차 p50 2.07° vs 3.81° · 보류(물체 세션 D + H 재생 안 함), 기본 유지
 - 2026-10-27 · M42 · `policy.prioritizeStop` · 무작위 합성 s = 0, maxSources 1에서 안내 출력이 다른 블록 0 / 224,305 · 기본 설정에서 효과 없음, maxSources 2는 M36(팀)
+- 2026-10-27 · M35 · `floor.decompose` REGION_PLANE · 앞 단계 정답 없음(원시 지도 RV, E 6세션) · 바닥 높이 오경보 10 m당 2.08 → 2.97, 낮은 군집 깜빡임 분당 92.1 → 102.2, 물체 세션 STOP 누락 0 → 1(130834) · F, 꺼진 옵션으로 둠
+- 2026-10-27 · M35 · `frontend.planes`·`floor.holdWhenLost`·`floor.minBelowCameraM`·`cluster.separateWalls`·군집·추적 옵션 · 재판정 안 함(M35를 영역별 바닥면 하나로 줄임) · 재판정 마일스톤 그대로 M35(다시 설계 시)
