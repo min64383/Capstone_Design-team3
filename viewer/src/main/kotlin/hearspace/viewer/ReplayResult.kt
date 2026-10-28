@@ -81,6 +81,7 @@ class SlowRec(
     val mapDepthMm: ShortArray? = null,
     /** TRISTATE 지도의 빈 곳 칸 중심(x, y, z 교차, M32). 다른 지도 방식이면 null. */
     val freeW: FloatArray? = null,
+    val geometry: hearspace.core.types.IndoorGeometryResult? = null,
 )
 
 /** [times](오름차순)에서 [t] 이하인 마지막 위치. 없으면 −1. 화면은 이것으로만 찾아 미래 값을 쓰지 않는다. */
@@ -289,7 +290,7 @@ object ReplayRunner {
                 val xyz = FloatArray(v.size * 3)
                 v.forEachIndexed { i, vox -> xyz[3 * i] = vox.centerW.x; xyz[3 * i + 1] = vox.centerW.y; xyz[3 * i + 2] = vox.centerW.z }
                 val free = step.freeCentersW?.let { f -> FloatArray(f.size * 3).also { a -> f.forEachIndexed { i, c -> a[3 * i] = c.x; a[3 * i + 1] = c.y; a[3 * i + 2] = c.z } } }
-                slow += SlowRec(step.doneNs, step.snapshot, xyz, step.applied, step.stageNs, step.mapUpdate.planes, step.mapUpdate.segments, step.depth, step.mapDepthMm, free)
+                slow += SlowRec(step.doneNs, step.snapshot, xyz, step.applied, step.stageNs, step.mapUpdate.planes, step.mapUpdate.segments, step.depth, step.mapDepthMm, free, step.mapUpdate.geometry)
             }
 
             override fun onBlock(tNs: Long, pose: PoseFrame, snapshot: ObstacleSnapshot?, g: GuidanceOutput) {

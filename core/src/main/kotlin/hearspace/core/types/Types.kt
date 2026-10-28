@@ -35,6 +35,9 @@ enum class RgbGuideMode { NONE, WEIGHTED_MEDIAN, EDGE, EDGE_MARGIN }
 class GuideImage(val tCaptureNs: Long, val luma: ByteArray, val K: Intrinsics)
 
 /** 바닥 높이 추정 원천(M13.1c): HISTOGRAM = 높이 히스토그램 최빈값(기준선), PLANE = 평면 추출의 바닥(없으면 갱신하지 않고 유지). */
+/** SINGLE preserves obstacle guidance; ELEVATION adds diagnostic geometry only. */
+enum class FloorMode { SINGLE, ELEVATION }
+
 enum class FloorSource { HISTOGRAM, PLANE }
 
 /**

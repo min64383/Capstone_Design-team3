@@ -12,25 +12,25 @@ import java.io.File
 class IndoorGeometryAnalyzerTest {
     private val config = ConfigLoader.load(
         File(System.getProperty("hearspace.defaultConfig")).readText(),
-        """{"geometry":{"enabled":true}}""",
+        """{"floor":{"mode":"ELEVATION"}}""",
     )
 
     private fun ground(yAt: (Int) -> Float): FloatArray {
         val out = ArrayList<Float>()
-        for (z in 1..12) for (x in -3..3) {
+        for (z in 0..9) for (x in -3..3) {
             out += x * 0.08f
             out += yAt(z)
-            out += -z * 0.20f
+            out += -(z * 0.20f + 0.10f)
         }
         return out.toFloatArray()
     }
 
-    private fun analyze(points: FloatArray) = IndoorGeometryAnalyzer.analyze(
+    private fun analyze(points: FloatArray, voxels: List<VoxelView> = emptyList(), floorY: Float = 0f) = IndoorGeometryAnalyzer.analyze(
         pointsW = points,
-        occupied = emptyList(),
+        occupied = voxels,
         userPosW = Vec3.ZERO,
         headingW = Vec3(0f, 0f, -1f),
-        floorY = 0f,
+        floorY = floorY,
         corridorWidthM = 0.8f,
         maxAlongM = 3f,
         floorToleranceM = 0.05f,
@@ -41,6 +41,80 @@ class IndoorGeometryAnalyzerTest {
     @Test
     fun `flat floor is flat`() {
         assertEquals(IndoorGeometryType.FLAT, analyze(ground { 0f }).primary)
+    }
+
+    private fun voxel(x: Float, z: Float, y: Float = 0.5f, wall: Boolean = false) =
+        VoxelView((x * 20).toInt(), (y * 20).toInt(), (z * 20).toInt(), Vec3(x, y, -z), 10, 1f, 0L, 0f, if (wall) 10 else 0)
+
+    @Test
+    fun `single up step and both edges of platform survive`() {
+        assertTrue(analyze(ground { if (it < 4) 0f else 0.2f }).findings.any { it.type == IndoorGeometryType.STEP_UP })
+        val platform = analyze(ground { if (it in 3..6) 0.2f else 0f })
+        assertTrue(platform.findings.any { it.type == IndoorGeometryType.STEP_UP })
+        assertTrue(platform.findings.any { it.type == IndoorGeometryType.STEP_DOWN })
+    }
+
+    @Test
+    fun `down slope is detected`() {
+        assertTrue(analyze(ground { -it * 0.025f }).findings.any { it.type == IndoorGeometryType.SLOPE_DOWN })
+    }
+
+    @Test
+    fun `truncated ground is unknown and missing depth alone is not floor loss`() {
+        val r = analyze(ground { 0f }.take(5 * 7 * 3).toFloatArray())
+        assertEquals(IndoorGeometryType.UNKNOWN, r.primary)
+        assertTrue(r.findings.none { it.type == IndoorGeometryType.FLAT || it.type == IndoorGeometryType.FLOOR_LOSS })
+        assertEquals(IndoorGeometryType.UNKNOWN, analyze(floatArrayOf()).primary)
+    }
+
+    @Test
+    fun `supported internal ground gap is only a floor loss candidate`() {
+        val points = ground { 0f }.toList().chunked(21).filterIndexed { i, _ -> i !in 3..5 }.flatten().toFloatArray()
+        assertTrue(analyze(points).findings.any { it.type == IndoorGeometryType.FLOOR_LOSS })
+    }
+
+    @Test
+    fun `one connected central obstacle is occupied not a narrow passage`() {
+        val obstacle = (-3..3).map { voxel(it * 0.05f, 1f) }
+        val r = analyze(ground { 0f }, obstacle)
+        assertEquals(IndoorGeometryType.OCCUPIED, r.primary)
+        assertTrue(r.findings.none { it.type == IndoorGeometryType.NARROW_PASSAGE })
+    }
+
+    @Test
+    fun `independent side boundaries form narrow passage`() {
+        val walls = listOf(-0.3f, 0.3f).flatMap { x -> (0..9).map { voxel(x, it * 0.2f + 0.1f, wall = true) } }
+        assertTrue(analyze(ground { 0f }, walls).findings.any { it.type == IndoorGeometryType.NARROW_PASSAGE })
+    }
+
+    @Test
+    fun `side walls outside profile ROI cannot become overhang`() {
+        val r = analyze(ground { 0f }, (0..9).map { voxel(0.6f, it * 0.1f, 1.5f) })
+        assertTrue(r.findings.none { it.type == IndoorGeometryType.OVERHANG })
+    }
+
+    @Test
+    fun `contiguous opening has one finding`() {
+        val walls = listOf(-0.38f, 0.38f).flatMap { x -> (0..9).map { voxel(x, it * 0.2f + 0.1f, wall = true) } }
+        assertEquals(1, analyze(ground { 0f }, walls).findings.count { it.type == IndoorGeometryType.OPENING })
+    }
+
+    @Test
+    fun `histogram ties use floor height and are invariant to world translation`() {
+        fun tied(offset: Float) = ground { offset } + ground { offset + 0.2f }
+        val atZero = analyze(tied(0f))
+        val translated = analyze(tied(-1f), floorY = -1f)
+        assertTrue(translated.groundProfile.all { kotlin.math.abs(it.heightM!! + 1f) < 1e-5f })
+        assertEquals(atZero.primary, translated.primary)
+    }
+
+    @Test
+    fun `geometry ignores unreliable distant ground and occupancy`() {
+        val near = ground { 0f }
+        val far = floatArrayOf(-0.1f, 0.4f, -2.5f, 0f, 0.4f, -2.5f, 0.1f, 0.4f, -2.5f)
+        val r = analyze(near + far, (0..9).map { voxel(0f, 2.5f, 1.5f) })
+        assertEquals(IndoorGeometryType.FLAT, r.primary)
+        assertTrue(r.groundProfile.all { it.alongEndM <= config.geometry.maxDistanceM })
     }
 
     @Test

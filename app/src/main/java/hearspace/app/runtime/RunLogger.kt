@@ -29,6 +29,7 @@ class RunLogger(val dir: File) : AutoCloseable {
         GUIDANCE(RunLog.GUIDANCE_FILE, RunLog.header(RunLog.GUIDANCE_HEADER)),
         OBSTACLES(RunLog.OBSTACLES_FILE, RunLog.header(RunLog.OBSTACLES_HEADER)),
         CLUSTERS(RunLog.CLUSTER_DEBUG_FILE, ClusterDebugCsv.HEADER),
+        GEOMETRY(RunLog.GEOMETRY_FILE, RunLog.header(RunLog.GEOMETRY_HEADER)),
         DEVICE(SessionFormat.DEVICE_FILE, DeviceCsv.headerLine()),
     }
 
@@ -44,6 +45,9 @@ class RunLogger(val dir: File) : AutoCloseable {
     @Volatile
     private var running = true
     private val writer = Thread(::loop, "RunLogger").apply { start() }
+
+    fun geometry(tCaptureNs: Long, result: hearspace.core.types.IndoorGeometryResult) =
+        put(Kind.GEOMETRY) { RunLog.geometryLines(tCaptureNs, result) }
 
     fun slowPath(line: String) = put(Kind.SLOW) { listOf(line) }
 
@@ -66,13 +70,13 @@ class RunLogger(val dir: File) : AutoCloseable {
         val out = LinkedHashMap<Kind, BufferedWriter>()
         try {
             if (!dir.isDirectory && !dir.mkdirs()) throw IOException("cannot create $dir")
-            for (k in Kind.entries) out[k] = File(dir, k.file).bufferedWriter().also { it.write(k.header); it.newLine() }
+            for (k in Kind.entries.filter { it != Kind.GEOMETRY }) out[k] = File(dir, k.file).bufferedWriter().also { it.write(k.header); it.newLine() }
             while (true) {
                 val stop = !running // 멈춤을 본 뒤 한 번 더 비우고 끝낸다
                 while (true) {
                     val (k, lines) = queue.poll() ?: break
                     pending.decrementAndGet()
-                    val w = out.getValue(k)
+                    val w = out.getOrPut(k) { File(dir, k.file).bufferedWriter().also { it.write(k.header); it.newLine() } }
                     for (line in lines()) { w.write(line); w.newLine() }
                 }
                 if (stop) break

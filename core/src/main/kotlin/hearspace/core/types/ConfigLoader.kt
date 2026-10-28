@@ -183,6 +183,7 @@ object ConfigLoader {
                     holdWhenLost = boolean("holdWhenLost"),
                     decompose = enumValue<FloorDecompose>("decompose"),
                     regionM = positive("regionM"),
+                    mode = enumValue<FloorMode>("mode"),
                 )
             },
             cluster = root.section("cluster") {
@@ -206,6 +207,32 @@ object ConfigLoader {
                     slopeMinDeg = positive("slopeMinDeg"),
                     floorLossMinGapM = positive("floorLossMinGapM"),
                     narrowPassageM = positive("narrowPassageM"),
+                    maxDistanceM = positive("maxDistanceM"),
+                    groundHeightRangeM = positive("groundHeightRangeM"),
+                    histogramMinBinM = positive("histogramMinBinM"),
+                    obstacleMinHeightM = nonNegative("obstacleMinHeightM"),
+                    openingWidthFactor = positive("openingWidthFactor"),
+                    maxStepGapBins = atLeast1("maxStepGapBins"),
+                    minSlopeBins = atLeast1("minSlopeBins"),
+                    unknownConfidence = unit("unknownConfidence"),
+                    stepConfidence = unit("stepConfidence"),
+                    flatConfidence = unit("flatConfidence"),
+                    maxConfidence = unit("maxConfidence"),
+                    stairConfidenceBase = unit("stairConfidenceBase"),
+                    stairConfidenceIncrement = unit("stairConfidenceIncrement"),
+                    slopeConfidenceBase = unit("slopeConfidenceBase"),
+                    slopeConfidenceIncrementMax = unit("slopeConfidenceIncrementMax"),
+                    slopeConfidenceScaleDeg = positive("slopeConfidenceScaleDeg"),
+                    floorLossConfidenceBase = unit("floorLossConfidenceBase"),
+                    floorLossConfidencePerBin = unit("floorLossConfidencePerBin"),
+                    floorLossConfidenceMax = unit("floorLossConfidenceMax"),
+                    occupiedConfidenceBase = unit("occupiedConfidenceBase"),
+                    structureConfidenceBase = unit("structureConfidenceBase"),
+                    occupiedConfidenceCount = positive("occupiedConfidenceCount"),
+                    wallConfidenceCount = positive("wallConfidenceCount"),
+                    narrowConfidenceMin = unit("narrowConfidenceMin"),
+                    openingConfidence = unit("openingConfidence"),
+
                 )
             },
             falsePositiveFilter = root.section("falsePositiveFilter") {
@@ -374,6 +401,11 @@ object ConfigLoader {
         if (c.floor.belowMarginM <= c.floor.toleranceM) {
             throw ConfigException("floor", "must satisfy toleranceM < belowMarginM")
         }
+        if (c.geometry.enabled && c.floor.mode == FloorMode.SINGLE) {
+            throw ConfigException("geometry.enabled", "legacy flag requires floor.mode = ELEVATION; use floor.mode to activate diagnostics")
+        }
+        if (c.geometry.minSlopeBins < 3) throw ConfigException("geometry.minSlopeBins", "must be at least 3")
+        if (c.geometry.narrowConfidenceMin > c.geometry.maxConfidence) throw ConfigException("geometry.narrowConfidenceMin", "must not exceed maxConfidence")
         if (c.cluster.bodyMinM >= c.cluster.headMinM) {
             throw ConfigException("cluster", "must satisfy bodyMinM < headMinM")
         }

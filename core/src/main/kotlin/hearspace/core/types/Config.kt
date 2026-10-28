@@ -349,6 +349,7 @@ data class FloorConfig(
      * (1 m 0.040, 전체 하나 0.054, M35 설계 표 2a).
      */
     val regionM: Float = 2f,
+    val mode: FloorMode = FloorMode.SINGLE,
 )
 
 /** 군집·높이 분류 설정. */
@@ -370,6 +371,7 @@ data class ClusterConfig(
 
 /** Depth/복셀 기하만으로 실내 보행 형태를 분기하는 실험 모듈 설정. */
 data class GeometryConfig(
+    /** Legacy field retained for old configs. Activation is floor.mode, not this flag. */
     val enabled: Boolean,
     /** 진행방향 지면 프로파일의 거리 bin 크기(m). */
     val profileBinM: Float,
@@ -385,6 +387,31 @@ data class GeometryConfig(
     val floorLossMinGapM: Float,
     /** 통로 유효 폭이 이보다 작으면 좁은 통로(m). */
     val narrowPassageM: Float,
+    val maxDistanceM: Float = 2.0f,
+    val groundHeightRangeM: Float = 0.65f,
+    val histogramMinBinM: Float = 0.02f,
+    val obstacleMinHeightM: Float = 0.1f,
+    val openingWidthFactor: Float = 1.35f,
+    val maxStepGapBins: Int = 2,
+    val minSlopeBins: Int = 3,
+    val unknownConfidence: Float = 0.2f,
+    val stepConfidence: Float = 0.75f,
+    val flatConfidence: Float = 0.7f,
+    val maxConfidence: Float = 0.95f,
+    val stairConfidenceBase: Float = 0.65f,
+    val stairConfidenceIncrement: Float = 0.1f,
+    val slopeConfidenceBase: Float = 0.6f,
+    val slopeConfidenceIncrementMax: Float = 0.35f,
+    val slopeConfidenceScaleDeg: Float = 30.0f,
+    val floorLossConfidenceBase: Float = 0.55f,
+    val floorLossConfidencePerBin: Float = 0.08f,
+    val floorLossConfidenceMax: Float = 0.9f,
+    val occupiedConfidenceBase: Float = 0.5f,
+    val structureConfidenceBase: Float = 0.55f,
+    val occupiedConfidenceCount: Float = 100.0f,
+    val wallConfidenceCount: Float = 120.0f,
+    val narrowConfidenceMin: Float = 0.55f,
+    val openingConfidence: Float = 0.6f,
 )
 
 /** 실측에서 반복된 '통로 전체를 채우는 깊이 sheet' 오인식 실험 필터. 기본은 꺼 둔다. */

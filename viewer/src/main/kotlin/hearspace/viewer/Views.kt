@@ -321,7 +321,11 @@ class TopView(private val model: ViewerModel, private val compare: Boolean = fal
         g.color = Palette.bg
         g.fillRect(0, 0, width, height)
         val r = (if (compare) model.compare else model.result) ?: return message(g, "")
-        val al = r.alignment ?: return message(g, "바닥을 잡지 못해 보행선 좌표가 없음")
+        val al = r.alignment ?: run {
+            message(g, "바닥을 잡지 못해 보행선 좌표가 없음")
+            drawGeometry(g, r)
+            return
+        }
         val track = r.reader.rows.map { al.toTruth(Vec3(it.pose.tx, it.pose.ty, it.pose.tz)) }
         val truthBoxes = r.truth?.obstacles.orEmpty()
         val xs = track.map { it.x } + truthBoxes.flatMap { listOf(it.minM.x, it.maxM.x) }
@@ -435,6 +439,25 @@ class TopView(private val model: ViewerModel, private val compare: Boolean = fal
             g.color = Palette.text
             g.drawString("${if (r.label.isEmpty()) "" else r.label + "  "}${b.g.state}  ${"%.2f".format(r.secondsOf(t))} s  물체 ${slow?.snapshot?.obstacles?.size ?: 0}  음원 ${b.g.commands.size}", 8, 16)
         }
+        drawGeometry(g, r)
+    }
+
+    private fun drawGeometry(g: Graphics2D, result: ReplayResult) {
+        val geometry = result.slowAt(model.tNs)?.geometry ?: return
+        g.color = Color(255, 210, 90)
+        g.drawString("기하(실험·안내 미연결): ${geometry.primary}", 8, 34)
+        var line = ""
+        var y = 34 + g.fontMetrics.height
+        for (f in geometry.findings) {
+            val item = "${f.type} ${"%.2f".format(java.util.Locale.ROOT, f.distanceM)}m "
+            if (line.isNotEmpty() && g.fontMetrics.stringWidth(line + item) > width - 16) {
+                g.drawString(line, 8, y)
+                y += g.fontMetrics.height
+                line = ""
+            }
+            line += item
+        }
+        if (line.isNotEmpty()) g.drawString(line, 8, y)
     }
 }
 

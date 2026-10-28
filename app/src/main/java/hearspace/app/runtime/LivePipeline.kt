@@ -160,6 +160,7 @@ class LivePipeline(
             logger?.slowPath(RunLog.slowPathLine(slow.lastMapUpdate!!, t0, t1, s))
             logger?.obstacles(RunLog.obstacleLines(s))
             logger?.clusters(slow.lastClusterDebug)
+            slow.lastMapUpdate?.geometry?.let { logger?.geometry(s.tCaptureNs, it) }
         }
     }
 
