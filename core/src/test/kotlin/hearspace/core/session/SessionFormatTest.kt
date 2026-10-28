@@ -139,6 +139,16 @@ class SessionFormatTest {
     }
 
     @Test
+    fun `meta json carries the app git hash and reads older sessions without it`() {
+        // M41(A1 MA10): 녹화와 코드 판을 잇는다. 이 필드가 생기기 전 세션은 null
+        val m = meta().copy(gitHash = "68a3195-dirty")
+        assertEquals(m, SessionMeta.fromJson(m.toJson()))
+        val old = m.toJson().replace(Regex("""\s*"gitHash": "[^"]*","""), "")
+        assertTrue("gitHash" !in old, old)
+        assertEquals(meta(), SessionMeta.fromJson(old))
+    }
+
+    @Test
     fun `meta json reports missing fields`() {
         val e = assertThrows<IllegalArgumentException> { SessionMeta.fromJson("""{ "formatVersion": "v0" }""") }
         assertTrue("missing" in e.message!!, e.message)

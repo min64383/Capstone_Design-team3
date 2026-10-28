@@ -1,6 +1,6 @@
 {
   "head": { "offsetFromCameraM": [0.0, 0.5, -0.39] },
-  "heading": { "windowS": 2.0, "minTravelM": 0.15 },
+  "heading": { "windowS": 2.0, "minTravelM": 0.15, "swayM": 0.016, "cameraSigmaDeg": 0.0 },
   "corridor": {
     "widthM": 0.8,
     "heightM": 2.0,
@@ -9,7 +9,9 @@
     "edgeInnerM": 0.25,
     "edgeMinLengthM": 0.8,
     "edgeOutsideM": 0.0,
-    "cutEnd": false
+    "cutEnd": false,
+    "wallAlign": false,
+    "judge": "BOX"
   },
   "depth": {
     "subsample": 2,
@@ -116,7 +118,9 @@
     "lostFrames": 10,
     "minBelowCameraM": 0.8,
     "source": "HISTOGRAM",
-    "holdWhenLost": true
+    "holdWhenLost": true,
+    "decompose": "BAND",
+    "regionM": 2.0
   },
   "cluster": { "epsM": 0.15, "minSamples": 5, "headMinM": 1.2, "bodyMinM": 0.5, "separateWalls": false, "wallFraction": 0.5, "coreEvidenceMultiplier": 1.0 },
   "geometry": {
@@ -189,7 +193,7 @@
     "bufferBlocks": 8
   },
   "haptics": { "readyMs": 40, "pauseMs": 40, "pauseGapMs": 80, "unknownMs": 400, "exitMs": 600 },
-  "record": { "depthEveryN": 1, "rgbEveryN": 3, "deviceLogIntervalS": 1.0 },
+  "record": { "depthEveryN": 1, "rgbEveryN": 3, "deviceLogIntervalS": 1.0, "maxRuns": 20 },
   "slowPath": { "maxRateHz": 0 },
   "align": { "fitLengthM": 2.0, "minTravelM": 0.5, "headingWindowS": 3.0 },
   "sonify": {

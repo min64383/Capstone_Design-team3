@@ -15,6 +15,7 @@ import hearspace.app.TAG
 import hearspace.core.session.SessionFormat
 import hearspace.core.session.SessionMeta
 import java.io.File
+import java.util.concurrent.Executors
 
 /** 개발 모드 세션 목록(§11.3): 세션별 크기·길이·장면 ID, `adb pull` 경로, 삭제. 재생 선택 모드에서는 누르면 재생한다. */
 class SessionList : Activity() {
@@ -31,6 +32,7 @@ class SessionList : Activity() {
 
     private lateinit var list: ListView
     private lateinit var header: TextView
+    private val io = Executors.newSingleThreadExecutor()
     private val pick get() = intent.getBooleanExtra(EXTRA_PICK, false)
 
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -53,19 +55,35 @@ class SessionList : Activity() {
         refresh()
     }
 
-    private fun refresh() {
+    /**
+     * 세션 크기는 파일 수만 개를 훑으므로 [io]에서 세고 목록만 UI 스레드에 올린다(A1 CO1: ANR 방지). [before](삭제)도 [io]에서 먼저 한다.
+     * [io]는 스레드 하나라 차례대로 돌고, 마지막에 올린 목록이 가장 새 것이다.
+     */
+    private fun refresh(before: (() -> Unit)? = null) {
         val root = RecordScreen.sessionsRoot(this)
-        val entries = root.listFiles { f -> f.isDirectory }.orEmpty().sortedByDescending { it.name }.map { dir ->
-            val meta = try {
-                SessionMeta.fromJson(File(dir, SessionFormat.META_FILE).readText())
-            } catch (e: Exception) {
-                Log.w(TAG, "cannot read meta in $dir", e)
-                null
+        header.text = "세션 목록을 읽는 중"
+        io.execute {
+            before?.invoke()
+            val entries = root.listFiles { f -> f.isDirectory }.orEmpty().sortedByDescending { it.name }.map { dir ->
+                val meta = try {
+                    SessionMeta.fromJson(File(dir, SessionFormat.META_FILE).readText())
+                } catch (e: Exception) {
+                    Log.w(TAG, "cannot read meta in $dir", e)
+                    null
+                }
+                Entry(dir, meta, dir.walkTopDown().filter { it.isFile }.sumOf { it.length() })
             }
-            Entry(dir, meta, dir.walkTopDown().filter { it.isFile }.sumOf { it.length() })
+            runOnUiThread {
+                if (isDestroyed) return@runOnUiThread
+                header.text = (if (pick) "재생할 세션을 고르세요\n" else "") +"세션 ${entries.size}개\n가져오기(PowerShell):\nadb pull ${root.absolutePath}/<세션ID> data/sessions/"
+                list.adapter = ArrayAdapter(this, android.R.layout.simple_list_item_1, entries)
+            }
         }
-        header.text = (if (pick) "재생할 세션을 고르세요\n" else "") +"세션 ${entries.size}개\n가져오기(PowerShell):\nadb pull ${root.absolutePath}/<세션ID> data/sessions/"
-        list.adapter = ArrayAdapter(this, android.R.layout.simple_list_item_1, entries)
+    }
+
+    override fun onDestroy() {
+        io.shutdown()
+        super.onDestroy()
     }
 
     private fun play(e: Entry) {
@@ -91,8 +109,7 @@ class SessionList : Activity() {
             .setTitle("삭제할까요?")
             .setMessage("${e.dir.name}\n되돌릴 수 없습니다.")
             .setPositiveButton("삭제") { _, _ ->
-                if (!e.dir.deleteRecursively()) Log.w(TAG, "delete incomplete: ${e.dir}")
-                refresh()
+                refresh { if (!e.dir.deleteRecursively()) Log.w(TAG, "delete incomplete: ${e.dir}") }
             }
             .setNegativeButton("취소", null)
             .show()

@@ -4,18 +4,23 @@ import hearspace.core.geometry.HeadPose
 import hearspace.core.geometry.Vec3
 import hearspace.core.guidance.Corridor
 import hearspace.core.guidance.MapAction
+import hearspace.core.guidance.walkableInPath
+import hearspace.core.guidance.withoutEdgeStructures
+import hearspace.core.guidance.withoutParallelBoundaries
+import hearspace.core.guidance.wallAlignedHeading
 import hearspace.core.mapping.LocalMap
 import hearspace.core.mapping.MapUpdate
 import hearspace.core.mapping.PruneCounts
 import hearspace.core.mapping.VoxelView
+import hearspace.core.mapping.withoutFloorBand
 import hearspace.core.tracking.Cluster
 import hearspace.core.tracking.Detection
 import hearspace.core.tracking.HeightClassifier
 import hearspace.core.tracking.RepPoint
 import hearspace.core.tracking.Tracker
 import hearspace.core.types.Config
+import hearspace.core.types.CorridorJudgeMode
 import hearspace.core.types.DepthFrame
-import hearspace.core.types.DepthSource
 import hearspace.core.types.MapMode
 import hearspace.core.types.MapHealth
 import hearspace.core.types.ObstacleSnapshot
@@ -33,6 +38,8 @@ class SlowPath(
     private val config: Config,
     /** 고정 지도(정답 대입 O, M12.3 평가 전용). 있으면 바닥 추정·복셀 갱신을 건너뛰고 이 칸과 바닥을 쓴다. 앱은 넘기지 않는다. */
     private val fixedMap: FixedMap? = null,
+    /** 바닥 대입(F*, M35 전제 확인, 평가 전용): 있으면 지도의 바닥 추정 대신 이 높이를 요소 분해·통로·높이 분류에 쓴다. 앱은 넘기지 않는다. */
+    private val floorOverrideY: Float? = null,
     /** 단계별 처리 시간을 재는 시계(ns). 실행 결과에는 영향이 없고 [lastStageNs]에만 쓴다. */
     private val nanoTime: () -> Long = System::nanoTime,
 ) {
@@ -71,7 +78,7 @@ class SlowPath(
         lastMapUpdate = u
         lastUserPosW = userPosW
         val t1 = nanoTime()
-        val floorY = u.floorY
+        val floorY = if (u.floorY != null) floorOverrideY ?: u.floorY else null
         if (floorY == null) {
             lastClusterDebug = emptyList()
             lastClusters = emptyList()
@@ -80,13 +87,21 @@ class SlowPath(
             return ObstacleSnapshot(depth.tCaptureNs, obstacles, null, u.mapHealth)
         }
 
-        val corridor = Corridor(userPosW, headingW, floorY, config.corridor)
         val camFromWorld = depth.worldFromCam.rigidInverse()
         val occupied = fm?.voxels?.map { it.copy(lastSeenNs = depth.tCaptureNs) } ?: map.voxels.occupied().let { all ->
-            if (config.map.mode == MapMode.TRISTATE) withoutFloorBand(all, floorY, depth.worldFromCam.translation()) else all
+            if (config.map.mode == MapMode.TRISTATE) withoutFloorBand(all, floorY, depth.worldFromCam.translation(), config) else all
         }
-        val inCorridor = occupied.filter { corridor.contains(it.centerW) }
-        val voxels = withoutEdgeStructures(occupied, inCorridor, corridor)
+        val corridorHeadingW = if (config.corridor.wallAlign) {
+            wallAlignedHeading(headingW, occupied.map { it.centerW }, userPosW, floorY, config.corridor, config.map.voxelSizeM)
+        } else headingW
+        val corridor = Corridor(userPosW, corridorHeadingW, floorY, config.corridor)
+        val voxels = when (config.corridor.judge) {
+            CorridorJudgeMode.WALKABLE -> walkableInPath(occupied, corridor, config)
+            CorridorJudgeMode.BOX -> withoutEdgeStructures(occupied, occupied.filter { corridor.contains(it.centerW) }, corridor, config)
+            CorridorJudgeMode.BOUNDARY -> withoutParallelBoundaries(
+                occupied, withoutEdgeStructures(occupied, occupied.filter { corridor.contains(it.centerW) }, corridor, config), corridor, config,
+            )
+        }
         // C2: 남은 칸을 벽 칸과 나머지로 나눠 따로 묶는다(벽도 장애물로 남는다). 끄면 한 묶음(기준선). 가장자리 구조물 규칙을 먼저 전체에
         // 적용해야 한다: 벽 칸을 먼저 떼면 라벨 없는 옆 벽 밑동 조각이 짧은 덩어리로 남아 오경보가 됐다(S02 130646 0.11 → 0.22)
         val groups = if (config.cluster.separateWalls) {
@@ -183,74 +198,6 @@ class SlowPath(
         val obstacles = tracker.update(detections, depth.tCaptureNs)
         lastStageNs = StageTimes(t1 - t0, t2 - t1, nanoTime() - t2)
         return ObstacleSnapshot(depth.tCaptureNs, obstacles, floorY, u.mapHealth)
-    }
-
-    /**
-     * TRISTATE(M32): 지도에는 바닥이 남으므로, 안내로 넘기기 전에 바닥 추정값 + max(τ, `map.sigmaMultiple` × σ(거리)) 이하의 칸(바닥 아래 포함)을
-     * 뺀다. 거리는 지금 카메라 [cameraW]에서 칸 중심까지(깊이 Z보다 크거나 같아 띠가 넓은 쪽). 요소 분해(M35)가 들어오기 전까지의 임시 규칙이다.
-     */
-    private fun withoutFloorBand(occupied: List<VoxelView>, floorY: Float, cameraW: Vec3): List<VoxelView> {
-        val raw = config.depth.source == DepthSource.RAW
-        val tau = config.map.voxelSizeM * kotlin.math.sqrt(3f) / 2f
-        return occupied.filter {
-            val band = kotlin.math.max(tau, config.map.sigmaMultiple * config.depth.sigmaM(raw, (it.centerW - cameraW).norm()))
-            it.centerW.y - floorY > band
-        }
-    }
-
-    /**
-     * 나란한 가장자리 구조물(벽·담장·난간·길가 차량 등)의 복셀을 뺀다. 가장자리 구역(|좌우| ≥ `corridor.edgeInnerM`)의
-     * 복셀만 따로 군집해, 진행 방향으로 `corridor.edgeMinLengthM` 이상 이어진 군집을 구조물로 본다.
-     * 좁은 복도에서 사용자가 조금만 치우쳐도 옆 벽 한 줄이 통로 안에 들어와 계속 경고하던 문제(M5 실측) 대응.
-     * 벽에 붙은 물체는 가장자리 구역 안 부분만 벽과 함께 빠지고 안쪽으로 나온 부분은 남는다.
-     * 실내 벽에 한정하지 않는 규칙이다(실외 확장, §15).
-     *
-     * `corridor.edgeOutsideM` > 0이면(M22 W) 통로 밖 그 폭까지의 칸([occupied])과 함께 한 번 더 묶어, 길게 이어진 묶음의 칸 중 통로 경계에서
-     * 한 칸 안(|좌우| > 반폭 − 칸 크기)의 통로 안 칸을 더 뺀다. 통로가 벽면을 가로지르면 경계 안 몇 칸만 짧은 조각으로 남아 위 규칙에 걸리지 않았다.
-     * 한 칸으로 좁힌 것은 벽에 붙은 물체·벽과 이어진 문의 가장자리 구역까지 빼면 확인용 세션에서 경고가 늦어졌기 때문이다(M22 설계 2.6절).
-     */
-    private fun withoutEdgeStructures(occupied: List<VoxelView>, voxels: List<VoxelView>, corridor: Corridor): List<VoxelView> {
-        val edge = voxels.filter { kotlin.math.abs(corridor.lateralM(it.centerW)) >= config.corridor.edgeInnerM }
-        if (edge.isEmpty() && !config.corridor.cutEnd) return voxels
-        val removed = HashSet<VoxelView>()
-        for (idx in Cluster.dbscanXZ(edge.map { it.centerW }, config.cluster.epsM, config.cluster.minSamples)) {
-            val along = idx.map { corridor.alongM(edge[it].centerW) }
-            if (along.max() - along.min() >= config.corridor.edgeMinLengthM) idx.forEach { removed += edge[it] }
-        }
-        if (config.corridor.edgeOutsideM > 0f) {
-            val half = config.corridor.widthM / 2
-            val band = occupied.filter {
-                corridor.contains(it.centerW, half + config.corridor.edgeOutsideM) &&
-                    kotlin.math.abs(corridor.lateralM(it.centerW)) >= config.corridor.edgeInnerM
-            }
-            for (idx in Cluster.dbscanXZ(band.map { it.centerW }, config.cluster.epsM, config.cluster.minSamples)) {
-                val along = idx.map { corridor.alongM(band[it].centerW) }
-                if (along.max() - along.min() < config.corridor.edgeMinLengthM) continue
-                for (i in idx) if (kotlin.math.abs(corridor.lateralM(band[i].centerW)) > half - config.map.voxelSizeM) removed += band[i]
-            }
-        }
-        if (config.corridor.cutEnd) removed += endFragments(occupied, corridor)
-        return if (removed.isEmpty()) voxels else voxels.filter { it !in removed }
-    }
-
-    /**
-     * 통로 끝에 잘린 구조물 조각(M25 E, `corridor.cutEnd`). 진행 방향 `policy.silentMaxM` ~ 끝 + `cluster.epsM`, 통로 높이, 좌우는 W의 바깥 띠까지인
-     * 점유 칸([occupied], 끝 너머 포함)을 묶어 끝 너머 칸이 있는 묶음을 돌려준다. 끝 벽이 통로 끝에 잘려 몇 칸만 군집이 되어 깜빡이던 문제.
-     * 빼는 칸은 모두 무음 거리라 안내는 바뀌지 않고, 다가가 무음 거리 안에 들어온 칸은 대상이 아니다(M25 설계 3.1절).
-     */
-    private fun endFragments(occupied: List<VoxelView>, corridor: Corridor): List<VoxelView> {
-        val c = config.corridor
-        val reach = c.widthM / 2 + c.edgeOutsideM
-        val end = c.lengthM
-        val band = occupied.filter {
-            val along = corridor.alongM(it.centerW)
-            val h = it.centerW.y - corridor.floorY
-            along >= config.policy.silentMaxM && along <= end + config.cluster.epsM && h >= 0f && h <= c.heightM &&
-                kotlin.math.abs(corridor.lateralM(it.centerW)) <= reach
-        }
-        return Cluster.dbscanXZ(band.map { it.centerW }, config.cluster.epsM, config.cluster.minSamples)
-            .filter { idx -> idx.any { corridor.alongM(band[it].centerW) > end } }
-            .flatMap { idx -> idx.map { band[it] } }
     }
 
     /**

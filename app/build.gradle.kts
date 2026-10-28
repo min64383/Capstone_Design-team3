@@ -14,6 +14,8 @@ android {
         versionCode = 1
         versionName = "0.1.0"
         buildConfigField("String", "ARCORE_SDK_VERSION", "\"${libs.versions.arcore.get()}\"")
+        // M41: 녹화 meta.json에 남길 코드 판(루트 build.gradle.kts)
+        buildConfigField("String", "GIT_HASH", "\"${rootProject.extra["gitHash"]}\"")
     }
 
     buildFeatures {

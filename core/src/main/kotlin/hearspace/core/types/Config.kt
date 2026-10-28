@@ -35,7 +35,17 @@ data class HeadConfig(
 )
 
 /** 진행 방향 추정 설정. */
-data class HeadingConfig(val windowS: Float, val minTravelM: Float)
+data class HeadingConfig(
+    val windowS: Float,
+    val minTravelM: Float,
+    /** 걷는 중 카메라 옆 흔들림의 표준편차(m). 가중 결합에서 창 이동 방향의 오차 √2·swayM/d를 낸다(M42, 실측 1.4826·MAD). */
+    val swayM: Float = 0f,
+    /**
+     * 카메라 정면(수평)과 걷는 방향 차의 표준편차(°). 0보다 크면(M42) 창 이동 방향과 카메라 정면을 각 오차 분산의 역수로 가중해 더한다
+     * (최소 분산 결합). 0 = 끔(기준선: 이동이 [minTravelM] 미만이면 직전 값 유지).
+     */
+    val cameraSigmaDeg: Float = 0f,
+)
 
 /** 통로 치수와 가장자리 구조물 판정. */
 data class CorridorConfig(
@@ -58,6 +68,13 @@ data class CorridorConfig(
      * false = 기준선.
      */
     val cutEnd: Boolean,
+    /**
+     * 벽 방향 맞춤(M42 C): 통로 방향을 진행 방향 ±α 안에서 주변 점유 칸이 가장 길게 나란히 이어지는 방향으로 맞춘다([wallAlignedHeading]).
+     * α = asin((widthM/2 − edgeInnerM)/edgeMinLengthM): 가장자리 구조물 규칙이 이미 "나란한 벽"으로 보는 각. false = 기준선.
+     */
+    val wallAlign: Boolean = false,
+    /** 통로 판정 방식([CorridorJudgeMode], M44). BOX = 기준선. */
+    val judge: CorridorJudgeMode = CorridorJudgeMode.BOX,
 )
 
 /** 깊이 입력·역투영 설정. */
@@ -325,6 +342,13 @@ data class FloorConfig(
      * false면 잊는다(v0.2.7 기준선). 기본 true(M18 결과 검토, 2026-10-10).
      */
     val holdWhenLost: Boolean = false,
+    /** 요소 분해의 바닥 칸 가르기([FloorDecompose], M35). BAND = 기준선. */
+    val decompose: FloorDecompose = FloorDecompose.BAND,
+    /**
+     * REGION_PLANE의 영역 한 변(m). 원시 깊이 바닥 점의 평면 잔차가 깊이 잡음 σ(Z) 수준(0.044 대 0.045 m)인 가장 큰 크기 2 m
+     * (1 m 0.040, 전체 하나 0.054, M35 설계 표 2a).
+     */
+    val regionM: Float = 2f,
 )
 
 /** 군집·높이 분류 설정. */
@@ -503,6 +527,8 @@ data class RecordConfig(
     val rgbEveryN: Int,
     /** device.csv(발열·배터리) 기록 주기. */
     val deviceLogIntervalS: Float,
+    /** 앱이 남길 실시간 실행 로그(`runs/<시각>/`) 수. 새 실행마다 오래된 것부터 지운다(M40, A1 FA4). */
+    val maxRuns: Int,
 )
 
 /**

@@ -113,6 +113,25 @@ class SessionReaderTest {
     }
 
     @Test
+    fun `interrupted recording is read up to the cut`() {
+        // A1 FA8: 녹화가 끊기면 frames.csv 마지막 줄과 마지막 PNG가 잘린다. 그 줄은 버리고 잘린 PNG는 없는 파일처럼 건너뛴다
+        val rec = Scenes.SC02.generate()
+        val dir = SyntheticSessionWriter.write(rec, File(tmp, "s"), "SC-02")
+        val f = File(dir, SessionFormat.FRAMES_FILE)
+        val lines = f.readLines().filter { it.isNotBlank() }.toMutableList()
+        lines[lines.lastIndex] = lines.last().take(lines.last().length / 2)
+        f.writeText(lines.joinToString("\n"))
+        val png = File(dir, SessionFormat.depthFile(40))
+        png.writeBytes(png.readBytes().copyOf(png.length().toInt() / 2))
+        val r = SessionReader(dir)
+        assertEquals(rec.frames.size - 1, r.rows.size)
+        val depths = r.events(DepthSource.SMOOTHED).filterIsInstance<DepthEvent>().toList()
+        assertTrue(depths.isNotEmpty() && depths.none { it.frameIndex == 40L })
+        assertTrue(r.warnings.any { "dropped" in it && "line ${lines.size}" in it }, r.warnings.toString())
+        assertTrue(r.warnings.any { "unreadable" in it && "000040" in it }, r.warnings.toString())
+    }
+
+    @Test
     fun `v0 and v1 sessions of the same recording read identically`() {
         val rec = Scenes.SC08.generate()
         val v1 = SessionReader(SyntheticSessionWriter.write(rec, File(tmp, "v1"), "SC-08"))

@@ -32,19 +32,28 @@ data class TruthObstacle(
     val removeAtS: Float?,
 ) {
     /**
-     * 정답 통로(머리 [headX], [headZ]에서 보행선 +z 방향) 안 최근접점. 통로 밖이면 null.
-     * `tools/analysis/metrics.py`의 `truth_nearest`와 같은 규칙이다(바꾸면 두 곳을 같이 바꾼다).
+     * 정답 통로(머리 [headX], [headZ]에서 보행선 방향 [sign]·z) 안 최근접점. 통로 밖이면 null. 방위는 사용자 오른쪽 +.
+     * [sign] −1은 −z로 걷는 구간(왕복의 돌아오는 길): 앞 = −z, 오른쪽 = −x라 상자와 머리를 x·z 모두 뒤집어 +z와 같은 계산을 한다.
+     * `tools/analysis/metrics.py`의 `truth_nearest(…, sgn)`와 같은 규칙이다(바꾸면 두 곳을 같이 바꾼다, A1 MA3).
+     * 부호를 정하는 쪽: metrics.py는 정답 머리 이동(`walk_sign`), 평가 GUI는 그 블록의 앱 진행 방향, [ClusterEval]은 +z만(한 방향 보행 장면).
      */
-    fun nearestInCorridor(headX: Float, headZ: Float, c: CorridorConfig): TruthNearest? {
+    fun nearestInCorridor(headX: Float, headZ: Float, c: CorridorConfig, sign: Float = 1f): TruthNearest? {
         if (minM.y >= c.heightM) return null
-        val lo = maxOf(minM.x, headX - c.widthM / 2)
-        val hi = minOf(maxM.x, headX + c.widthM / 2)
+        val back = sign < 0f
+        val x0 = if (back) -maxM.x else minM.x
+        val x1 = if (back) -minM.x else maxM.x
+        val z0 = if (back) -maxM.z else minM.z
+        val z1 = if (back) -minM.z else maxM.z
+        val hx = if (back) -headX else headX
+        val hz = if (back) -headZ else headZ
+        val lo = maxOf(x0, hx - c.widthM / 2)
+        val hi = minOf(x1, hx + c.widthM / 2)
         if (lo > hi) return null
-        val zn = maxOf(minM.z, headZ - c.behindM)
-        if (zn > maxM.z || zn - headZ > c.lengthM) return null
-        val xn = headX.coerceIn(lo, hi)
-        val along = zn - headZ
-        return TruthNearest(along, hypot(xn - headX, along), Math.toDegrees(atan2((xn - headX).toDouble(), along.toDouble())).toFloat())
+        val zn = maxOf(z0, hz - c.behindM)
+        if (zn > z1 || zn - hz > c.lengthM) return null
+        val xn = hx.coerceIn(lo, hi)
+        val along = zn - hz
+        return TruthNearest(along, hypot(xn - hx, along), Math.toDegrees(atan2((xn - hx).toDouble(), along.toDouble())).toFloat())
     }
 }
 

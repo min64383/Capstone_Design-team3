@@ -36,3 +36,4 @@ class Corridor(val originW: Vec3, headingW: Vec3, val floorY: Float, private val
             h >= 0f && h <= cfg.heightM
     }
 }
+

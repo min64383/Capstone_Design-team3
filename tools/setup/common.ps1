@@ -1,6 +1,6 @@
 ﻿<#
 .SYNOPSIS
-    tools/setup 스크립트가 함께 쓰는 함수(결과 표, 사용자 환경 변수 백업·편집, winget 설치, JDK 버전, 분석용 Python venv).
+    tools/setup 스크립트가 함께 쓰는 함수(결과 표, 사용자 환경 변수 백업·편집, winget 설치, 세션 폴더 경로, JDK 버전, 분석용 Python venv).
 
 .DESCRIPTION
     직접 실행하지 않는다. 각 스크립트가 변수를 정한 뒤 점 소싱으로 읽는다:
@@ -131,6 +131,20 @@ function Install-WingetPackage([string]$id, [string]$label) {
     & winget install --id $id --exact --silent --accept-package-agreements --accept-source-agreements
     if ($LASTEXITCODE -ne 0) { throw "$label 설치 실패 (winget 종료 코드 $LASTEXITCODE)" }
     Update-SessionPath
+}
+
+# ---------------------------------------------------------------- 세션 폴더
+
+# 세션 ID = <yyyyMMdd_HHmmss>_<장면ID>(앱 녹화 화면이 만든다). 구분자(\ / . :)가 없는 형식만 받는다.
+$SessionIdPattern = '^\d{8}_\d{6}_[A-Za-z0-9]+$'
+
+function Get-SessionDir([string]$root, [string]$sid) {
+    # [root] 바로 아래의 세션 폴더 경로. 기기·명령줄에서 온 이름이 지우기·덮어쓰기 경로가 되므로(A1 TR6) 형식과 위치를 확인한다.
+    if ($sid -notmatch $SessionIdPattern) { throw "세션 ID 형식이 아닙니다: '$sid'" }
+    $full = [System.IO.Path]::GetFullPath((Join-Path $root $sid))
+    $parent = [System.IO.Path]::GetFullPath($root).TrimEnd('\')
+    if ((Split-Path $full -Parent) -ne $parent) { throw "세션 폴더가 $parent 바로 아래가 아닙니다: $full" }
+    return $full
 }
 
 function Get-JavaMajor([string]$jdkDir) {

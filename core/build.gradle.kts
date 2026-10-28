@@ -67,8 +67,11 @@ fun mergeJson(base: String, over: String): String {
     return groovy.json.JsonOutput.prettyPrint(groovy.json.JsonOutput.toJson(merged))
 }
 
+// 재생 결과 replay_info.json의 코드 판(루트 build.gradle.kts, M41)
+val gitHash: String by rootProject.extra
+
 // M8 오프라인 재생: ./gradlew :core:replay -Psession=<세션 폴더> [-Pout=..] [-PslowMs=10 | -PslowFrom=<slow_path.csv>] [-PoverridesFile=<json>]
-// M12.3 정답 대입: [-Psubstitute=depth,map,heading -PalignFrom=<align.json> -PdepthNoisePerM=0.03]
+// M12.3 정답 대입: [-Psubstitute=depth,map,heading,floor -PalignFrom=<align.json> -PdepthNoisePerM=0.03]
 // M19 RGB 원천: [-PrgbFrom=mp4|recorded]
 tasks.register<JavaExec>("replay") {
     group = "hearspace"
@@ -77,6 +80,7 @@ tasks.register<JavaExec>("replay") {
     mainClass.set("hearspace.core.replay.OfflineReplayMainKt")
     systemProperty("hearspace.defaultConfig", rootProject.file("app/src/main/assets/config/default.json").absolutePath)
     systemProperty("hearspace.replayOut", layout.buildDirectory.dir("replay").get().asFile.absolutePath)
+    systemProperty("hearspace.gitHash", gitHash)
     val paths = setOf("session", "out", "slowFrom", "overridesFile", "alignFrom")
     args = listOf("session", "out", "slowMs", "slowFrom", "overrides", "overridesFile", "substitute", "alignFrom", "depthNoisePerM", "rgbFrom").mapNotNull { k ->
         (project.findProperty(k) as String?)?.let { v -> "$k=${if (k in paths) rootProject.file(v).absolutePath else v}" }
@@ -93,6 +97,7 @@ tasks.register<JavaExec>("sceneEval") {
     mainClass.set("hearspace.core.synth.SceneEvalRunKt")
     maxHeapSize = (project.findProperty("heap") as String?) ?: "4g" // -Pheap=2g: 메모리가 적은 PC(M32)
     systemProperty("hearspace.defaultConfig", rootProject.file("app/src/main/assets/config/default.json").absolutePath)
+    systemProperty("hearspace.gitHash", gitHash)
     val paths = setOf("out", "overridesFile")
     args = listOf("scenes", "seed", "strengths", "out", "overridesFile", "rawEveryN", "threads").mapNotNull { k ->
         (project.findProperty(k) as String?)?.let { v -> "$k=${if (k in paths) rootProject.file(v).absolutePath else v}" }

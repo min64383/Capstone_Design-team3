@@ -17,6 +17,8 @@ import kotlin.math.roundToInt
  * - [depth]: 깊이 영상을 [TruthDepth]로(D). [depthNoisePerM] > 0이면 무작위 잡음만 더한다(Dn).
  * - [map]: 지도(바닥 추정·복셀 점유)를 정답 상자로 채운 고정 지도로(O). 통로·가장자리 규칙·군집·대표점·추적은 그대로 돈다.
  * - [heading]: 앱 진행 방향을 보행선 ±z 중 가까운 쪽으로(H, 지표의 정답 진행 방향과 같은 규칙).
+ * - [floor]: 느린 경로가 요소 분해·통로·높이 분류에 쓰는 바닥 높이를 정렬의 바닥으로(F*, M35 전제 확인). TRISTATE는 지도 갱신이 바닥을 쓰지 않아
+ *   바닥 추정 전체가 바뀌고, HITS는 지도에 넣는 점 고르기(바닥 점 빼기)는 그대로다.
  * 정렬([align])은 기준 재생이 낸 `align.json`을 모든 변형이 같이 쓴다(정렬이 재생의 바닥 추정에 기대므로, 변형마다 맞추면 정답이 달라진다).
  */
 class Substitution(
@@ -26,6 +28,7 @@ class Substitution(
     val depthNoisePerM: Float = 0f,
     val map: Boolean = false,
     val heading: Boolean = false,
+    val floor: Boolean = false,
 ) {
     /** 보행선 +z의 월드 방향(수평 단위). */
     private val walkW = align.toWorldDir(Vec3(0f, 0f, 1f))
@@ -36,12 +39,15 @@ class Substitution(
     /** 진행 방향 대입(H): 앱 진행 방향과 같은 쪽의 보행선 방향. 끄면 null(대입 없음). */
     fun headingSnap(): ((Vec3) -> Vec3)? = if (!heading) null else { h -> if ((h dot walkW) >= 0f) walkW else -walkW }
 
+    /** 바닥 대입(F*): 정렬의 바닥 높이. 끄면 null. */
+    fun floorY(): Float? = if (floor) align.floorY.toFloat() else null
+
     /** 지도 대입(O): 정답 상자를 복셀 크기 [voxelSizeM] 격자 점으로 채운 고정 지도. 끄면 null. */
     fun fixedMap(voxelSizeM: Float): FixedMap? = if (!map) null else truthMap(truth.obstacles, align, voxelSizeM)
 
     /** `replay_info.json`에 남길 내용(분석 도구가 같은 정렬을 읽는다). */
     fun infoJson(alignFrom: String): String {
-        val on = listOfNotNull("depth".takeIf { depth }, "map".takeIf { map }, "heading".takeIf { heading })
+        val on = listOfNotNull("depth".takeIf { depth }, "map".takeIf { map }, "heading".takeIf { heading }, "floor".takeIf { floor })
         return "{ \"substitute\": [${on.joinToString { "\"$it\"" }}], \"depthNoisePerM\": $depthNoisePerM, " +
             "\"alignFrom\": \"${alignFrom.replace("\\", "/")}\" }"
     }

@@ -33,17 +33,29 @@ data class DepthEvent(val frameIndex: Long, override val arrivalTNs: Long, val d
  * - 깊이 시각의 자세: 깊이가 도착한 프레임까지 **이미 받은** 자세 중 시각이 가장 가까운 것(보간 없음, 미래 없음).
  *   ARCore 깊이 시각은 프레임 시각과 일치하지 않는다(일반 깊이는 도착 프레임보다 약 0.3 ms 앞, 원시는 프레임 사이).
  * - 추적 중이 아닌 프레임의 자세가 골라지면 그 깊이는 쓰지 않는다.
+ * - 녹화가 끊긴 세션(강제 종료·전원, A1 FA8)도 끊긴 곳까지 읽는다: `frames.csv`의 읽을 수 없는 마지막 줄은 버리고, 잘리거나 손상된
+ *   깊이·신뢰도 PNG는 없는 파일처럼 건너뛴다(둘 다 [warnings]에 남긴다). 중간 줄의 오류는 그대로 실패한다.
  */
 class SessionReader(private val dir: File) {
 
     /** `meta.json`. */
     val meta: SessionMeta = SessionMeta.fromJson(File(dir, SessionFormat.META_FILE).readText())
 
+    /** 버린 `frames.csv` 마지막 줄의 사유([rows]보다 먼저 선언해야 [readRows]가 쓴 값이 남는다). */
+    private var droppedLastLine: String? = null
+
     /** `frames.csv`의 모든 행(파일 순서). */
     val rows: List<FrameRow> = readRows()
 
-    /** 읽는 중 건너뛴 항목의 사유(파일 없음, 추적 아님 등). [events]를 끝까지 돈 뒤 채워진다. */
+    /** 읽는 중 건너뛴 항목의 사유(파일 없음·손상, 추적 아님, 잘린 마지막 줄 등). [events]를 끝까지 돈 뒤 채워진다. */
     val warnings: MutableList<String> = mutableListOf()
+
+    /** 깊이·신뢰도 PNG 화소 수 상한: 메타의 가장 큰 영상(깊이·CPU 영상·텍스처). 손상된 머리말로 큰 배열을 잡지 않게(A1 TR8). */
+    private val maxPixels: Long = listOfNotNull(
+        meta.depth.width?.let { w -> meta.depth.height?.let { h -> w.toLong() * h } },
+        meta.camera.imageIntrinsics.let { it.width.toLong() * it.height },
+        meta.camera.textureIntrinsics.let { it.width.toLong() * it.height },
+    ).max()
 
     private fun readRows(): List<FrameRow> {
         require(meta.formatVersion in SessionFormat.READABLE) { "unsupported format ${meta.formatVersion}" }
@@ -51,13 +63,24 @@ class SessionReader(private val dir: File) {
         require(lines.isNotEmpty() && lines[0] == FramesCsv.headerLine(meta.formatVersion)) {
             "frames.csv header does not match format ${meta.formatVersion}"
         }
-        return lines.drop(1).filter { it.isNotBlank() }.mapIndexed { i, line ->
+        val body = lines.drop(1).filter { it.isNotBlank() }
+        return body.mapIndexedNotNull { i, line ->
             try {
                 FramesCsv.parse(line, meta.formatVersion)
             } catch (e: IllegalArgumentException) {
-                throw IllegalArgumentException("frames.csv line ${i + 2}: ${e.message}", e)
+                if (i < body.lastIndex) throw IllegalArgumentException("frames.csv line ${i + 2}: ${e.message}", e)
+                droppedLastLine = "frames.csv line ${i + 2}: dropped unreadable last line (${e.message})"
+                null
             }
         }
+    }
+
+    /** 세션 안 [file]의 PNG를 읽는다. 잘리거나 손상됐으면 [warnings]에 `<label> unreadable`로 남기고 null(없는 파일과 같게). */
+    private fun decodeOrNull(file: String, label: String): GrayImage? = try {
+        Png16.decode(File(dir, file).readBytes(), maxPixels)
+    } catch (e: IllegalArgumentException) {
+        warnings += "$label: unreadable $file (${e.message})"
+        null
     }
 
     /** 모든 프레임의 자세(C_cv). */
@@ -75,6 +98,7 @@ class SessionReader(private val dir: File) {
     /** 자세·깊이 사건을 도착 순서로. 깊이 이미지는 필요할 때 읽는다(긴 세션 메모리 절약). */
     fun events(source: DepthSource): Sequence<SessionEvent> = sequence {
         warnings.clear()
+        droppedLastLine?.let { warnings += it }
         var lastDepthTNs = Long.MIN_VALUE
         val poses = poseFrames()
         for ((i, row) in rows.withIndex()) {
@@ -94,7 +118,7 @@ class SessionReader(private val dir: File) {
                 warnings += "frame ${row.frameIndex}: depth pose not tracking (${rows[poseIdx].tracking})"
                 continue
             }
-            val img = Png16.decode(f.readBytes())
+            val img = decodeOrNull(file, "frame ${row.frameIndex}") ?: continue
             require(img.bitDepth == 16) { "$file: expected 16-bit depth" }
             val conf = if (source == DepthSource.RAW) row.confFile?.let { readConfidence(it, img.width, img.height) } else null
             lastDepthTNs = tNs
@@ -132,7 +156,7 @@ class SessionReader(private val dir: File) {
             warnings += "missing $file"
             return null
         }
-        val img = Png16.decode(f.readBytes())
+        val img = decodeOrNull(file, "confidence") ?: return null
         require(img.bitDepth == 8 && img.width == w && img.height == h) { "$file: confidence must be 8-bit ${w}x$h" }
         return img.gray8
     }

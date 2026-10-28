@@ -20,6 +20,9 @@ data class StateStep(val state: GuidanceState, val alert: AlertKind?, val mapAct
  * - 시작 직후와 일시정지 해제 뒤에도 같은 복귀 규칙으로 기다린다(이때는 UNKNOWN 알림을 내지 않는다: 아직 안내 전).
  *   대신 기다리는 동안 `unknownRepeatS` 간격으로 대기음(WAITING)을 낸다(§11.2 "추적 준비 중 대기음", M9).
  * - `DEGRADED`: 정보 나이 > 허용치의 50%, 또는 맵 상태 DEGRADED. 음원은 유지.
+ * - 바닥 모름(맵 상태 DEGRADED: 맵을 갱신하지 않고 스냅샷에 물체가 없다)은 장애물을 볼 수 없는 상태다(M40, §2.2-5 무음 ≠ 안전).
+ *   복귀(준비 완료)는 바닥을 안 뒤에만 하고 그동안은 위의 대기음·확인 불가 반복을 그대로 낸다.
+ *   안내 중에 바닥을 잃으면 상태는 DEGRADED 그대로(문턱 변경 없음, C1) 두고 들어갈 때와 `unknownRepeatS`마다 대기음을 낸다.
  */
 class StateMachine(private val cfg: StateConfig, private val maxInfoAgeMs: Float) {
 
@@ -32,6 +35,7 @@ class StateMachine(private val cfg: StateConfig, private val maxInfoAgeMs: Float
     private var lastUnknownAlertNs = 0L
     private var resetSinceLoss = false
     private var lastWaitingAlertNs: Long? = null // 준비 대기 중(시작·재개 뒤) 대기음 기준 시각
+    private var lastFloorAlertNs: Long? = null // 안내 중 바닥 모름 대기음 기준 시각
 
     /**
      * 한 번 진행. [infoAgeMs]는 스냅샷이 없으면 null. [newFrame]은 이번 자세가 새 ARCore 프레임인지:
@@ -58,7 +62,9 @@ class StateMachine(private val cfg: StateConfig, private val maxInfoAgeMs: Float
         if (state == GuidanceState.UNKNOWN && !announcedUnknown && lastWaitingAlertNs == null) lastWaitingAlertNs = nowNs
 
         val good = tracking == TrackingState.TRACKING && !discontinuity && infoAgeMs != null && infoAgeMs <= maxInfoAgeMs
-        if (!good) {
+        val floorUnknown = mapHealth == MapHealth.DEGRADED
+        // 준비 전(UNKNOWN)에는 바닥 모름도 좋은 프레임이 아니다: 볼 수 없는데 준비 완료를 내지 않는다
+        if (!good || (state == GuidanceState.UNKNOWN && floorUnknown)) {
             goodFrames = 0
             var action = MapAction.NONE
             if (discontinuity) {
@@ -90,7 +96,19 @@ class StateMachine(private val cfg: StateConfig, private val maxInfoAgeMs: Float
             state = GuidanceState.NORMAL
             return StateStep(degradedOrNormal(infoAgeMs, mapHealth), AlertKind.READY, action)
         }
-        return StateStep(degradedOrNormal(infoAgeMs, mapHealth), null, MapAction.NONE)
+        return StateStep(degradedOrNormal(infoAgeMs, mapHealth), floorAlert(nowNs, floorUnknown), MapAction.NONE)
+    }
+
+    /** 안내 중 바닥을 모르면 들어갈 때와 `unknownRepeatS`마다 WAITING. 바닥을 알면 기준 시각을 지운다. */
+    private fun floorAlert(nowNs: Long, floorUnknown: Boolean): AlertKind? {
+        if (!floorUnknown) {
+            lastFloorAlertNs = null
+            return null
+        }
+        val last = lastFloorAlertNs
+        if (last != null && nowNs - last < (cfg.unknownRepeatS * 1e9).toLong()) return null
+        lastFloorAlertNs = nowNs
+        return AlertKind.WAITING
     }
 
     /** 준비 대기 중이면 `unknownRepeatS`마다 WAITING. 안내 도중 확인 불가(UNKNOWN 반복 대상)에는 내지 않는다. */

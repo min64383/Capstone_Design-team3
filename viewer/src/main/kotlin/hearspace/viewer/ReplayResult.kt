@@ -227,6 +227,18 @@ class ReplayResult(
         return al.toTruth(cam + right * o.x + f * o.z).let { Vec3(it.x, it.y, it.z) }
     }
 
+    /**
+     * 블록 [i]의 보행 방향 부호(+1 = 정답 +z, −1 = 돌아오는 길): 그 블록 앱 진행 방향의 정답 z 성분 부호, 방향이 없으면 +1.
+     * 정답 통로 최근접점([hearspace.core.truth.TruthObstacle.nearestInCorridor])이 돌아오는 길에서 사용자 앞(−z)을 보게 한다(A1 MA3, metrics.py는 정답 머리 이동으로 정한다).
+     */
+    fun walkSignAt(i: Int): Float {
+        val al = alignment ?: return 1f
+        val hd = blocks[i].g.headingDeg
+        if (hd.isNaN()) return 1f
+        val r = Math.toRadians(hd.toDouble())
+        return if (al.toTruthDir(Vec3(kotlin.math.sin(r).toFloat(), 0f, -kotlin.math.cos(r).toFloat())).z < 0f) -1f else 1f
+    }
+
     // 타임라인용 시계열: 블록마다 첫 음원의 거리·방위·구간과, 정답 통로 안 가장 가까운 정답 물체의 거리·방위
     val state: Array<GuidanceState> = Array(blocks.size) { blocks[it].g.state }
     val estDistM = FloatArray(blocks.size) { blocks[it].g.commands.firstOrNull()?.distanceM ?: Float.NaN }
@@ -240,7 +252,8 @@ class ReplayResult(
         if (t != null && alignment != null) {
             for (i in blocks.indices) {
                 val h = headTruthAt(i) ?: continue
-                val near = t.obstacles.mapNotNull { it.nearestInCorridor(h.x, h.z, config.corridor) }.minByOrNull { it.alongM } ?: continue
+                val sign = walkSignAt(i)
+                val near = t.obstacles.mapNotNull { it.nearestInCorridor(h.x, h.z, config.corridor, sign) }.minByOrNull { it.alongM } ?: continue
                 truthDistM[i] = near.distanceM
                 truthAzDeg[i] = near.azimuthDeg
             }

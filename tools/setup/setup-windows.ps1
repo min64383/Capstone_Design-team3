@@ -8,10 +8,17 @@
       powershell -ExecutionPolicy Bypass -File tools\setup\setup-windows.ps1              # 확인 + 설치
       powershell -ExecutionPolicy Bypass -File tools\setup\setup-windows.ps1 -CheckOnly   # 확인만 (아무것도 바꾸지 않음)
       powershell -ExecutionPolicy Bypass -File tools\setup\setup-windows.ps1 -WithScrcpy  # 시연용 scrcpy도 설치
-      powershell -ExecutionPolicy Bypass -File tools\setup\setup-windows.ps1 -RemoveEnv   # 관리 대상 환경 변수 제거(JAVA_HOME, ANDROID_HOME, PATH의 SDK 항목)
+      powershell -ExecutionPolicy Bypass -File tools\setup\setup-windows.ps1 -RemoveEnv   # 되돌리기: JAVA_HOME·ANDROID_HOME을 설정 전 값으로, PATH의 SDK 항목 제거
 
     환경 변수는 사용자 범위(HKCU\Environment)에만 쓴다. 바꾸기 전에 기존 값을
-    %LOCALAPPDATA%\HEARSPACE\env-backup-<시각>.json 에 백업한다.
+    %LOCALAPPDATA%\HEARSPACE\env-backup-<시각>.json 에 백업한다. 쓸 수 있는(17 이상) JAVA_HOME이 이미 있으면 바꾸지 않는다.
+    -RemoveEnv는 지금 값이 이 스크립트가 쓴 값일 때만 백업에서 설정 전 값을 찾아 되돌린다(없었으면 지운다). 설치 때
+    -StudioDir·-SdkRoot를 줬다면 -RemoveEnv에도 같이 준다.
+
+    약관·라이선스 동의: 이 스크립트는 설치할 때 사용자를 대신해 다음에 동의한다. 동의하지 않으려면 -CheckOnly로 확인만 하고
+    직접 설치한다.
+      - winget 패키지·원본 약관(--accept-package-agreements --accept-source-agreements): Git, Android Studio, uv, scrcpy(-WithScrcpy)
+      - Android SDK 라이선스: Android CLI(android.exe)가 설치 중 만드는 라이선스 파일, 없으면 sdkmanager --licenses에 모두 y
 #>
 [CmdletBinding()]
 param(
@@ -59,10 +66,15 @@ function Install-CmdlineTools {
     $repo = Get-SdkRepo
     $pkg = $repo.'sdk-repository'.remotePackage | Where-Object { $_.path -eq 'cmdline-tools;latest' } | Select-Object -First 1
     $archive = $pkg.archives.archive | Where-Object { $_.'host-os' -eq 'windows' } | Select-Object -First 1
+    if (-not $archive.complete.url) { throw 'SDK 저장소 목록에서 Windows용 cmdline-tools를 찾지 못했습니다' }
     $url = 'https://dl.google.com/android/repository/' + $archive.complete.url
-    $sha1 = $archive.complete.checksum.'#text'
-    if (-not $sha1) { $sha1 = [string]$archive.complete.checksum }
-    $tmp = Join-Path $env:TEMP ('hearspace-cmdline-tools-' + [guid]::NewGuid().ToString('N'))
+    # 체크섬과 형식(type 속성, 없으면 sha1)을 읽는다. 체크섬이 없거나 모르는 형식이면 확인 없이 설치하지 않는다(A1 TR5)
+    $ck = $archive.complete.checksum
+    $expected = if ($ck -is [string]) { $ck } else { [string]$ck.'#text' }
+    $algo = if ($ck -is [string] -or -not $ck.type) { 'SHA1' } else { ([string]$ck.type).ToUpperInvariant() -replace '-', '' }
+    if (-not $expected) { throw 'SDK 저장소 목록에 cmdline-tools 체크섬이 없습니다. 확인할 수 없어 설치하지 않습니다' }
+    if ($algo -notin @('SHA1', 'SHA256', 'SHA384', 'SHA512')) { throw "SDK 저장소 목록의 체크섬 형식을 모릅니다: $($ck.type)" }
+    $tmp =Join-Path $env:TEMP ('hearspace-cmdline-tools-' + [guid]::NewGuid().ToString('N'))
     New-Item -ItemType Directory -Force $tmp | Out-Null
     try {
         $zip = Join-Path $tmp 'cmdline-tools.zip'
@@ -75,8 +87,8 @@ function Install-CmdlineTools {
         } else {
             Invoke-WebRequest -UseBasicParsing $url -OutFile $zip
         }
-        $actual = (Get-FileHash -Algorithm SHA1 $zip).Hash
-        if ($sha1 -and $actual -ne $sha1.ToUpperInvariant()) { throw "cmdline-tools 체크섬 불일치 (기대 $sha1, 실제 $actual)" }
+        $actual = (Get-FileHash -Algorithm $algo $zip).Hash
+        if ($actual -ne $expected.ToUpperInvariant()) { throw "cmdline-tools 체크섬 불일치 ($algo 기대 $expected, 실제 $actual)" }
         Expand-Archive -Path $zip -DestinationPath $tmp -Force
         $dest = Join-Path $SdkRoot 'cmdline-tools\latest'
         if (Test-Path $dest) { Remove-Item -Recurse -Force $dest }
@@ -118,11 +130,30 @@ function Install-SdkPackages([string[]]$ids) {
 
 # ================================================================ -RemoveEnv
 
+function Get-ValueBeforeSetup([string]$name, [string]$setValue) {
+    # 백업(새것부터) 가운데 [name]이 이 스크립트 값 [setValue]와 다른 첫 값 = 스크립트가 바꾸기 전 값. 찾지 못하면 Found = $false
+    $files = @(Get-ChildItem $BackupDir -Filter 'env-backup-*.json' -ErrorAction SilentlyContinue | Sort-Object Name -Descending)
+    foreach ($f in $files) {
+        $b = Get-Content -Raw -Encoding UTF8 $f.FullName | ConvertFrom-Json
+        if ($b.PSObject.Properties.Name -notcontains $name) { continue }
+        $v = $b.$name
+        if ((ConvertTo-NormalizedPath ([string]$v)) -ne (ConvertTo-NormalizedPath $setValue)) { return @{ Found = $true; Value = $v; From = $f.Name } }
+    }
+    return @{ Found = $false }
+}
+
 if ($RemoveEnv) {
-    Write-Step '환경 변수 제거'
+    Write-Step '환경 변수 되돌리기'
+    $setValues = @{ JAVA_HOME = $JbrDir; ANDROID_HOME = $SdkRoot }   # 이 스크립트가 쓰는 값
     Backup-UserEnv
     foreach ($n in $ManagedVars) {
-        if ($null -ne (Get-UserEnvRaw $n)) { Set-UserEnvRaw $n $null; Write-Info "$n 삭제" }
+        $cur = Get-UserEnvRaw $n
+        if ($null -eq $cur) { continue }
+        # 이 스크립트가 쓴 값만 되돌린다(A1 SU3: 사용자가 따로 둔 값은 그대로)
+        if ((ConvertTo-NormalizedPath $cur) -ne (ConvertTo-NormalizedPath $setValues[$n])) { Write-Info "$n = $cur (이 스크립트가 쓴 값이 아니라 그대로 둔다)"; continue }
+        $before = Get-ValueBeforeSetup $n $setValues[$n]
+        if ($before.Found -and $before.Value) { Set-UserEnvRaw $n $before.Value; Write-Info "$n 복원: $($before.Value) ($($before.From))" }
+        else { Set-UserEnvRaw $n $null; Write-Info "$n 삭제(설정 전에 없었음)" }
     }
     [void](Update-UserPath -add @() -remove (Get-SdkPathEntries))
     Send-EnvChanged
@@ -217,7 +248,16 @@ if ($CheckOnly) {
 
 Write-Step '5. 환경 변수 (사용자 범위)'
 $changed = $false
-$changed = (Set-ManagedVar 'JAVA_HOME' $JbrDir) -or $changed
+# 쓸 수 있는(17 이상) JAVA_HOME이 이미 있으면 바꾸지 않는다(setup-viewer와 같은 규칙, A1 SU3). 사용자 값이 없으면 시스템 값을 본다
+$curJava = Get-UserEnvRaw 'JAVA_HOME'
+if (-not $curJava) { $curJava = [Environment]::GetEnvironmentVariable('JAVA_HOME', 'Machine') }
+$curJavaDir = if ($curJava) { [Environment]::ExpandEnvironmentVariables($curJava) } else { '' }
+$curJavaMajor = if ($curJavaDir -and (Test-Path (Join-Path $curJavaDir 'bin\java.exe'))) { Get-JavaMajor $curJavaDir } else { $null }
+if ($curJavaMajor -and $curJavaMajor -ge $MinJavaMajor) {
+    Write-Info "JAVA_HOME = $curJava (Java $curJavaMajor, 그대로 둔다)"
+} else {
+    $changed = (Set-ManagedVar 'JAVA_HOME' $JbrDir) -or $changed
+}
 $changed = (Set-ManagedVar 'ANDROID_HOME' $SdkRoot) -or $changed
 
 $legacy = Get-UserEnvRaw 'ANDROID_SDK_ROOT'

@@ -15,6 +15,9 @@
     없으면 winget으로 Eclipse Temurin 25 설치. 쓸 수 있는(17 이상) JAVA_HOME이 이미 있으면 바꾸지 않는다.
     환경 변수는 사용자 범위(HKCU\Environment)에만 쓰고, 바꾸기 전에 %LOCALAPPDATA%\HEARSPACE\env-backup-<시각>.json 에 백업한다.
     처음 검증할 때 Gradle과 라이브러리를 내려받는다(인터넷 필요, 수 분).
+
+    약관 동의: 설치할 때 사용자를 대신해 winget 패키지·원본 약관에 동의한다(--accept-package-agreements --accept-source-agreements:
+    Git, Temurin JDK, uv(-WithPython)). 동의하지 않으려면 -CheckOnly로 확인만 하고 직접 설치한다.
 #>
 [CmdletBinding()]
 param(

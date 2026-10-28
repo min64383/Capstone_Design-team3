@@ -77,8 +77,11 @@ object Png16 {
         return out.toByteArray()
     }
 
-    /** PNG 바이트를 읽는다. 흑백 8·16비트, 비인터레이스만 허용한다. */
-    fun decode(bytes: ByteArray): GrayImage {
+    /**
+     * PNG 바이트를 읽는다. 흑백 8·16비트, 비인터레이스만 허용한다. 화소 수가 [maxPixels]를 넘거나 파일이 잘렸거나 손상됐으면
+     * [IllegalArgumentException](크기는 배열을 잡기 전에 Long으로 확인한다, A1 TR8).
+     */
+    fun decode(bytes: ByteArray, maxPixels: Long = Int.MAX_VALUE.toLong()): GrayImage {
         require(bytes.size >= SIGNATURE.size && bytes.copyOf(SIGNATURE.size).contentEquals(SIGNATURE)) { "not a PNG" }
         var p = SIGNATURE.size
         var width = -1
@@ -89,11 +92,12 @@ object Png16 {
             val len = readInt(bytes, p)
             val type = String(bytes, p + 4, 4, Charsets.US_ASCII)
             val dataStart = p + 8
-            require(len >= 0 && dataStart + len + 4 <= bytes.size) { "truncated chunk $type" }
+            require(len >= 0 && dataStart.toLong() + len + 4 <= bytes.size) { "truncated chunk $type" }
             val crc = CRC32().apply { update(bytes, p + 4, 4 + len) }.value
             require(crc == readInt(bytes, dataStart + len).toLong() and 0xFFFFFFFFL) { "CRC mismatch in $type" }
             when (type) {
                 "IHDR" -> {
+                    require(len >= 13) { "short IHDR" }
                     width = readInt(bytes, dataStart)
                     height = readInt(bytes, dataStart + 4)
                     bitDepth = bytes[dataStart + 8].toInt()
@@ -109,10 +113,12 @@ object Png16 {
             p = dataStart + len + 4
         }
         require(width > 0 && height > 0) { "missing IHDR" }
-
         val bpp = bitDepth / 8
+        val rawSize = (width.toLong() * bpp + 1) * height
+        require(width.toLong() * height <= maxPixels && rawSize <= Int.MAX_VALUE) { "image too large: ${width}x$height (max $maxPixels pixels)" }
+
         val stride = width * bpp
-        val raw = inflate(idat.toByteArray(), (stride + 1) * height)
+        val raw = inflate(idat.toByteArray(), rawSize.toInt())
         val prev = ByteArray(stride)
         val cur = ByteArray(stride)
         val g8 = if (bitDepth == 8) ByteArray(width * height) else null
@@ -200,7 +206,11 @@ object Png16 {
             val out = ByteArray(expected)
             var n = 0
             while (n < expected) {
-                val r = inf.inflate(out, n, expected - n)
+                val r = try {
+                    inf.inflate(out, n, expected - n)
+                } catch (e: java.util.zip.DataFormatException) {
+                    throw IllegalArgumentException("corrupt image data: ${e.message}", e)
+                }
                 if (r == 0 && (inf.finished() || inf.needsInput())) break
                 n += r
             }

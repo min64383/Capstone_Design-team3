@@ -87,14 +87,21 @@ class OfflineReplay(
     private val rgbSource: RgbSource = RgbSource.RECORDED,
 ) {
 
+    /** 마지막 [run]에서 세션을 읽으며 건너뛴 항목(없는·손상된 파일, 잘린 마지막 줄 등, [SessionReader.warnings]). */
+    var warnings: List<String> = emptyList()
+        private set
+
     /**
      * [session]을 재생해 [outDir]에 실행 로그(MVP §10.1)와 `replay_info.json`을 쓴다. 정답 파일이 있으면 지도 평가
      * `map_eval.json`(M13)·장면 지표 `scene_eval.json`(M30, 둘 다 [MapEvalWriter])과 군집 평가 `cluster_eval.csv`(M23, [ClusterEvalWriter])도 쓴다.
+     * 모든 출력을 쓴 뒤에 완료 표시 `replay_done`을 남긴다. 예외로 끝나면 기록 파일은 닫지만 표시는 남기지 않는다(A1 FA9).
      */
     fun run(session: File, outDir: File, overridesJson: String = "{}", slowPathNote: String = "") {
-        val log = RunLogWriter(outDir, session, overridesJson, slowPathNote, substitution?.infoJson(alignFrom), rgbSource.name)
-        val truth = File(session, "annotations/obstacles.json").isFile
-        run(session, if (truth) MapEvalWriter(ClusterEvalWriter(log, outDir, session, config, substitution?.align), outDir, session, config, align = substitution?.align, alignFile = alignFrom.takeIf { it.isNotBlank() }?.let(::File)) else log)
+        RunLogWriter(outDir, session, overridesJson, slowPathNote, substitution?.infoJson(alignFrom), rgbSource.name).use { log ->
+            val truth = File(session, "annotations/obstacles.json").isFile
+            run(session, if (truth) MapEvalWriter(ClusterEvalWriter(log, outDir, session, config, substitution?.align), outDir, session, config, align = substitution?.align, alignFile = alignFrom.takeIf { it.isNotBlank() }?.let(::File)) else log)
+        }
+        markDone(outDir)
     }
 
     /** [session]을 재생해 결과를 [listener]에 넘긴다. */
@@ -109,7 +116,7 @@ class OfflineReplay(
         }
 
         val fast = FastPath(config, substitution?.headingSnap())
-        val slow = SlowPath(config, substitution?.fixedMap(config.map.voxelSizeM))
+        val slow = SlowPath(config, substitution?.fixedMap(config.map.voxelSizeM), floorOverrideY = substitution?.floorY())
         var pose: PoseFrame? = null
         var snapshot: ObstacleSnapshot? = null
         var heading: Vec3? = null
@@ -211,6 +218,7 @@ class OfflineReplay(
             }
             t += blockNs
         }
+        warnings = reader.warnings.toList()
         listener.onEnd()
     }
 
@@ -232,6 +240,12 @@ class OfflineReplay(
 
     companion object {
         const val INFO_FILE = "replay_info.json"
+
+        /** 재생과 그 평가 출력을 모두 쓴 폴더의 완료 표시(빈 파일). 분석 도구는 이것이 없는 재생을 끝나지 않은 것으로 본다. */
+        const val DONE_FILE = "replay_done"
+
+        /** [outDir]에 완료 표시를 쓴다. 모든 출력을 쓴 뒤에만 부른다. */
+        fun markDone(outDir: File) = File(outDir, DONE_FILE).writeText("")
 
         /** 고정 처리 시간(ms). S10 실측 중앙값 약 9~10 ms(M7). */
         fun fixed(ms: Float): (DepthFrame) -> Long = { (ms * 1e6).toLong() }

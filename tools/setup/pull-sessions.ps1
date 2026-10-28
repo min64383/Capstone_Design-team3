@@ -12,6 +12,8 @@
       powershell -ExecutionPolicy Bypass -File tools\setup\pull-sessions.ps1 -All                   # 아직 안 가져온 것 전부
 
     이미 가져온 세션은 건너뛴다(-Force 로 다시 받기). 분석 결과는 화면과 data/sessions/<세션ID>/spike_check.txt 에 남는다.
+    세션은 data\.pull\ 에 받아 파일 수를 확인한 뒤에만 data\sessions\ 로 옮긴다(실패하면 지운다). -Force 도 새 사본을 확인한 뒤에
+    옛 사본을 지운다. 이름이 <yyyyMMdd_HHmmss>_<장면ID> 형식(구분자 없음)이 아닌 기기 폴더는 건너뛴다.
 #>
 [CmdletBinding(DefaultParameterSetName = 'List')]
 param(
@@ -28,8 +30,11 @@ $RepoRoot = (Resolve-Path (Join-Path $PSScriptRoot '..\..')).Path
 $AppId = 'hearspace.app'
 $RemoteRoot = "/storage/emulated/0/Android/data/$AppId/files/sessions"
 $LocalRoot = Join-Path $RepoRoot 'data\sessions'
+$PullRoot = Join-Path $RepoRoot 'data\.pull'   # 받는 중인 세션(같은 드라이브라 확인 뒤 이름만 바꾼다)
 $VenvPy = Join-Path $RepoRoot '.venv\Scripts\python.exe'
 $SpikeCheck = Join-Path $RepoRoot 'tools\analysis\spike_check.py'
+$ManagedVars = @()
+. (Join-Path $PSScriptRoot 'common.ps1')   # $SessionIdPattern, Get-SessionDir
 
 $adb = (Get-Command adb -ErrorAction SilentlyContinue).Source
 if (-not $adb) {
@@ -64,7 +69,10 @@ function Invoke-Shell([string]$cmd) {
 $listCmd = "cd $RemoteRoot 2>/dev/null || exit 0; for d in */; do d=`${d%/}; " +
           "kb=`$(du -sk `$d | cut -f1); n=`$(find `$d -type f | wc -l); " +
           "if grep -q durationS `$d/meta.json 2>/dev/null; then c=1; else c=0; fi; echo `$d:`$kb:`$n:`$c; done"
-$remote = @(Invoke-Shell $listCmd | Where-Object { $_ -match '^\d{8}_\d{6}_[^:]+:\d+:\s*\d+:[01]$' } | ForEach-Object {
+$lines = @(Invoke-Shell $listCmd | Where-Object { $_ -match '^[^:]+:\d+:\s*\d+:[01]$' })
+# 세션 ID는 구분자 없는 형식만 받는다(A1 TR6: 기기 쪽 폴더 이름이 PC의 지우기·쓰기 경로가 된다)
+foreach ($l in $lines) { if (($l -split ':')[0] -notmatch $SessionIdPattern) { Write-Host "건너뜀(세션 ID 형식이 아님): $(($l -split ':')[0])" -ForegroundColor Yellow } }
+$remote = @($lines | Where-Object { ($_ -split ':')[0] -match $SessionIdPattern } | ForEach-Object {
     $f = $_ -split ':'
     [pscustomobject]@{
         세션ID = $f[0]
@@ -109,16 +117,25 @@ New-Item -ItemType Directory -Force $LocalRoot | Out-Null
 $pulled = New-Object System.Collections.Generic.List[string]
 foreach ($t in $targets) {
     $sid = $t.세션ID
-    $local = Join-Path $LocalRoot $sid
+    $local = Get-SessionDir $LocalRoot $sid
+    $tmp = Get-SessionDir $PullRoot $sid
     if ($t.정상종료 -ne '예') { Write-Host "주의: $sid 은(는) meta.json에 통계가 없다(녹화가 정상 종료되지 않음). 그래도 가져온다." -ForegroundColor Yellow }
-    if ($Force -and (Test-Path $local)) { Remove-Item -Recurse -Force $local }
     Write-Host "`n가져오는 중: $sid ($($t.크기MB) MB, 파일 $($t.파일수)개)" -ForegroundColor Cyan
-    & $adb -t $tid pull "$RemoteRoot/$sid" "$LocalRoot"
-    if ($LASTEXITCODE -ne 0) { Write-Host "실패: $sid (adb pull 종료 코드 $LASTEXITCODE)" -ForegroundColor Red; continue }
-    $nLocal = @(Get-ChildItem -Recurse -File $local).Count
-    if ($nLocal -ne $t.파일수) {
-        Write-Host "검증 실패: 파일 수 기기 $($t.파일수) / PC $nLocal" -ForegroundColor Red
-        continue
+    # 임시 폴더에 받아 파일 수가 맞을 때만 옮긴다(A1 FA12: 실패·중단된 사본이 "이미 있음"으로 남지 않게)
+    if (Test-Path $tmp) { Remove-Item -Recurse -Force $tmp }
+    New-Item -ItemType Directory -Force $PullRoot | Out-Null
+    try {
+        & $adb -t $tid pull "$RemoteRoot/$sid" "$PullRoot"
+        if ($LASTEXITCODE -ne 0) { Write-Host "실패: $sid (adb pull 종료 코드 $LASTEXITCODE)" -ForegroundColor Red; continue }
+        $nLocal = @(Get-ChildItem -Recurse -File $tmp).Count
+        if ($nLocal -ne $t.파일수) {
+            Write-Host "검증 실패: 파일 수 기기 $($t.파일수) / PC $nLocal" -ForegroundColor Red
+            continue
+        }
+        if (Test-Path $local) { Remove-Item -Recurse -Force $local }   # -Force: 새 사본을 확인한 뒤에만 옛 사본을 지운다
+        Move-Item $tmp $local
+    } finally {
+        if (Test-Path $tmp) { Remove-Item -Recurse -Force $tmp }
     }
     Write-Host "검증 OK: 파일 $nLocal 개" -ForegroundColor Green
     $pulled.Add($sid)
