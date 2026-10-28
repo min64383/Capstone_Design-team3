@@ -652,3 +652,24 @@ M10 공간(폭 약 1 m, 길이 4~5 m)에서 찍을 수 있게 구성한다. 모�
 - 기존 `LEGACY_RISK`는 A/B 비교용으로 보존한다. 기본 JSON의 PULSE/LEGACY_RISK 기준선은 유지하고 앱 override와 PC GUI/내보내기 시작 설정은 DISTANCE_HEIGHT로 선택한다.
 - CSV 끝에 heightDeltaM/mapping 열 추가. 기존 열 순서는 보존. pitch/gain은 블록 끝 값, 같은 WAV의 frameStart를 시간 기준으로 삼는다.
 - 이 높이는 물체 전체 크기나 최상단 높이가 아니라 선택된 대표점의 위치다. 머리 Y는 기존 카메라 오프셋 기반 추정이다. 새로운 고도 HRTF나 실기기 검증은 포함하지 않는다.
+
+
+### M13.5 review implementation (2026-10-28)
+
+The nine PR #58 review items in §6.1.1 and consecutive OPENING deduplication are implemented as an isolated diagnostic path. `floor.mode` SINGLE (default) | ELEVATION is the sole activation mode; legacy `geometry.enabled` is retained but true requires ELEVATION. Map/cluster options remain unchanged. App and offline replay write `geometry_debug.csv`, and viewer displays causal completed-step results. Geometry never enters guidance.
+
+New geometry configuration defaults (experimental heuristics, not validated operating limits):
+
+| Keys | Defaults |
+|---|---|
+| maxDistanceM, groundHeightRangeM, histogramMinBinM, obstacleMinHeightM | 2.0 m, 0.65 m, 0.02 m, 0.10 m |
+| openingWidthFactor, maxStepGapBins, minSlopeBins | 1.35, 2, 3 |
+| unknownConfidence, stepConfidence, flatConfidence, maxConfidence | 0.2, 0.75, 0.7, 0.95 |
+| stairConfidenceBase, stairConfidenceIncrement | 0.65, 0.10 |
+| slopeConfidenceBase, slopeConfidenceIncrementMax, slopeConfidenceScaleDeg | 0.6, 0.35, 30 deg |
+| floorLossConfidenceBase, floorLossConfidencePerBin, floorLossConfidenceMax | 0.55, 0.08, 0.9 |
+| occupiedConfidenceBase, structureConfidenceBase | 0.5, 0.55 |
+| occupiedConfidenceCount, wallConfidenceCount | 100, 120 voxels |
+| narrowConfidenceMin, openingConfidence | 0.55, 0.6 |
+
+Full semantics, log format, test scope and remaining recording requirements: `docs/INDOOR_GEOMETRY_EXPERIMENT.md`. ELEVATION here denotes the prototype geometry diagnostics, not a validated elevation-map solution. Existing SINGLE mapping, source, decompose and obstacle policy retain their meanings. Geometry's near-range limit does not truncate ordinary obstacle detection.
