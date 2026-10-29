@@ -46,7 +46,8 @@ data class UserScreen(
     }
 
     companion object {
-        private val GUIDING = listOf("두 번 탭" to "일시정지", "길게 누르기" to "종료")
+        /** 길게 누르기는 안내만 끝내고 앱에 남는다(시작 전에는 할 일이 없어 안내하지 않는다). */
+        private val GUIDING = listOf("두 번 탭" to "일시정지", "길게 누르기" to "안내 종료")
 
         /**
          * [running]: 안내 세션이 있음, [paused]: 사용자가 일시정지함, [state]: 마지막 안내 출력의 상태(없으면 null),
@@ -56,15 +57,14 @@ data class UserScreen(
             if (!running) {
                 return if (notice != null) {
                     UserScreen(notice.title, notice.reason, Tone.PLAIN, Visual.Notice, null, Tone.PLAIN,
-                        listOf("두 번 탭" to "다시 시작", "길게 누르기" to "종료"), idle = true, spoken = notice.reason)
+                        listOf("두 번 탭" to "다시 시작"), idle = true, spoken = notice.reason)
                 } else {
-                    UserScreen(null, null, Tone.PLAIN, Visual.Logo, "두 번 탭하여\n시작", Tone.PLAIN,
-                        listOf("길게 누르기" to "종료"), idle = true, spoken = "시작 전")
+                    UserScreen(null, null, Tone.PLAIN, Visual.Logo, "두 번 탭하여\n시작", Tone.PLAIN, emptyList(), idle = true, spoken = "시작 전")
                 }
             }
             if (paused || state == GuidanceState.PAUSED) {
                 return UserScreen("일시정지", "소리 안내를 멈췄어요", Tone.PLAIN, Visual.Paused, null, Tone.PLAIN,
-                    listOf("두 번 탭" to "재개", "길게 누르기" to "종료"), idle = false, spoken = "일시정지")
+                    listOf("두 번 탭" to "재개", "길게 누르기" to "안내 종료"), idle = false, spoken = "일시정지")
             }
             if (state == null || state == GuidanceState.UNKNOWN) {
                 return UserScreen("준비 중", "주변을 확인하고 있어요", Tone.PLAIN, Visual.Preparing, null, Tone.PLAIN, GUIDING, idle = false, spoken = "준비 중")

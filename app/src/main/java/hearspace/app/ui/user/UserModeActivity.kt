@@ -59,7 +59,7 @@ import javax.microedition.khronos.opengles.GL10
 
 /**
  * 사용자 모드(§11.2): 화면을 보지 않고 쓴다. 화면 전체가 버튼 하나.
- * - 두 번 탭: 시작 / 일시정지 / 재개. 길게 누르기: 종료. TalkBack이 켜져 있으면 TalkBack의 두 번 탭(클릭)·두 번 탭 후 유지(길게 클릭).
+ * - 두 번 탭: 시작 / 일시정지 / 재개. 길게 누르기: 안내 종료(앱에 남아 시작 화면으로). TalkBack이 켜져 있으면 TalkBack의 두 번 탭(클릭)·두 번 탭 후 유지(길게 클릭).
  * - 모든 상태 전이는 알림음 + 진동. 상태 한 줄은 TalkBack이 바뀔 때 읽는다(live region).
  * - 화면(M45 시안 §3): 늘 검은 배경, 위 상태 줄 + 가운데 그림([GuideView]) + 아래 조작 안내. 무엇을 그릴지는 [UserScreen.of].
  *   설정 단추는 안내 중이 아닐 때만 보인다. 배터리: 화면 켜짐 유지.
@@ -235,7 +235,7 @@ class UserModeActivity : Activity(), GLSurfaceView.Renderer {
             override fun onInitializeAccessibilityNodeInfo(info: AccessibilityNodeInfo) {
                 super.onInitializeAccessibilityNodeInfo(info)
                 info.addAction(AccessibilityAction(AccessibilityNodeInfo.ACTION_CLICK, if (run == null) "시작" else "일시정지 또는 재개"))
-                info.addAction(AccessibilityAction(AccessibilityNodeInfo.ACTION_LONG_CLICK, "종료"))
+                if (run != null) info.addAction(AccessibilityAction(AccessibilityNodeInfo.ACTION_LONG_CLICK, "안내 종료"))
             }
         }.apply {
             setBackgroundColor(getColor(R.color.run_bg))
@@ -266,9 +266,10 @@ class UserModeActivity : Activity(), GLSurfaceView.Renderer {
                 if (r == null) start() else r.pipeline.paused = !r.pipeline.paused
             }
             UserCommand.EXIT -> {
+                // 안내만 끝내고 앱에 남는다(시작 화면으로). 시작 전에는 할 일이 없다. 앱은 시스템 뒤로·홈으로 나간다(사용자 요청 2026-10-30)
+                if (run == null) return
                 haptics.exit()
                 stop()
-                finish()
             }
         }
         render()
@@ -381,7 +382,7 @@ class UserModeActivity : Activity(), GLSurfaceView.Renderer {
         )
         if (s.spoken != spokenLine) {
             spokenLine = s.spoken
-            val hint = if (r == null) "두 번 탭하여 시작, 길게 눌러 종료" else "두 번 탭하여 일시정지 또는 재개, 길게 눌러 종료"
+            val hint = if (r == null) "두 번 탭하여 시작" else "두 번 탭하여 일시정지 또는 재개, 길게 눌러 안내 종료"
             // 처음 시작하기 전에는 ARCore 고지(TR7)를 함께 읽는다. 기기 설정 덮어쓰기는 늘 읽는다(TR4)
             val read = listOfNotNull(
                 overrideNotice,
@@ -417,6 +418,7 @@ class UserModeActivity : Activity(), GLSurfaceView.Renderer {
             else -> R.color.run_caution
         }))
         // "두 번 탭 · 일시정지": 동작은 흰 굵은 글, 뜻은 회색
+        hintText.visibility = if (s.hints.isEmpty()) View.INVISIBLE else View.VISIBLE
         hintText.text = SpannableStringBuilder().apply {
             s.hints.forEachIndexed { i, (gesture, meaning) ->
                 if (i > 0) append("\n")

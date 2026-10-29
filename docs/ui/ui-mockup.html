@@ -104,7 +104,7 @@
 </div>
 
 <h2>3. 작동 화면 (사용자 모드)</h2>
-<p class="lead">늘 검은 배경(명세 §11.2, 배터리·저시력). 화면 전체가 버튼 하나: 두 번 탭 = 시작·일시정지·재개, 길게 누르기 = 종료(TalkBack에서는 두 번 탭 · 두 번 탭 후 유지).
+<p class="lead">늘 검은 배경(명세 §11.2, 배터리·저시력). 화면 전체가 버튼 하나: 두 번 탭 = 시작·일시정지·재개, 길게 누르기 = 안내 종료(앱에 남아 시작 화면으로, 시작 전에는 아무 일 없음. 앱은 뒤로·홈으로 나감)(TalkBack에서는 두 번 탭 · 두 번 탭 후 유지).
   위에 상태 한 줄(40 dp 굵게), 가운데에 그림, 아래에 조작 안내. 설정 단추는 <b>시작 전에만</b> 보인다(걷는 중 잘못 눌리지 않게). 상태 문구는 지금 앱 그대로다.</p>
 <div class="row">
   <figure>
@@ -113,11 +113,11 @@
       <div class="gear" title="설정"><svg width="28" height="28" viewBox="0 0 24 24"><path fill="#fff" fill-rule="evenodd" d="M19.23,9.65 L22.11,10.03 L22.11,13.97 L19.23,14.35 L18.77,15.45 L20.54,17.76 L17.76,20.54 L15.45,18.77 L14.35,19.23 L13.97,22.11 L10.03,22.11 L9.65,19.23 L8.55,18.77 L6.24,20.54 L3.46,17.76 L5.23,15.45 L4.77,14.35 L1.89,13.97 L1.89,10.03 L4.77,9.65 L5.23,8.55 L3.46,6.24 L6.24,3.46 L8.55,5.23 L9.65,4.77 L10.03,1.89 L13.97,1.89 L14.35,4.77 L15.45,5.23 L17.76,3.46 L20.54,6.24 L18.77,8.55Z M8.70,12a3.30,3.30 0,1 0,6.60,0a3.30,3.30 0,1 0,-6.60,0Z"/></svg></div>
       <div class="center" style="gap:22px"><img src="../../tools/logo/png/hearspace-logo-dark-512.png" width="150" height="150" alt="">
         <div style="font-size:34px;font-weight:800;text-align:center;line-height:1.25">두 번 탭하여<br>시작</div></div>
-      <div class="hints"><b>길게 누르기</b> · 종료</div>
+      <div class="hints">&nbsp;</div>
       <div class="notice">이 앱은 Google의 ARCore 기능을 포함합니다. ARCore 사용에는 Google 서비스 약관과 Google 개인정보처리방침의 최신 버전이 적용됩니다.</div>
     </div></div>
     <figcaption><b>시작 전</b> · 로고와 할 일 한 가지. 오른쪽 위 설정 단추(56 dp, TalkBack에서 따로 잡힘). ARCore 고지는 지금처럼 아래에 둔다.
-      <div class="tb">TalkBack: "HEARSPACE, 시작 전. (처음에만 ARCore 고지.) 두 번 탭하여 시작, 길게 눌러 종료" / 단추: "설정"</div></figcaption>
+      <div class="tb">TalkBack: "HEARSPACE, 시작 전. (처음에만 ARCore 고지.) 두 번 탭하여 시작" / 단추: "설정"</div></figcaption>
   </figure>
   <figure>
     <div class="phone"><div class="run">
@@ -127,10 +127,10 @@
         <circle cx="0" cy="-42" r="13" fill="#de867c" style="animation-delay:0s"/><circle cx="36.4" cy="-21" r="13" fill="#d2ac5a" style="animation-delay:.3s"/>
         <circle cx="36.4" cy="21" r="13" fill="#6ab67f" style="animation-delay:.6s"/><circle cx="0" cy="42" r="13" fill="#53addc" style="animation-delay:.9s"/>
         <circle cx="-36.4" cy="21" r="13" fill="#8e9ce7" style="animation-delay:1.2s"/><circle cx="-36.4" cy="-21" r="13" fill="#d884a5" style="animation-delay:1.5s"/></svg></div>
-      <div class="hints"><b>두 번 탭</b> · 일시정지<br><b>길게 누르기</b> · 종료</div>
+      <div class="hints"><b>두 번 탭</b> · 일시정지<br><b>길게 누르기</b> · 안내 종료</div>
     </div></div>
     <figcaption><b>준비 중</b> (추적 준비, 대기음) · 로고의 여섯 색이 차례로 켜지는 고리. 움직임은 상태가 살아 있음만 알리고 뜻은 글자가 전한다.
-      <div class="tb">TalkBack: "HEARSPACE, 준비 중. 두 번 탭하여 일시정지 또는 재개, 길게 눌러 종료"</div></figcaption>
+      <div class="tb">TalkBack: "HEARSPACE, 준비 중. 두 번 탭하여 일시정지 또는 재개, 길게 눌러 안내 종료"</div></figcaption>
   </figure>
   <figure>
     <div class="phone"><div class="run">
@@ -138,7 +138,7 @@
       <div class="state" style="color:#eab431">바닥 확인 중</div><div class="sub">지금은 물체를 볼 수 없어요</div>
       <div class="center"><svg width="150" height="140" viewBox="0 0 100 92"><path d="M50 6 L95 86 H5 Z" fill="none" stroke="#eab431" stroke-width="8" stroke-linejoin="round"/>
         <path d="M50 34 V58" stroke="#eab431" stroke-width="9" stroke-linecap="round"/><circle cx="50" cy="72" r="5.5" fill="#eab431"/></svg></div>
-      <div class="hints"><b>두 번 탭</b> · 일시정지<br><b>길게 누르기</b> · 종료</div>
+      <div class="hints"><b>두 번 탭</b> · 일시정지<br><b>길게 누르기</b> · 안내 종료</div>
     </div></div>
     <figcaption><b>바닥 확인 중</b> (지도 상태 DEGRADED, 대기음과 함께) · 주의 색 + 세모. 소리가 없어도 안전하다는 뜻이 아님을 글자로 밝힌다.
       <div class="tb">TalkBack: "HEARSPACE, 바닥 확인 중. …"</div></figcaption>
@@ -150,7 +150,7 @@
       <div class="sb"><span>9:41</span><span>▲ ▮</span></div>
       <div class="state"><span class="dot"></span>안내 중</div>
       <div class="center"></div>
-      <div class="hints"><b>두 번 탭</b> · 일시정지<br><b>길게 누르기</b> · 종료</div>
+      <div class="hints"><b>두 번 탭</b> · 일시정지<br><b>길게 누르기</b> · 안내 종료</div>
     </div></div>
     <figcaption><b>안내 중, 가까운 신호 없음</b> (모든 음원 SILENT) · 가운데를 비운다. "장애물 없음"이나 초록 표시를 하지 않는다(무음 ≠ 안전, CLAUDE.md 원칙).
       청록 점이 숨 쉬듯 켜져 앱이 동작 중임만 보인다.</figcaption>
@@ -162,7 +162,7 @@
       <div class="center"><svg width="230" height="230" viewBox="-60 -60 120 120"><g transform="rotate(35)">
         <path d="M0 -46 L-24 -16 H-8 V40 H8 V-16 H24 Z" fill="#eab431" stroke="#eab431" stroke-width="5" stroke-linejoin="round"/></g></svg>
         <div class="label" style="color:#eab431">주의</div></div>
-      <div class="hints"><b>두 번 탭</b> · 일시정지<br><b>길게 누르기</b> · 종료</div>
+      <div class="hints"><b>두 번 탭</b> · 일시정지<br><b>길게 누르기</b> · 안내 종료</div>
     </div></div>
     <figcaption><b>안내 중, 주의 (WARN)</b> · 가장 가까운 장애물 방향(여기서는 오른쪽 앞 35°)을 굵은 화살표로. 고리 없음 + 글자 "주의".</figcaption>
   </figure>
@@ -173,7 +173,7 @@
       <div class="center"><svg width="230" height="230" viewBox="-60 -60 120 120"><circle r="54" fill="none" stroke="#f26a5f" stroke-width="9"/><g transform="rotate(-10)">
         <path d="M0 -36 L-20 -11 H-7 V32 H7 V-11 H20 Z" fill="#f26a5f" stroke="#f26a5f" stroke-width="5" stroke-linejoin="round"/></g></svg>
         <div class="label" style="color:#f26a5f;font-size:36px">멈춤</div></div>
-      <div class="hints"><b>두 번 탭</b> · 일시정지<br><b>길게 누르기</b> · 종료</div>
+      <div class="hints"><b>두 번 탭</b> · 일시정지<br><b>길게 누르기</b> · 안내 종료</div>
     </div></div>
     <figcaption><b>안내 중, 멈춤 (STOP)</b> · 같은 화살표를 굵은 고리로 두르고 글자 "멈춤"을 더 크게. 색(빨강)·모양(고리)·글자 세 겹으로 주의와 구분.</figcaption>
   </figure>
@@ -184,10 +184,10 @@
       <div class="sb"><span>9:41</span><span>▲ ▮</span></div>
       <div class="state">일시정지</div><div class="sub">소리 안내를 멈췄어요</div>
       <div class="center"><svg width="120" height="120" viewBox="0 0 100 100"><rect x="22" y="14" width="18" height="72" rx="6" fill="#fff"/><rect x="60" y="14" width="18" height="72" rx="6" fill="#fff"/></svg></div>
-      <div class="hints"><b>두 번 탭</b> · 재개<br><b>길게 누르기</b> · 종료</div>
+      <div class="hints"><b>두 번 탭</b> · 재개<br><b>길게 누르기</b> · 안내 종료</div>
     </div></div>
     <figcaption><b>일시정지</b> · 흰 두 막대. 조작 안내가 "재개"로 바뀐다.
-      <div class="tb">TalkBack: "HEARSPACE, 일시정지. 두 번 탭하여 일시정지 또는 재개, 길게 눌러 종료"</div></figcaption>
+      <div class="tb">TalkBack: "HEARSPACE, 일시정지. 두 번 탭하여 일시정지 또는 재개, 길게 눌러 안내 종료"</div></figcaption>
   </figure>
   <figure>
     <div class="phone"><div class="run">
@@ -197,7 +197,7 @@
       <div class="sub">소리 출력이 멈춰 안내를 멈췄습니다</div>
       <div class="center"><svg width="120" height="120" viewBox="0 0 100 100"><circle cx="50" cy="50" r="42" fill="none" stroke="#fff" stroke-width="8"/>
         <path d="M50 28 V56" stroke="#fff" stroke-width="9" stroke-linecap="round"/><circle cx="50" cy="71" r="5.5" fill="#fff"/></svg></div>
-      <div class="hints"><b>두 번 탭</b> · 다시 시작<br><b>길게 누르기</b> · 종료</div>
+      <div class="hints"><b>두 번 탭</b> · 다시 시작</div>
     </div></div>
     <figcaption><b>멈춤 알림</b> (시작 실패·소리 출력 멈춤·카메라 권한 없음·화면을 떠남) · 긴 진동과 함께. 제목은 안내 중에 멈춘 경우 "안내를 멈췄어요", 시작하지 못한 경우 "시작하지 못했어요". 사유 문장은 지금 앱 그대로. 장애물 STOP과 헷갈리지 않게 빨강을 쓰지 않는다. 다시 시작 전이므로 설정 단추가 보인다.</figcaption>
   </figure>

@@ -58,6 +58,14 @@ class UserScreenTest {
     }
 
     @Test
+    fun `길게 누르기는 안내 중에만 안내 종료, 시작 전·알림에는 안내하지 않음`() {
+        assertTrue(allRunning().all { ("길게 누르기" to "안내 종료") in it.hints })
+        val idle = UserScreen.of(running = false, notice = null, paused = false, state = null, mapHealth = null, band = null, azimuthDeg = null)
+        val notice = UserScreen.of(running = false, notice = UserScreen.Notice.startFailed("x"), paused = false, state = null, mapHealth = null, band = null, azimuthDeg = null)
+        for (s in listOf(idle, notice)) assertTrue(s.hints.none { it.first == "길게 누르기" }, s.hints.toString())
+    }
+
+    @Test
     fun `일시정지가 다른 상태보다 먼저`() {
         for (s in allRunning().filter { it.spoken == "일시정지" }) assertEquals(UserScreen.Visual.Paused, s.visual)
         assertEquals("일시정지", running(paused = true, band = Band.STOP, az = 0f).spoken)
