@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- 설정 단추(톱니): 가운데 원 + 바퀴살 여덟 개. 색은 단추에서 tint로 -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="28dp" android:height="28dp" android:viewportWidth="24" android:viewportHeight="24">
+    <path android:strokeColor="#FFFFFFFF" android:strokeWidth="2" android:strokeLineCap="round"
+        android:pathData="M12,8.8a3.2,3.2 0,1 1,0 6.4a3.2,3.2 0,1 1,0 -6.4z" />
+    <path android:strokeColor="#FFFFFFFF" android:strokeWidth="2" android:strokeLineCap="round"
+        android:pathData="M12,2.5v3M12,18.5v3M2.5,12h3M18.5,12h3M5.3,5.3l2.1,2.1M16.6,16.6l2.1,2.1M5.3,18.7l2.1,-2.1M16.6,7.4l2.1,-2.1" />
+</vector>

@@ -1,0 +1,8 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- 다크 값(배경 #121212 = Material 다크 표면 기준 대비). -->
+<resources>
+    <color name="bg">#121212</color>
+    <color name="text">#E4E6ED</color>      <!-- 15.0 -->
+    <color name="text2">#9C9EA6</color>     <!-- 7.0 -->
+    <color name="primary">#4DA8D7</color>   <!-- 7.1, 로고 청록 -->
+</resources>

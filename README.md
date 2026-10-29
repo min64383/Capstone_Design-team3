@@ -441,9 +441,10 @@ git clone <저장소>; cd capstone
 ├── app/src/main/assets/config/default.json 설정의 유일한 원본
 ├── viewer/src/main/kotlin/hearspace/viewer/ 평가 GUI (Kotlin + Swing, core만 의존, §3.7)
 ├── tools/analysis/                         Python 분석 스크립트
+├── tools/logo/                             앱 로고 원본(편집기 logo-editor.html)과 내보내기 export.py(로고 PNG·앱 스플래시·아이콘 리소스)
 ├── tools/setup/                            PC 준비(setup-windows: 앱 개발 전체, setup-viewer: 기기 없는 viewer 개발)·기기 확인·세션 가져오기 PowerShell 스크립트 (§3), 공통 함수 common.ps1
 ├── prototypes/<언어>/<모듈>/                (필요할 때 생성) 다른 언어 프로토타입, Kotlin core로 이식 전제 (§4.8)
-├── docs/                                   명세·결정·형식·라이선스
+├── docs/                                   명세·결정·형식·라이선스, 화면 시안(docs/ui/)
 ├── references/                             과제 제출 문서(프로포절·조사 보고서·멘토링 보고서, PDF·docx). 구현 기준 아님, 프로젝트 완료 후 git 제외 예정
 ├── testdata/sessions/                      PC 분석용 대표 녹화 경량본 (arcore.mp4 제외, testdata/README.md)
 └── data/                                   (git 제외) 녹화 세션
