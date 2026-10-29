@@ -1,9 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
-<!-- 설정 단추(톱니): 가운데 원 + 바퀴살 여덟 개. 색은 단추에서 tint로 -->
+<!-- 설정 단추(톱니바퀴): 이 8개, 가운데 구멍(evenOdd). 바퀴살만 있던 첫 모양은 해(밝기)처럼 보여 바꿈. 색은 단추에서 tint로 -->
 <vector xmlns:android="http://schemas.android.com/apk/res/android"
     android:width="28dp" android:height="28dp" android:viewportWidth="24" android:viewportHeight="24">
-    <path android:strokeColor="#FFFFFFFF" android:strokeWidth="2" android:strokeLineCap="round"
-        android:pathData="M12,8.8a3.2,3.2 0,1 1,0 6.4a3.2,3.2 0,1 1,0 -6.4z" />
-    <path android:strokeColor="#FFFFFFFF" android:strokeWidth="2" android:strokeLineCap="round"
-        android:pathData="M12,2.5v3M12,18.5v3M2.5,12h3M18.5,12h3M5.3,5.3l2.1,2.1M16.6,16.6l2.1,2.1M5.3,18.7l2.1,-2.1M16.6,7.4l2.1,-2.1" />
+    <path android:fillColor="#FFFFFFFF" android:fillType="evenOdd"
+        android:pathData="M19.23,9.65 L22.11,10.03 L22.11,13.97 L19.23,14.35 L18.77,15.45 L20.54,17.76 L17.76,20.54 L15.45,18.77 L14.35,19.23 L13.97,22.11 L10.03,22.11 L9.65,19.23 L8.55,18.77 L6.24,20.54 L3.46,17.76 L5.23,15.45 L4.77,14.35 L1.89,13.97 L1.89,10.03 L4.77,9.65 L5.23,8.55 L3.46,6.24 L6.24,3.46 L8.55,5.23 L9.65,4.77 L10.03,1.89 L13.97,1.89 L14.35,4.77 L15.45,5.23 L17.76,3.46 L20.54,6.24 L18.77,8.55Z M8.70,12a3.30,3.30 0,1 0,6.60,0a3.30,3.30 0,1 0,-6.60,0Z" />
 </vector>

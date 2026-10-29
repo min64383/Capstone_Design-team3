@@ -22,6 +22,7 @@ import android.view.GestureDetector
 import android.view.Gravity
 import android.view.MotionEvent
 import android.view.View
+import android.view.ViewTreeObserver
 import android.view.ViewGroup.LayoutParams.MATCH_PARENT
 import android.view.ViewGroup.LayoutParams.WRAP_CONTENT
 import android.view.WindowManager
@@ -31,6 +32,7 @@ import android.view.accessibility.AccessibilityNodeInfo.AccessibilityAction
 import android.widget.FrameLayout
 import android.widget.ImageButton
 import android.widget.LinearLayout
+import android.widget.Space
 import android.widget.TextView
 import hearspace.app.AppConfig
 import hearspace.app.R
@@ -125,6 +127,26 @@ class UserModeActivity : Activity(), GLSurfaceView.Renderer {
         window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
         buildLayout()
         render()
+        if (savedInstanceState == null) holdSplash()
+    }
+
+    /**
+     * 스플래시를 최소 [SPLASH_MIN_MS] 보인다(M45). 시작이 빨라(첫 그리기 약 0.1 s) 시스템 스플래시가 로고를 보이기 전에 사라지므로
+     * 첫 그리기를 그만큼 미룬다(Android 12+는 첫 그리기까지 스플래시, 11 이하는 시작 창 배경이 남는다).
+     */
+    private fun holdSplash() {
+        val until = SystemClock.uptimeMillis() + SPLASH_MIN_MS
+        root.viewTreeObserver.addOnPreDrawListener(object : ViewTreeObserver.OnPreDrawListener {
+            override fun onPreDraw(): Boolean {
+                val wait = until - SystemClock.uptimeMillis()
+                if (wait > 0) {
+                    root.postDelayed({ root.invalidate() }, wait)
+                    return false
+                }
+                root.viewTreeObserver.removeOnPreDrawListener(this)
+                return true
+            }
+        })
     }
 
     private fun buildLayout() {
@@ -192,8 +214,11 @@ class UserModeActivity : Activity(), GLSurfaceView.Renderer {
             gravity = Gravity.CENTER_HORIZONTAL
             addView(titleText, LinearLayout.LayoutParams(WRAP_CONTENT, WRAP_CONTENT).apply { topMargin = dp(44) })
             addView(subText, LinearLayout.LayoutParams(MATCH_PARENT, WRAP_CONTENT))
-            addView(guide, LinearLayout.LayoutParams(MATCH_PARENT, 0, 1f))
+            // 그림과 그 아래 글자를 한 덩어리로 가운데에(위아래 빈칸이 남는 자리를 나눠 가짐). 그림 높이는 show()에서
+            addView(Space(context), LinearLayout.LayoutParams(MATCH_PARENT, 0, 1f))
+            addView(guide, LinearLayout.LayoutParams(MATCH_PARENT, dp(GUIDE_DP)))
             addView(labelText, LinearLayout.LayoutParams(MATCH_PARENT, WRAP_CONTENT))
+            addView(Space(context), LinearLayout.LayoutParams(MATCH_PARENT, 0, 1f))
             addView(hintText, LinearLayout.LayoutParams(MATCH_PARENT, WRAP_CONTENT))
             addView(noticeText, LinearLayout.LayoutParams(MATCH_PARENT, WRAP_CONTENT))
         }
@@ -376,6 +401,9 @@ class UserModeActivity : Activity(), GLSurfaceView.Renderer {
         subText.visibility = if (s.sub == null) View.GONE else View.VISIBLE
         subText.text = s.sub
         guide.visual = s.visual
+        // 그림 칸: 시안의 가장 큰 그림(화살표 230 dp)이 들어가는 높이, 시작 전 로고(150 dp)는 글자와 가깝게
+        val guideHeight = dp(if (s.visual == UserScreen.Visual.Logo) LOGO_DP else GUIDE_DP)
+        if (guide.layoutParams.height != guideHeight) guide.layoutParams = guide.layoutParams.apply { height = guideHeight }
         labelText.visibility = if (s.label == null) View.GONE else View.VISIBLE
         labelText.text = s.label
         labelText.textSize = when (s.labelTone) {
@@ -441,6 +469,10 @@ class UserModeActivity : Activity(), GLSurfaceView.Renderer {
 
     companion object {
         private const val UI_REFRESH_MS = 200L
+        /** 스플래시 최소 시간(ms): 로고가 보일 만큼(직접 정한 값). */
+        private const val SPLASH_MIN_MS = 800L
+        private const val GUIDE_DP = 240
+        private const val LOGO_DP = 176
         private const val PREFS = "user_mode"
         private const val PREF_NOTICE_READ = "arcoreNoticeRead"
     }
