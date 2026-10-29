@@ -14,16 +14,15 @@ import android.os.Handler
 import android.os.Looper
 import android.os.SystemClock
 import android.util.Log
-import android.view.GestureDetector
 import android.view.Gravity
-import android.view.MotionEvent
 import android.view.View
 import android.view.ViewGroup.LayoutParams.MATCH_PARENT
 import android.view.ViewGroup.LayoutParams.WRAP_CONTENT
 import android.view.WindowManager
-import android.view.accessibility.AccessibilityManager
 import android.view.accessibility.AccessibilityNodeInfo
-import android.view.accessibility.AccessibilityNodeInfo.AccessibilityAction
+import android.widget.Button
+import android.widget.LinearLayout
+import android.widget.ScrollView
 import android.widget.FrameLayout
 import android.widget.TextView
 import hearspace.app.AppConfig
@@ -52,12 +51,10 @@ import javax.microedition.khronos.egl.EGLConfig
 import javax.microedition.khronos.opengles.GL10
 
 /**
- * 사용자 모드(§11.2): 화면을 보지 않고 쓴다. 화면 전체가 버튼 하나.
- * - 두 번 탭: 시작 / 일시정지 / 재개. 길게 누르기: 종료. TalkBack이 켜져 있으면 TalkBack의 두 번 탭(클릭)·두 번 탭 후 유지(길게 클릭).
- * - 모든 상태 전이는 알림음 + 진동. 상태 한 줄은 TalkBack이 바뀔 때 읽는다(live region).
- * - 저시력: 검은 배경, 고대비 큰 글씨, 가장 가까운 장애물 방향 화살표. 배터리: 밝기 최소, 화면 켜짐 유지.
- * 입력은 [onCommand] 하나로 모은다: 나중에 음성 명령(§17)도 같은 곳으로 넣는다.
- * 흐름·알림음·진동 패턴은 가설이며 사용자 평가에서 검증한다.
+ * 사용자 모드: 맨 위 상태 표시 바로 아래의 큰 버튼으로 시작·일시정지·재개한다.
+ * TalkBack에서는 표준 버튼 클릭을 사용하고 상태 변화는 live region으로 읽는다.
+ * 시작 후 길게 누르면 안내를 종료하고 사용자 모드 화면을 닫는다.
+ * 조작 방식은 사용자 평가와 실기기 접근성 확인이 필요하다.
  */
 class UserModeActivity : Activity(), GLSurfaceView.Renderer {
 
@@ -71,9 +68,8 @@ class UserModeActivity : Activity(), GLSurfaceView.Renderer {
     private lateinit var thermal: ThermalMonitor
     private lateinit var haptics: Haptics
     private lateinit var focus: AudioFocus
-    private lateinit var a11y: AccessibilityManager
     private lateinit var glView: GLSurfaceView
-    private lateinit var root: FrameLayout
+    private lateinit var mainButton: Button
     private lateinit var stateText: TextView
     private lateinit var arrow: ArrowView
 
@@ -109,7 +105,6 @@ class UserModeActivity : Activity(), GLSurfaceView.Renderer {
         thermal = ThermalMonitor(this)
         haptics = Haptics(this, config.haptics)
         focus = AudioFocus(this)
-        a11y = getSystemService(AccessibilityManager::class.java)
         window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
         buildLayout()
         render()
@@ -126,72 +121,108 @@ class UserModeActivity : Activity(), GLSurfaceView.Renderer {
         }
         stateText = TextView(this).apply {
             setTextColor(Color.YELLOW)
-            textSize = 44f
+            textSize = 36f
             gravity = Gravity.CENTER
-            setPadding(32, 96, 32, 32)
-            importantForAccessibility = View.IMPORTANT_FOR_ACCESSIBILITY_NO // 버튼(root)이 읽는다
+            setPadding(dp(24), dp(32), dp(24), dp(16))
+            accessibilityLiveRegion = View.ACCESSIBILITY_LIVE_REGION_POLITE
         }
-        arrow = ArrowView(this).apply { importantForAccessibility = View.IMPORTANT_FOR_ACCESSIBILITY_NO }
+        arrow = ArrowView(this).apply {
+            importantForAccessibility = View.IMPORTANT_FOR_ACCESSIBILITY_NO
+        }
         noticeText = TextView(this).apply {
             setTextColor(Color.WHITE)
             textSize = 16f
-            setPadding(32, 32, 32, 48)
+            setPadding(dp(24), dp(16), dp(24), dp(24))
             text = listOfNotNull(overrideNotice, ARCORE_NOTICE).joinToString("\n\n")
-            importantForAccessibility = View.IMPORTANT_FOR_ACCESSIBILITY_NO // 버튼(root)이 읽는다
         }
-        val detector = GestureDetector(this, object : GestureDetector.SimpleOnGestureListener() {
-            override fun onDown(e: MotionEvent) = true
-            // 두 번째 탭을 뗄 때 처리: 누를 때 처리하면 시작(약 0.6 s)이 UI를 막는 동안 길게 누르기로 오인된다(M9 실측)
-            override fun onDoubleTapEvent(e: MotionEvent): Boolean {
-                if (e.actionMasked == MotionEvent.ACTION_UP) onCommand(UserCommand.TOGGLE)
-                return true
-            }
-            override fun onLongPress(e: MotionEvent) = onCommand(UserCommand.EXIT)
-        })
-        root = object : FrameLayout(this) {
-            override fun onInitializeAccessibilityNodeInfo(info: AccessibilityNodeInfo) {
-                super.onInitializeAccessibilityNodeInfo(info)
-                info.addAction(AccessibilityAction(AccessibilityNodeInfo.ACTION_CLICK, if (run == null) "시작" else "일시정지 또는 재개"))
-                info.addAction(AccessibilityAction(AccessibilityNodeInfo.ACTION_LONG_CLICK, "종료"))
-            }
-        }.apply {
-            setBackgroundColor(Color.BLACK)
-            isClickable = true
-            isLongClickable = true
-            accessibilityLiveRegion = View.ACCESSIBILITY_LIVE_REGION_POLITE
-            // TalkBack: 두 번 탭 = 클릭, 두 번 탭 후 유지 = 길게 클릭. TalkBack이 없으면 제스처(한 번 탭은 무시).
-            setOnClickListener { if (a11y.isTouchExplorationEnabled) onCommand(UserCommand.TOGGLE) }
+        mainButton = Button(this).apply {
+            textSize = 30f
+            isAllCaps = false
+            setTextColor(Color.BLACK)
+            backgroundTintList = android.content.res.ColorStateList.valueOf(Color.YELLOW)
+            minHeight = dp(140)
+            setPadding(dp(16), dp(24), dp(16), dp(24))
+            setOnClickListener { onCommand(UserCommand.TOGGLE) }
             setOnLongClickListener {
-                if (a11y.isTouchExplorationEnabled) onCommand(UserCommand.EXIT)
-                true
+                if (run != null) onCommand(UserCommand.EXIT)
+                true // 길게 누른 뒤 손을 떼도 짧은 클릭을 추가 실행하지 않는다.
             }
-            setOnTouchListener { _, ev -> !a11y.isTouchExplorationEnabled && detector.onTouchEvent(ev) }
-            addView(glView, FrameLayout.LayoutParams(MATCH_PARENT, MATCH_PARENT)) // ARCore 입력용, 검은색만 그린다
-            addView(stateText, FrameLayout.LayoutParams(MATCH_PARENT, WRAP_CONTENT, Gravity.TOP))
-            addView(arrow, FrameLayout.LayoutParams(MATCH_PARENT, MATCH_PARENT))
-            addView(noticeText, FrameLayout.LayoutParams(MATCH_PARENT, WRAP_CONTENT, Gravity.BOTTOM))
+            accessibilityDelegate = object : View.AccessibilityDelegate() {
+                override fun onInitializeAccessibilityNodeInfo(
+                    host: View,
+                    info: AccessibilityNodeInfo,
+                ) {
+                    super.onInitializeAccessibilityNodeInfo(host, info)
+                    if (run != null) {
+                        info.addAction(AccessibilityNodeInfo.AccessibilityAction(
+                            AccessibilityNodeInfo.ACTION_LONG_CLICK,
+                            "안내 종료",
+                        ))
+                    }
+                }
+            }
+        }
+        // 상태와 버튼은 상단에 고정하고 화살표·고지 문구만 스크롤한다.
+        val body = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            addView(arrow, LinearLayout.LayoutParams(MATCH_PARENT, dp(240)))
+            addView(noticeText, LinearLayout.LayoutParams(MATCH_PARENT, WRAP_CONTENT))
+        }
+        val controls = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            addView(stateText, LinearLayout.LayoutParams(MATCH_PARENT, WRAP_CONTENT))
+            addView(mainButton, LinearLayout.LayoutParams(MATCH_PARENT, WRAP_CONTENT).apply {
+                setMargins(dp(16), dp(8), dp(16), dp(16))
+            })
+            addView(TextView(this@UserModeActivity).apply {
+                text = "안내 시작 후 버튼을 길게 누르면 종료합니다"
+                setTextColor(Color.WHITE)
+                textSize = 16f
+                gravity = Gravity.CENTER
+                setPadding(dp(24), 0, dp(24), dp(8))
+            }, LinearLayout.LayoutParams(MATCH_PARENT, WRAP_CONTENT))
+            addView(ScrollView(this@UserModeActivity).apply {
+                addView(body)
+            }, LinearLayout.LayoutParams(MATCH_PARENT, 0, 1f))
+        }
+        val root = FrameLayout(this).apply {
+            setBackgroundColor(Color.BLACK)
+            // 시스템 탐색 영역과 화면 잘림을 피해 버튼을 배치한다.
+            fitsSystemWindows = true
+            addView(glView, FrameLayout.LayoutParams(MATCH_PARENT, MATCH_PARENT))
+            addView(controls, FrameLayout.LayoutParams(MATCH_PARENT, MATCH_PARENT))
         }
         setContentView(root)
     }
 
+    private fun dp(value: Int): Int = (value * resources.displayMetrics.density + 0.5f).toInt()
+
     /** 모든 사용자 입력이 모이는 곳(터치, 나중에 음성). */
     fun onCommand(cmd: UserCommand) {
+        if (isFinishing || isDestroyed) return
         Log.i(TAG, "user command $cmd (running=${run != null})")
         when (cmd) {
             UserCommand.TOGGLE -> {
                 val r = run
-                if (r == null) start() else r.pipeline.paused = !r.pipeline.paused
+                if (r == null) {
+                    start()
+                } else {
+                    r.pipeline.paused = !r.pipeline.paused
+                }
             }
             UserCommand.EXIT -> {
+                if (run == null) return
                 haptics.exit()
                 stop()
                 finish()
+                return
             }
         }
         render()
     }
 
     private fun start() {
+        if (run != null) return
         message = null
         val reason = try {
             ar.resume()
@@ -208,7 +239,7 @@ class UserModeActivity : Activity(), GLSurfaceView.Renderer {
         feeder.session = ar.session
         feeder.resetClock()
         focus.request()
-        val stamp = SimpleDateFormat("yyyyMMdd_HHmmss", Locale.US).format(Date())
+        val stamp = SimpleDateFormat("yyyyMMdd_HHmmss_SSS", Locale.US).format(Date())
         val runs = File(getExternalFilesDir(null), RunSession.RUNS_DIR)
         val r = try {
             RunSession(config, hrtf, File(runs, stamp), feeder::nowNs)
@@ -224,6 +255,7 @@ class UserModeActivity : Activity(), GLSurfaceView.Renderer {
             it.pipeline.onAlert = { kind ->
                 // 오디오 스레드에서 불린다: 진동(바인더 호출)·로그는 UI 스레드로 넘긴다(A1 CO5)
                 ui.post {
+                    if (run !== r) return@post // 이미 중지한 실행의 늦은 알림은 버린다
                     haptics.on(kind)
                     Log.i(TAG, "alert $kind")
                     render()
@@ -257,7 +289,7 @@ class UserModeActivity : Activity(), GLSurfaceView.Renderer {
 
     override fun onPause() {
         super.onPause()
-        // 앱을 떠나면(화면 잠금·전화) 안내를 멈춘다. 돌아오면 다시 두 번 탭으로 시작
+        // 앱을 떠나면(화면 잠금·전화) 안내를 멈춘다. 돌아오면 상단 버튼으로 다시 시작
         // VERIFY: 화면이 꺼지는 중(onPause)에도 진동이 전달되는지(Android 13+ 백그라운드 진동 제한) 기기에서 확인
         if (run != null) stopWithNotice("화면을 떠나 안내를 멈췄습니다", haptics::exit) else stop()
         render()
@@ -286,24 +318,32 @@ class UserModeActivity : Activity(), GLSurfaceView.Renderer {
     private fun render() {
         val g = run?.pipeline?.lastOutput?.get()
         val line = when {
-            run == null -> message ?: "시작 전"
+            run == null -> message ?: "안내 대기 중"
             run!!.pipeline.paused -> "일시정지"
             g == null || g.state == GuidanceState.UNKNOWN -> "준비 중"
-            g.state == GuidanceState.PAUSED -> "일시정지"
+            g.state == GuidanceState.PAUSED -> "준비 중" // 재개 요청 후 새 오디오 출력이 반영될 때까지
             run!!.pipeline.snapshot.get()?.mapHealth == MapHealth.DEGRADED -> "바닥 확인 중" // 물체를 볼 수 없다(M40, 대기음과 함께)
             else -> "안내 중"
         }
         if (stateText.text != line) {
             stateText.text = line
-            val hint = if (run == null) "두 번 탭하여 시작, 길게 눌러 종료" else "두 번 탭하여 일시정지 또는 재개, 길게 눌러 종료"
-            // 처음 시작하기 전에는 ARCore 고지(TR7)를 함께 읽는다. 기기 설정 덮어쓰기는 늘 읽는다(TR4)
-            val notice = listOfNotNull(
-                overrideNotice,
-                ARCORE_NOTICE.takeIf { run == null && !prefs.getBoolean(PREF_NOTICE_READ, false) },
-            ).joinToString("") { "$it. " }
-            root.contentDescription = "HEARSPACE, $line. $notice$hint"
         }
-        val cmd = g?.commands?.firstOrNull()?.takeIf { it.band != Band.SILENT && g.state != GuidanceState.UNKNOWN }
+        val buttonLabel = when {
+            run == null -> "안내 시작"
+            run!!.pipeline.paused -> "안내 재개"
+            else -> "일시정지"
+        }
+        if (mainButton.text != buttonLabel) mainButton.text = buttonLabel
+        mainButton.isLongClickable = run != null
+        // 상태와 조작을 분리해 TalkBack이 실제 Button 역할과 다음 동작을 읽는다.
+        // ARCore 고지는 본문에서도 탐색 가능하고 첫 시작 전에는 상태와 함께 읽는다.
+        val notice = listOfNotNull(
+            overrideNotice,
+            ARCORE_NOTICE.takeIf { run == null && !prefs.getBoolean(PREF_NOTICE_READ, false) },
+        ).joinToString(". ")
+        val description = listOf("HEARSPACE", line, notice).filter { it.isNotEmpty() }.joinToString(". ")
+        if (stateText.contentDescription != description) stateText.contentDescription = description
+        val cmd = g?.takeIf { run?.pipeline?.paused == false && it.state != GuidanceState.PAUSED }?.commands?.firstOrNull()?.takeIf { it.band != Band.SILENT && g.state != GuidanceState.UNKNOWN }
         arrow.show(cmd?.azimuthDeg, cmd?.band == Band.STOP)
     }
 
@@ -352,7 +392,7 @@ class UserModeActivity : Activity(), GLSurfaceView.Renderer {
             paint.color = if (stop) Color.RED else Color.YELLOW
             val cx = width / 2f
             val cy = height * 0.55f
-            val r = width * 0.35f
+            val r = minOf(width * 0.35f, height * 0.45f)
             canvas.save()
             canvas.rotate(az, cx, cy)
             canvas.drawPath(Path().apply {
