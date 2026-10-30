@@ -438,6 +438,8 @@ data class RepPointConfig(
     val strategy: RepStrategy,
     /** CORRIDOR_BAND 띠 폭: 가장 앞 칸에서 이만큼 안의 통로 안 칸으로 좌우를 낸다(M21, 실측 꼬리 p90에서). */
     val bandM: Float,
+    /** 같은 거리 후보를 통로 좌표로 정렬하는 실험. 높이·피치가 달라지므로 청취 검증 전 기본 꺼짐. */
+    val stableTies: Boolean = false,
 )
 
 /** 거리 구간·음원 선택 설정. */

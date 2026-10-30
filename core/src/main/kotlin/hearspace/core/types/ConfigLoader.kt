@@ -235,7 +235,7 @@ object ConfigLoader {
                 )
             },
             repPoint = root.section("repPoint") {
-                RepPointConfig(strategy = enumValue<RepStrategy>("strategy"), bandM = positive("bandM"))
+                RepPointConfig(strategy = enumValue<RepStrategy>("strategy"), bandM = positive("bandM"), stableTies = boolean("stableTies"))
             },
             policy = root.section("policy") {
                 PolicyConfig(
