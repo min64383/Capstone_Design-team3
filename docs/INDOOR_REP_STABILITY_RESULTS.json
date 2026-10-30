@@ -1,0 +1,204 @@
+{
+  "sessions": [
+    {
+      "session": "20260928_084542_S02",
+      "offIdentical": {
+        "guidance.csv": true,
+        "obstacles.csv": true,
+        "cluster_debug.csv": true,
+        "slow_path.csv": true
+      },
+      "onGuidanceIdentical": true,
+      "steps": 322,
+      "metricChanges": {},
+      "missedStop": [
+        1,
+        1
+      ]
+    },
+    {
+      "session": "20260928_101025_S01",
+      "offIdentical": {
+        "guidance.csv": true,
+        "obstacles.csv": true,
+        "cluster_debug.csv": true,
+        "slow_path.csv": true
+      },
+      "onGuidanceIdentical": true,
+      "steps": 220
+    },
+    {
+      "session": "20260928_102615_S01",
+      "offIdentical": {
+        "guidance.csv": true,
+        "obstacles.csv": true,
+        "cluster_debug.csv": true,
+        "slow_path.csv": true
+      },
+      "onGuidanceIdentical": true,
+      "steps": 293
+    },
+    {
+      "session": "20260928_190833_S01",
+      "offIdentical": {
+        "guidance.csv": true,
+        "obstacles.csv": true,
+        "cluster_debug.csv": true,
+        "slow_path.csv": true
+      },
+      "onGuidanceIdentical": true,
+      "steps": 457,
+      "metricChanges": {},
+      "missedStop": [
+        0,
+        0
+      ]
+    },
+    {
+      "session": "20260928_190936_S01",
+      "offIdentical": {
+        "guidance.csv": false,
+        "obstacles.csv": false,
+        "cluster_debug.csv": false,
+        "slow_path.csv": true
+      },
+      "onGuidanceIdentical": false,
+      "steps": 297
+    },
+    {
+      "session": "20261003_130646_S01",
+      "offIdentical": {
+        "guidance.csv": true,
+        "obstacles.csv": true,
+        "cluster_debug.csv": true,
+        "slow_path.csv": true
+      },
+      "onGuidanceIdentical": true,
+      "steps": 354,
+      "metricChanges": {},
+      "missedStop": [
+        0,
+        0
+      ]
+    },
+    {
+      "session": "20261003_130815_S01",
+      "offIdentical": {
+        "guidance.csv": true,
+        "obstacles.csv": true,
+        "cluster_debug.csv": true,
+        "slow_path.csv": true
+      },
+      "onGuidanceIdentical": true,
+      "steps": 281,
+      "metricChanges": {},
+      "missedStop": [
+        0,
+        0
+      ]
+    },
+    {
+      "session": "20261003_130834_S01",
+      "offIdentical": {
+        "guidance.csv": true,
+        "obstacles.csv": true,
+        "cluster_debug.csv": true,
+        "slow_path.csv": true
+      },
+      "onGuidanceIdentical": true,
+      "steps": 297,
+      "metricChanges": {},
+      "missedStop": [
+        0,
+        0
+      ]
+    },
+    {
+      "session": "20261003_131003_S01",
+      "offIdentical": {
+        "guidance.csv": true,
+        "obstacles.csv": true,
+        "cluster_debug.csv": true,
+        "slow_path.csv": true
+      },
+      "onGuidanceIdentical": true,
+      "steps": 271,
+      "metricChanges": {},
+      "missedStop": [
+        0,
+        0
+      ]
+    },
+    {
+      "session": "20261003_131039_S01",
+      "offIdentical": {
+        "guidance.csv": true,
+        "obstacles.csv": true,
+        "cluster_debug.csv": true,
+        "slow_path.csv": true
+      },
+      "onGuidanceIdentical": true,
+      "steps": 253,
+      "metricChanges": {},
+      "missedStop": [
+        0,
+        0
+      ]
+    },
+    {
+      "session": "20261003_135701_S01",
+      "offIdentical": {
+        "guidance.csv": false,
+        "obstacles.csv": false,
+        "cluster_debug.csv": false,
+        "slow_path.csv": true
+      },
+      "onGuidanceIdentical": false,
+      "steps": 279,
+      "metricChanges": {},
+      "missedStop": [
+        0,
+        0
+      ]
+    },
+    {
+      "session": "20261003_135718_S01",
+      "offIdentical": {
+        "guidance.csv": true,
+        "obstacles.csv": true,
+        "cluster_debug.csv": true,
+        "slow_path.csv": true
+      },
+      "onGuidanceIdentical": true,
+      "steps": 285,
+      "metricChanges": {},
+      "missedStop": [
+        0,
+        0
+      ]
+    },
+    {
+      "session": "20261003_135734_S01",
+      "offIdentical": {
+        "guidance.csv": true,
+        "obstacles.csv": true,
+        "cluster_debug.csv": true,
+        "slow_path.csv": true
+      },
+      "onGuidanceIdentical": true,
+      "steps": 275,
+      "metricChanges": {},
+      "missedStop": [
+        0,
+        0
+      ]
+    }
+  ],
+  "obstacleRows": 5494,
+  "heightChangedRows": 2873,
+  "heightDeltaPercentiles": [
+    -1.3905049200000001,
+    -0.04999771,
+    -1.9999999989472883e-08
+  ]
+}

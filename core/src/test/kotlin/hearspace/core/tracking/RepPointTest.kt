@@ -10,6 +10,7 @@ import hearspace.core.types.ConfigLoader
 import hearspace.core.types.RepStrategy
 import java.io.File
 import kotlin.math.abs
+import kotlin.random.Random
 
 /** M21 CORRIDOR_BAND: 거리는 CORRIDOR_NEAREST와 같고, 좌우는 띠 안에서 보행선에 가장 가까운 칸. 칸 0.05 m 격자의 합성 군집. */
 class RepPointTest {
@@ -20,7 +21,7 @@ class RepPointTest {
     private val corridor = Corridor(Vec3.ZERO, Vec3(0f, 0f, -1f), 0f, config.corridor)
     private fun p(alongM: Float, lateralM: Float, yM: Float = 0.3f) = Vec3(lateralM, yM, -alongM)
 
-    private fun reps(pts: List<Vec3>) = RepPoint.candidates(pts, corridor, config.map.voxelSizeM, config.repPoint.bandM)
+    private fun reps(pts: List<Vec3>) = RepPoint.candidates(pts, corridor, config.map.voxelSizeM, config.repPoint.bandM, stableTies = true)
 
     @Test
     fun `tail cell in front of a face across the walk line - band points at the face, same distance`() {
@@ -49,5 +50,61 @@ class RepPointTest {
     fun `no cell inside the corridor - band equals nearest`() {
         val r = reps(listOf(p(1.0f, 0.6f), p(1.2f, 0.7f)))
         assertEquals(r.getValue(RepStrategy.NEAREST), r.getValue(RepStrategy.CORRIDOR_BAND))
+    }
+
+    @Test
+    fun `same face in a different voxel order keeps surface representatives`() {
+        // 같은 |좌우|에 앞뒤 두 줄·높이 두 층: HashMap 순서를 흉내 내어 순서만 바꾼다.
+        val points = listOf(1f, 1.03125f).flatMap { a ->
+            listOf(-0.125f, 0.125f).flatMap { l -> listOf(0.25f, 0.75f).map { y -> p(a, l, y) } }
+        }
+        val expected = reps(points)
+        repeat(30) { seed ->
+            val actual = reps(points.shuffled(Random(seed)))
+            for (strategy in RepStrategy.entries.filter { it != RepStrategy.CENTROID }) {
+                assertEquals(expected.getValue(strategy), actual.getValue(strategy), "$strategy seed=$seed")
+            }
+        }
+    }
+
+    @Test
+    fun `equal lateral candidates keep the front row even if the rear row arrives first`() {
+        val points = listOf(p(1.03125f, 0.125f, 0.75f), p(1f, 0.125f, 0.25f))
+        val actual = reps(points)
+        for (strategy in listOf(RepStrategy.CORRIDOR_NEAREST, RepStrategy.CORRIDOR_BAND)) {
+            assertEquals(p(1f, 0.125f, 0.25f), actual.getValue(strategy), strategy.name)
+        }
+    }
+
+    @Test
+    fun `outside corridor nearest ties do not depend on point order`() {
+        val points = listOf(p(1f, -0.625f), p(1f, 0.625f))
+        for (strategy in listOf(RepStrategy.NEAREST, RepStrategy.CORRIDOR_NEAREST, RepStrategy.CORRIDOR_BAND)) {
+            assertEquals(reps(points).getValue(strategy), reps(points.reversed()).getValue(strategy), strategy.name)
+        }
+    }
+
+    @Test
+    fun `tie resolution uses the walking frame after a right angle turn`() {
+        // 월드 원점·축에 가까운 점을 우선하지 않는다: 같은 합성 면을 90도 회전하고 평행 이동한다.
+        val points = listOf(1f, 1.03125f).flatMap { a ->
+            listOf(-0.125f, 0.125f).map { l -> p(a, l, 0.25f) }
+        }
+        fun turn(v: Vec3) = Vec3(-v.z, v.y, v.x)
+        val offset = Vec3(2f, 0f, 3f)
+        val turned = Corridor(offset, turn(corridor.headingW), 0f, config.corridor)
+        val expected = reps(points)
+        val actual = RepPoint.candidates(points.reversed().map { turn(it) + offset }, turned, config.map.voxelSizeM, config.repPoint.bandM, stableTies = true)
+        for (strategy in RepStrategy.entries.filter { it != RepStrategy.CENTROID }) {
+            assertEquals(turn(expected.getValue(strategy)) + offset, actual.getValue(strategy), strategy.name)
+        }
+    }
+
+    @Test
+    fun `disabled option retains the legacy first equal candidate`() {
+        val first = p(1.03125f, 0.125f, 0.75f)
+        val r = RepPoint.candidates(listOf(first, p(1f, 0.125f, 0.25f)), corridor, config.map.voxelSizeM, config.repPoint.bandM)
+        assertEquals(first, r.getValue(RepStrategy.CORRIDOR_NEAREST))
+        assertEquals(first, r.getValue(RepStrategy.CORRIDOR_BAND))
     }
 }

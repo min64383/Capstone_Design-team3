@@ -81,6 +81,15 @@ class ConfigLoaderTest {
     }
 
     @Test
+    fun `stable representative ties are opt in and only change their own setting`() {
+        val base = load()
+        assertEquals(false, base.repPoint.stableTies)
+        val c = load("""{"repPoint":{"stableTies":true}}""")
+        assertEquals(base.copy(repPoint = base.repPoint.copy(stableTies = true)), c)
+        assertConfigError("repPoint.stableTies", """{"repPoint":{"stableTies":"true"}}""")
+    }
+
+    @Test
     fun `missing key is rejected`() {
         val json = defaultJson.replace(""""minHits": 6,""", "")
         val e = assertThrows<ConfigException> { ConfigLoader.load(json) }

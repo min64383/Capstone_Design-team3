@@ -17,11 +17,13 @@ import hearspace.core.types.RepStrategy
  *   8~9 cm 앞의 꼬리 칸). 좌우는 실제 점에서 가져온다: 띠 좌우 범위에 0을 가두면(M21 1차) 옆벽 둘만 띠에 든 통로에서
  *   아무것도 없는 가운데를 가리킨다. 분위수 범위는 비켜 선 상자의 진짜 모서리를 잘라 방향이 나빠져 쓰지 않는다(M21 결과).
  *   칸 중심이 아니라 만든 점이다. 통로 안 점이 없으면 NEAREST와 같다.
+ * - [stableTies] 실험을 켜면 같은 거리의 후보는 입력 순서 대신 진행 방향 거리 → 높이 → 부호 있는 좌우 순으로 고른다.
+ *   복셀 HashMap 순서가 바뀌어도 같은 면의 다른 높이·좌우를 번갈아 가리키지 않는다.
  */
 object RepPoint {
 
     /** [pointsW]의 대표점들. [pointsW]는 비어 있으면 안 된다. */
-    fun candidates(pointsW: List<Vec3>, corridor: Corridor, frontTolM: Float, bandM: Float): Map<RepStrategy, Vec3> {
+    fun candidates(pointsW: List<Vec3>, corridor: Corridor, frontTolM: Float, bandM: Float, stableTies: Boolean = false): Map<RepStrategy, Vec3> {
         require(pointsW.isNotEmpty()) { "empty cluster" }
         var sx = 0f
         var sy = 0f
@@ -31,14 +33,22 @@ object RepPoint {
         }
         val n = pointsW.size.toFloat()
         val centroid = Vec3(sx / n, sy / n, sz / n)
-        val nearest = pointsW.minBy { (it - corridor.originW).horizontal().norm() }
+        // 동률 규칙도 사용자 통로 좌표를 쓴다. 월드 x/z로 가르면 같은 면을 회전했을 때 선택이 바뀐다.
+        // 새 거리 허용치는 두지 않는다: 기존 1차 기준이 정확히 같은 경우에만 적용한다.
+        val surfaceOrder = compareBy<Vec3> { corridor.alongM(it) }
+            .thenBy { it.y }
+            .thenBy { corridor.lateralM(it) }
+        val nearestOrder = compareBy<Vec3> { (it - corridor.originW).horizontal().norm() }
+        val nearest = pointsW.minWith(if (stableTies) nearestOrder.then(surfaceOrder) else nearestOrder)
+        val lateralOrder = compareBy<Vec3> { kotlin.math.abs(corridor.lateralM(it)) }.then(surfaceOrder)
+        val chosenLateralOrder = if (stableTies) lateralOrder else compareBy<Vec3> { kotlin.math.abs(corridor.lateralM(it)) }
         val inside = pointsW.filter { corridor.contains(it) }
         val minAlong = inside.minOfOrNull { corridor.alongM(it) }
         val corridorNearest = minAlong?.let { m ->
-            inside.filter { corridor.alongM(it) <= m + frontTolM }.minBy { kotlin.math.abs(corridor.lateralM(it)) }
+            inside.filter { corridor.alongM(it) <= m + frontTolM }.minWith(chosenLateralOrder)
         } ?: nearest
         val corridorBand = minAlong?.let { m ->
-            val c = inside.filter { corridor.alongM(it) <= m + bandM }.minBy { kotlin.math.abs(corridor.lateralM(it)) }
+            val c = inside.filter { corridor.alongM(it) <= m + bandM }.minWith(chosenLateralOrder)
             corridor.pointW(corridor.alongM(corridorNearest), corridor.lateralM(c), c.y)
         } ?: nearest
         return mapOf(

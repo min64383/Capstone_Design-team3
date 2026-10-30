@@ -32,6 +32,7 @@
 | 통로 판정 | `corridor.judge` BOX → WALKABLE | M44: 옆 벽 오경보 안 줄고 합성 STOP 검출 −0.14로 F | BOX | M38 녹화에서 진행 방향 결합과 함께(M36) |
 | 통로 판정 | `corridor.judge` BOX → BOUNDARY (나란한 경계) | M44 재설계: 기준 충족(P) | BOX | M36 기본값 후보 |
 | 안내 | `repPoint.strategy` CORRIDOR_NEAREST → CORRIDOR_BAND | M21 기본값(평활 깊이에서 방향 불합격 7/15 → 4/15) | CORRIDOR_BAND | M42 |
+| 안내 | `repPoint.stableTies` false → true | M21 보완(2026-10-30): 같은 거리 후보의 입력 순서 의존 재현 | false | 높이·피치 청취와 회전 재현 후, 기본값 후보 아님 |
 | 안내 | `policy.prioritizeStop`, `policy.maxSources` | 팀 소리 후보(IMPROVE_SPEC §15) | false / 1 | M42, 소리는 M36 |
 
 ## 재판정 기록
