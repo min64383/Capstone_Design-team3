@@ -73,6 +73,7 @@ val gitHash: String by rootProject.extra
 // M8 오프라인 재생: ./gradlew :core:replay -Psession=<세션 폴더> [-Pout=..] [-PslowMs=10 | -PslowFrom=<slow_path.csv>] [-PoverridesFile=<json>]
 // M12.3 정답 대입: [-Psubstitute=depth,map,heading,floor -PalignFrom=<align.json> -PdepthNoisePerM=0.03]
 // M19 RGB 원천: [-PrgbFrom=mp4|recorded]
+// M37 학습형 깊이 장: [-PdepthFrom=<변형>/<full|fill> -PdepthFromDelayMs=<ms>]
 tasks.register<JavaExec>("replay") {
     group = "hearspace"
     description = "녹화 세션을 PC에서 오프라인 재생해 실행 로그(§10.1)를 쓴다"
@@ -82,7 +83,7 @@ tasks.register<JavaExec>("replay") {
     systemProperty("hearspace.replayOut", layout.buildDirectory.dir("replay").get().asFile.absolutePath)
     systemProperty("hearspace.gitHash", gitHash)
     val paths = setOf("session", "out", "slowFrom", "overridesFile", "alignFrom")
-    args = listOf("session", "out", "slowMs", "slowFrom", "overrides", "overridesFile", "substitute", "alignFrom", "depthNoisePerM", "rgbFrom").mapNotNull { k ->
+    args = listOf("session", "out", "slowMs", "slowFrom", "overrides", "overridesFile", "substitute", "alignFrom", "depthNoisePerM", "rgbFrom", "depthFrom", "depthFromDelayMs").mapNotNull { k ->
         (project.findProperty(k) as String?)?.let { v -> "$k=${if (k in paths) rootProject.file(v).absolutePath else v}" }
     }
 }

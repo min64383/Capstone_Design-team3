@@ -192,4 +192,61 @@ class SessionReaderTest {
         meta.writeText(meta.readText().replace(Regex("""\s*"elapsedMinusMonotonicNs": [0-9]+,"""), ""))
         assertEquals(null, SessionReader(dir).meta.elapsedMinusMonotonicNs)
     }
+
+    /** M37 학습형 장: 원시 장 일부를 learned_depth PNG로 바꾸고, 화소 출처를 붙이고, 모델 시간만큼 늦게 내며 그 사이 원시 장은 버린다. */
+    @Test
+    fun `learned frames replace chosen raw frames, carry pixel source and arrive after the model delay`() {
+        val rec = Scenes.SC02.generate()
+        val dir = SyntheticSessionWriter.write(rec, File(tmp, "s"), "SC-02", rawEveryN = 3)
+        val plain = SessionReader(dir).events(DepthSource.RAW).filterIsInstance<DepthEvent>().toList()
+        assertTrue(plain.size > 6, "raw frames ${plain.size}")
+        val chosen = plain.filterIndexed { i, _ -> i % 3 == 1 }.map { it.frameIndex }
+        val ld = File(dir, "learned_depth/v")
+        val w = plain[0].depth.K.width
+        val h = plain[0].depth.K.height
+        for (sub in listOf("full", "fill", "src")) File(ld, sub).mkdirs()
+        val byIndex = plain.associateBy { it.frameIndex }
+        for (fi in chosen) {
+            val raw = byIndex.getValue(fi).depth.depthMm
+            val full = ShortArray(raw.size) { 2000 } // 학습형: 어디나 2 m
+            val src = ByteArray(raw.size) { if (it % w < w / 2) 1 else 0 } // 왼쪽 반만 채움
+            val fill = ShortArray(raw.size) { if (src[it].toInt() == 1) 2000 else raw[it] }
+            File(ld, "full/%06d.png".format(fi)).writeBytes(Png16.encode(GrayImage.of16(w, h, full)))
+            File(ld, "fill/%06d.png".format(fi)).writeBytes(Png16.encode(GrayImage.of16(w, h, fill)))
+            File(ld, "src/%06d.png".format(fi)).writeBytes(Png16.encode(GrayImage.of8(w, h, src)))
+        }
+        File(ld, "index.csv").writeText("frameIndex,rawTNs\n" + chosen.joinToString("\n") { "$it,0" } + "\n")
+
+        // 기다림 없음: 같은 자리에서 바뀐다
+        val full = SessionReader(dir).events(DepthSource.RAW, SessionReader.Learned(dir, "v", "full", 0L)).filterIsInstance<DepthEvent>().toList()
+        assertEquals(plain.map { it.frameIndex }, full.map { it.frameIndex })
+        for (e in full) {
+            if (e.frameIndex in chosen) {
+                assertTrue(e.depth.depthMm.all { it.toInt() == 2000 })
+                assertTrue(e.depth.pixelSource!!.all { it.toInt() == hearspace.core.types.DepthFrame.PIXEL_LEARNED })
+                assertEquals(byIndex.getValue(e.frameIndex).depth.tCaptureNs, e.depth.tCaptureNs)
+                assertSamePose(byIndex.getValue(e.frameIndex).depth.worldFromCam, e.depth.worldFromCam)
+            } else {
+                assertEquals(null, e.depth.pixelSource)
+                assertArrayEquals(byIndex.getValue(e.frameIndex).depth.depthMm, e.depth.depthMm)
+            }
+        }
+        val fill = SessionReader(dir).events(DepthSource.RAW, SessionReader.Learned(dir, "v", "fill", 0L)).filterIsInstance<DepthEvent>()
+            .first { it.frameIndex == chosen[0] }
+        val px = fill.depth.pixelSource!!
+        assertTrue((0 until px.size).all { px[it].toInt() == (if (it % w < w / 2) 1 else 0) })
+
+        // 기다림 0.2 s: 도착 행 시스템 시각 + 0.2 s 뒤 첫 행에서 나오고, 그 사이 원시 장은 버린다
+        val r = SessionReader(dir)
+        val sys = r.rows.associate { it.frameIndex to it.sysElapsedNs }
+        val delayed = r.events(DepthSource.RAW, SessionReader.Learned(dir, "v", "full", 200_000_000L)).filterIsInstance<DepthEvent>().toList()
+        val learnedOut = delayed.filter { it.depth.pixelSource != null }
+        assertTrue(learnedOut.isNotEmpty())
+        for (e in learnedOut) {
+            val origin = plain.first { it.depth.tCaptureNs == e.depth.tCaptureNs }.frameIndex
+            assertTrue(sys.getValue(e.frameIndex) >= sys.getValue(origin) + 200_000_000L)
+            val dropped = plain.filter { it.frameIndex > origin && sys.getValue(it.frameIndex) < sys.getValue(origin) + 200_000_000L }
+            assertTrue(dropped.none { d -> delayed.any { it.depth.tCaptureNs == d.depth.tCaptureNs } }, "raw frames while waiting must be dropped")
+        }
+    }
 }

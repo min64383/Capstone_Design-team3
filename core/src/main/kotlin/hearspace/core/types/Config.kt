@@ -105,7 +105,33 @@ data class DepthConfig(
     val rawBiasPerM: Float,
     val smoothedBias0M: Float,
     val smoothedBiasPerM: Float,
+    /**
+     * 학습형 깊이 화소의 σ(Z) = σ₀ + k·Z²(M37, 재생 전용 `-PdepthFrom`). 변형마다 원시 σ와 같은 절차(`depth_error.py --model`)로 재서 재생
+     * 덮어쓰기로 준다. 기본 0·0은 "재지 않음"이라 학습형 화소가 들어오면 지도가 멈춘다(재지 않은 값을 쓰지 않게).
+     */
+    val learnedSigma0M: Float = 0f,
+    val learnedSigmaPerM2: Float = 0f,
 ) {
+    /** [learnedSigma0M]·[learnedSigmaPerM2]가 재서 주어졌는지. */
+    val learnedSigmaSet: Boolean get() = learnedSigma0M != 0f || learnedSigmaPerM2 != 0f
+
+    /**
+     * 화소 출처([DepthFrame.pixelSource])별 σ(Z)(M37). 측정 화소는 설정 원천([raw]), 평활 채움은 평활 계수, 학습형은 학습형 계수(입사각 항 없음:
+     * 재지 않았다).
+     */
+    fun sigmaM(raw: Boolean, zM: Float, pixelSource: Int, tanTheta: Float?, fxPx: Float): Float = when (pixelSource) {
+        DepthFrame.PIXEL_LEARNED -> (learnedSigma0M + learnedSigmaPerM2 * zM * zM).coerceAtLeast(0f)
+        DepthFrame.PIXEL_SMOOTHED_FILL -> if (tanTheta == null) sigmaM(false, zM) else sigmaM(false, zM, tanTheta, fxPx)
+        else -> if (tanTheta == null) sigmaM(raw, zM) else sigmaM(raw, zM, tanTheta, fxPx)
+    }
+
+    /** 화소 출처별 편향 b(Z)(M37). 학습형 편향은 재지 않아 0. */
+    fun biasM(raw: Boolean, zM: Float, pixelSource: Int): Float = when (pixelSource) {
+        DepthFrame.PIXEL_LEARNED -> 0f
+        DepthFrame.PIXEL_SMOOTHED_FILL -> biasM(false, zM)
+        else -> biasM(raw, zM)
+    }
+
     /** 깊이 Z(m)에서 점 위치 오차 σ(m). [raw]면 원시 깊이 계수. 음수가 되는 가까운 거리는 0. */
     fun sigmaM(raw: Boolean, zM: Float): Float =
         (if (raw) rawSigma0M + rawSigmaPerM2 * zM * zM else smoothedSigma0M + smoothedSigmaPerM2 * zM * zM).coerceAtLeast(0f)

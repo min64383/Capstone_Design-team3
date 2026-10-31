@@ -150,6 +150,7 @@ class LocalMap(private val config: Config) {
      * ([floorFromMap], 안내의 통로·바닥 띠용 임시 규칙, 요소 분해 M35에서 바꾼다). 지도에서 바닥을 못 찾으면 null(`DEGRADED`).
      */
     private fun updateTriState(depth: DepthFrame, pts: FloatArray, camW: Vec3, userPosW: Vec3, headingW: Vec3): MapUpdate {
+        require(depth.pixelSource == null) { "화소 출처(학습형 장, M37)는 map.triSameFrame 갱신만 다룬다" }
         val n = pts.size / 3
         val raw = config.depth.source == DepthSource.RAW
         val camFromWorld = depth.worldFromCam.rigidInverse()
@@ -184,16 +185,22 @@ class LocalMap(private val config: Config) {
         val halfVoxel = m.voxelSizeM / 2f
         val tau = m.voxelSizeM * kotlin.math.sqrt(3f) / 2f
         fun cos(u: Int, w: Int) = Projection.cosIncidence(depthMm, k, u, w, m.tsdfMinCosIncidence)
+        // 화소 출처(M37 학습형 장): 없으면 모두 측정값이고 아래 계산은 지금과 같다
+        val src = depth.pixelSource
+        if (src != null && !config.depth.learnedSigmaSet && src.any { it.toInt() == DepthFrame.PIXEL_LEARNED }) {
+            error("학습형 화소가 있는데 depth.learnedSigma0M·learnedSigmaPerM2를 재서 주지 않았다(M37)")
+        }
+        fun srcOf(u: Int, w: Int): Int = src?.get(w * k.width + u)?.toInt() ?: DepthFrame.PIXEL_MEASURED
         fun sigma(u: Int, w: Int, z: Float): Float = if (m.triWeight == TriWeight.SIGMA_INCIDENCE) {
             val c = cos(u, w)
-            config.depth.sigmaM(raw, z, kotlin.math.sqrt(1f - c * c) / c, k.fx)
+            config.depth.sigmaM(raw, z, srcOf(u, w), kotlin.math.sqrt(1f - c * c) / c, k.fx)
         } else {
-            config.depth.sigmaM(raw, z)
+            config.depth.sigmaM(raw, z, srcOf(u, w), null, k.fx)
         }
         fun weight(u: Int, w: Int, z: Float, distM: Float): Float =
             if (m.triWeight == TriWeight.DISTANCE) voxels.weight(distM) else sigma(u, w, z).let { s -> if (s <= halfVoxel) 1f else (halfVoxel / s).let { it * it } }
         fun margin(u: Int, w: Int, z: Float): Float = if (m.triMargin) {
-            kotlin.math.max(tau / cos(u, w), kotlin.math.abs(config.depth.biasM(raw, z)) + m.sigmaMultiple * sigma(u, w, z))
+            kotlin.math.max(tau / cos(u, w), kotlin.math.abs(config.depth.biasM(raw, z, srcOf(u, w))) + m.sigmaMultiple * sigma(u, w, z))
         } else {
             kotlin.math.max(tau, m.sigmaMultiple * sigma(u, w, z))
         }

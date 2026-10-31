@@ -4,17 +4,20 @@
 (측정 깊이 − 정답 광선 깊이)의 쌍 상관도 낸다. RV의 ρ·β(`map.triViewRho`·`triViewRangeLn`)의 근거이고, 새 공간 녹화(M38)에서 다시 잰다.
 헛 칸·바닥 칸 구역은 정답의 wall_left·wall_right·wall_end 이름(복도 정답 규칙)에 기댄다.
 
-    python view_corr.py <출력 json> <세션 ID> ...     (정렬은 data/sweeps/m32/align_ref/<세션>/align.json)
+    python view_corr.py [--source L:<변형>/<full|fill>] <출력 json> <세션 ID> ...     (정렬은 data/sweeps/m32/align_ref/<세션>/align.json)
+M37: --source L:...는 learned_depth.py가 쓴 학습형 장(도착 행 자세, 원시와 같은 규약), fill은 채운 화소(src = 1)만.
 """
 import json, sys
 from pathlib import Path
 import numpy as np, pandas as pd
+from PIL import Image
 from align import DEFAULT_CONFIG, REPO, load_frames, to_truth
 from metrics import load_truth
 from spike_check import quat_to_rot
 from worldpts import depth_k, depth_rows, load_depth_m
 from pixel_error import raycast
 
+SOURCE = None  # M37: L:<변형>/<full|fill>
 STEP = 2  # 화소 간격(자체 선택, 설계 측정과 같은 값)
 rng = np.random.default_rng(0)
 cfg = json.loads(DEFAULT_CONFIG.read_text(encoding="utf-8"))
@@ -38,10 +41,20 @@ def session(sid):
     boxes = [(np.array(o["min"]), np.array(o["max"]), o["name"]) for o in truth]
     rot_only = {**al, "origin": [0.0, 0.0], "floorY": 0.0}
     rows = depth_rows(load_frames(s), "RAW").drop_duplicates("rawDepthTNs")
+    if SOURCE:  # M37 학습형 장
+        lv, lo = SOURCE[2:].split("/")
+        ldir = s / "learned_depth" / lv
+        rows = rows[rows.frameIndex.isin(pd.read_csv(ldir / "index.csv").frameIndex)]
     cams, Rs, deps, ts, hits = [], [], [], [], []
     k = None
     for _, row in rows.iterrows():
-        d = load_depth_m(s / row["rawDepthFile"])
+        if SOURCE:
+            name = f"{int(row.frameIndex):06d}.png"
+            d = load_depth_m(ldir / lo / name)
+            if lo == "fill":
+                d[np.asarray(Image.open(ldir / "src" / name)) == 0] = 0
+        else:
+            d = load_depth_m(s / row["rawDepthFile"])
         if k is None:
             k = depth_k(meta, d.shape[1], d.shape[0])
             vv, uu = np.mgrid[0:d.shape[0]:STEP, 0:d.shape[1]:STEP]
@@ -122,6 +135,9 @@ def session(sid):
     return out
 
 if __name__ == "__main__":
+    if len(sys.argv) > 2 and sys.argv[1] == "--source":
+        SOURCE = sys.argv[2]
+        del sys.argv[1:3]
     if len(sys.argv) < 3:
         sys.exit(__doc__)
     res = {sid: session(sid) for sid in sys.argv[2:]}

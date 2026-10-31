@@ -14,6 +14,7 @@ import java.io.File
  * `-PalignFrom=<기준 재생의 align.json>`
  * [`-PdepthNoisePerM=0.03`]. 정답은 세션의 `annotations/obstacles.json`. `-PalignFrom`만 주면 대입 없이 그 정렬만 기록한다(M18).
  * RGB 안내 보정의 RGB 원천(M19): `-PrgbFrom=mp4`(`tools/analysis/mp4_rgb.py`가 꺼낸 매 프레임 밝기) | `recorded`(기본, 녹화 JPEG).
+ * 학습형 깊이 장(M37): `-PdepthFrom=<변형>/<full|fill>`(`tools/analysis/learned_depth.py`) `-PdepthFromDelayMs=<기기 모델 시간>`. depth.source RAW 필요.
  */
 fun main(args: Array<String>) {
     val opts = args.associate { a -> a.substringBefore('=') to a.substringAfter('=', "") }
@@ -46,7 +47,9 @@ fun main(args: Array<String>) {
         "recorded" -> RgbSource.RECORDED
         else -> error("rgbFrom must be mp4 or recorded: ${opts["rgbFrom"]}")
     }
-    val replay = OfflineReplay(config, slow, sub?.second, sub?.first?.path ?: "", rgbSource)
+    val depthFrom = opts["depthFrom"]?.takeIf { it.isNotBlank() }
+    val delayNs = ((opts["depthFromDelayMs"]?.takeIf { it.isNotBlank() }?.toDouble() ?: 0.0) * 1e6).toLong()
+    val replay = OfflineReplay(config, slow, sub?.second, sub?.first?.path ?: "", rgbSource, depthFrom, delayNs)
     replay.run(session, out, overrides, note)
     // 끊긴 녹화(잘린 줄·손상된 PNG)는 건너뛰고 끝까지 돈다: 건너뛴 것을 알린다
     if (replay.warnings.isNotEmpty()) System.err.println("session warnings ${replay.warnings.size}: ${replay.warnings.take(3).joinToString("; ")}")

@@ -1,0 +1,12 @@
+# M37 학습형 깊이(learned_depth.py, extract_sml_state.py) 전용 가상 환경 .venv-learned. 분석 도구(requirements.txt)와 따로 둔다.
+# 만들기: python -m venv .venv-learned
+#         .venv-learned/Scripts/python -m pip install torch==2.15.0 torchvision==0.29.2 --index-url https://download.pytorch.org/whl/cpu
+#         .venv-learned/Scripts/python -m pip install -r tools/analysis/requirements-learned.txt
+# 모델 코드·가중치는 data/models/(docs/LICENSES.md 모델 가중치 절의 고정 커밋·해시).
+timm==1.0.30
+opencv-python-headless==5.0.0.93
+scipy==1.18.1
+pillow==13.0.0
+av==19.0.2
+numpy==2.5.4
+matplotlib==3.11.2
