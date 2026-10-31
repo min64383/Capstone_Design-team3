@@ -236,6 +236,17 @@ class SessionReaderTest {
         val px = fill.depth.pixelSource!!
         assertTrue((0 until px.size).all { px[it].toInt() == (if (it % w < w / 2) 1 else 0) })
 
+        // 고른 장만: fullonly는 학습형 장만, rawonly는 같은 장의 원시만
+        val fo = SessionReader(dir).events(DepthSource.RAW, SessionReader.Learned(dir, "v", "fullonly", 0L)).filterIsInstance<DepthEvent>().toList()
+        assertEquals(chosen, fo.map { it.frameIndex })
+        assertTrue(fo.all { e -> e.depth.depthMm.all { it.toInt() == 2000 } })
+        val ro = SessionReader(dir).events(DepthSource.RAW, SessionReader.Learned(dir, "v", "rawonly", 0L)).filterIsInstance<DepthEvent>().toList()
+        assertEquals(chosen, ro.map { it.frameIndex })
+        for (e in ro) {
+            assertEquals(null, e.depth.pixelSource)
+            assertArrayEquals(byIndex.getValue(e.frameIndex).depth.depthMm, e.depth.depthMm)
+        }
+
         // 기다림 0.2 s: 도착 행 시스템 시각 + 0.2 s 뒤 첫 행에서 나오고, 그 사이 원시 장은 버린다
         val r = SessionReader(dir)
         val sys = r.rows.associate { it.frameIndex to it.sysElapsedNs }

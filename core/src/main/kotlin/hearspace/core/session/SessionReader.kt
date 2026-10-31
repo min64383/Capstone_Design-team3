@@ -99,11 +99,15 @@ class SessionReader(private val dir: File) {
      * 학습형 깊이 장(M37, 재생 전용 `-PdepthFrom=<변형>/<full|fill>`): `tools/analysis/learned_depth.py`가 쓴
      * `learned_depth/<변형>/index.csv`의 원시 장(도착 행 frameIndex)을 [output] PNG로 바꾼다. 신뢰도 거름은 PNG에 이미 들어 있다.
      * 화소 출처는 full이면 값이 있는 화소 모두 학습형, fill이면 `src/`가 1인 화소만 채운 값(변형 smoothed_fill은 평활 채움).
+     * `…only`(M37 공정 비교)는 색인에 있는 장만 내고 나머지 원시 장은 버린다: fullonly = 학습형 장만(순수 대체), rawonly = 같은 장의
+     * 원시 깊이만(장 수·시각이 같은 원시 기준선).
      */
     class Learned(sessionDir: File, val variant: String, val output: String, val delayNs: Long) {
         init {
-            require(output == "full" || output == "fill") { "depthFrom output must be full or fill: $output" }
+            require(output in setOf("full", "fill", "fullonly", "rawonly")) { "depthFrom output must be full, fill, fullonly or rawonly: $output" }
         }
+        val only = output.endsWith("only")
+        val kind = output.removeSuffix("only")
         val dir = File(sessionDir, "learned_depth/$variant")
         val frames: Set<Long> = File(dir, "index.csv").also { require(it.isFile) { "depthFrom needs ${it.path} (learned_depth.py)" } }
             .readLines().drop(1).filter { it.isNotBlank() }.map { it.substringBefore(',').toLong() }.toSet()
@@ -145,15 +149,15 @@ class SessionReader(private val dir: File) {
                 warnings += "frame ${row.frameIndex}: depth pose not tracking (${rows[poseIdx].tracking})"
                 continue
             }
-            if (learned != null && held != null) { // 모델을 기다리는 동안 온 원시 장
-                lastDepthTNs = tNs
+            if (learned != null && (held != null || (learned.only && row.frameIndex !in learned.frames))) {
+                lastDepthTNs = tNs // 모델을 기다리는 동안 온 원시 장, 또는 고른 장만 쓸 때 고르지 않은 장
                 continue
             }
-            if (learned != null && source == DepthSource.RAW && row.frameIndex in learned.frames) {
-                val lf = decodeOrNull(learned.file(learned.output, row.frameIndex), "learned ${row.frameIndex}") ?: continue
+            if (learned != null && learned.kind != "raw" && source == DepthSource.RAW && row.frameIndex in learned.frames) {
+                val lf = decodeOrNull(learned.file(learned.kind, row.frameIndex), "learned ${row.frameIndex}") ?: continue
                 require(lf.bitDepth == 16) { "learned depth must be 16-bit" }
                 val mm = lf.gray16!!
-                val px = if (learned.output == "full") {
+                val px = if (learned.kind == "full") {
                     ByteArray(mm.size) { if (mm[it].toInt() != 0) DepthFrame.PIXEL_LEARNED.toByte() else 0 }
                 } else {
                     val s = decodeOrNull(learned.file("src", row.frameIndex), "learned src ${row.frameIndex}") ?: continue
