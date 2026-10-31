@@ -10,6 +10,7 @@
 | 깊이 입력 | `frontend.enabled` 경계 판정 | M13.1a: 기기 확인 전 꺼짐 | false | M37 |
 | 깊이 입력 | `frontend.planes` NONE → RANSAC, `floor.source` PLANE | M13.1c: 기본값 아님 | NONE / HISTOGRAM | M35(바닥) |
 | 깊이 입력 | `frontend.rgbGuide` NONE → G·EDGE·EDGE_MARGIN | M13.7·M19(G 상자 모양만 개선)·M23(Ra·Rb 확인용 STOP 누락) | NONE | M37 |
+| 깊이 입력 | 학습형 깊이 장(재생 인자 `-PdepthFrom=<변형>/<full\|fill>`, 설정 `depth.learnedSigma*`) | M37: ZipDepth 대체 F(하류 기준 미달), MiDaS 버림, SML 무거움 | 없음(재생 전용) | 깊이 입력이 바뀌거나 새 공간(M38) |
 | 깊이 입력 | `frontend.segment` NONE → REGION, `map.instances` | M13.3(C3a·C3b) | NONE / false | M35 |
 | 지도 | `map.mode` HITS → LOG_ODDS·TSDF·TRISTATE | M13.2·M13.6·M32 | HITS | M37 |
 | 지도 | `map.hitWeighting` DISTANCE | v0.3.14 기본값 | DISTANCE | M37 |
@@ -45,3 +46,7 @@
 - 2026-10-27 · M44 · `corridor.judge` WALKABLE · 앞 단계 정답 D(깊이), 진행 방향은 앱 · 옆 벽 오경보 시작 17 → 17, 합성 마주침 STOP 검출 −0.14, 물체 세션 누락 증가 0 · F, 꺼진 옵션
 - 2026-10-27 · M44 · `corridor.edgeOutsideM`(M22 W)·`corridor.cutEnd`(M25 E)·`corridor.wallAlign`(M42 C) · 재판정 안 함(M44를 단면 판정 하나로 줄임) · 재판정 마일스톤 M36
 - 2026-10-27 · M44 · `corridor.judge` BOUNDARY · 앞 단계 정답 D(깊이), 진행 방향은 결합(F) · 옆 벽 오경보 시작 14 → 1, 합성 마주침 STOP 검출 +0.000·+0.010, 물체 세션 누락 증가 0 · P, 꺼진 옵션, 기본값은 M36
+- 2026-10-31 · M37 · 학습형 깊이 ZipDepth 대체(`depthFrom=zip_ga/full`) · 앞 단계 정답 없음(원시 RV + 결합 + 나란한 경계, E 6세션·물체 10세션) · 지도 헛 칸 0.315 → 0.280(나음), 표면 오차·완전성 비슷. 오경보 합 10 → 9이나 152354 1 → 2, 물체 STOP 누락 131039 0 → 1 · F, 재생 전용으로 남김
+- 2026-10-31 · M37 · MiDaS small 대체·채움, MiDaS + SML · 같은 조건 · MiDaS 대체: 헛 칸 +0.024·완전성 −0.055(나쁨), 채움: 평활 채움보다 헛 칸 +0.006(나쁨). SML은 기기 283.7 ms > 226 · 버림(도구·측정값은 남김)
+- 2026-10-31 · M37 · `frontend.enabled`(경계 판정) · 원시 RV 바탕(같은 하류) · 오경보 합 10 → 10, 152743 2 → 3, 물체 세션 결과 같음 · F, 꺼진 옵션
+- 2026-10-31 · M37 · `frontend.rgbGuide` WEIGHTED_MEDIAN·EDGE·EDGE_MARGIN(`rgbFrom=mp4`) · 원시 RV 바탕 · 오경보 합 10 → 11(152354 1 → 2, 152743 2 → 3), 물체 세션 결과 같음. 3상태 지도에서는 바닥 추정기가 돌지 않아 EDGE·EDGE_MARGIN이 WEIGHTED_MEDIAN과 같은 출력 · F, 꺼진 옵션
