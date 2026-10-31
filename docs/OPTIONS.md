@@ -26,7 +26,7 @@
 | 군집·추적 | `track.smallClusterVoxels` (M25 S) | M25 꺼진 옵션 | 0 | M35 |
 | 군집·추적 | `falsePositiveFilter.*`, `geometry.*` | 팀 코드, 판정 기록 없음 | 끔 | M35(팀과 상의) |
 | 진행 방향 | `heading.windowS` 1.0 → 2.0 | M18 기본값(문헌 값) | 2.0 | — |
-| 진행 방향 | `heading.cameraSigmaDeg` 0 → 2.3 (가중 결합) | M42 | 0 | M42 결과 |
+| 진행 방향 | `heading.cameraSigmaDeg` 0 → 2.3 (가중 결합) | M42 | 0 | 기본값 후보 아님(사용자, 2026-10-31): 팀원 회전 개선 뒤 비교 |
 | 통로 판정 | `corridor.edgeOutsideM` 0 → 0.15 (M22 W) | M22 꺼진 옵션 | 0 | M44 |
 | 통로 판정 | `corridor.cutEnd` (M25 E) | M25 꺼진 옵션 | false | M44 |
 | 통로 판정 | `corridor.wallAlign` (M42 C) | M42 이전 판 확인 재생: 오경보 늘어 채택 안 함 | false | M44 |
