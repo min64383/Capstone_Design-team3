@@ -8,12 +8,17 @@ import hearspace.core.types.ConfigLoader
 /**
  * 기본 설정과 연속음 선택 설정을 병합해 한 번 읽어 둔다. 앱 전용 외부 폴더에 [DEVICE_OVERRIDE_FILE]이 있으면 그 위에 덮어쓴다
  * (M13.4 기기 측정·녹화 설정을 다시 설치 없이 `adb push`로 바꾸기 위해. 팀 기본값은 그대로).
+ * 덮어쓰기는 **디버그 빌드에서만** 읽는다(사용자 결정 2026-10-31, A1 감사 G2): 배포 빌드를 쓰는 사용자 폰은 측정에서 남은 파일이 있어도
+ * 정확히 기본 설정으로 안내한다. 기기 측정은 개발자가 설치한 디버그 빌드로 한다.
  */
 object AppConfig {
     private const val CONFIG_ASSET = "config/default.json"
     private const val SONIFY_OVERRIDE_ASSET = "config/risk-continuous.override.json"
     /** `/sdcard/Android/data/<패키지>/files/config.override.json`. */
     const val DEVICE_OVERRIDE_FILE = "config.override.json"
+
+    /** 기기 덮어쓰기 파일을 읽는 빌드인지(디버그만). */
+    val deviceOverrideAllowed: Boolean get() = BuildConfig.DEBUG
 
     /** 기기 덮어쓰기를 쓴 설정(true)과 앱 자산만의 설정(false). */
     private val cached = HashMap<Boolean, Config>()
@@ -26,7 +31,7 @@ object AppConfig {
         cached.getOrPut(deviceOverride) {
             val base = context.assets.open(CONFIG_ASSET).bufferedReader().use { it.readText() }
             val override = context.assets.open(SONIFY_OVERRIDE_ASSET).bufferedReader().use { it.readText() }
-            val device = if (deviceOverride) deviceOverrideFile(context)?.takeIf { it.isFile }?.readText() else null
+            val device = if (deviceOverride && deviceOverrideAllowed) deviceOverrideFile(context)?.takeIf { it.isFile }?.readText() else null
             if (device != null) android.util.Log.i(TAG, "device config override: $device")
             ConfigLoader.load(base, listOfNotNull(override, device))
         }
@@ -36,7 +41,7 @@ object AppConfig {
     fun deviceOverrideFile(context: Context): java.io.File? = context.getExternalFilesDir(null)?.let { java.io.File(it, DEVICE_OVERRIDE_FILE) }
 
     /** 사용자에게 알릴 기기 덮어쓰기 상태(A1 TR4: 작동 화면·설정에 같은 문장). 덮어쓰기가 없으면 null. */
-    fun overrideNotice(context: Context): String? = try {
+    fun overrideNotice(context: Context): String? = if (!deviceOverrideAllowed) null else try {
         get(context)
         if (deviceOverrideFile(context)?.isFile == true) "기기 설정 덮어쓰기 적용 중" else null
     } catch (e: ConfigException) {
