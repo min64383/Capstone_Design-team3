@@ -72,7 +72,7 @@ E09~E11 배치(카메라 기준): 상자 크기(너비 × 높이 × 깊이) = __
 
 ## 6. 기기 설정 덮어쓰기 (녹화·M13.4 공통, 다시 설치 없이)
 
-앱은 시작할 때 `/sdcard/Android/data/hearspace.app/files/config.override.json`이 있으면 그 위에 덮어쓴다(`AppConfig`, 팀 기본값은 그대로). 설정은 앱을 시작할 때 한 번 읽으므로 파일을 바꾼 뒤에는 앱을 강제 종료하고 다시 연다.
+앱은 시작할 때 `/sdcard/Android/data/hearspace.app/files/config.override.json`이 있으면 그 위에 덮어쓴다(`AppConfig`, 팀 기본값은 그대로). **디버그 빌드에서만 읽는다**(2026-10-31, 배포 빌드는 늘 기본 설정). 설정은 앱을 시작할 때 한 번 읽으므로 파일을 바꾼 뒤에는 앱을 강제 종료하고 다시 연다.
 
 ```powershell
 ./gradlew :app:installDebug                                   # 이 브랜치 앱(모든 새 기능은 기본 꺼짐)
