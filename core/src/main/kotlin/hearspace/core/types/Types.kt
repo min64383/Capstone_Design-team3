@@ -162,7 +162,18 @@ data class DepthFrame(
     val source: String,
     /** RGB 안내 보정용 밝기 영상(과거 것만, M13.7). 없으면 null. 같음 비교에는 넣지 않는다. */
     val guide: GuideImage? = null,
+    /**
+     * 화소마다 깊이의 출처(M37, 재생 전용 학습형 장): [PIXEL_MEASURED] 설정 원천의 측정값, [PIXEL_LEARNED] 학습형, [PIXEL_SMOOTHED_FILL] 평활 채움.
+     * null이면 모두 측정값. 3상태 지도가 출처별 오차 σ를 쓴다([DepthConfig.sigmaM]).
+     */
+    val pixelSource: ByteArray? = null,
 ) {
+    companion object {
+        const val PIXEL_MEASURED = 0
+        const val PIXEL_LEARNED = 1
+        const val PIXEL_SMOOTHED_FILL = 2
+    }
+
     override fun equals(other: Any?): Boolean {
         if (this === other) return true
         if (other !is DepthFrame) return false
@@ -171,7 +182,8 @@ data class DepthFrame(
             (confidence?.contentEquals(other.confidence) ?: (other.confidence == null)) &&
             K == other.K &&
             worldFromCam == other.worldFromCam &&
-            source == other.source
+            source == other.source &&
+            (pixelSource?.contentEquals(other.pixelSource) ?: (other.pixelSource == null))
     }
 
     override fun hashCode(): Int {
@@ -181,6 +193,7 @@ data class DepthFrame(
         h = 31 * h + K.hashCode()
         h = 31 * h + worldFromCam.hashCode()
         h = 31 * h + source.hashCode()
+        h = 31 * h + (pixelSource?.contentHashCode() ?: 0)
         return h
     }
 }

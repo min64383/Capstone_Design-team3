@@ -20,6 +20,9 @@ M30 오차 모델:
 - 검사: 세션을 이름 순으로 번갈아 두 묶음으로 나눠, 한 묶음의 b·σ 모델로 다른 묶음의 |잔차 − b| ≤ σ 비율(정규분포면 68%)
     python depth_error.py <세션 폴더> [...] --dup --runs <기준 재생 폴더>   → 깊이 새 시각 비율, 재생이 같은 시각 깊이를 넣은 횟수
 
+M37 학습형 깊이: --model·--absolute에 [--sources SMOOTHED,RAW,L:<변형>/<full|fill>]. L:은 learned_depth.py가 쓴 장
+(learned_depth/<변형>/index.csv의 도착 행 자세, 원시와 같은 규약). fill은 채운 화소(src = 1)만, full은 전부(모두 학습형).
+
 M31 보정 녹화 K01(끝 벽까지 거리를 미리 정한 정지 세션):
     python depth_error.py <세션 폴더> [...] --absolute <출력 폴더> --runs <기준 재생 폴더>   → depth_absolute.json, depth_absolute.png
 - 면 상수를 빼지 않은 끝 벽 잔차 중앙값 = 그 거리의 절대 편향(원천·원시 신뢰도 4구간별). 같은 거리 세션끼리 차 = 세션 사이 편향.
@@ -178,16 +181,31 @@ def model_points(session: Path, run_dir: Path, source: str, subtract: bool = Tru
     ze = end_face(tg)
     half = min(-wl, wr) - MODEL_BAND_M if wl is not None and wr is not None else CORRIDOR_X_M
     frames = load_frames(session)
-    col = DEPTH_COLUMN[source]
-    tcol = "depthTNs" if source == "SMOOTHED" else "rawDepthTNs"
-    rows = depth_rows(frames, source).drop_duplicates(tcol)
-    if source == "SMOOTHED":
-        rows = rows.iloc[::MODEL_SMOOTHED_EVERY]
+    learned = source.startswith("L:")
+    if learned:  # M37: 학습형 장(원시 장과 같은 행 자세)
+        lv, lo = source[2:].split("/")
+        ldir = session / "learned_depth" / lv
+        if not (ldir / "index.csv").is_file():
+            return pd.DataFrame()
+        idx = pd.read_csv(ldir / "index.csv")
+        rows = frames[frames.frameIndex.isin(idx.frameIndex)]
+    else:
+        col = DEPTH_COLUMN[source]
+        tcol = "depthTNs" if source == "SMOOTHED" else "rawDepthTNs"
+        rows = depth_rows(frames, source).drop_duplicates(tcol)
+        if source == "SMOOTHED":
+            rows = rows.iloc[::MODEL_SMOOTHED_EVERY]
     out = []
     k = None
     rot_only = {**al, "origin": [0.0, 0.0], "floorY": 0.0}
     for _, row in rows.iterrows():
-        d = load_depth_m(session / row[col])
+        if learned:
+            name = f"{int(row.frameIndex):06d}.png"
+            d = load_depth_m(ldir / lo / name)
+            if lo == "fill":  # 채운 화소만
+                d[np.asarray(Image.open(ldir / "src" / name)) == 0] = 0
+        else:
+            d = load_depth_m(session / row[col])
         conf = np.asarray(Image.open(session / row["confFile"])) if source == "RAW" and isinstance(row.get("confFile"), str) else None
         if k is None or (k["width"], k["height"]) != (d.shape[1], d.shape[0]):
             k = depth_k(meta, d.shape[1], d.shape[0])
@@ -284,11 +302,13 @@ def coverage(train: pd.DataFrame, test: pd.DataFrame, power: int = 2) -> dict | 
     return {"bins": bins, "within1Sigma": hit / tot if tot else None}
 
 
-def model(sessions: list[Path], runs: Path, out: Path) -> dict:
+def model(sessions: list[Path], runs: Path, out: Path, sources: tuple[str, ...] = ("SMOOTHED", "RAW")) -> dict:
     out.mkdir(parents=True, exist_ok=True)
     groups = {}
-    for source in ("SMOOTHED", "RAW"):
+    for source in sources:
         df = pd.concat([model_points(s, runs / s.name, source) for s in sessions], ignore_index=True)
+        if df.empty:
+            continue
         half_a = set(sorted(df.session.unique())[0::2])
         sub = {"all": df}
         if source == "RAW":
@@ -347,12 +367,12 @@ def plot_model(res: dict, path: Path) -> None:
     fig.savefig(path, dpi=130)
 
 
-def absolute(sessions: list[Path], runs: Path) -> list[dict]:
+def absolute(sessions: list[Path], runs: Path, sources: tuple[str, ...] = ("SMOOTHED", "RAW")) -> list[dict]:
     """M31 K01: 끝 벽까지 거리를 미리 정한 정지 세션마다 끝 벽 잔차(카메라 쪽 +)의 중앙값 = 그 거리의 절대 편향.
     면 상수를 빼지 않는다. 거리는 끝 벽 점 카메라 깊이 Z 중앙값의 0.5 m 단위 반올림(K01 1.0·1.5·2.0·3.0·4.0 m)."""
     rows = []
     for s in sessions:
-        for source in ("SMOOTHED", "RAW"):
+        for source in sources:
             df = model_points(s, runs / s.name, source, subtract=False)
             e = df[df.faceKind == "endwall"] if not df.empty else df
             subs = {source: e}
@@ -420,19 +440,21 @@ def main() -> None:
     ap.add_argument("--dup", action="store_true", help="M30 새 관측 비율")
     ap.add_argument("--absolute", type=Path, help="M31 K01 절대 편향 출력 폴더")
     ap.add_argument("--runs", type=Path, help="기준 재생 폴더(<runs>/<세션ID>/align.json, slow_path.csv)")
+    ap.add_argument("--sources", default="SMOOTHED,RAW", help="--model·--absolute 원천(M37: L:<변형>/<full|fill>)")
     a = ap.parse_args()
+    sources = tuple(a.sources.split(","))
     if a.model:
-        res = model(a.sessions, a.runs, a.model)
+        res = model(a.sessions, a.runs, a.model, sources)
         for key, g in res["groups"].items():
             def cov(names):
                 return [None if not g[c] or g[c]["within1Sigma"] is None else round(g[c]["within1Sigma"], 3) for c in names]
             fit = "–" if not g["fit"] else f"σ0 {g['fit'][0]:+.3f} k {g['fit'][1]:.4f}"
             lin = "–" if not g["fitLinear"] else f"σ0 {g['fitLinear'][0]:+.3f} k {g['fitLinear'][1]:.4f}"
-            print(f"{key:28s} 세션 {g['sessions']:2d} 점 {g['points']:8d}  Z² {fit} ±1σ {cov(('coverageAonB', 'coverageBonA'))}"
+            print(f"{key:36s} 세션 {g['sessions']:2d} 점 {g['points']:8d}  Z² {fit} ±1σ {cov(('coverageAonB', 'coverageBonA'))}"
                   f"  | Z {lin} ±1σ {cov(('coverageLinearAonB', 'coverageLinearBonA'))}")
         return
     if a.absolute:
-        rows = absolute(a.sessions, a.runs)
+        rows = absolute(a.sessions, a.runs, sources)
         pairs = pair_diffs(rows)
         a.absolute.mkdir(parents=True, exist_ok=True)
         (a.absolute / "depth_absolute.json").write_text(json.dumps({"rows": rows, "pairs": pairs}, indent=1, ensure_ascii=False), encoding="utf-8")
