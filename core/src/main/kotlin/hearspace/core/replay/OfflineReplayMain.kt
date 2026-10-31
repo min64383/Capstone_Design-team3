@@ -10,7 +10,8 @@ import java.io.File
  * `./gradlew :core:replay -Psession=<세션 폴더> [-Pout=<출력>] [-PslowMs=10 | -PslowFrom=<slow_path.csv>] [-PoverridesFile=<json 파일>]`
  * 설정 덮어쓰기는 파일로 준다(Windows에서 명령줄 JSON의 따옴표가 사라진다, M8 검토 중 발견). `-Poverrides`도 받지만 따옴표 없는 셸에서만 쓴다.
  * 기본 출력: `core/build/replay/<세션ID>/<overrides 요약 또는 default>/`.
- * 정답 대입(M12.3 원인 분해, 평가 전용): `-Psubstitute=depth,map,heading`(쉼표로 조합) `-PalignFrom=<기준 재생의 align.json>`
+ * 정답 대입(M12.3 원인 분해, 평가 전용): `-Psubstitute=depth,map,heading`(쉼표로 조합, `depthMasked`는 입력에 값이 있는 화소만 정답 — M37)
+ * `-PalignFrom=<기준 재생의 align.json>`
  * [`-PdepthNoisePerM=0.03`]. 정답은 세션의 `annotations/obstacles.json`. `-PalignFrom`만 주면 대입 없이 그 정렬만 기록한다(M18).
  * RGB 안내 보정의 RGB 원천(M19): `-PrgbFrom=mp4`(`tools/analysis/mp4_rgb.py`가 꺼낸 매 프레임 밝기) | `recorded`(기본, 녹화 JPEG).
  */
@@ -31,11 +32,12 @@ fun main(args: Array<String>) {
     // alignFrom만 있으면 대입 없이 그 정렬만 기록한다(M18: 바닥 규칙을 바꾼 변형도 기준 재생과 같은 정답을 쓴다)
     val subArg = opts["substitute"]?.takeIf { it.isNotBlank() } ?: opts["alignFrom"]?.takeIf { it.isNotBlank() }?.let { "" }
     val sub = subArg?.split(',')?.map { it.trim() }?.filter { it.isNotEmpty() }?.toSet()?.let { on ->
-        require(on.all { it in setOf("depth", "map", "heading", "floor") }) { "substitute must be depth, map, heading, floor: $on" }
+        require(on.all { it in setOf("depth", "depthMasked", "map", "heading", "floor") }) { "substitute must be depth, depthMasked, map, heading, floor: $on" }
         val alignFrom = File(opts["alignFrom"]?.takeIf { it.isNotBlank() } ?: error("substitute needs alignFrom=<align.json>"))
         val truth = GroundTruth.read(session, config.head.offsetFromCameraM) ?: error("substitute needs ${GroundTruth.FILE}")
         alignFrom to Substitution(
             truth, Alignment.read(alignFrom), depth = "depth" in on, map = "map" in on, heading = "heading" in on, floor = "floor" in on,
+            depthMasked = "depthMasked" in on,
             depthNoisePerM = opts["depthNoisePerM"]?.takeIf { it.isNotBlank() }?.toFloat() ?: 0f,
         )
     }
