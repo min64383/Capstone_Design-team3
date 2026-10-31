@@ -2,6 +2,7 @@ package hearspace.app
 
 import android.content.Context
 import hearspace.core.types.Config
+import hearspace.core.types.ConfigException
 import hearspace.core.types.ConfigLoader
 
 /**
@@ -33,6 +34,14 @@ object AppConfig {
 
     /** 기기 덮어쓰기 파일 경로(없을 수도 있다). */
     fun deviceOverrideFile(context: Context): java.io.File? = context.getExternalFilesDir(null)?.let { java.io.File(it, DEVICE_OVERRIDE_FILE) }
+
+    /** 사용자에게 알릴 기기 덮어쓰기 상태(A1 TR4: 작동 화면·설정에 같은 문장). 덮어쓰기가 없으면 null. */
+    fun overrideNotice(context: Context): String? = try {
+        get(context)
+        if (deviceOverrideFile(context)?.isFile == true) "기기 설정 덮어쓰기 적용 중" else null
+    } catch (e: ConfigException) {
+        "기기 설정 파일 오류: 기본 설정으로 안내합니다"
+    }
 }
 
 /** 앱 자산의 HRIR(SADIE II D1, M6). */

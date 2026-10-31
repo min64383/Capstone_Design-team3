@@ -1,0 +1,266 @@
+<!doctype html>
+<html lang="ko">
+<meta charset="utf-8">
+<title>HEARSPACE 화면 시안</title>
+<style>
+  :root { --page: #e9ecef; --ink: #1d1f24; --muted: #5b5f66; }
+  body { margin: 0; padding: 24px 32px 64px; font: 14px/1.6 system-ui, "Noto Sans KR", sans-serif; background: var(--page); color: var(--ink); }
+  h1 { font-size: 22px; margin: 0 0 4px; }
+  h2 { font-size: 18px; margin: 40px 0 6px; }
+  .lead { color: var(--muted); max-width: 980px; margin: 0 0 8px; }
+  .row { display: flex; gap: 28px; flex-wrap: wrap; align-items: flex-start; margin-top: 14px; }
+  figure { margin: 0; width: 380px; }
+  figcaption { font-size: 13px; color: var(--muted); margin-top: 10px; }
+  figcaption b { color: var(--ink); }
+  .tb { font: 12px/1.5 ui-monospace, Consolas, monospace; background: #fff; border-radius: 8px; padding: 6px 10px; margin-top: 6px; color: #333; }
+  .new { display: inline-block; font-size: 11px; font-weight: 700; color: #fff; background: #7a5af8; border-radius: 4px; padding: 0 5px; margin-left: 4px; vertical-align: 1px; }
+
+  /* 기기 틀: 360×760 dp */
+  .phone { width: 360px; height: 760px; border: 10px solid #1b1b1d; border-radius: 40px; overflow: hidden; position: relative; box-shadow: 0 6px 24px #0003; }
+  .sb { height: 28px; display: flex; justify-content: space-between; align-items: center; padding: 0 22px; font-size: 12px; font-weight: 600; }
+
+  /* 토큰 표 */
+  table.tok { border-collapse: collapse; background: #fff; border-radius: 10px; overflow: hidden; margin-top: 12px; }
+  .tok th, .tok td { padding: 7px 12px; text-align: left; border-bottom: 1px solid #eceef1; font-size: 13px; vertical-align: middle; }
+  .tok th { background: #f6f7f9; font-weight: 600; }
+  .chip { display: inline-flex; align-items: center; gap: 6px; font: 12px ui-monospace, Consolas, monospace; }
+  .chip i { width: 18px; height: 18px; border-radius: 5px; display: inline-block; border: 1px solid #0002; }
+
+  /* 스플래시 */
+  .splash { height: calc(100% - 28px); display: flex; flex-direction: column; align-items: center; justify-content: center; position: relative; }
+  .splash .icon { width: 192px; height: 192px; border-radius: 50%; display: grid; place-items: center; outline: 1px dashed #8886; outline-offset: 0; }
+  .splash .icon img { width: 168px; height: 168px; }
+  .splash .brand { position: absolute; bottom: 52px; font-size: 22px; font-weight: 800; letter-spacing: 5px; }
+
+  /* 작동 화면 */
+  .run { background: #000; color: #fff; height: 100%; display: flex; flex-direction: column; align-items: center; position: relative; }
+  .run .sb { color: #b3b3b3; align-self: stretch; }
+  .run .state { margin-top: 44px; font-size: 40px; font-weight: 800; letter-spacing: -0.5px; display: flex; align-items: center; gap: 12px; }
+  .run .sub { font-size: 18px; color: #b3b3b3; margin-top: 6px; text-align: center; padding: 0 28px; }
+  .run .center { flex: 1; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 10px; }
+  .run .label { font-size: 30px; font-weight: 800; }
+  .run .hints { font-size: 18px; color: #b3b3b3; text-align: center; line-height: 1.7; padding-bottom: 34px; }
+  .run .hints b { color: #fff; font-weight: 700; }
+  .run .notice { font-size: 12.5px; color: #b3b3b3; padding: 0 26px 22px; line-height: 1.5; }
+  .run .gear { position: absolute; top: 40px; right: 12px; width: 56px; height: 56px; border-radius: 50%; display: grid; place-items: center; border: 2px solid #5f6167; }
+  .dot { width: 14px; height: 14px; border-radius: 50%; background: #439ecc; box-shadow: 0 0 0 6px #439ecc33; }
+  @keyframes ring { 0%, 100% { opacity: .25; } 15% { opacity: 1; } }
+  .ring circle { animation: ring 1.8s infinite; }
+
+  /* 설정 */
+  .set { height: calc(100% - 28px); overflow: hidden; }
+  .bar { height: 64px; display: flex; align-items: center; gap: 6px; padding: 0 8px; font-size: 22px; font-weight: 700; }
+  .bar .back { width: 48px; height: 48px; display: grid; place-items: center; }
+  .sec { font-size: 14px; font-weight: 700; padding: 14px 20px 2px; }
+  .sec span { font-weight: 400; }
+  .item { min-height: 56px; display: flex; align-items: center; gap: 14px; padding: 8px 20px; box-sizing: border-box; }
+  .item .t { font-size: 18px; }
+  .item .s { font-size: 14px; }
+  .item .grow { flex: 1; }
+  .radio { width: 22px; height: 22px; border-radius: 50%; box-sizing: border-box; flex: none; }
+  .div { height: 1px; margin: 4px 20px; }
+</style>
+
+<h1>HEARSPACE 화면 시안 — 스플래시 · 작동 · 설정</h1>
+<p class="lead">기준: 확정 로고(2026-10-30)의 색, 명세 MVP §11.2(사용자 모드: 화면을 보지 않고 쓴다, 화면 전체가 버튼 하나, 검은 배경·고대비 큰 글자, TalkBack 호환),
+  IMPROVE_SPEC §2(가슴 하네스, 걷는 동안 화면은 몸 쪽). 화면을 보는 때는 시작 전·멈춘 뒤·도와주는 사람·저시력 확인·시연이다. 크기는 dp(시안의 px = dp).
+  <span class="new">새 기능</span> 표시는 지금 앱에 없는 기능이다.</p>
+
+<h2>1. 색 역할</h2>
+<p class="lead">색상은 로고 원에서 가져오고 밝기는 목표 대비를 넘는 가장 밝은(흰 배경)·어두운(검은 배경) 값으로 계산했다(OKLCH). 목표 7 · 4.5 · 3은 WCAG 2.1 기준(AAA 글자 · AA 글자 · 부품 경계),
+  15와 11은 저시력을 위해 직접 정한 여유다. 로고 자체의 파스텔 색은 흰 배경에서 대비가 1.5~3.1이라 뜻을 전하는 글자·그래픽에는 쓰지 않고 로고·장식에만 쓴다.</p>
+<table class="tok">
+  <tr><th>역할</th><th>라이트 (스플래시·설정)</th><th>다크 (스플래시·설정)</th><th>작동 화면 (늘 검정)</th><th>색상 출처 · 목표 대비</th></tr>
+  <tr><td>배경</td><td><span class="chip"><i style="background:#ffffff"></i>#ffffff</span></td><td><span class="chip"><i style="background:#121212"></i>#121212</span></td><td><span class="chip"><i style="background:#000"></i>#000000</span></td><td>다크 = Material 다크 표면, 작동 = 명세 §11.2 검은 배경(배터리)</td></tr>
+  <tr><td>글자</td><td><span class="chip"><i style="background:#25262d"></i>#25262d 15.1</span></td><td><span class="chip"><i style="background:#e4e6ed"></i>#e4e6ed 15.0</span></td><td><span class="chip"><i style="background:#fff"></i>#ffffff 21</span></td><td>로고 파랑 색상(아주 옅게) · 15</td></tr>
+  <tr><td>보조 글자</td><td><span class="chip"><i style="background:#575860"></i>#575860 7.1</span></td><td><span class="chip"><i style="background:#9c9ea6"></i>#9c9ea6 7.0</span></td><td><span class="chip"><i style="background:#b3b3b3"></i>#b3b3b3 10.0</span></td><td>무채색에 가까움 · 7(작동 화면 10)</td></tr>
+  <tr><td>강조 (선택·버튼)</td><td><span class="chip"><i style="background:#007fb0"></i>#007fb0 4.5</span></td><td><span class="chip"><i style="background:#4da8d7"></i>#4da8d7 7.1</span></td><td>—</td><td>로고 청록 · 4.5 / 7</td></tr>
+  <tr><td>부품 테두리</td><td><span class="chip"><i style="background:#93949b"></i>#93949b 3.0</span></td><td><span class="chip"><i style="background:#5f6167"></i>#5f6167 3.0</span></td><td><span class="chip"><i style="background:#5f6167"></i>#5f6167</span></td><td>무채색 · 3</td></tr>
+  <tr><td>안내 중</td><td>—</td><td>—</td><td><span class="chip"><i style="background:#439ecc"></i>#439ecc 7.0</span></td><td>로고 청록 · 7</td></tr>
+  <tr><td>주의 (WARN · 확인 불가)</td><td>—</td><td>—</td><td><span class="chip"><i style="background:#eab431"></i>#eab431 11.1</span></td><td>로고 노랑(호박색) · 11</td></tr>
+  <tr><td>멈춤 (STOP)</td><td>—</td><td>—</td><td><span class="chip"><i style="background:#f26a5f"></i>#f26a5f 7.0</span></td><td>로고 빨강 · 7</td></tr>
+</table>
+<p class="lead">주의와 멈춤은 색만으로 나누지 않는다(WCAG 1.4.1): 멈춤은 화살표를 굵은 고리로 두르고 글자 "멈춤", 주의는 고리 없이 글자 "주의". 적록 색약에서 노랑·빨강이 비슷해 보여도 모양과 글자로 구분된다.</p>
+
+<h2>2. 스플래시</h2>
+<p class="lead">Android 12 이상은 앱을 열 때 시스템 스플래시(배경색 + 가운데 아이콘 + 아래 브랜드 이미지)를 늘 보여 준다. 따로 스플래시 화면을 만들면 두 번 뜨므로 이 틀(SplashScreen API)에 맞춘다:
+  아이콘 배경 없이 288 dp 칸, 보이는 원 지름 192 dp(점선) 안에 로고, 아래 브랜드 200×80 dp에 글자 로고. 준비가 끝나면 바로 작동 화면으로 넘어간다.</p>
+<div class="row">
+  <figure>
+    <div class="phone" style="background:#fff;color:#25262d">
+      <div class="sb"><span>9:41</span><span>▲ ▮</span></div>
+      <div class="splash"><div class="icon"><img src="../../tools/logo/png/hearspace-logo-light-512.png" alt=""></div><div class="brand">HEARSPACE</div></div>
+    </div>
+    <figcaption><b>라이트</b> · 기기가 라이트 모드일 때. 배경 #ffffff, 로고 라이트, 글자 로고 #25262d.</figcaption>
+  </figure>
+  <figure>
+    <div class="phone" style="background:#121212;color:#e4e6ed">
+      <div class="sb"><span>9:41</span><span>▲ ▮</span></div>
+      <div class="splash"><div class="icon"><img src="../../tools/logo/png/hearspace-logo-dark-512.png" alt=""></div><div class="brand">HEARSPACE</div></div>
+    </div>
+    <figcaption><b>다크</b> · 기기가 다크 모드일 때(또는 설정의 테마). 배경 #121212, 로고 다크, 글자 로고 #e4e6ed.
+      <div class="tb">TalkBack: (읽을 것 없음, 바로 작동 화면이 "HEARSPACE, 시작 전 …"을 읽는다)</div></figcaption>
+  </figure>
+</div>
+
+<h2>3. 작동 화면 (사용자 모드)</h2>
+<p class="lead">늘 검은 배경(명세 §11.2, 배터리·저시력). 화면 전체가 버튼 하나: 두 번 탭 = 시작·일시정지·재개, 길게 누르기 = 안내 종료(앱에 남아 시작 화면으로, 시작 전에는 아무 일 없음. 앱은 뒤로·홈으로 나감)(TalkBack에서는 두 번 탭 · 두 번 탭 후 유지).
+  위에 상태 한 줄(40 dp 굵게), 가운데에 그림, 아래에 조작 안내. 설정 단추는 <b>시작 전에만</b> 보인다(걷는 중 잘못 눌리지 않게). 상태 문구는 지금 앱 그대로다.</p>
+<div class="row">
+  <figure>
+    <div class="phone"><div class="run">
+      <div class="sb"><span>9:41</span><span>▲ ▮</span></div>
+      <div class="gear" title="설정"><svg width="28" height="28" viewBox="0 0 24 24"><path fill="#fff" fill-rule="evenodd" d="M19.23,9.65 L22.11,10.03 L22.11,13.97 L19.23,14.35 L18.77,15.45 L20.54,17.76 L17.76,20.54 L15.45,18.77 L14.35,19.23 L13.97,22.11 L10.03,22.11 L9.65,19.23 L8.55,18.77 L6.24,20.54 L3.46,17.76 L5.23,15.45 L4.77,14.35 L1.89,13.97 L1.89,10.03 L4.77,9.65 L5.23,8.55 L3.46,6.24 L6.24,3.46 L8.55,5.23 L9.65,4.77 L10.03,1.89 L13.97,1.89 L14.35,4.77 L15.45,5.23 L17.76,3.46 L20.54,6.24 L18.77,8.55Z M8.70,12a3.30,3.30 0,1 0,6.60,0a3.30,3.30 0,1 0,-6.60,0Z"/></svg></div>
+      <div class="center" style="gap:22px"><img src="../../tools/logo/png/hearspace-logo-dark-512.png" width="150" height="150" alt="">
+        <div style="font-size:34px;font-weight:800;text-align:center;line-height:1.25">두 번 탭하여<br>시작</div></div>
+      <div class="hints">&nbsp;</div>
+      <div class="notice">이 앱은 Google의 ARCore 기능을 포함합니다. ARCore 사용에는 Google 서비스 약관과 Google 개인정보처리방침의 최신 버전이 적용됩니다.</div>
+    </div></div>
+    <figcaption><b>시작 전</b> · 로고와 할 일 한 가지. 오른쪽 위 설정 단추(56 dp, TalkBack에서 따로 잡힘). ARCore 고지는 지금처럼 아래에 둔다.
+      <div class="tb">TalkBack: "HEARSPACE, 시작 전. (처음에만 ARCore 고지.) 두 번 탭하여 시작" / 단추: "설정"</div></figcaption>
+  </figure>
+  <figure>
+    <div class="phone"><div class="run">
+      <div class="sb"><span>9:41</span><span>▲ ▮</span></div>
+      <div class="state">준비 중</div><div class="sub">주변을 확인하고 있어요</div>
+      <div class="center"><svg class="ring" width="180" height="180" viewBox="-60 -60 120 120">
+        <circle cx="0" cy="-42" r="13" fill="#de867c" style="animation-delay:0s"/><circle cx="36.4" cy="-21" r="13" fill="#d2ac5a" style="animation-delay:.3s"/>
+        <circle cx="36.4" cy="21" r="13" fill="#6ab67f" style="animation-delay:.6s"/><circle cx="0" cy="42" r="13" fill="#53addc" style="animation-delay:.9s"/>
+        <circle cx="-36.4" cy="21" r="13" fill="#8e9ce7" style="animation-delay:1.2s"/><circle cx="-36.4" cy="-21" r="13" fill="#d884a5" style="animation-delay:1.5s"/></svg></div>
+      <div class="hints"><b>두 번 탭</b> · 일시정지<br><b>길게 누르기</b> · 안내 종료</div>
+    </div></div>
+    <figcaption><b>준비 중</b> (추적 준비, 대기음) · 로고의 여섯 색이 차례로 켜지는 고리. 움직임은 상태가 살아 있음만 알리고 뜻은 글자가 전한다.
+      <div class="tb">TalkBack: "HEARSPACE, 준비 중. 두 번 탭하여 일시정지 또는 재개, 길게 눌러 안내 종료"</div></figcaption>
+  </figure>
+  <figure>
+    <div class="phone"><div class="run">
+      <div class="sb"><span>9:41</span><span>▲ ▮</span></div>
+      <div class="state" style="color:#eab431">바닥 확인 중</div><div class="sub">지금은 물체를 볼 수 없어요</div>
+      <div class="center"><svg width="150" height="140" viewBox="0 0 100 92"><path d="M50 6 L95 86 H5 Z" fill="none" stroke="#eab431" stroke-width="8" stroke-linejoin="round"/>
+        <path d="M50 34 V58" stroke="#eab431" stroke-width="9" stroke-linecap="round"/><circle cx="50" cy="72" r="5.5" fill="#eab431"/></svg></div>
+      <div class="hints"><b>두 번 탭</b> · 일시정지<br><b>길게 누르기</b> · 안내 종료</div>
+    </div></div>
+    <figcaption><b>바닥 확인 중</b> (지도 상태 DEGRADED, 대기음과 함께) · 주의 색 + 세모. 소리가 없어도 안전하다는 뜻이 아님을 글자로 밝힌다.
+      <div class="tb">TalkBack: "HEARSPACE, 바닥 확인 중. …"</div></figcaption>
+  </figure>
+</div>
+<div class="row">
+  <figure>
+    <div class="phone"><div class="run">
+      <div class="sb"><span>9:41</span><span>▲ ▮</span></div>
+      <div class="state"><span class="dot"></span>안내 중</div>
+      <div class="center"></div>
+      <div class="hints"><b>두 번 탭</b> · 일시정지<br><b>길게 누르기</b> · 안내 종료</div>
+    </div></div>
+    <figcaption><b>안내 중, 가까운 신호 없음</b> (모든 음원 SILENT) · 가운데를 비운다. "장애물 없음"이나 초록 표시를 하지 않는다(무음 ≠ 안전, CLAUDE.md 원칙).
+      청록 점이 숨 쉬듯 켜져 앱이 동작 중임만 보인다.</figcaption>
+  </figure>
+  <figure>
+    <div class="phone"><div class="run">
+      <div class="sb"><span>9:41</span><span>▲ ▮</span></div>
+      <div class="state"><span class="dot"></span>안내 중</div>
+      <div class="center"><svg width="230" height="230" viewBox="-60 -60 120 120"><g transform="rotate(35)">
+        <path d="M0 -46 L-24 -16 H-8 V40 H8 V-16 H24 Z" fill="#eab431" stroke="#eab431" stroke-width="5" stroke-linejoin="round"/></g></svg>
+        <div class="label" style="color:#eab431">주의</div></div>
+      <div class="hints"><b>두 번 탭</b> · 일시정지<br><b>길게 누르기</b> · 안내 종료</div>
+    </div></div>
+    <figcaption><b>안내 중, 주의 (WARN)</b> · 가장 가까운 장애물 방향(여기서는 오른쪽 앞 35°)을 굵은 화살표로. 고리 없음 + 글자 "주의".</figcaption>
+  </figure>
+  <figure>
+    <div class="phone"><div class="run">
+      <div class="sb"><span>9:41</span><span>▲ ▮</span></div>
+      <div class="state"><span class="dot"></span>안내 중</div>
+      <div class="center"><svg width="230" height="230" viewBox="-60 -60 120 120"><circle r="54" fill="none" stroke="#f26a5f" stroke-width="9"/><g transform="rotate(-10)">
+        <path d="M0 -36 L-20 -11 H-7 V32 H7 V-11 H20 Z" fill="#f26a5f" stroke="#f26a5f" stroke-width="5" stroke-linejoin="round"/></g></svg>
+        <div class="label" style="color:#f26a5f;font-size:36px">멈춤</div></div>
+      <div class="hints"><b>두 번 탭</b> · 일시정지<br><b>길게 누르기</b> · 안내 종료</div>
+    </div></div>
+    <figcaption><b>안내 중, 멈춤 (STOP)</b> · 같은 화살표를 굵은 고리로 두르고 글자 "멈춤"을 더 크게. 색(빨강)·모양(고리)·글자 세 겹으로 주의와 구분.</figcaption>
+  </figure>
+</div>
+<div class="row">
+  <figure>
+    <div class="phone"><div class="run">
+      <div class="sb"><span>9:41</span><span>▲ ▮</span></div>
+      <div class="state">일시정지</div><div class="sub">소리 안내를 멈췄어요</div>
+      <div class="center"><svg width="120" height="120" viewBox="0 0 100 100"><rect x="22" y="14" width="18" height="72" rx="6" fill="#fff"/><rect x="60" y="14" width="18" height="72" rx="6" fill="#fff"/></svg></div>
+      <div class="hints"><b>두 번 탭</b> · 재개<br><b>길게 누르기</b> · 안내 종료</div>
+    </div></div>
+    <figcaption><b>일시정지</b> · 흰 두 막대. 조작 안내가 "재개"로 바뀐다.
+      <div class="tb">TalkBack: "HEARSPACE, 일시정지. 두 번 탭하여 일시정지 또는 재개, 길게 눌러 안내 종료"</div></figcaption>
+  </figure>
+  <figure>
+    <div class="phone"><div class="run">
+      <div class="sb"><span>9:41</span><span>▲ ▮</span></div>
+      <div class="gear" title="설정"><svg width="28" height="28" viewBox="0 0 24 24"><path fill="#fff" fill-rule="evenodd" d="M19.23,9.65 L22.11,10.03 L22.11,13.97 L19.23,14.35 L18.77,15.45 L20.54,17.76 L17.76,20.54 L15.45,18.77 L14.35,19.23 L13.97,22.11 L10.03,22.11 L9.65,19.23 L8.55,18.77 L6.24,20.54 L3.46,17.76 L5.23,15.45 L4.77,14.35 L1.89,13.97 L1.89,10.03 L4.77,9.65 L5.23,8.55 L3.46,6.24 L6.24,3.46 L8.55,5.23 L9.65,4.77 L10.03,1.89 L13.97,1.89 L14.35,4.77 L15.45,5.23 L17.76,3.46 L20.54,6.24 L18.77,8.55Z M8.70,12a3.30,3.30 0,1 0,6.60,0a3.30,3.30 0,1 0,-6.60,0Z"/></svg></div>
+      <div class="state" style="margin-top:110px">안내를 멈췄어요</div>
+      <div class="sub">소리 출력이 멈춰 안내를 멈췄습니다</div>
+      <div class="center"><svg width="120" height="120" viewBox="0 0 100 100"><circle cx="50" cy="50" r="42" fill="none" stroke="#fff" stroke-width="8"/>
+        <path d="M50 28 V56" stroke="#fff" stroke-width="9" stroke-linecap="round"/><circle cx="50" cy="71" r="5.5" fill="#fff"/></svg></div>
+      <div class="hints"><b>두 번 탭</b> · 다시 시작</div>
+    </div></div>
+    <figcaption><b>멈춤 알림</b> (시작 실패·소리 출력 멈춤·카메라 권한 없음·화면을 떠남) · 긴 진동과 함께. 제목은 안내 중에 멈춘 경우 "안내를 멈췄어요", 시작하지 못한 경우 "시작하지 못했어요". 사유 문장은 지금 앱 그대로. 장애물 STOP과 헷갈리지 않게 빨강을 쓰지 않는다. 다시 시작 전이므로 설정 단추가 보인다.</figcaption>
+  </figure>
+</div>
+
+<h2>4. 설정</h2>
+<p class="lead">시작 전 화면의 설정 단추로 연다. 기기 테마(또는 아래 테마 설정)를 따른다. 누르는 줄 높이 56 dp 이상(터치 최소 48 dp), 글자 18 dp. 넣지 않은 것과 이유:
+  <b>진동 끄기</b>(소리가 끊겼을 때 알리는 길이 진동뿐이라 — 안전 신호, M40), <b>앱 안 음량</b>(너무 낮추면 안내가 안 들림 — 기기 음량 버튼만),
+  <b>안내 거리·민감도</b>(명세의 가설 값, 개발 모드 실험 패널 소관), <b>개발 모드</b>(명세 §11.3대로 별도 런처 아이콘).</p>
+<div class="row">
+  <figure>
+    <div class="phone" style="background:#fff;color:#25262d">
+      <div class="sb"><span>9:41</span><span>▲ ▮</span></div>
+      <div class="set">
+        <div class="bar"><div class="back"><svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="#25262d" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M15 5 8 12l7 7"/></svg></div>설정</div>
+        <div class="sec" style="color:#007fb0">사용 방법</div>
+        <div class="item"><div class="grow"><div class="t">사용 방법 듣기</div><div class="s" style="color:#575860">두 번 탭·길게 누르기와 소리 뜻</div></div></div>
+        <div class="sec" style="color:#007fb0">소리</div>
+        <div class="item"><div class="grow"><div class="t">헤드폰 확인</div><div class="s" style="color:#575860">왼쪽·오른쪽·앞·뒤에서 소리가 나요<br>음량은 기기의 음량 버튼으로 조절해요</div></div></div>
+        <div class="sec" style="color:#007fb0">화면 테마 <span style="color:#575860">· 작동 화면은 늘 검은 화면</span></div>
+        <div class="item"><div class="radio" style="border:7px solid #007fb0"></div><div class="t grow">기기 설정 따르기</div></div>
+        <div class="item"><div class="radio" style="border:2px solid #93949b"></div><div class="t grow">밝게</div></div>
+        <div class="item"><div class="radio" style="border:2px solid #93949b"></div><div class="t grow">어둡게</div></div>
+        <div class="sec" style="color:#007fb0">정보</div>
+        <div class="item"><div class="grow"><div class="t">ARCore 고지</div></div></div>
+        <div class="item"><div class="grow"><div class="t">오픈소스 라이선스</div></div></div>
+        <div class="item"><div class="grow"><div class="t">버전</div><div class="s" style="color:#575860">x.y.z</div></div></div>
+      </div>
+    </div>
+    <figcaption><b>라이트</b> · 강조 #007fb0(선택된 항목·소제목), 테두리 #93949b(선택 안 된 동그라미).</figcaption>
+  </figure>
+  <figure>
+    <div class="phone" style="background:#121212;color:#e4e6ed">
+      <div class="sb"><span>9:41</span><span>▲ ▮</span></div>
+      <div class="set">
+        <div class="bar"><div class="back"><svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="#e4e6ed" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M15 5 8 12l7 7"/></svg></div>설정</div>
+        <div class="sec" style="color:#4da8d7">사용 방법</div>
+        <div class="item"><div class="grow"><div class="t">사용 방법 듣기</div><div class="s" style="color:#9c9ea6">두 번 탭·길게 누르기와 소리 뜻</div></div></div>
+        <div class="sec" style="color:#4da8d7">소리</div>
+        <div class="item"><div class="grow"><div class="t">헤드폰 확인</div><div class="s" style="color:#9c9ea6">왼쪽·오른쪽·앞·뒤에서 소리가 나요<br>음량은 기기의 음량 버튼으로 조절해요</div></div></div>
+        <div class="sec" style="color:#4da8d7">화면 테마 <span style="color:#9c9ea6">· 작동 화면은 늘 검은 화면</span></div>
+        <div class="item"><div class="radio" style="border:2px solid #5f6167"></div><div class="t grow">기기 설정 따르기</div></div>
+        <div class="item"><div class="radio" style="border:2px solid #5f6167"></div><div class="t grow">밝게</div></div>
+        <div class="item"><div class="radio" style="border:7px solid #4da8d7"></div><div class="t grow">어둡게</div></div>
+        <div class="sec" style="color:#4da8d7">정보</div>
+        <div class="item"><div class="grow"><div class="t">ARCore 고지</div></div></div>
+        <div class="item"><div class="grow"><div class="t">오픈소스 라이선스</div></div></div>
+        <div class="item"><div class="grow"><div class="t">버전</div><div class="s" style="color:#9c9ea6">x.y.z</div></div></div>
+      </div>
+    </div>
+    <figcaption><b>다크</b> · 강조 #4da8d7, 테두리 #5f6167.</figcaption>
+  </figure>
+  <figure style="width:360px">
+    <figcaption style="margin-top:0;font-size:14px">
+      <b>항목별 상태</b><br>
+      · 사용 방법 듣기 <span class="new">새 기능</span> TalkBack·시스템 음성으로 조작과 소리 뜻(대기음·준비 완료음·주의·멈춤)을 읽어 준다.<br>
+      · 헤드폰 확인 <span class="new">새 기능</span> 개발 모드의 오디오 시험(AudioTestActivity)을 사용자용으로 줄인 것.<br>
+      · 화면 테마 <span class="new">새 기능</span> 스플래시·설정에만 적용.<br>
+      · ARCore 고지: 지금 작동 화면 아래 문구와 같은 글을 따로 연다.<br>
+      · 오픈소스 라이선스 <span class="new">새 기능</span> docs/LICENSES.md의 내용(HRTF 등)을 앱 안에서 보여 준다.<br>
+      · 기기 설정 덮어쓰기가 켜져 있으면 "정보" 맨 위에 그 사실을 한 줄로 보인다(지금 작동 화면 문구와 같음).<br><br>
+      <b>TalkBack</b>: 소제목은 제목(heading)으로 표시해 제목 단위로 건너뛸 수 있게, 테마는 단일 선택 묶음("3개 중 1번째, 선택됨").
+    </figcaption>
+  </figure>
+</div>
+</html>

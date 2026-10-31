@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Android 11 이하의 스플래시: Android 12 시스템 스플래시와 같은 배치(가운데 288 dp 아이콘, 아래 글자 로고) -->
+<layer-list xmlns:android="http://schemas.android.com/apk/res/android" android:opacity="opaque">
+    <item android:drawable="@color/bg" />
+    <item>
+        <bitmap android:gravity="center" android:src="@drawable/splash_icon" />
+    </item>
+    <item android:bottom="48dp">
+        <bitmap android:gravity="bottom|center_horizontal" android:src="@drawable/splash_brand" />
+    </item>
+</layer-list>

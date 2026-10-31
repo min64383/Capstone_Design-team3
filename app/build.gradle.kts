@@ -26,9 +26,17 @@ android {
         sourceCompatibility = JavaVersion.VERSION_17
         targetCompatibility = JavaVersion.VERSION_17
     }
+
+    // M45: 화면 상태 변환(UserScreen)·안내 글의 JVM 단위 시험(JUnit 5, core와 같은 버전)
+    testOptions {
+        unitTests.all { it.useJUnitPlatform() }
+    }
 }
 
 dependencies {
     implementation(project(":core"))
     implementation(libs.arcore)
+    testImplementation(platform(libs.junit.bom))
+    testImplementation(libs.junit.jupiter)
+    testRuntimeOnly(libs.junit.platform.launcher)
 }
