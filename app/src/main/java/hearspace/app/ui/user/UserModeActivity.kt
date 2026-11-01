@@ -49,6 +49,7 @@ import hearspace.core.audio.Hrtf
 import hearspace.core.types.AlertKind
 import hearspace.core.types.Config
 import hearspace.core.types.ConfigException
+import hearspace.app.runtime.AndroidTts
 import java.io.File
 import java.text.SimpleDateFormat
 import java.util.Date
@@ -92,6 +93,7 @@ class UserModeActivity : Activity(), GLSurfaceView.Renderer {
     private val ui = Handler(Looper.getMainLooper())
     private var run: RunSession? = null
     private var lastDeviceMs = 0L
+    private var startupTts: AndroidTts? = null
 
     /** 안내 중이 아닐 때 보일 알림(시작 실패·중단). 다음 시작에서 지운다. */
     private var notice: UserScreen.Notice? = null
@@ -128,6 +130,8 @@ class UserModeActivity : Activity(), GLSurfaceView.Renderer {
         buildLayout()
         render()
         if (savedInstanceState == null) holdSplash()
+
+        startupTts = AndroidTts(this)
     }
 
     /**
@@ -341,6 +345,8 @@ class UserModeActivity : Activity(), GLSurfaceView.Renderer {
 
     override fun onPause() {
         super.onPause()
+        startupTts?.close()
+        startupTts = null
         // 앱을 떠나면(화면 잠금·전화) 안내를 멈춘다. 돌아오면 다시 두 번 탭으로 시작. 설정 화면은 안내 중이 아닐 때만 열린다
         // VERIFY: 화면이 꺼지는 중(onPause)에도 진동이 전달되는지(Android 13+ 백그라운드 진동 제한) 기기에서 확인
         if (run != null) stopWithNotice("화면을 떠나 안내를 멈췄습니다", haptics::exit) else stop()
@@ -348,6 +354,8 @@ class UserModeActivity : Activity(), GLSurfaceView.Renderer {
     }
 
     override fun onDestroy() {
+        startupTts?.close()
+        startupTts = null
         ar.close()
         feeder.session = null
         super.onDestroy()

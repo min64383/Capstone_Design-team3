@@ -12,6 +12,10 @@
     <!-- meta.json에 설치된 ARCore(Google Play 서비스(AR)) 버전을 기록하기 위해 조회 -->
     <queries>
         <package android:name="com.google.ar.core" />
+
+        <intent>
+            <action android:name="android.intent.action.TTS_SERVICE" />
+        </intent>
     </queries>
 
     <application
