@@ -49,6 +49,8 @@ data class CameraInfo(
     val displayRotationDeg: Int,
     val fpsMin: Int?,
     val fpsMax: Int?,
+    /** 고른 카메라 설정의 깊이 센서 사용(ARCore `CameraConfig.DepthSensorUsage` 이름, M47). M47 전 세션은 null(기록 안 함). */
+    val depthSensorUsage: String? = null,
 )
 
 /** 녹화 결과 통계. 녹화 종료 시 채운다. */
@@ -121,6 +123,7 @@ data class SessionMeta(
             "displayRotationDeg" to num(camera.displayRotationDeg),
             "fpsMin" to num(camera.fpsMin),
             "fpsMax" to num(camera.fpsMax),
+            "depthSensorUsage" to str(camera.depthSensorUsage),
         ),
         "gripOffsetM" to JsonArray(listOf(num(gripOffsetM.x), num(gripOffsetM.y), num(gripOffsetM.z))),
         "elapsedMinusMonotonicNs" to num(elapsedMinusMonotonicNs),
@@ -168,6 +171,8 @@ data class SessionMeta(
                 camera = CameraInfo(
                     c.intrinsics("imageIntrinsics"), c.intrinsics("textureIntrinsics"), c.int("displayRotationDeg"),
                     c.intOpt("fpsMin"), c.intOpt("fpsMax"),
+                    // M47 전 meta에는 이 필드가 없다
+                    c.strOpt("depthSensorUsage", missingIsNull = true),
                 ),
                 gripOffsetM = Vec3(g[0], g[1], g[2]),
                 elapsedMinusMonotonicNs = r.longOpt("elapsedMinusMonotonicNs"),
