@@ -201,6 +201,12 @@ class ReplayResult(
     /** 시각 [tNs]까지 도착한 마지막 RGB 프레임(저장 간격 `record.rgbEveryN`). */
     fun rgbRowAt(tNs: Long): FrameRow? = lastAtOrBefore(rgbT, tNs).let { if (it < 0) null else rgbRows[it] }
 
+    /** RGB 장 넘기기(클릭 정답 주석, M47): [tNs] 다음(앞으로 [step] > 0) 또는 이전 RGB 장의 도착 시각. 끝이면 null. */
+    fun stepRgb(tNs: Long, step: Int): Long? {
+        val i = lastAtOrBefore(rgbT, tNs) + step
+        return if (i in rgbT.indices) rgbT[i] else null
+    }
+
     /** 시각 [tNs]까지 도착한 마지막 깊이 프레임. */
     fun depthRowAt(tNs: Long): FrameRow? = lastAtOrBefore(depthT, tNs).let { if (it < 0) null else depthRows[it] }
 

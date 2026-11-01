@@ -17,6 +17,7 @@
 | `error_decomp.py` | M12.0, M20 | 오차 분해(IMPROVE_SPEC §11.1): 면 위치 오차·헛 점·바닥 흔들림·수렴·자세 점프·구간별 옆 벽·회전·루프 닫힘 → `<세션>/error_decomp.json`·`error_decomp_frames.csv`. `--source RAW`면 `_raw`가 붙은 이름(신뢰도 ≥ 30), 앞면은 가장 앞 점 `<대상>_p05`도 |
 | `front_diag.py` | M20 | 앞면 오차 진단: `causes <재생 로그>...`는 6° 초과 블록의 대표점 칸 원인 몫(추적 평활·시야 밖·확인 못 함·감쇠 중·지금 앞면 당김), `front <세션>...`은 앞면 오차의 거리·높이·접근 속도별 표 |
 | `view_corr.py` | M39 | 시점 간 재현·상관: 원시 깊이에서 헛 칸·표면 칸이 시선각 차·거리비·시간차에 따라 다시 맞는 확률과 표면 화소 오차의 쌍 상관 → json. RV 상수 ρ·β의 근거 |
+| `event_eval.py` | M47 | 실외 클릭 정답 채점(IMPROVE_SPEC §9.5): 세계 좌표에서 ① 움직이는 물체 STOP 때 정답 TTC, ② 정지 물체 STOP 누락, ③ 정답 경고 구간 밖 경고 시작(분당, 시각 목록은 주석 `review` 단계용), ④ 진행 방향 5° 넘는 블록(전환·정상), 클릭 검증(정지 물체 여러 거리 흩어짐, 발·머리 끝 차) → `<재생>/event_eval.json`. 세션만 주면 클릭 검증만. `depth_error.py --tof`는 O06 ToF 확인 |
 | `diagnose.py` | C1, M41 | 사용자 수준 실패 진단: 변형(정답 대입 깊이 × 진행 방향 등)마다 걸은 10 m당 오경보 시작(옆 벽·바닥 높이·그 밖, `metrics.distance_guidance`의 `falseAlarmOnsetsBy`), 깜빡임(분당), 거리 오차, STOP 누락과 세션마다 STOP 구간에 들어갔는지(STOP 시험 범위) → `<접두어>_sessions.csv`·`<접두어>_variants.csv` |
 | `test_analysis.py` | M8, M12.0 | 합성 오프라인 재생·합성 세션으로 분석 도구 자체 점검(CI가 `:core:test` 뒤에 돌린다, M41) |
 | `extract_hrir.py` | M6 | SOFA HRTF → 앱용 수평면 HRIR 바이너리(`assets/hrtf/`) |

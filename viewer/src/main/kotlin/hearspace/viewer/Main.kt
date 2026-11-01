@@ -71,7 +71,9 @@ class MainWindow(initialSession: String?) : JFrame("HEARSPACE 평가 GUI") {
     private val compareBox = JComboBox<String>()
     private val compareButton = JButton("나란히")
     private val viewsHolder = JPanel(BorderLayout())
-    private val singleViews = JSplitPane(JSplitPane.HORIZONTAL_SPLIT, CameraView(vm), TopView(vm)).apply { resizeWeight = 0.45 }
+    // 클릭 정답 주석(M47): 한 화면 카메라 보기에서만 누른다
+    private val clickPanel = ClickPanel(vm, { seek(it) }, { status.text = it })
+    private val singleViews = JSplitPane(JSplitPane.HORIZONTAL_SPLIT, CameraView(vm, onSensorClick = { u, v -> clickPanel.onSensorClick(u, v) }), TopView(vm)).apply { resizeWeight = 0.45 }
     private val pairViews = JPanel(GridLayout(2, 2)).apply {
         add(CameraView(vm)); add(TopView(vm)); add(CameraView(vm, compare = true)); add(TopView(vm, compare = true))
     }
@@ -114,6 +116,7 @@ class MainWindow(initialSession: String?) : JFrame("HEARSPACE 평가 GUI") {
         val tabs = JTabbedPane().apply {
             addTab("설정", configPanel())
             addTab("평가", feedbackPanel())
+            addTab("클릭 정답", clickPanel)
         }
         layout = BorderLayout()
         add(toolbar, BorderLayout.NORTH)
@@ -121,6 +124,9 @@ class MainWindow(initialSession: String?) : JFrame("HEARSPACE 평가 GUI") {
         add(tabs, BorderLayout.EAST)
         add(status.apply { border = BorderFactory.createEmptyBorder(4, 8, 4, 8) }, BorderLayout.SOUTH)
         rootPane.registerKeyboardAction({ togglePlay() }, KeyStroke.getKeyStroke(KeyEvent.VK_SPACE, 0), JComponent.WHEN_IN_FOCUSED_WINDOW)
+        // RGB 장 넘기기(클릭 정답 주석). 글자 칸에 초점이 있으면 그 칸이 먼저 받는다
+        rootPane.registerKeyboardAction({ clickPanel.step(-1) }, KeyStroke.getKeyStroke(KeyEvent.VK_LEFT, 0), JComponent.WHEN_IN_FOCUSED_WINDOW)
+        rootPane.registerKeyboardAction({ clickPanel.step(1) }, KeyStroke.getKeyStroke(KeyEvent.VK_RIGHT, 0), JComponent.WHEN_IN_FOCUSED_WINDOW)
         vm.onChange { updateTimeLabel() }
         // 화면보다 크게 뜨면 오른쪽 탭이 화면 밖으로 나간다: 작업 영역에 맞춘다
         val screen = GraphicsEnvironment.getLocalGraphicsEnvironment().maximumWindowBounds
@@ -189,6 +195,7 @@ class MainWindow(initialSession: String?) : JFrame("HEARSPACE 평가 GUI") {
 
     private fun open(dir: File) {
         session = dir
+        clickPanel.load(dir)
         title = "HEARSPACE 평가 GUI — ${Repo.relative(dir)}"
         setCompare(null)
         val (m, colors) = Bookmarks.of(dir.name)
