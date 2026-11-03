@@ -226,13 +226,17 @@ class Tracker(
             t.motion = MotionState(cfg.accelSigmaMps2, tNs, candidate = false).also { it.boxMin = t.aabbMin; it.boxMax = t.aabbMax }
         }
         val removed = HashSet<Track>()
+        // 움직이는 track·후보의 측정 = 창에 걸린 군집 전체(창은 군집을 고르는 데만 쓴다). 창 안 칸만 쓰면 측정점이 창 쪽(예측 쪽)으로 끌려
+        // 속도가 작게 나오고 창이 물체보다 점점 뒤처졌다(합성 SM-3: 1.0 m/s를 0.55~0.7 m/s로)
+        val clustersAll by lazy { f.clusterXZ(f.allCells) }
         for (t in tracks) {
             val m = t.motion!!
             // 추적 창: 움직이는 track·후보는 측정 상자를 예측만큼 옮긴 것, 지도 track은 이번 지도 군집 상자(지도 앞면이 뒤처지므로 여유로 덮음)
             if (!m.moving && !m.candidate) { m.boxMin = t.aabbMin; m.boxMax = t.aabbMax }
             val (lo, hi) = m.gate(tNs, cfg.matchRadiusM)
             // 측정은 통로 밖 칸도 쓴다: 통로만 보면 옆으로 비켜 간 물체를 놓친 것으로 보고 마지막 자리를 정지 지도에 넘겨 유령 칸이 생겼다(SM-6)
-            val meas = f.allCells.filter { inBox(it, lo, hi) }
+            val meas = if (m.moving || m.candidate) clustersAll.filter { cl -> cl.count { inBox(it, lo, hi) } >= minSamples }.flatten()
+            else f.allCells.filter { inBox(it, lo, hi) }
             m.nMeasCells = meas.size
             // 칼만 측정 = 이번 장 창 안 칸의 중심점(가장 앞 칸 기준 대표점은 장마다 칸이 바뀌어 크게 뛴다, M48 값 재기). 예측에서 벗어난 측정은 버린다
             val rep = if (meas.size >= minSamples) nearSurfacePoint(meas, f.cameraW) else null
@@ -242,14 +246,12 @@ class Tracker(
             } else if (rep != null) {
                 m.lastMeasW = rep
                 m.lastMeasNs = tNs
-                // 움직이는 track·후보의 창 크기는 그 물체의 것으로 둔다: 측정 칸 전체의 상자로 두면 옆 칸이 들 때마다 창이 장마다 넓어져
-                // 측정점이 다른 면으로 끌렸다(T 150338 칼만 속도 3 m/s). 창은 측정점 이동만큼 옮기고, 크기는 물체 좌표 점유 칸이 있으면 그 상자
-                val prev = m.lastMeasW
+                // 움직이는 track·후보의 창 = 측정한 군집의 상자(+ 여유는 gate가 붙인다). 창 안 칸 전체의 상자로 두면 장마다 여유만큼
+                // 넓어졌다(T 150338 칼만 속도 3 m/s). 군집 상자는 장마다 다시 재므로 쌓여 커지지 않는다
                 m.missed = 0
-                if ((m.moving || m.candidate) && prev != null) {
-                    val d = (rep - prev).horizontal()
-                    m.boxMin = m.boxMin + d
-                    m.boxMax = m.boxMax + d
+                if (m.moving || m.candidate) {
+                    m.boxMin = Vec3(meas.minOf { it.x }, meas.minOf { it.y }, meas.minOf { it.z })
+                    m.boxMax = Vec3(meas.maxOf { it.x }, meas.maxOf { it.y }, meas.maxOf { it.z })
                 }
                 // 물체 단위 HITS: 측정된 장마다 표·점수(정지 지도와 같은 거리 가중)
                 val w = f.weightAt(rep)
@@ -314,8 +316,10 @@ class Tracker(
                 mm.candidate && !isMoving && mm.occupied(mc.minHits, mc.minScore) -> removed += t // 6표가 모였는데 정지: 정지 지도가 맡음
             }
         }
-        // 같은 물체를 따르는 움직이는 track·후보가 둘이면(한 사람이 두 묶음으로 갈려 후보 둘이 생김) 짝짓기 반경 안에서 젊은 쪽을 지운다
-        val live = tracks.filter { it !in removed && (it.motion!!.moving || it.motion!!.candidate) }.sortedBy { it.id }
+        // 같은 물체를 따르는 움직이는 track·후보가 둘이면(한 사람이 두 묶음으로 갈려 후보 둘이 생김) 짝짓기 반경 안에서 움직이는 track을 먼저,
+        // 그다음 먼저 생긴 쪽을 남긴다. 번호로 나이를 재면 안 된다: 후보는 음수 번호라 오래된 움직이는 track을 지웠다(T 150159 track이 0.3~1 s마다 끊김)
+        val live = tracks.filter { it !in removed && (it.motion!!.moving || it.motion!!.candidate) }
+            .sortedWith(compareBy({ it.motion!!.candidate }, { it.motion!!.birthNs }))
         for ((i, a) in live.withIndex()) {
             if (a in removed) continue
             val pa = a.motion!!.origin() ?: continue
