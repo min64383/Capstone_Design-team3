@@ -108,7 +108,8 @@ object SyntheticSessionWriter {
         val r = head0.rightW
         val o = Vec3(head0.positionW.x, 0f, head0.positionW.z) // 바닥 y = 0
         fun toTruth(p: Vec3) = Vec3((p - o) dot r, p.y, (p - o) dot f)
-        val items = rec.scene.items.filter { it.obstacle || it.structure }.map { item ->
+        // 움직이는 요소(M48)는 상자 하나로 적을 수 없어 빼고, 시험이 장면에서 직접 정답을 읽는다
+        val items = rec.scene.items.filter { (it.obstacle || it.structure) && it.motion == null }.map { item ->
             val (mn, mx) = when (val sh = item.shape) {
                 is Box -> sh.min to sh.max
                 is VerticalCylinder -> Vec3(sh.cx - sh.radiusM, sh.yMin, sh.cz - sh.radiusM) to Vec3(sh.cx + sh.radiusM, sh.yMax, sh.cz + sh.radiusM)
