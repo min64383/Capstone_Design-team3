@@ -66,6 +66,19 @@ class LocalMap(private val config: Config) {
      * 바닥을 아직 모르면 맵을 갱신하지 않고 `DEGRADED`를 돌려준다(사용자 결정 2026-09-28). TRISTATE는 예외([updateTriState]).
      */
     fun update(depth: DepthFrame, userPosW: Vec3, headingW: Vec3): MapUpdate {
+        val update = updateMap(depth, userPosW, headingW)
+        if (config.floor.mode != hearspace.core.types.FloorMode.ELEVATION) return update
+        val fy = update.floorY
+        val geometry = if (fy == null) IndoorGeometryResult(hearspace.core.types.IndoorGeometryType.UNKNOWN, emptyList(), emptyList()) else
+            IndoorGeometryAnalyzer.analyze(
+                Projection.backprojectToWorld(lastDepthMm!!, depth.K, depth.worldFromCam, config.depth.subsample),
+                voxels.occupied(), userPosW, headingW, fy, config.corridor.widthM,
+                config.geometry.maxDistanceM, config.floor.toleranceM, config.cluster, config.geometry,
+            )
+        return update.copy(geometry = geometry)
+    }
+
+    private fun updateMap(depth: DepthFrame, userPosW: Vec3, headingW: Vec3): MapUpdate {
         val depthMm = effectiveDepth(depth)
         lastDepthMm = depthMm
         val pts = Projection.backprojectToWorld(depthMm, depth.K, depth.worldFromCam, config.depth.subsample)
@@ -124,22 +137,8 @@ class LocalMap(private val config: Config) {
         }
         val nDecayed = voxels.decayFree(depthMm, depth.K, depth.worldFromCam.rigidInverse())
         val pruned = voxels.prune(userPosW, headingW, depth.tCaptureNs)
-        val geometry = if (config.geometry.enabled) {
-            IndoorGeometryAnalyzer.analyze(
-                pointsW = pts,
-                occupied = voxels.occupied(),
-                userPosW = userPosW,
-                headingW = headingW,
-                floorY = floorY,
-                corridorWidthM = config.corridor.widthM,
-                maxAlongM = config.policy.silentMaxM,
-                floorToleranceM = config.floor.toleranceM,
-                cluster = config.cluster,
-                cfg = config.geometry,
-            )
-        } else null
         return MapUpdate(
-            depth.tCaptureNs, n, nFloor, nBelow, nInserted, nDecayed, pruned, voxels.size, floor.floorY, MapHealth.OK, planes, segments, geometry,
+            depth.tCaptureNs, n, nFloor, nBelow, nInserted, nDecayed, pruned, voxels.size, floor.floorY, MapHealth.OK, planes, segments, null,
             lastRgbEdgeCounts,
         )
     }

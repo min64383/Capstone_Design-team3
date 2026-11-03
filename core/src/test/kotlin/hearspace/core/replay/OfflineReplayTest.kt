@@ -61,6 +61,26 @@ class OfflineReplayTest {
     private fun guidance(run: File) = File(run, RunLog.GUIDANCE_FILE).readLines().drop(1).map { it.split(',') }
 
     @Test
+    fun `elevation diagnostics preserve obstacle guidance and log every slow step`() {
+        val session = File(root, "geometry/session")
+        SyntheticSessionWriter.write(box4().generate(), session, "SYN")
+        val single = File(root, "geometry/single")
+        val elevation = File(root, "geometry/elevation")
+        OfflineReplay(ConfigLoader.load(base), OfflineReplay.fixed(10f)).run(session, single)
+        OfflineReplay(ConfigLoader.load(base, """{"floor":{"mode":"ELEVATION"}}"""), OfflineReplay.fixed(10f)).run(session, elevation)
+        for (file in listOf(RunLog.SLOW_PATH_FILE, RunLog.GUIDANCE_FILE, RunLog.OBSTACLES_FILE, RunLog.CLUSTER_DEBUG_FILE)) {
+            assertEquals(File(single, file).readText(), File(elevation, file).readText(), file)
+        }
+        assertTrue(!File(single, RunLog.GEOMETRY_FILE).exists())
+        val rows = File(elevation, RunLog.GEOMETRY_FILE).readLines()
+        assertEquals(RunLog.header(RunLog.GEOMETRY_HEADER), rows.first())
+        val times = rows.drop(1).map { it.substringBefore(',') }.distinct()
+        assertEquals(File(elevation, RunLog.SLOW_PATH_FILE).readLines().drop(1).map { it.substringBefore(',') }, times)
+        OfflineReplay(ConfigLoader.load(base), OfflineReplay.fixed(10f)).run(session, elevation)
+        assertTrue(!File(elevation, RunLog.GEOMETRY_FILE).exists(), "no stale ELEVATION log after SINGLE rerun")
+    }
+
+    @Test
     fun `same input gives identical logs`() {
         val a = replay("clean", variants.getValue("clean"), runName = "run_a")
         val b = replay("clean", variants.getValue("clean"), runName = "run_b")

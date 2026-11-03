@@ -72,6 +72,17 @@ class ConfigLoaderTest {
     }
 
     @Test
+    fun `geometry mode is explicit and experimental parameters are validated`() {
+        assertEquals(FloorMode.SINGLE, load().floor.mode)
+        assertEquals(FloorMode.ELEVATION, load("""{"floor":{"mode":"ELEVATION"}}""").floor.mode)
+        assertConfigError("floor.mode", """{"floor":{"mode":"INVALID"}}""")
+        assertConfigError("geometry.enabled", """{"geometry":{"enabled":true}}""")
+        assertConfigError("geometry.maxDistanceM", """{"geometry":{"maxDistanceM":0}}""")
+        assertConfigError("geometry.stepConfidence", """{"geometry":{"stepConfidence":1.1}}""")
+        assertConfigError("geometry.minSlopeBins", """{"geometry":{"minSlopeBins":2}}""")
+    }
+
+    @Test
     fun `partial override changes only the given keys`() {
         val base = load()
         val c = load("""{ "corridor": { "widthM": 1.0 }, "repPoint": { "strategy": "NEAREST" } }""")
