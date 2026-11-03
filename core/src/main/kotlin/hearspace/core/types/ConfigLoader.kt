@@ -241,6 +241,7 @@ object ConfigLoader {
                     measSigmaPerM2 = nonNegative("measSigmaPerM2"),
                     minMovingMps = nonNegative("minMovingMps"),
                     movingChi2 = positive("movingChi2"),
+                    validationChi2 = positive("validationChi2"),
                     userVelocityS = positive("userVelocityS"),
                 )
             },

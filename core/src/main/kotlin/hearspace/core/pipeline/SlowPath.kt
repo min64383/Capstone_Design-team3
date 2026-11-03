@@ -44,6 +44,8 @@ class SlowPath(
     private val fixedMap: FixedMap? = null,
     /** 바닥 대입(F*, M35 전제 확인, 평가 전용): 있으면 지도의 바닥 추정 대신 이 높이를 요소 분해·통로·높이 분류에 쓴다. 앱은 넘기지 않는다. */
     private val floorOverrideY: Float? = null,
+    /** 움직임 정답(M48 평가 전용, 판정 단계를 정답으로 바꿔 아래 단계만 판정). 앱은 넘기지 않는다. */
+    private val movingOracle: ((Long, Vec3) -> Boolean?)? = null,
     /** 단계별 처리 시간을 재는 시계(ns). 실행 결과에는 영향이 없고 [lastStageNs]에만 쓴다. */
     private val nanoTime: () -> Long = System::nanoTime,
 ) {
@@ -229,12 +231,14 @@ class SlowPath(
         val pts = ArrayList(map.frameObstaclePoints)
         val seen = HashSet<Long>()
         val cells = ArrayList<Pair<Vec3, Boolean>>()
+        val all = ArrayList<Vec3>()
         for ((p, _) in pts) {
             val ix = kotlin.math.floor(p.x / vs).toInt()
             val iy = kotlin.math.floor(p.y / vs).toInt()
             val iz = kotlin.math.floor(p.z / vs).toInt()
             if (!seen.add((ix.toLong() shl 42) xor (iy.toLong() shl 21) xor iz.toLong())) continue
             val c = Vec3((ix + 0.5f) * vs, (iy + 0.5f) * vs, (iz + 0.5f) * vs)
+            all += c
             if (corridor.contains(c)) cells += c to map.voxels.occupiedAt(c)
         }
         val depthMm = map.lastDepthMm
@@ -244,6 +248,7 @@ class SlowPath(
             frame = frameNo,
             points = pts,
             corridorCells = cells,
+            allCells = all,
             reps = { c -> if (c.isEmpty()) null else RepPoint.candidates(c, corridor, vs, config.repPoint.bandM) },
             strategy = config.repPoint.strategy,
             sigmaAt = { p -> (p - camW).norm().let { z -> tr.measSigma0M + tr.measSigmaPerM2 * z * z } },
@@ -254,6 +259,8 @@ class SlowPath(
             clusterXZ = { c -> Cluster.dbscanXZ(c, config.cluster.epsM, config.cluster.minSamples, null).map { idx -> idx.map { c[it] } } },
             voxelM = vs,
             inCorridor = corridor::contains,
+            movingOracle = movingOracle,
+            cameraW = camW,
         )
     }
 

@@ -92,6 +92,8 @@ class OfflineReplay(
     private val depthFrom: String? = null,
     /** 학습형 장을 내보내기까지 기다리는 시간(ns, 기기에서 잰 모델 시간). */
     private val depthFromDelayNs: Long = 0L,
+    /** 움직임 정답(M48 평가 전용, 합성 시험이 판정 단계를 정답으로 바꿀 때). null이면 추정한 판정(앱과 같음). */
+    private val movingOracle: ((Long, hearspace.core.geometry.Vec3) -> Boolean?)? = null,
 ) {
 
     /** 마지막 [run]에서 세션을 읽으며 건너뛴 항목(없는·손상된 파일, 잘린 마지막 줄 등, [SessionReader.warnings]). */
@@ -124,7 +126,7 @@ class OfflineReplay(
         }
 
         val fast = FastPath(config, substitution?.headingSnap())
-        val slow = SlowPath(config, substitution?.fixedMap(config.map.voxelSizeM), floorOverrideY = substitution?.floorY())
+        val slow = SlowPath(config, substitution?.fixedMap(config.map.voxelSizeM), floorOverrideY = substitution?.floorY(), movingOracle = movingOracle)
         var pose: PoseFrame? = null
         var snapshot: ObstacleSnapshot? = null
         var heading: Vec3? = null

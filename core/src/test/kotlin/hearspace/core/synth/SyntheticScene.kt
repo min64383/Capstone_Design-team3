@@ -171,7 +171,7 @@ data class Motion(val velocityW: Vec3, val startS: Float = 0f, val stopS: Float 
     fun offsetAt(tS: Float): Vec3 {
         val here = velocityW * ((tS.coerceIn(startS, stopS) - startS))
         val next = then ?: return here
-        return velocityW * (stopS - startS) + next.offsetAt(tS)
+        return if (tS <= stopS) here else here + next.offsetAt(tS) // 다음 구간은 이 구간이 끝난 자리에서
     }
 
     /** 시각 [tS]의 속도(월드). */

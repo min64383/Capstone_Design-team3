@@ -85,15 +85,17 @@ def sigma(runs: list[Path]) -> dict:
                 if w.sum() < 5:
                     continue
                 med = np.median(xz[w], axis=0)
-                r_all.append(np.linalg.norm(xz[k] - med) / np.sqrt(2))  # 축 하나의 흩어짐(두 축 평균)
-                z_all.append(float(np.hypot(xz[k, 0] - c[k, 0], xz[k, 1] - c[k, 2])))
+                zk = float(np.hypot(xz[k, 0] - c[k, 0], xz[k, 1] - c[k, 2]))
+                for ax in (0, 1):  # 축마다 잔차(칼만은 축마다 같은 σ_m을 쓴다)
+                    r_all.append(abs(xz[k, ax] - med[ax]))
+                    z_all.append(zk)
     z_all, r_all = np.array(z_all), np.array(r_all)
     bins = []
     for lo in np.arange(0.5, 4.0, Z_BIN_M):
         sel = (z_all >= lo) & (z_all < lo + Z_BIN_M)
-        if sel.sum() < 30:
+        if sel.sum() < 60:
             continue
-        # 중앙값 둘레 거리의 MAD: |r| 자체가 중앙값에서 잰 편차라 1.4826 × median(|r|)
+        # 축마다 중앙값 둘레 잔차의 MAD: |r| 자체가 중앙값에서 잰 편차라 σ = 1.4826 × median(|r|)
         bins.append((lo + Z_BIN_M / 2, 1.4826 * float(np.median(r_all[sel])), int(sel.sum())))
     if len(bins) >= 2:
         zc = np.array([b[0] for b in bins])
@@ -104,7 +106,7 @@ def sigma(runs: list[Path]) -> dict:
         s0, k = float(coef[0]), float(coef[1])
     else:
         s0 = k = None
-    return {"bins": [{"zM": round(b[0], 2), "sigmaM": round(b[1], 4), "n": b[2]} for b in bins], "sigma0M": s0, "sigmaPerM2": k, "n": int(len(r_all))}
+    return {"bins": [{"zM": round(b[0], 2), "sigmaM": round(b[1], 4), "n": b[2]} for b in bins], "sigma0M": s0, "sigmaPerM2": k, "n": int(len(r_all) // 2)}
 
 
 def vmin(runs: list[Path]) -> dict:

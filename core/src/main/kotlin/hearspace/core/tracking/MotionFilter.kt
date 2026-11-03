@@ -7,6 +7,7 @@ import hearspace.core.geometry.Vec3
  * 과정 잡음은 이산 백색 가속 모형(가속 표준편차 [accelSigmaMps2]), 측정은 위치뿐이고 잡음은 측정마다 받는다.
  * 측정 잡음·과정 잡음이 축마다 독립이고 측정 행렬이 단위라 두 축은 섞이지 않는다(4×4 필터와 같은 결과).
  * 시작은 두 점 차분(Bar-Shalom 외 2001): 첫 측정은 기억만 하고, 둘째 측정에서 위치 = 둘째, 속도 = 차분, 공분산은 측정 잡음에서.
+ * 검증 게이트(같은 책): 예측에서 벗어난 정도(혁신의 정규화 제곱, 자유도 2)가 문턱을 넘는 측정은 버리고 예측만 한다.
  * 과거 측정만 쓴다(미래 프레임 없음).
  */
 class MotionFilter(private val accelSigmaMps2: Float) {
@@ -29,9 +30,16 @@ class MotionFilter(private val accelSigmaMps2: Float) {
     var nUpdates: Int = 0
         private set
 
-    /** 시각 [tNs]의 측정 [pW](수평만 씀)와 그 표준편차 [sigmaM]을 반영한다. 같은 시각 이하의 측정은 무시한다. */
-    fun update(tNs: Long, pW: Vec3, sigmaM: Float) {
-        if (tNs <= this.tNs) return
+    /** 마지막으로 버린 측정의 혁신 χ²(기록용). */
+    var lastInnovationChi2: Float = 0f
+        private set
+
+    /**
+     * 시각 [tNs]의 측정 [pW](수평만 씀)와 그 표준편차 [sigmaM]을 반영한다. 같은 시각 이하의 측정은 무시한다.
+     * 준비된 뒤 혁신 χ²가 [gateChi2]를 넘으면 측정을 버리고 예측만 한다. 반영했으면 true.
+     */
+    fun update(tNs: Long, pW: Vec3, sigmaM: Float, gateChi2: Float = Float.POSITIVE_INFINITY): Boolean {
+        if (tNs <= this.tNs) return false
         val r = sigmaM.toDouble() * sigmaM
         val f = first
         val ax = x
@@ -40,7 +48,7 @@ class MotionFilter(private val accelSigmaMps2: Float) {
                 first = Triple(tNs, pW, r)
                 this.tNs = tNs
                 nUpdates = 1
-                return
+                return true
             }
             val dt = (tNs - f.first) / 1e9
             // 두 점 차분: 속도 = (z2 − z1)/dt, var(v) = (r1 + r2)/dt², cov(p, v) = r2/dt
@@ -49,15 +57,21 @@ class MotionFilter(private val accelSigmaMps2: Float) {
             first = null
             this.tNs = tNs
             nUpdates = 2
-            return
+            return true
         }
         val dt = (tNs - this.tNs) / 1e9
         predictAxis(ax, dt)
         predictAxis(z!!, dt)
+        this.tNs = tNs
+        val ex = pW.x - ax.p
+        val ez = pW.z - z!!.p
+        val nis = (ex * ex / (ax.pp + r) + ez * ez / (z!!.pp + r)).toFloat()
+        lastInnovationChi2 = nis
+        if (nis > gateChi2) return false
         correctAxis(ax, pW.x.toDouble(), r)
         correctAxis(z!!, pW.z.toDouble(), r)
-        this.tNs = tNs
         nUpdates++
+        return true
     }
 
     /** 측정 없이 시각 [tNs]까지 예측한다(놓친 장). */

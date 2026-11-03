@@ -18,6 +18,8 @@ class MotionFrame(
     val points: List<Pair<Vec3, Float>>,
     /** 이번 장 칸(점이 든 칸의 중심, 중복 없음) 중 통로 안 칸과, 그중 정지 지도가 이미 점유로 만든 칸인지. */
     val corridorCells: List<Pair<Vec3, Boolean>>,
+    /** 이번 장 칸 전부(통로 밖 포함). 칼만 측정은 이것으로 한다: 통로를 벗어난 물체를 "놓침"으로 보지 않게. */
+    val allCells: List<Vec3>,
     /** 칸 목록의 대표점 후보(지금과 같은 규칙: 통로·복셀·띠). 빈 목록이면 null. */
     val reps: (List<Vec3>) -> Map<RepStrategy, Vec3>?,
     /** 설정의 대표점 방식. */
@@ -38,7 +40,30 @@ class MotionFrame(
     val voxelM: Float,
     /** 점이 통로 안인지(출력은 통로 안 점유 칸만, 지금과 같음). */
     val inCorridor: (Vec3) -> Boolean,
+    /**
+     * 움직임 정답(평가 전용): 시각·위치의 물체가 움직이는 종류인지(라벨처럼: true = 그렇다, null = 모름 → 지금 상태를 그대로 둔다).
+     * 이 함수가 있으면 추정한 판정(속도 문턱·χ²)은 쓰지 않는다. 앱은 넘기지 않는다.
+     */
+    val movingOracle: ((Long, Vec3) -> Boolean?)? = null,
+    /** 카메라 위치(측정점: 카메라에서 본 가까운 면, 설계 3.1절 3). */
+    val cameraW: Vec3 = Vec3.ZERO,
 )
+
+/**
+ * 칼만 측정점(M48): 칸들을 카메라에서 본 방위의 중앙값 방향으로, 거리의 아래 사분위(25%)만큼 떨어진 수평 점.
+ * 깊이 영상의 막·번짐은 물체 뒤(배경 쪽)에 생기므로 중심점은 가까이 올수록 뒤로 끌리고(합성 SM-1 잡음 깊이에서 속도 1.0 → 0.6~0.8 m/s),
+ * 가장 앞 칸 하나는 장마다 칸이 바뀌어 크게 뛴다. 가까운 면의 아래 사분위는 둘 다 덜 받는다(자체 선택, 관례적 강건 통계).
+ */
+fun nearSurfacePoint(cells: List<Vec3>, cameraW: Vec3): Vec3? {
+    if (cells.isEmpty()) return null
+    val ang = cells.map { kotlin.math.atan2((it.x - cameraW.x).toDouble(), (it.z - cameraW.z).toDouble()) }
+    val ref = ang.first()
+    val unwrapped = ang.map { a -> var d = a - ref; while (d > Math.PI) d -= 2 * Math.PI; while (d < -Math.PI) d += 2 * Math.PI; ref + d }.sorted()
+    val bearing = unwrapped[unwrapped.size / 2]
+    val ranges = cells.map { kotlin.math.hypot((it.x - cameraW.x).toDouble(), (it.z - cameraW.z).toDouble()) }.sorted()
+    val r = ranges[(ranges.size - 1) / 4]
+    return Vec3((cameraW.x + r * kotlin.math.sin(bearing)).toFloat(), 0f, (cameraW.z + r * kotlin.math.cos(bearing)).toFloat())
+}
 
 /** track 하나의 움직임 상태(M48). */
 class MotionState(accelSigmaMps2: Float, val cells: MovingCells, val birthNs: Long, var candidate: Boolean) {

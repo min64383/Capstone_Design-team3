@@ -226,12 +226,16 @@ class Tracker(
             // 추적 창: 움직이는 track·후보는 측정 상자를 예측만큼 옮긴 것, 지도 track은 이번 지도 군집 상자(지도 앞면이 뒤처지므로 여유로 덮음)
             if (!m.moving && !m.candidate) { m.boxMin = t.aabbMin; m.boxMax = t.aabbMax }
             val (lo, hi) = m.gate(tNs, cfg.matchRadiusM)
-            val meas = f.corridorCells.filter { (c, _) -> inBox(c, lo, hi) }.map { it.first }
+            // 측정은 통로 밖 칸도 쓴다: 통로만 보면 옆으로 비켜 간 물체를 놓친 것으로 보고 마지막 자리를 정지 지도에 넘겨 유령 칸이 생겼다(SM-6)
+            val meas = f.allCells.filter { inBox(it, lo, hi) }
             m.nMeasCells = meas.size
             m.nRemoved = 0
-            val rep = if (meas.size >= minSamples) f.reps(meas)?.get(f.strategy) else null
-            if (rep != null) {
-                m.filter.update(tNs, rep, f.sigmaAt(rep))
+            // 칼만 측정 = 이번 장 창 안 칸의 중심점(가장 앞 칸 기준 대표점은 장마다 칸이 바뀌어 크게 뛴다, M48 값 재기). 예측에서 벗어난 측정은 버린다
+            val rep = if (meas.size >= minSamples) nearSurfacePoint(meas, f.cameraW) else null
+            if (rep != null && !m.filter.update(tNs, rep, f.sigmaAt(rep), cfg.validationChi2)) {
+                m.missed++
+                m.nMeasCells = -meas.size // 버린 측정(기록용 음수)
+            } else if (rep != null) {
                 m.lastMeasW = rep
                 m.lastMeasNs = tNs
                 m.missed = 0
@@ -245,7 +249,9 @@ class Tracker(
             }
             val v = m.filter.velocityW
             m.lastChi2 = m.filter.velocityChi2
-            val isMoving = m.filter.ready && v != null && v.norm() > cfg.minMovingMps && m.lastChi2 > cfg.movingChi2
+            val isMoving = m.filter.ready && v != null && if (f.movingOracle != null) {
+                (m.filter.positionW ?: m.lastMeasW)?.let { f.movingOracle.invoke(tNs, it) } ?: m.moving // 정답(라벨처럼): 모르면 지금 상태 유지
+            } else v.norm() > cfg.minMovingMps && m.lastChi2 > cfg.movingChi2
             val origin = m.origin()
             // 움직이는 track·후보는 창 안 점을 물체 좌표 HITS 칸에 쌓는다(정지 지도와 같은 산술)
             if ((m.moving || m.candidate) && origin != null) {
@@ -281,11 +287,10 @@ class Tracker(
             }
             val mm = t.motion!!
             when {
-                mm.moving && mm.missed > cfg.maxMissedUpdates -> {
-                    // 시야 밖으로 나감: 마지막 자리의 점유 칸을 정지 지도로(지금 지도가 시야 밖 칸을 보존하는 것과 같음)
-                    mm.origin()?.let { o -> mm.cells.occupiedEvidence(o).forEach(f.seed) }
-                    removed += t
-                }
+                mm.moving && mm.lastMeasNs != Long.MIN_VALUE && tNs - mm.lastMeasNs > (mc.maxUnseenS * 1e9).toLong() -> removed += t
+                // 시야 밖으로 나감: 물체 좌표 칸은 시야 밖이라 감쇠하지 않고(시야 밖 보존) 움직임 가설대로 예측해 옮긴다. 지도의 시야 밖 칸처럼
+                // `map.maxUnseenS` 동안 둔다. 처음 설계(마지막 자리를 정지 지도로 넘김)는 옆으로 비켜 시야를 벗어난 사람을 통로 가장자리의
+                // 유령 칸으로 남겼다(합성 SM-6)
                 mm.moving && mm.cells.size == 0 -> removed += t // 시야 안에서 빈 곳으로 보여 모두 지워짐
                 mm.candidate && mm.missed > cfg.maxMissedUpdates -> removed += t
                 mm.candidate && !isMoving && origin != null && mm.cells.occupiedCenters(origin).isNotEmpty() -> removed += t // 6표가 모였는데 정지: 정지 지도가 맡음
@@ -298,7 +303,7 @@ class Tracker(
         val free = f.corridorCells.filter { (c, occ) -> !occ && gates.none { (lo, hi) -> inBox(c, lo, hi) } }.map { it.first }
         if (free.size >= minSamples) for (cl in f.clusterXZ(free)) {
             val reps = f.reps(cl) ?: continue
-            val rep = reps.getValue(f.strategy)
+            val rep = nearSurfacePoint(cl, f.cameraW) ?: continue
             val m = MotionState(cfg.accelSigmaMps2, MovingCells(mc), tNs, candidate = true)
             m.boxMin = Vec3(cl.minOf { it.x }, cl.minOf { it.y }, cl.minOf { it.z })
             m.boxMax = Vec3(cl.maxOf { it.x }, cl.maxOf { it.y }, cl.maxOf { it.z })
