@@ -33,6 +33,7 @@ class RunLogWriter(
     private val clusterOut: Writer
     private val stageOut: Writer
     private var planesOut: Writer? = null
+    private var motionOut: Writer? = null
     private val outDir = outDir
 
     init {
@@ -63,6 +64,10 @@ class RunLogWriter(
         RunLog.obstacleLines(step.snapshot).forEach { obsOut.line(it) }
         RunLog.clusterDebugLines(step.clusterDebug).forEach { clusterOut.line(it) }
         stageOut.line(RunLog.stageTimingLine(step.depth.tCaptureNs, step.stageNs))
+        if (step.motion.isNotEmpty()) { // M48 `track.motion` KALMAN일 때만 생긴다(끈 설정은 파일 목록이 그대로)
+            val w = motionOut ?: File(outDir, MOTION_FILE).bufferedWriter().also { it.line(MOTION_HEADER); motionOut = it }
+            for (m in step.motion) w.line(motionLine(m))
+        }
         step.mapUpdate.planes?.let { p ->
             val w = planesOut ?: File(outDir, RunLog.PLANES_FILE).bufferedWriter().also { it.line(RunLog.header(RunLog.PLANES_HEADER)); planesOut = it }
             w.line(RunLog.planesLine(step.depth.tCaptureNs, p))
@@ -77,7 +82,18 @@ class RunLogWriter(
 
     /** 기록 파일을 모두 닫는다(여러 번 불러도 된다). */
     override fun close() {
-        listOfNotNull(slowOut, guidOut, obsOut, clusterOut, stageOut, planesOut).forEach { it.close() }
+        listOfNotNull(slowOut, guidOut, obsOut, clusterOut, stageOut, planesOut, motionOut).forEach { it.close() }
+    }
+
+    private fun motionLine(m: hearspace.core.tracking.MotionDebug): String = listOf(
+        m.tCaptureNs, m.id, m.candidate, m.moving, m.measW?.x, m.measW?.z, m.posW?.x, m.posW?.z, m.velW?.x, m.velW?.z,
+        m.posSigmaM, m.velSigmaMps, m.chi2, m.nMeasCells, m.nCells, m.nOccupied, m.nRemoved,
+    ).joinToString(",") { it?.toString() ?: "" }
+
+    companion object {
+        /** 움직임 기록(M48): track마다 칼만·판정·물체 좌표 칸 수. */
+        const val MOTION_FILE = "motion.csv"
+        const val MOTION_HEADER = "tCaptureNs,id,candidate,moving,measX,measZ,posX,posZ,velX,velZ,posSigmaM,velSigmaMps,chi2,nMeasCells,nCells,nOccupied,nRemoved"
     }
 
     private fun Writer.line(s: String) {

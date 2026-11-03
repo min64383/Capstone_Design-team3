@@ -42,6 +42,8 @@ class SlowStep(
     val mapDepthMm: ShortArray? = null,
     /** TRISTATE 지도의 빈 곳 칸 중심(M32 장면 지표의 칸 상태). [ReplayListener.captureVoxels]가 true이고 TRISTATE일 때만, 아니면 null. */
     val freeCentersW: List<Vec3>? = null,
+    /** 움직임 기록(M48 `track.motion` KALMAN). 끈 설정에서는 빈 목록. */
+    val motion: List<hearspace.core.tracking.MotionDebug> = emptyList(),
 )
 
 /** [OfflineReplay] 결과를 받는 쪽: 실행 로그 파일([RunLogWriter]) 또는 평가 GUI의 메모리 수집. */
@@ -154,7 +156,7 @@ class OfflineReplay(
             val free = if (config.map.mode == hearspace.core.types.MapMode.TRISTATE && listener.captureFree(stepIndex)) slow.map.voxels.freeCenters() else null
             job = Job(
                 d, atNs, atNs + slowPathNs(d), s, resetAfterNs, slow.lastMapUpdate!!, slow.lastClusterDebug, slow.lastStageNs, voxels,
-                slow.lastClusters, slow.lastUserPosW, if (substitution?.map == true) null else slow.map.lastDepthMm, free,
+                slow.lastClusters, slow.lastUserPosW, if (substitution?.map == true) null else slow.map.lastDepthMm, free, slow.lastMotionDebug,
             )
         }
 
@@ -166,7 +168,7 @@ class OfflineReplay(
                 val applied = resetAfterNs == j.resetMark
                 if (applied) snapshot = j.snapshot
                 listener.onSlowStep(
-                    SlowStep(j.depth, j.startNs, j.doneNs, j.snapshot, j.mapUpdate, j.clusterDebug, j.stageNs, applied, j.voxels, j.clusters, j.userPosW, j.mapDepthMm, j.free),
+                    SlowStep(j.depth, j.startNs, j.doneNs, j.snapshot, j.mapUpdate, j.clusterDebug, j.stageNs, applied, j.voxels, j.clusters, j.userPosW, j.mapDepthMm, j.free, j.motion),
                 )
                 startIfIdle(j.doneNs)
             }
@@ -247,6 +249,7 @@ class OfflineReplay(
         val userPosW: Vec3,
         val mapDepthMm: ShortArray?,
         val free: List<Vec3>?,
+        val motion: List<hearspace.core.tracking.MotionDebug>,
     )
 
     companion object {

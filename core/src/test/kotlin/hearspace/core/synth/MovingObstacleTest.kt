@@ -123,4 +123,114 @@ class MovingObstacleTest {
         }
         assertTrue(results.any { it.entryBeforeStop || it.stopAlongM == null || (it.ttcS ?: 0f) < 1.0f }, "baseline should fail at least one SM-1 case")
     }
+
+    private val kalman = """ "track": { "motion": "KALMAN" } """
+
+    /** 첫 STOP이 실제 진입(1.0 m) 전이고 그때 정답 TTC ≥ 1.0 s인지. */
+    private fun approachOk(a: Approach) = a.stopAlongM != null && !a.entryBeforeStop && a.stopAlongM >= 1.0f && (a.ttcS ?: 0f) >= 1.0f
+
+    @Test
+    fun `SM-1 KALMAN - an oncoming person is stopped before 1 m with TTC at least 1 s`() {
+        val fails = ArrayList<String>()
+        for (v in listOf(0.6f, 1.0f, 1.5f)) for (n in listOf(Noise(), noisy)) {
+            val (spec, p) = sm1(v, n)
+            val a = approach(spec, p, replay(spec, kalman))
+            println("SM-1 KALMAN v=$v noise=${n.depthQuadK}: stop along ${a.stopAlongM} ttc ${a.ttcS} enteredBeforeStop ${a.entryBeforeStop}")
+            if (!approachOk(a)) fails += "v=$v s=${n.depthQuadK}: $a"
+        }
+        assertTrue(fails.isEmpty(), fails.joinToString("; "))
+    }
+
+    @Test
+    fun `SM-2 KALMAN - user and person walk toward each other`() {
+        val fails = ArrayList<String>()
+        for (n in listOf(Noise(), noisy)) {
+            val gapS = (4.5f - 0.6f) / 1.6f
+            val r = 0.2f
+            val p = SceneItem("person", VerticalCylinder(0f, 0.3f - 4.5f - r, r, 0f, 1.7f), obstacle = true, expectedClass = HeightClass.BODY,
+                motion = Motion(Vec3(0f, 0f, 0.8f), 1.5f, 1.5f + gapS))
+            val spec = SceneSpec("SM-2", Scene(listOf(floor, p)), Walk(standS = 1.5f, speedMps = 0.8f, legM = 0.8f * gapS, legCount = 1, durationS = 1.5f + gapS + 1.0f), n)
+            val a = approach(spec, p, replay(spec, kalman))
+            println("SM-2 KALMAN noise=${n.depthQuadK}: stop along ${a.stopAlongM} ttc ${a.ttcS} enteredBeforeStop ${a.entryBeforeStop}")
+            if (!approachOk(a)) fails += "s=${n.depthQuadK}: $a"
+        }
+        assertTrue(fails.isEmpty(), fails.joinToString("; "))
+    }
+
+    @Test
+    fun `SM-3 KALMAN - a person crossing 2 m ahead is not a STOP and leaves no lingering warning`() {
+        val fails = ArrayList<String>()
+        for (n in listOf(Noise(), noisy)) {
+            val r = 0.2f
+            val p = SceneItem("person", VerticalCylinder(-2.5f, 0.3f - 2.0f - r, r, 0f, 1.7f), obstacle = true, expectedClass = HeightClass.BODY,
+                motion = Motion(Vec3(1f, 0f, 0f), 1.5f, 6.5f))
+            val spec = SceneSpec("SM-3", Scene(listOf(floor, p)), Walk(standS = 1000f, durationS = 7.5f), n)
+            val on = replay(spec, kalman)
+            val off = replay(spec)
+            val stops = on.count(::stopped)
+            val (u1, u0) = unexplainedWarnS(spec, p, on) to unexplainedWarnS(spec, p, off)
+            println("SM-3 noise=${n.depthQuadK}: STOP blocks $stops, unexplained warn KALMAN $u1 s, off $u0 s")
+            if (stops > 0 || u1 > u0 + 0.05f) fails += "s=${n.depthQuadK}: stops $stops, unexplained $u1 vs $u0"
+        }
+        assertTrue(fails.isEmpty(), fails.joinToString("; "))
+    }
+
+    @Test
+    fun `SM-4 KALMAN - a static box is never judged moving and its first STOP is unchanged`() {
+        val fails = ArrayList<String>()
+        for (n in listOf(Noise(), noisy)) {
+            val spec = Scenes.SC02.copy(id = "SM-4", noise = n)
+            val on = replay(spec, kalman)
+            val off = replay(spec)
+            val moving = on.count { b -> b.snapshot?.obstacles?.any { it.moving } == true }
+            fun firstStop(bs: List<Block>) = bs.firstOrNull(::stopped)?.let { b ->
+                val head = SyntheticGenerator.cameraPose(spec.walk, tS(b.tNs)).second
+                (Vec3(0f, 0f, -2f) - head.positionW).horizontal() dot head.headingW
+            }
+            val (s1, s0) = firstStop(on) to firstStop(off)
+            println("SM-4 noise=${n.depthQuadK}: moving blocks $moving, first STOP KALMAN $s1 off $s0")
+            if (moving > 0 || s1 == null || s0 == null || abs(s1 - s0) > 0.10f) fails += "s=${n.depthQuadK}: moving $moving, stop $s1 vs $s0"
+        }
+        assertTrue(fails.isEmpty(), fails.joinToString("; "))
+    }
+
+    @Test
+    fun `SM-5 KALMAN - a person crossing just in front of a box does not take the box cells`() {
+        val fails = ArrayList<String>()
+        for (n in listOf(Noise(), noisy)) {
+            val r = 0.2f
+            val boxFront = 0.3f - 2.5f // 머리 앞 2.5 m(시작 머리 z = 0.3)
+            val box = SceneItem("box", Box(Vec3(-0.225f, 0f, boxFront - 0.45f), Vec3(0.225f, 0.8f, boxFront)), obstacle = true, expectedClass = HeightClass.FLOOR)
+            val p = SceneItem("person", VerticalCylinder(-2f, boxFront + 0.3f + r, r, 0f, 1.7f), obstacle = true, expectedClass = HeightClass.BODY,
+                motion = Motion(Vec3(1f, 0f, 0f), 1.5f, 5.5f))
+            val spec = SceneSpec("SM-5", Scene(listOf(floor, box, p)), Walk(standS = 6f, speedMps = 1f, durationS = 6f + 2.0f), n)
+            fun firstBoxStop(bs: List<Block>) = bs.firstOrNull { tS(it.tNs) > 6f && stopped(it) }?.let { b ->
+                val head = SyntheticGenerator.cameraPose(spec.walk, tS(b.tNs)).second
+                (Vec3(0f, 0f, boxFront) - head.positionW).horizontal() dot head.headingW
+            }
+            val (s1, s0) = firstBoxStop(replay(spec, kalman)) to firstBoxStop(replay(spec))
+            println("SM-5 noise=${n.depthQuadK}: box first STOP KALMAN $s1 off $s0")
+            if (s1 == null || s0 == null || s1 < s0 - 0.10f) fails += "s=${n.depthQuadK}: $s1 vs $s0"
+        }
+        assertTrue(fails.isEmpty(), fails.joinToString("; "))
+    }
+
+    @Test
+    fun `SM-6 KALMAN - a person who comes close and steps aside is stopped in time and leaves less lingering warning`() {
+        val fails = ArrayList<String>()
+        for (n in listOf(Noise(), noisy)) {
+            val r = 0.2f
+            val inS = (4.5f - 0.8f) / 1.0f
+            val p = SceneItem("person", VerticalCylinder(0f, 0.3f - 4.5f - r, r, 0f, 1.7f), obstacle = true, expectedClass = HeightClass.BODY,
+                motion = Motion(Vec3(0f, 0f, 1f), 1.5f, 1.5f + inS, then = Motion(Vec3(1f, 0f, 0f), 1.5f + inS, 1.5f + inS + 2f)))
+            val spec = SceneSpec("SM-6", Scene(listOf(floor, p)), Walk(standS = 1000f, durationS = 1.5f + inS + 3f), n)
+            val on = replay(spec, kalman)
+            val off = replay(spec)
+            val a = approach(spec, p, on)
+            val (u1, u0) = unexplainedWarnS(spec, p, on) to unexplainedWarnS(spec, p, off)
+            println("SM-6 noise=${n.depthQuadK}: stop along ${a.stopAlongM} ttc ${a.ttcS} entered ${a.entryBeforeStop}; unexplained KALMAN $u1 off $u0")
+            if (!approachOk(a) || u1 > u0) fails += "s=${n.depthQuadK}: $a, unexplained $u1 vs $u0"
+        }
+        assertTrue(fails.isEmpty(), fails.joinToString("; "))
+    }
 }

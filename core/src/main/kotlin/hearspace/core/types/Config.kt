@@ -459,7 +459,26 @@ data class TrackConfig(
      * 작은 군집의 깜빡임 대응. 0 = 끔(기준선). 쓰는 값은 2 × `cluster.minSamples`.
      */
     val smallClusterVoxels: Int,
+    /**
+     * 움직이는 장애물(M48, IMPROVE_SPEC §13): NONE = 지금 동작(기준선). KALMAN = track마다 월드 좌표 등속 칼만(측정 = 이번 장 칸),
+     * 정지·움직임 분해(움직이는 track의 창 안 점은 정지 지도 대신 물체 좌표 HITS 칸으로), 이번 장 칸 묶음에서 후보 track.
+     */
+    val motion: MotionMode = MotionMode.NONE,
+    /** 칼만 과정 잡음: 이산 백색 가속 표준편차(m/s²). T 클릭 정답 사람 가속 a_M(M48 설계 5.2절). */
+    val accelSigmaMps2: Float = 1f,
+    /** 칼만 측정 잡음 σ_m(Z) = measSigma0M + measSigmaPerM2 × Z²(Z = 카메라에서 측정점까지 m). 정지 물체 이번 장 대표점의 흔들림. */
+    val measSigma0M: Float = 0.02f,
+    val measSigmaPerM2: Float = 0.01f,
+    /** 움직임 판정 속도 문턱(m/s): 정지 물체 칼만 속도 p99. */
+    val minMovingMps: Float = 0.3f,
+    /** 움직임 판정 χ² 문턱(자유도 2): 9.21 = 99%. */
+    val movingChi2: Float = 9.21f,
+    /** 사용자 속도 창(s): 지난 이만큼의 머리 이동(TTC의 다가오는 속도). */
+    val userVelocityS: Float = 0.5f,
 )
+
+/** 움직이는 장애물 처리(M48). */
+enum class MotionMode { NONE, KALMAN }
 
 /** 대표점 설정. */
 data class RepPointConfig(
@@ -477,6 +496,10 @@ data class PolicyConfig(
     val maxSources: Int,
     val maxInfoAgeMs: Float,
     val prioritizeStop: Boolean = false,
+    /** 움직이는 물체 TTC STOP 문턱(s, M48): 성공 기준 ①. */
+    val ttcStopS: Float = 1f,
+    /** 움직이는 물체를 가깝게 보는 표준편차 배수(M48): 2 = 한쪽 97.7%. */
+    val motionSigmaMultiple: Float = 2f,
 )
 
 /** 안내 상태 기계 설정. */

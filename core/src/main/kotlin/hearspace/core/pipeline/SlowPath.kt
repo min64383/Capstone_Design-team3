@@ -8,6 +8,7 @@ import hearspace.core.guidance.walkableInPath
 import hearspace.core.guidance.withoutEdgeStructures
 import hearspace.core.guidance.withoutParallelBoundaries
 import hearspace.core.guidance.wallAlignedHeading
+import hearspace.core.mapping.CellView
 import hearspace.core.mapping.LocalMap
 import hearspace.core.mapping.MapUpdate
 import hearspace.core.mapping.PruneCounts
@@ -16,12 +17,15 @@ import hearspace.core.mapping.withoutFloorBand
 import hearspace.core.tracking.Cluster
 import hearspace.core.tracking.Detection
 import hearspace.core.tracking.HeightClassifier
+import hearspace.core.tracking.MotionDebug
+import hearspace.core.tracking.MotionFrame
 import hearspace.core.tracking.RepPoint
 import hearspace.core.tracking.Tracker
 import hearspace.core.types.Config
 import hearspace.core.types.CorridorJudgeMode
 import hearspace.core.types.DepthFrame
 import hearspace.core.types.MapMode
+import hearspace.core.types.MotionMode
 import hearspace.core.types.MapHealth
 import hearspace.core.types.ObstacleSnapshot
 
@@ -47,7 +51,23 @@ class SlowPath(
     /** 바닥·복셀 맵. */
     val map = LocalMap(config)
 
-    private val tracker = Tracker(config.track, config.repPoint.strategy, if (config.track.reidLost) (config.map.maxUnseenS * 1e9).toLong() else 0L)
+    private val tracker = Tracker(
+        config.track, config.repPoint.strategy, if (config.track.reidLost) (config.map.maxUnseenS * 1e9).toLong() else 0L,
+        config.map, config.cluster.minSamples,
+    )
+
+    /** 움직이는 장애물(M48 정지·움직임 분해)을 켰는지. 고정 지도(정답 대입)에서는 쓰지 않는다. */
+    private val motion = config.track.motion == MotionMode.KALMAN && fixedMap == null
+
+    /** 처리한 깊이 장 수(물체 좌표 HITS의 "한 장에 한 번", M48). */
+    private var frameNo = 0L
+
+    /** 마지막 [process]의 움직임 기록(M48 `motion.csv`). 끈 설정에서는 빈 목록. */
+    val lastMotionDebug: List<MotionDebug> get() = tracker.lastMotionDebug
+
+    init {
+        if (motion) map.collectFramePoints = true
+    }
 
     /** 마지막 맵 갱신 결과(`slow_path.csv` 기록용). */
     var lastMapUpdate: MapUpdate? = null
@@ -72,6 +92,8 @@ class SlowPath(
         val t0 = nanoTime()
         val userPosW = HeadPose.fromCamera(depth.worldFromCam.translation(), headingW, config.head.offsetFromCameraM).positionW
         val fm = fixedMap
+        if (motion) map.excludeBoxes = tracker.movingGates(depth.tCaptureNs) // 움직이는 track의 창 안 점은 정지 지도에 넣지 않는다(지난 장 상태로)
+        frameNo++
         val u = if (fm == null) map.update(depth, userPosW, headingW) else {
             MapUpdate(depth.tCaptureNs, 0, 0, 0, 0, 0, PruneCounts(0, 0, 0), fm.voxels.size, fm.floorY, MapHealth.OK)
         }
@@ -195,9 +217,44 @@ class SlowPath(
         lastClusterDebug = debug
         lastClusters = clusters
         val t2 = nanoTime()
-        val obstacles = tracker.update(detections, depth.tCaptureNs)
+        val obstacles = tracker.update(detections, depth.tCaptureNs, if (motion) motionFrame(depth, corridor, floorY, camFromWorld) else null)
         lastStageNs = StageTimes(t1 - t0, t2 - t1, nanoTime() - t2)
         return ObstacleSnapshot(depth.tCaptureNs, obstacles, floorY, u.mapHealth)
+    }
+
+    /** 이번 장의 정보를 추적에 넘길 꼴로(M48 정지·움직임 분해). */
+    private fun motionFrame(depth: DepthFrame, corridor: Corridor, floorY: Float, camFromWorld: hearspace.core.geometry.Mat4): MotionFrame {
+        val vs = config.map.voxelSizeM
+        val camW = depth.worldFromCam.translation()
+        val pts = ArrayList(map.frameObstaclePoints)
+        val seen = HashSet<Long>()
+        val cells = ArrayList<Pair<Vec3, Boolean>>()
+        for ((p, _) in pts) {
+            val ix = kotlin.math.floor(p.x / vs).toInt()
+            val iy = kotlin.math.floor(p.y / vs).toInt()
+            val iz = kotlin.math.floor(p.z / vs).toInt()
+            if (!seen.add((ix.toLong() shl 42) xor (iy.toLong() shl 21) xor iz.toLong())) continue
+            val c = Vec3((ix + 0.5f) * vs, (iy + 0.5f) * vs, (iz + 0.5f) * vs)
+            if (corridor.contains(c)) cells += c to map.voxels.occupiedAt(c)
+        }
+        val depthMm = map.lastDepthMm
+        val tr = config.track
+        return MotionFrame(
+            tNs = depth.tCaptureNs,
+            frame = frameNo,
+            points = pts,
+            corridorCells = cells,
+            reps = { c -> if (c.isEmpty()) null else RepPoint.candidates(c, corridor, vs, config.repPoint.bandM) },
+            strategy = config.repPoint.strategy,
+            sigmaAt = { p -> (p - camW).norm().let { z -> tr.measSigma0M + tr.measSigmaPerM2 * z * z } },
+            seenFree = { c -> depthMm != null && map.voxels.cellView(c, false, depthMm, depth.K, camFromWorld) == CellView.FREE },
+            heightClass = { c -> HeightClassifier.classify(c.map { it.y - floorY }, config.cluster) },
+            take = { lo, hi, since -> map.voxels.takeCells(lo, hi, since) },
+            seed = { e -> map.voxels.seed(e.centerW, depth.tCaptureNs, e.weightedHits, e.score) },
+            clusterXZ = { c -> Cluster.dbscanXZ(c, config.cluster.epsM, config.cluster.minSamples, null).map { idx -> idx.map { c[it] } } },
+            voxelM = vs,
+            inCorridor = corridor::contains,
+        )
     }
 
     /**
