@@ -313,12 +313,16 @@ def ray(runs: list[Path]) -> dict:
         g_front.append(fb)
         res["rFrontM"] = -float(rw_in.e.median()) if len(rw_in) else None
         res["rFrontCI"] = (lambda c: [-c[1], -c[0]] if c else None)(_boot([fb], lambda p: float(np.median(np.concatenate(p)))))
-        # P3: 측정점 − 몸통 평활 깊이(같은 시각, 움직이는 track 중 정답에 가장 가까운 것)
+        # P3: 측정점 − 몸통 깊이(같은 시각, 움직이는 track 중 정답에 가장 가까운 것). 몸통 깊이와 짝짓는 장은 재생의 depth.source 장
+        # (평활 재생 = 평활 장, 원시 재생 = 원시 장). 창은 둘 다 평활 D_a 시각부터(같은 구간 비교)
         m = _motion(run)
         if m is not None:
+            src = load_config(run)["depth"]["source"]
+            base = rw_in.copy() if src == "RAW" else sm_in
+            res["measSource"] = src
             mv = m[(m.moving == True) & m.measX.notna()]  # noqa: E712 (csv의 bool 열)
             mm, kk = [], []
-            for _, s in sm_in.iterrows():
+            for _, s in base.iterrows():
                 c = mv[mv.tCaptureNs == s.tNs]
                 if c.empty:
                     mm.append(np.nan)
@@ -329,12 +333,12 @@ def ray(runs: list[Path]) -> dict:
                 mm.append(float(np.hypot(q.measX - s.camX, q.measZ - s.camZ)))
                 # 칼만 위치(촬영 시각, 안내가 쓰는 값): 평활 뒤처짐 보정(track.depthLagMs)은 측정점이 아니라 이 값에 나타난다
                 kk.append(float(np.hypot(q.posX - s.camX, q.posZ - s.camZ)) if np.isfinite(q.posX) else np.nan)
-            sm_in["meas"] = mm
-            sm_in["kal"] = kk
-            sm_in["p3"] = sm_in.meas - (sm_in.hd + sm_in.e)
-            sm_in["mt"] = sm_in.meas - sm_in.hd  # 측정점 − 클릭 점(앞면 오프셋을 빼기 전)
-            sm_in["kt"] = sm_in.kal - sm_in.hd  # 칼만 위치 − 클릭 점
-            p3 = sm_in.dropna(subset=["p3"])
+            base["meas"] = mm
+            base["kal"] = kk
+            base["p3"] = base.meas - (base.hd + base.e)
+            base["mt"] = base.meas - base.hd  # 측정점 − 클릭 점(앞면 오프셋을 빼기 전)
+            base["kt"] = base.kal - base.hd  # 칼만 위치 − 클릭 점
+            p3 = base.dropna(subset=["p3"])
             pb = _blocks(p3, t_a, ["p3"])
             g_p3.append(pb)
             res.update(nMeas=int(len(p3)), p3M=float(p3.p3.median()) if len(p3) else None,
