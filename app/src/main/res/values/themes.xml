@@ -1,0 +1,25 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- 작동 화면: 늘 검정(MVP §11.2). 테마 설정을 따르지 않는다 -->
+    <style name="Theme.Hearspace.Run" parent="@android:style/Theme.DeviceDefault.NoActionBar">
+        <item name="android:windowBackground">@color/run_bg</item>
+        <item name="android:statusBarColor">@color/run_bg</item>
+        <item name="android:navigationBarColor">@color/run_bg</item>
+    </style>
+
+    <!-- 앱을 열 때의 시작 창. Android 11 이하는 이 배경이 스플래시다(Android 12 이상은 values-v31). onCreate에서 Run으로 바꾼다 -->
+    <style name="Theme.Hearspace.Starting" parent="Theme.Hearspace.Run">
+        <item name="android:windowBackground">@drawable/splash_window</item>
+    </style>
+
+    <!-- 설정·글 화면: 라이트(values-night에서 다크) -->
+    <style name="Theme.Hearspace.Settings" parent="@android:style/Theme.Material.Light.NoActionBar">
+        <item name="android:windowBackground">@color/bg</item>
+        <item name="android:colorBackground">@color/bg</item>
+        <item name="android:colorAccent">@color/primary</item>
+        <item name="android:textColorPrimary">@color/text</item>
+        <item name="android:textColorSecondary">@color/text2</item>
+        <item name="android:statusBarColor">@color/bg</item>
+        <item name="android:windowLightStatusBar">true</item>
+    </style>
+</resources>

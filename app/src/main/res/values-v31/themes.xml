@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- Android 12 이상: 시스템 스플래시(SplashScreen). 아이콘 배경 없이 288 dp 아이콘(보이는 원 192 dp) + 아래 브랜드 200×80 dp.
+         라이트/다크는 기기 설정 또는 앱 테마 설정(UiModeManager.setApplicationNightMode)을 따른다 -->
+    <style name="Theme.Hearspace.Starting" parent="Theme.Hearspace.Run">
+        <item name="android:windowSplashScreenBackground">@color/bg</item>
+        <item name="android:windowSplashScreenAnimatedIcon">@drawable/splash_icon</item>
+        <item name="android:windowSplashScreenBrandingImage">@drawable/splash_brand</item>
+    </style>
+</resources>

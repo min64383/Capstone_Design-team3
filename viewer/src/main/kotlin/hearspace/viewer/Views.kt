@@ -8,6 +8,7 @@ import hearspace.core.geometry.Projection
 import hearspace.core.geometry.Vec3
 import hearspace.core.session.Png16
 import hearspace.core.session.SessionReader
+import hearspace.core.truth.ClickAnnotations
 import hearspace.core.truth.VoxelClass
 import hearspace.core.types.Band
 import hearspace.core.types.GuidanceState
@@ -50,6 +51,11 @@ class ViewerModel {
     var truthOnRgbFloor = false
     /** 지금 쓰고 있는 평가의 시점 메모(타임라인에 표시). */
     val notes = mutableListOf<Note>()
+    /** 클릭 정답(M47, IMPROVE_SPEC §9.5). 세션을 열 때 `annotations/events.json`을 읽는다. */
+    var clicks = ClickAnnotations(emptyList())
+    /** 클릭 모드: 켜면 카메라 화면을 누를 때 [clickSelected] 물체에 클릭을 더한다. */
+    var clickMode = false
+    var clickSelected: String? = null
     private val listeners = mutableListOf<() -> Unit>()
 
     fun onChange(l: () -> Unit) { listeners += l }
@@ -130,13 +136,30 @@ private val BOX_EDGES = listOf(0 to 1, 2 to 3, 4 to 5, 6 to 7, 0 to 2, 1 to 3, 4
  * 영상: RGB(없으면 검은 바탕) + 깊이 겹침 + 물체·정답 상자 투영. 저장된 영상은 센서 방향이라(세로 파지 시 90° 돌아간 가로 영상,
  * docs/FORMAT.md F3) 센서 좌표로 그린 뒤 시계 방향 90° 돌려 보여 준다.
  */
-class CameraView(private val model: ViewerModel, private val compare: Boolean = false) : JPanel() {
+class CameraView(
+    private val model: ViewerModel,
+    private val compare: Boolean = false,
+    /** 클릭 모드에서 누른 센서 영상 좌표 (u, v)를 받는다(M47 클릭 정답). */
+    private val onSensorClick: ((Float, Float) -> Unit)? = null,
+) : JPanel() {
     private val rgbCache = lru<String, BufferedImage?>()
     private val depthCache = lru<String, BufferedImage?>()
+    // 마지막으로 그린 화면 ← 센서 변환(클릭을 센서 좌표로 되돌릴 때 쓴다)
+    private var lastSc = 1.0
+    private var lastOx = 0.0
+    private var lastOy = 0.0
+    private var lastSh = 0
 
     init {
         preferredSize = Dimension(360, 480)
         model.onChange { repaint() }
+        addMouseListener(object : MouseAdapter() {
+            override fun mousePressed(e: MouseEvent) {
+                if (!model.clickMode || onSensorClick == null || lastSh == 0) return
+                // 화면 (x, y) = (ox + sc·(sh − v), oy + sc·u)의 역
+                onSensorClick.invoke(((e.y - lastOy) / lastSc).toFloat(), (lastSh - (e.x - lastOx) / lastSc).toFloat())
+            }
+        })
     }
 
     override fun paintComponent(g0: Graphics) {
@@ -234,6 +257,23 @@ class CameraView(private val model: ViewerModel, private val compare: Boolean = 
                     s.fillOval(u.toInt() - 7, v.toInt() - 7, 14, 14)
                 }
             }
+            // 클릭 정답(M47): 정지 물체는 늘, 움직이는 물체는 ±0.5 s 안의 클릭을 그린다. 이 장에서 누른 화소는 십자로
+            if (!compare) model.clicks.objects.forEach { o ->
+                val sel = o.id == model.clickSelected
+                s.color = if (sel) Color(0xFF, 0x40, 0x40) else Color(0xFF, 0xC0, 0x30)
+                s.stroke = BasicStroke(2f)
+                var labeled = false
+                for (c in o.clicks) {
+                    if (c.tNs == row.tNs) {
+                        s.drawLine(c.u.toInt() - 6, c.v.toInt(), c.u.toInt() + 6, c.v.toInt())
+                        s.drawLine(c.u.toInt(), c.v.toInt() - 6, c.u.toInt(), c.v.toInt() + 6)
+                    }
+                    if (o.kind == "moving" && kotlin.math.abs(c.tNs - row.tNs) > 500_000_000L) continue
+                    val (u, vv) = c.pointW?.let { px(it) } ?: continue
+                    s.drawOval(u.toInt() - 4, vv.toInt() - 4, 9, 9)
+                    if (!labeled) { labels += Triple(u, vv, o.id to s.color); labeled = true }
+                }
+            }
         }
         s.dispose()
 
@@ -241,6 +281,7 @@ class CameraView(private val model: ViewerModel, private val compare: Boolean = 
         val sc = min(width.toDouble() / sh, height.toDouble() / sw)
         val ox = (width - sh * sc) / 2
         val oy = (height - sw * sc) / 2
+        lastSc = sc; lastOx = ox; lastOy = oy; lastSh = sh
         val saved = g.transform
         g.translate(ox + sh * sc, oy)
         g.scale(sc, sc)

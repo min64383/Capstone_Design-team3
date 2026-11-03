@@ -6,6 +6,7 @@
     python scene_eval.py m32real <재생 폴더> <기준> <변형> ... [--scene E]      → M32 완료 기준 ②④(바닥 맞은 칸 제외 지표, 안전 관문)
     python scene_eval.py m32synth <출력 json> <이름>=<합성 출력 폴더> ... [--s 1.0] → M32 기준 ③④(장면 지표, 마주침 STOP 검출)
     python scene_eval.py m33real <재생 폴더> <기준> <변형> ...                   → M33 미리 정한 주 지표(설계 표 7), 세션 쌍 차이 구간
+    python scene_eval.py m37 <재생 폴더> <변형>:<기준> ...                        → M37 지도 비교: M32 주 지표 세션 쌍 차 구간과 나음·비슷·나쁨
 
 신뢰구간: 부트스트랩 2,000회, 장면(합성)·세션(녹화) 단위 재표본(Efron & Tibshirani 1993). 한 세션 안의 칸은 서로 상관되어
 칸 단위 재표본은 구간을 지나치게 좁힌다.
@@ -204,6 +205,27 @@ def m33_real(root: Path, base: str, variants: list[str], scene: str | None) -> d
                     e[k]["worse"] = bool((dlo > 0) if sign > 0 else (dhi < 0))
         out["variants"][v] = e
     df.to_csv(root / f"m33_{base}_{'_'.join(variants)}.csv", index=False)
+    return out
+
+
+def m37_pairs(root: Path, pairs: list[tuple[str, str]]) -> dict:
+    """M37 지도 비교(설계 3.1절): 쌍 (변형 a, 기준 b)마다 M32 주 지표 세 개의 세션 쌍 차 a − b 평균과 95% 부트스트랩 구간.
+    구간 전체가 좋은 쪽이면 나음, 0을 포함하면 비슷, 전체가 나쁜 쪽이면 나쁨(M33·M39와 같은 판정)."""
+    out = {}
+    for a, b in pairs:
+        rows = {v: {p.name: m32_row(p / "scene_eval.json") for p in sorted((root / v).iterdir()) if (p / "scene_eval.json").is_file()}
+                for v in (a, b)}
+        sess = sorted(set(rows[a]) & set(rows[b]))
+        e: dict = {"sessions": len(sess)}
+        for k, sign in HEADLINE32.items():
+            va = np.array([rows[a][s][k] for s in sess], float)
+            vb = np.array([rows[b][s][k] for s in sess], float)
+            d, lo, hi, n = paired_ci(va, vb)
+            better = (hi < 0) if sign > 0 else (lo > 0)
+            worse = (lo > 0) if sign > 0 else (hi < 0)
+            e[k] = {"a": float(np.nanmean(va)), "b": float(np.nanmean(vb)), "diff": d, "lo": lo, "hi": hi, "n": n,
+                    "verdict": "better" if better else "worse" if worse else "similar"}
+        out[f"{a} vs {b}"] = e
     return out
 
 
@@ -415,6 +437,16 @@ def main(args: list[str]) -> None:
                                             indent=1, ensure_ascii=False) + "\n", encoding="utf-8")
         for r in res:
             print(r["session"], r["scene"], [(m["label"], m["tS"]) for m in r["marks"]])
+    elif args[0] == "m37":
+        root = Path(args[1])
+        pairs = [tuple(a.split(":")) for a in args[2:]]
+        res = m37_pairs(root, pairs)
+        (root / "m37_pairs.json").write_text(json.dumps(res, indent=1, ensure_ascii=False, default=float), encoding="utf-8")
+        for name, e in res.items():
+            print(f"== {name} ({e['sessions']}세션, 차 = 앞 − 뒤, 95% 구간)")
+            for k in HEADLINE32:
+                m = e[k]
+                print(f"  {k:26s} {m['a']:.4f} vs {m['b']:.4f}  차 {m['diff']:+.4f} [{m['lo']:+.4f}, {m['hi']:+.4f}]  {m['verdict']}")
     elif args[0] == "m33real":
         scene = args[args.index("--scene") + 1] if "--scene" in args else None
         pos = [a for i, a in enumerate(args[1:], 1) if a != "--scene" and args[i - 1] != "--scene"]

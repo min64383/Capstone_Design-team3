@@ -40,7 +40,7 @@ class ConfigLoaderTest {
         )
         assertEquals(TrackConfig(0.3f, 0.3f, 2, 3, 2, 0f, 0.3f, true, false, 0), c.track)
         assertEquals(RepPointConfig(RepStrategy.CORRIDOR_BAND, 0.20f), c.repPoint)
-        assertEquals(PolicyConfig(1.0f, 2.5f, 3.0f, 0.15f, 1, 350f), c.policy)
+        assertEquals(PolicyConfig(1.0f, 2.5f, 3.0f, 0.15f, 1, 500f), c.policy) // 정보 나이 한도: M32 350 → 2026-10-30 500 ms(사용자 결정, 기기 처리 지연)
         assertEquals(StateConfig(10, 0.5f, 3.0f, 15.0f, 600f), c.state)
         assertEquals(
             AudioConfig(

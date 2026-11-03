@@ -67,6 +67,27 @@ class SubstitutionTest {
     }
 
     @Test
+    fun `S5 masked truth depth keeps only the input's valid pixels and its confidence`() {
+        val scene = Scenes.corridorE(suitcaseM = 2.0f)
+        val d0 = SyntheticGenerator.generate(scene, Walk(durationS = 0.5f)).frames.first { it.depth != null }.depth!!
+        // 원시 깊이처럼: 화소 셋 중 하나는 값 없음, 신뢰도는 화소마다 다름
+        val mm = d0.depthMm.copyOf().also { a -> for (i in a.indices) if (i % 3 == 0) a[i] = 0 }
+        val conf = ByteArray(mm.size) { (it % 256).toByte() }
+        val d = d0.copy(depthMm = mm, confidence = conf)
+        val truth = truthOf(scene)
+        val full = TruthDepth.render(d, truth, align)
+        val masked = Substitution(GroundTruth(2, "S", false, "", truth), align, depthMasked = true).depthOf(d)
+        var kept = 0
+        for (i in mm.indices) {
+            val want = if (mm[i].toInt() == 0) 0 else full.depthMm[i].toInt()
+            assertEquals(want, masked.depthMm[i].toInt(), "pixel $i")
+            if (want != 0) kept++
+        }
+        assertTrue(kept > 5_000, "kept $kept truth pixels")
+        assertTrue(masked.confidence!!.contentEquals(conf), "input confidence kept")
+    }
+
+    @Test
     fun `S3 truth map gives one obstacle at the corridor-nearest point of the box in the corridor`() {
         val inside = TruthObstacle("box", HeightClass.FLOOR, TruthKind.OBJECT, Vec3(-0.2f, 0f, 2.0f), Vec3(0.2f, 0.6f, 2.3f), null)
         val outside = TruthObstacle("far_right", HeightClass.FLOOR, TruthKind.OBJECT, Vec3(1.5f, 0f, 1.0f), Vec3(1.9f, 0.6f, 1.4f), null)

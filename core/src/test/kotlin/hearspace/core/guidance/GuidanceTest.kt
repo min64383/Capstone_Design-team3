@@ -187,13 +187,16 @@ class GuidanceTest {
     @Test
     fun `SC-13 frozen depth - DEGRADED after half the allowed age, UNKNOWN after it, then recovery`() {
         val spec = Scenes.SC13 // 1.0~2.0 s 깊이 정지
-        val steps = runGuidance(spec, configFor(spec))
+        val config = configFor(spec)
+        val steps = runGuidance(spec, config)
         val frozen = steps.filter { it.f.tS in 1.0f..2.0f }
         val firstDegraded = frozen.first { it.out.state == GuidanceState.DEGRADED }
         val firstUnknown = frozen.first { it.out.state == GuidanceState.UNKNOWN }
         val t0 = frozen.first().f.tS
-        assertTrue(firstDegraded.f.tS - t0 in 0.1f..0.25f, "DEGRADED at +${firstDegraded.f.tS - t0}")
-        assertTrue(firstUnknown.f.tS - t0 in 0.25f..0.4f, "UNKNOWN at +${firstUnknown.f.tS - t0}")
+        // 정지 직전 정보 나이만큼 일찍 넘는다: 허용치(a)의 절반 ± 0.075 s에 DEGRADED, a − 0.1 ~ a + 0.05 s에 UNKNOWN(350 ms일 때 0.1~0.25·0.25~0.4)
+        val a = config.policy.maxInfoAgeMs / 1000f
+        assertTrue(firstDegraded.f.tS - t0 in (0.5f * a - 0.075f)..(0.5f * a + 0.075f), "DEGRADED at +${firstDegraded.f.tS - t0}")
+        assertTrue(firstUnknown.f.tS - t0 in (a - 0.1f)..(a + 0.05f), "UNKNOWN at +${firstUnknown.f.tS - t0}")
         assertTrue(firstDegraded.out.commands.isNotEmpty()) // DEGRADED: 음원 유지
         assertTrue(frozen.filter { it.out.state == GuidanceState.UNKNOWN }.all { it.out.commands.isEmpty() })
         assertTrue(steps.any { it.f.tS > 2.0f && it.out.alert == AlertKind.READY })

@@ -552,6 +552,71 @@ def check_scene_eval_missing():
     assert v["missedStop"] == 0 and v["missedStopUnknown"] == 1 and np.isnan(v["unknownState"]["mean"]), v
 
 
+def check_tof():
+    """M47 ToF 확인 읽기 규칙: 거리 두 묶음 × 켬·끔 × 2회, 켬 쪽 유효 화소율이 반복 차보다 크게 높으면 '기여함', 신뢰도 같으면 '안 함'."""
+    from PIL import Image
+    from depth_error import tof_check
+    with tempfile.TemporaryDirectory() as d:
+        d = Path(d)
+        sessions = []
+        for dist in (1.0, 2.0):
+            for usage, valid in (("REQUIRE_AND_USE", 0.9), ("DO_NOT_USE", 0.5)):
+                for rep in (0, 1):
+                    s = d / f"{dist}_{usage}_{rep}"
+                    for sub in ("depth", "raw_depth", "depth_conf"):
+                        (s / sub).mkdir(parents=True)
+                    (s / "meta.json").write_text(json.dumps({"camera": {"depthSensorUsage": usage}}), encoding="utf-8")
+                    raw = np.zeros((90, 160), np.uint16)
+                    raw[:, : int(160 * (valid + 0.01 * rep))] = int(dist * 1000)  # 가운데 절반 안에서 유효 비율이 valid 근처
+                    Image.fromarray(np.full((90, 160), int(dist * 1000), np.uint16)).save(s / "depth/000000.png")
+                    Image.fromarray(raw).save(s / "raw_depth/000000.png")
+                    Image.fromarray(np.full((90, 160), 128, np.uint8)).save(s / "depth_conf/000000.png")
+                    pd.DataFrame([{"tNs": 1, "rawDepthTNs": 1, "rawDepthFile": "raw_depth/000000.png", "confFile": "depth_conf/000000.png",
+                                   "depthFile": "depth/000000.png"}]).to_csv(s / "frames.csv", index=False)
+                    sessions.append(s)
+        res = tof_check(sessions)
+        assert res["verdicts"]["validFraction"].startswith("기여함(켬 높음"), res
+        assert res["verdicts"]["confidenceMedian"] == "안 함", res
+
+
+def check_event_eval():
+    """실외 클릭 정답 채점(M47, §9.5): 서 있는 녹화자에게 1.3 m/s로 다가오는 사람, STOP은 거리 1.0 m에서(TTC 0.77 s → late),
+    먼 사람에게 일찍 낸 경고 하나는 오경보, 통로 안 2.95 m 안 경고는 아님. 통로 밖 정지 기둥 클릭 흩어짐으로 검증."""
+    from event_eval import compute as ev_compute
+    with tempfile.TemporaryDirectory() as d:
+        d = Path(d)
+        session, run = d / "session", d / "run"
+        (session / "annotations").mkdir(parents=True)
+        run.mkdir()
+        tns = [1_000_000_000 + k * 33_333_333 for k in range(300)]  # 10 s, 30 Hz, 원점에서 −z를 봄(GL 단위 사원수)
+        pd.DataFrame({"tNs": tns, "tx": 0.0, "ty": 1.2, "tz": 0.0, "qx": 0.0, "qy": 0.0, "qz": 0.0, "qw": 1.0}).to_csv(session / "frames.csv", index=False)
+        # 머리 = 카메라 + 앞 −0.39 m → z +0.39. 사람 중심 z(t) = −6 + 1.3 t, 반지름 0.2 → 진행 방향 거리 0.19 − z, 0.8 m에서 멈춤
+        stop_t = (6.0 - 0.61) / 1.3
+        clicks = [{"tNs": tns[k], "u": 0, "v": 0, "plane": "FEET", "floorY": 0.0, "floorFrom": "rgb",
+                   "pointW": [0.0, 0.0, -6.0 + 1.3 * min((tns[k] - tns[0]) / 1e9, stop_t)]} for k in range(0, 300, 3)]
+        pole = [{"tNs": tns[0], "u": 0, "v": 0, "plane": "FEET", "floorY": 0.0, "floorFrom": "rgb", "pointW": w}
+                for w in ([1.0, 0.0, -3.0], [1.1, 0.0, -3.0], [1.0, 0.0, -3.1])]
+        ev = {"version": 1, "floorYFallback": None, "objects": [
+            {"id": "p1", "kind": "moving", "shape": "point", "label": "person", "radiusM": 0.2, "heightM": 1.7, "added": "blind",
+             "situation": "S1", "action": "STOP", "clicks": clicks},
+            {"id": "o1", "kind": "static", "shape": "point", "label": "pole", "radiusM": 0, "heightM": 0, "added": "blind",
+             "situation": None, "action": None, "clicks": pole}]}
+        (session / "annotations/events.json").write_text(json.dumps(ev), encoding="utf-8")
+        rows = []
+        for k in range(0, 300, 3):
+            ts = (tns[k] - tns[0]) / 1e9
+            along = 0.19 - (-6.0 + 1.3 * min(ts, stop_t))
+            band = "STOP" if along < 1.0 else "WARN" if along < 2.5 or 0.45 <= ts < 0.7 else ""
+            rows.append({"tBlockNs": tns[k], "poseTNs": tns[k], "state": "NORMAL", "band": band or None, "headingDeg": 0.0})
+        pd.DataFrame(rows).to_csv(run / "guidance.csv", index=False)
+        res = ev_compute(session, run)
+        (e,) = [x for x in res["events"] if x["kind"] == "moving"]
+        assert e["verdict"] == "late" and abs(e["ttcS"] - 1.0 / 1.3) < 0.08 and abs(e["closingMps"] - 1.3) < 0.05, e
+        assert res["falseAlarm"]["onsets"] == 2 and res["falseAlarm"]["falseOnsetS"] == [0.5], res["falseAlarm"]
+        assert res["staticStop"]["n"] == 0 and res["validation"]["staticSpreadM"]["n"] == 3, res
+        assert res["validation"]["met"] is True and res["heading"]["transition"]["n"] == 0, res["validation"]
+
+
 def check_depth_absolute():
     """M31 K01: 면 상수를 빼지 않은 끝 벽 편향. 합성 정지 세션(M12SessionsTest e01, 끝 벽 카메라 4.0 m)에서 정답 그대로면 0,
     정답 끝 벽을 5 cm 멀리 적으면 +0.05(카메라 쪽 +). 같은 거리 두 세션의 차를 낸다.
@@ -634,6 +699,8 @@ def main():
     check_scene_eval()
     check_scene_eval_missing()
     check_depth_absolute()
+    check_event_eval()
+    check_tof()
     print("analysis self-check ok")
 
 

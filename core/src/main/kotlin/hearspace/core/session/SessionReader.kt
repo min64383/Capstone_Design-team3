@@ -95,14 +95,45 @@ class SessionReader(private val dir: File) {
         return scaleTextureK(meta.camera.textureIntrinsics, width, height)
     }
 
-    /** 자세·깊이 사건을 도착 순서로. 깊이 이미지는 필요할 때 읽는다(긴 세션 메모리 절약). */
-    fun events(source: DepthSource): Sequence<SessionEvent> = sequence {
+    /**
+     * 학습형 깊이 장(M37, 재생 전용 `-PdepthFrom=<변형>/<full|fill>`): `tools/analysis/learned_depth.py`가 쓴
+     * `learned_depth/<변형>/index.csv`의 원시 장(도착 행 frameIndex)을 [output] PNG로 바꾼다. 신뢰도 거름은 PNG에 이미 들어 있다.
+     * 화소 출처는 full이면 값이 있는 화소 모두 학습형, fill이면 `src/`가 1인 화소만 채운 값(변형 smoothed_fill은 평활 채움).
+     * `…only`(M37 공정 비교)는 색인에 있는 장만 내고 나머지 원시 장은 버린다: fullonly = 학습형 장만(순수 대체), rawonly = 같은 장의
+     * 원시 깊이만(장 수·시각이 같은 원시 기준선).
+     */
+    class Learned(sessionDir: File, val variant: String, val output: String, val delayNs: Long) {
+        init {
+            require(output in setOf("full", "fill", "fullonly", "rawonly")) { "depthFrom output must be full, fill, fullonly or rawonly: $output" }
+        }
+        val only = output.endsWith("only")
+        val kind = output.removeSuffix("only")
+        val dir = File(sessionDir, "learned_depth/$variant")
+        val frames: Set<Long> = File(dir, "index.csv").also { require(it.isFile) { "depthFrom needs ${it.path} (learned_depth.py)" } }
+            .readLines().drop(1).filter { it.isNotBlank() }.map { it.substringBefore(',').toLong() }.toSet()
+        val fillCode: Byte = (if (variant == "smoothed_fill") DepthFrame.PIXEL_SMOOTHED_FILL else DepthFrame.PIXEL_LEARNED).toByte()
+        fun file(sub: String, frameIndex: Long) = "learned_depth/$variant/$sub/%06d.png".format(frameIndex)
+    }
+
+    /**
+     * 자세·깊이 사건을 도착 순서로. 깊이 이미지는 필요할 때 읽는다(긴 세션 메모리 절약).
+     * [learned](M37)가 있으면 그 원시 장을 학습형 장으로 바꿔, 도착 행의 시스템 시각 + [Learned.delayNs] 이후 첫 행에서 낸다(기기에서 모델을
+     * 기다리는 시간). 그 사이에 도착한 원시 장은 내지 않는다(느린 경로가 모델을 기다리는 동안 온 깊이는 최신 값으로 바뀌어 처리되지 않음).
+     */
+    fun events(source: DepthSource, learned: Learned? = null): Sequence<SessionEvent> = sequence {
         warnings.clear()
         droppedLastLine?.let { warnings += it }
         var lastDepthTNs = Long.MIN_VALUE
         val poses = poseFrames()
+        var held: Pair<Long, DepthFrame>? = null // (내보낼 시스템 시각, 학습형 장)
         for ((i, row) in rows.withIndex()) {
             yield(PoseEvent(row.frameIndex, poses[i]))
+            held?.let { (at, d) ->
+                if (row.sysElapsedNs >= at) {
+                    yield(DepthEvent(row.frameIndex, row.tNs, d))
+                    held = null
+                }
+            }
             val (tNs, file) = when (source) {
                 DepthSource.SMOOTHED -> row.depthTNs to row.depthFile
                 DepthSource.RAW -> row.rawDepthTNs to row.rawDepthFile
@@ -116,6 +147,26 @@ class SessionReader(private val dir: File) {
             val poseIdx = nearestPastPose(i, tNs)
             if (rows[poseIdx].tracking != TrackingState.TRACKING) {
                 warnings += "frame ${row.frameIndex}: depth pose not tracking (${rows[poseIdx].tracking})"
+                continue
+            }
+            if (learned != null && (held != null || (learned.only && row.frameIndex !in learned.frames))) {
+                lastDepthTNs = tNs // 모델을 기다리는 동안 온 원시 장, 또는 고른 장만 쓸 때 고르지 않은 장
+                continue
+            }
+            if (learned != null && learned.kind != "raw" && source == DepthSource.RAW && row.frameIndex in learned.frames) {
+                val lf = decodeOrNull(learned.file(learned.kind, row.frameIndex), "learned ${row.frameIndex}") ?: continue
+                require(lf.bitDepth == 16) { "learned depth must be 16-bit" }
+                val mm = lf.gray16!!
+                val px = if (learned.kind == "full") {
+                    ByteArray(mm.size) { if (mm[it].toInt() != 0) DepthFrame.PIXEL_LEARNED.toByte() else 0 }
+                } else {
+                    val s = decodeOrNull(learned.file("src", row.frameIndex), "learned src ${row.frameIndex}") ?: continue
+                    require(s.bitDepth == 8 && s.width == lf.width && s.height == lf.height) { "learned src must be 8-bit ${lf.width}x${lf.height}" }
+                    ByteArray(mm.size) { if (s.gray8!![it].toInt() != 0) learned.fillCode else 0 }
+                }
+                lastDepthTNs = tNs
+                val d = DepthFrame(tNs, mm, null, depthIntrinsics(lf.width, lf.height), poses[poseIdx].worldFromCam, "learned_${learned.variant}", pixelSource = px)
+                if (learned.delayNs <= 0L) yield(DepthEvent(row.frameIndex, row.tNs, d)) else held = (row.sysElapsedNs + learned.delayNs) to d
                 continue
             }
             val img = decodeOrNull(file, "frame ${row.frameIndex}") ?: continue
