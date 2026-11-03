@@ -582,7 +582,7 @@ def check_tof():
 def check_event_eval():
     """실외 클릭 정답 채점(M47, §9.5): 서 있는 녹화자에게 1.3 m/s로 다가오는 사람, STOP은 거리 1.0 m에서(TTC 0.77 s → late),
     먼 사람에게 일찍 낸 경고 하나는 오경보, 통로 안 2.95 m 안 경고는 아님. 통로 밖 정지 기둥 클릭 흩어짐으로 검증."""
-    from event_eval import compute as ev_compute
+    from event_eval import FRONT_OFFSET_M as F, compute as ev_compute
     with tempfile.TemporaryDirectory() as d:
         d = Path(d)
         session, run = d / "session", d / "run"
@@ -590,8 +590,8 @@ def check_event_eval():
         run.mkdir()
         tns = [1_000_000_000 + k * 33_333_333 for k in range(300)]  # 10 s, 30 Hz, 원점에서 −z를 봄(GL 단위 사원수)
         pd.DataFrame({"tNs": tns, "tx": 0.0, "ty": 1.2, "tz": 0.0, "qx": 0.0, "qy": 0.0, "qz": 0.0, "qw": 1.0}).to_csv(session / "frames.csv", index=False)
-        # 머리 = 카메라 + 앞 −0.39 m → z +0.39. 사람 중심 z(t) = −6 + 1.3 t, 반지름 0.2 → 진행 방향 거리 0.19 − z, 0.8 m에서 멈춤
-        stop_t = (6.0 - 0.61) / 1.3
+        # 머리 = 카메라 + 앞 −0.39 m → z +0.39. 사람 클릭 점 z(t) = −6 + 1.3 t, 앞면 = 클릭 점 − F → 진행 방향 거리 0.39 − F − z, 0.8 m에서 멈춤
+        stop_t = (6.0 - (0.8 - 0.39 + F)) / 1.3
         clicks = [{"tNs": tns[k], "u": 0, "v": 0, "plane": "FEET", "floorY": 0.0, "floorFrom": "rgb",
                    "pointW": [0.0, 0.0, -6.0 + 1.3 * min((tns[k] - tns[0]) / 1e9, stop_t)]} for k in range(0, 300, 3)]
         pole = [{"tNs": tns[0], "u": 0, "v": 0, "plane": "FEET", "floorY": 0.0, "floorFrom": "rgb", "pointW": w}
@@ -605,7 +605,7 @@ def check_event_eval():
         rows = []
         for k in range(0, 300, 3):
             ts = (tns[k] - tns[0]) / 1e9
-            along = 0.19 - (-6.0 + 1.3 * min(ts, stop_t))
+            along = 0.39 - F - (-6.0 + 1.3 * min(ts, stop_t))
             band = "STOP" if along < 1.0 else "WARN" if along < 2.5 or 0.45 <= ts < 0.7 else ""
             rows.append({"tBlockNs": tns[k], "poseTNs": tns[k], "state": "NORMAL", "band": band or None, "headingDeg": 0.0})
         pd.DataFrame(rows).to_csv(run / "guidance.csv", index=False)
