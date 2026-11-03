@@ -38,7 +38,7 @@ class ClickPanel(
     private val label = JTextField("person", 8)
     private val heightBox = JTextField("1.00", 4)
     private val radius = JTextField("0.20", 4)
-    private val added = JComboBox(arrayOf("blind", "review"))
+    private val added = JComboBox(arrayOf("blind", "review", "check"))  // check = 클릭 검증 전용(같은 점을 여러 거리에서), 채점에서 뺌
     private val situation = JComboBox(arrayOf("-", "S1", "S2", "S3"))
     private val action = JComboBox(arrayOf("-", "STOP", "LEFT", "RIGHT", "PASS"))
     private val fallback = JTextField("", 6)

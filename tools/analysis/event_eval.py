@@ -12,6 +12,7 @@
 - ② 정지 STOP: 정지 물체가 STOP 구간에 1 s 이상 있었으면, 그 접근에서 처음 STOP 때 거리 ≥ 0.9 × stopM이어야 한다(§9.2)
 - ③ 오경보: 경고 시작 블록이 (가) 통로 안 정답 거리 ≤ warnMaxM + hysteresisM + 0.3 m도, (나) 어느 물체의 STOP 구간 진입 3 s 전 ~ 나갈 때도 아님
 - ④ 회전: |앱 진행 방향 − 정답 진행 방향| > 5°인 걷는 블록 비율, 걷기 시작·돌아선 뒤 TRANS_S 안(전환)과 그 밖(정상)
+더한 단계가 `check`인 물체(같은 점을 여러 거리에서 누른 클릭 검증 전용)는 검증에만 쓰고 채점에서 뺀다.
 """
 from __future__ import annotations
 
@@ -172,7 +173,7 @@ def compute(session: Path, run_dir: Path) -> dict:
         fdir[k] = f
         head[k] = cam(ts) + np.array([-f[1], f[0]]) * ox + f * oz
 
-    objs = ev["objects"]
+    objs = [o for o in ev["objects"] if o.get("added") != "check"]  # 검증 전용 물체는 채점에서 뺀다
     tracks = [moving_track(o) if o["kind"] == "moving" else None for o in objs]
     statics = [None if o["kind"] == "moving" else line_samples(o) for o in objs]
     A = np.full((n, len(objs)), np.nan)  # 통로 안 진행 방향 거리
