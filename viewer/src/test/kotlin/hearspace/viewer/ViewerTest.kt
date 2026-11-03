@@ -78,6 +78,19 @@ class ViewerTest {
     }
 
     @Test
+    fun `geometry diagnostics reach causal viewer records and render`() {
+        val r = ReplayRunner.run(s02, """{"floor":{"mode":"ELEVATION"}}""", ReplayRunner.loadHrtf(), label = "ELEVATION")
+        assertTrue(r.slow.isNotEmpty() && r.slow.all { it.geometry != null })
+        assertTrue(r.slowAt(r.t0Ns - 1) == null)
+        val t = r.t0Ns + (r.durationS * 0.6e9).toLong()
+        assertTrue(r.slowAt(t)!!.doneNs <= t)
+        val img = render(r, null, t, "geometry diagnostics")
+        val out = File(Repo.root, "viewer/build/test-output/geometry-review.png")
+        out.parentFile.mkdirs()
+        javax.imageio.ImageIO.write(img, "png", out)
+    }
+
+    @Test
     fun `views paint with map cells and a compared result`() {
         val dir = File(Repo.sessions, "20261003_131039_S01")
         val a = ReplayRunner.run(dir, "{}", ReplayRunner.loadHrtf(), label = "A")
