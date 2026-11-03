@@ -507,10 +507,32 @@ data class TrackConfig(
     val validationChi2: Float = 1_000_000f,
     /** 사용자 속도 창(s): 지난 이만큼의 머리 이동(TTC의 다가오는 속도). */
     val userVelocityS: Float = 0.5f,
+    /**
+     * 칼만 측정점(가까운 면 점)의 방위 중앙값·거리 아래 사분위를 세는 단위(M52 설계 3.3절). CELLS = 이번 장 칸마다 한 번(M48, 기준선).
+     * POINTS = 칸마다 그 장에 든 깊이 점 수만큼: 점 하나가 표면 관측 하나다(지도 표와 같은 원리). 칸으로 세면 앞뒤로 길게 퍼진 막이 점 수보다
+     * 큰 몫을 가져 사분위가 뒤로 밀렸다(T 접근 3세션 측정점이 몸통 깊이보다 0.12~0.22 m 뒤).
+     */
+    val measureWeight: MeasureWeight = MeasureWeight.CELLS,
+    /**
+     * 평활 깊이 뒤처짐(ms, M52 설계 3.4절): `depth.source` SMOOTHED일 때 칼만에 측정을 촬영 시각 − 이 값으로 넣고, 출력은 촬영 시각으로
+     * 예측해 낸다(1차 저역 통과의 경사 응답 지연을 되돌림, 과거 값만). 0 = 끔(기준선). 값은 `motion_stats.py ray` P4.
+     */
+    val depthLagMs: Float = 0f,
+    /**
+     * track 시작 최대 속도(m/s, M52 설계 3.5절): 필터가 측정을 `map.minHits`개 받기 전에 지난 측정과의 거리가
+     * v·Δt + [initGateSigmas]·√(σ_m(이전)² + σ_m(지금)²)을 넘으면 다른 대상과 짝지은 측정으로 보고 그 측정에서 필터·표를 다시 시작한다.
+     * 0 = 끔(기준선). 2.5 = 가장 빠른 집단의 최대 보행 속도(Bohannon 1997, 20대 남성 2.53 m/s).
+     */
+    val initMaxSpeedMps: Float = 0f,
+    /** 시작 게이트의 측정 잡음 배수(관례: 2차원 99%에 가까운 3). */
+    val initGateSigmas: Float = 3f,
 )
 
 /** 움직이는 장애물 처리(M48). */
 enum class MotionMode { NONE, KALMAN }
+
+/** 칼만 측정점을 세는 단위(M52). */
+enum class MeasureWeight { CELLS, POINTS }
 
 /** 대표점 설정. */
 data class RepPointConfig(

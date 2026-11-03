@@ -156,7 +156,10 @@ class MovingObstacleTest {
         assertTrue(results.any { it.entryBeforeStop || it.stopAlongM == null || (it.ttcS ?: 0f) < 1.0f }, "baseline should fail at least one SM-1 case")
     }
 
-    private val kalman = """ "track": { "motion": "KALMAN" } """
+    private var kalman = """ "track": { "motion": "KALMAN" } """
+
+    /** M52 새 옵션(깊이 점 단위 측정점, 시작 게이트). 평활 뒤처짐 보정은 합성 깊이에 뒤처짐이 없어 켜지 않는다. */
+    private val m52 = """ "track": { "motion": "KALMAN", "measureWeight": "POINTS", "initMaxSpeedMps": 2.5 } """
 
     /** 첫 STOP이 실제 진입(1.0 m) 전이고 그때 정답 TTC ≥ 1.0 s인지. */
     private fun approachOk(a: Approach) = a.stopAlongM != null && !a.entryBeforeStop && a.stopAlongM >= 1.0f && (a.ttcS ?: 0f) >= 1.0f
@@ -267,6 +270,50 @@ class MovingObstacleTest {
         }
         if (useOracle) assertTrue(fails.isEmpty(), fails.joinToString("; ")) // 깊이 기하 판정(정답 없음)은 F라 보고만(M48 결과)
     }
+
+    /**
+     * SM-7(M52): 사람이 뒤쪽 정지 상자와 0.10 m 틈(`cluster.epsM` 0.15 m보다 작음)으로 붙어 서 있다가 1.0 m/s로 다가온다. 통과: 움직이는 track이
+     * 처음 출력될 때 칼만 속도가 그때 참 속도에서 0.5 m/s 안, 그리고 SM-1과 같은 STOP 조건. 합성 사람은 서 있을 때부터 깊이에 보여 라벨(정답)이 붙은
+     * track이 걷기 전에 생기므로, T 150338의 시작 뜀(평활 깊이가 배경에서 사람 값으로 바뀌는 과도 응답)은 재현되지 않는다: 회귀 시험이다.
+     * 시작 게이트의 원리는 `MotionFilterTest`(150338 측정열), 효과는 T 재생으로 본다.
+     */
+    private fun sm7Check(json: String): List<String> {
+        val fails = ArrayList<String>()
+        for (n in listOf(Noise(), noisy)) {
+            val r = 0.2f
+            val personFront = 2.8f
+            val boxFront = personFront + 2 * r + 0.10f // 사람 뒤 0.10 m
+            val box = SceneItem("box", Box(Vec3(-0.225f, 0f, 0.3f - boxFront - 0.45f), Vec3(0.225f, 0.8f, 0.3f - boxFront)), obstacle = true, expectedClass = HeightClass.FLOOR)
+            val moveS = (personFront - 0.4f) / 1.0f
+            val p = SceneItem("person", VerticalCylinder(0f, 0.3f - personFront - r, r, 0f, 1.7f), obstacle = true, expectedClass = HeightClass.BODY,
+                motion = Motion(Vec3(0f, 0f, 1.0f), 1.5f, 1.5f + moveS))
+            val spec = SceneSpec("SM-7", Scene(listOf(floor, box, p)), Walk(standS = 1000f, durationS = 1.5f + moveS + 1.0f), n)
+            val blocks = replay(spec, json)
+            val first = blocks.firstNotNullOfOrNull { b -> b.snapshot?.obstacles?.firstOrNull { it.moving && it.velocityW != null }?.let { b to it } }
+            val vStart = first?.second?.velocityW?.horizontal()?.norm()
+            val vTrue = first?.let { p.motion!!.velocityAt(tS(it.first.tNs)).horizontal().norm() }
+            val a = approach(spec, p, blocks)
+            println("SM-7 ${if (json == m52) "M52" else "M48"} noise=${n.depthQuadK}: first moving output at ${first?.let { tS(it.first.tNs) }} s, |v| $vStart (true $vTrue); stop along ${a.stopAlongM} ttc ${a.ttcS} entered ${a.entryBeforeStop}")
+            if (vStart == null || vTrue == null || abs(vStart - vTrue) > 0.5f || !approachOk(a)) fails += "s=${n.depthQuadK}: |v| $vStart vs $vTrue, $a"
+        }
+        return fails
+    }
+
+    @Test
+    fun `M52 ORACLE SM-7 - a person starting right in front of a box gets a walking-range start speed`() {
+        useOracle = true
+        val m48 = sm7Check(kalman) // M48 설정: 보고만(재현)
+        println("SM-7 M48 fails: $m48")
+        val f = sm7Check(m52)
+        assertTrue(f.isEmpty(), f.joinToString("; "))
+    }
+
+    /** M52 새 옵션을 켜고 SM-1~SM-6 정답 판정이 그대로 통과하는지(회귀). */
+    @Test fun `M52 ORACLE SM-1`() { useOracle = true; kalman = m52; `SM-1 KALMAN - an oncoming person is stopped before 1 m with TTC at least 1 s`() }
+    @Test fun `M52 ORACLE SM-2`() { useOracle = true; kalman = m52; `SM-2 KALMAN - user and person walk toward each other`() }
+    @Test fun `M52 ORACLE SM-3`() { useOracle = true; kalman = m52; `SM-3 KALMAN - a person crossing 2 m ahead is not a STOP and leaves no lingering warning`() }
+    @Test fun `M52 ORACLE SM-5`() { useOracle = true; kalman = m52; `SM-5 KALMAN - a person crossing just in front of a box does not take the box cells`() }
+    @Test fun `M52 ORACLE SM-6`() { useOracle = true; kalman = m52; `SM-6 KALMAN - a person who comes close and steps aside is stopped in time and leaves less lingering warning`() }
 
     /** 판정 단계를 정답으로 바꾼 SM-1~SM-6(분해·넘겨주기·안내 단계만 판정, 앞 단계는 정답). */
     @Test fun `ORACLE SM-1`() { useOracle = true; `SM-1 KALMAN - an oncoming person is stopped before 1 m with TTC at least 1 s`() }

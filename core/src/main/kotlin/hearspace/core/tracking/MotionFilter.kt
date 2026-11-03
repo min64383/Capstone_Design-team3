@@ -8,9 +8,17 @@ import hearspace.core.geometry.Vec3
  * 측정 잡음·과정 잡음이 축마다 독립이고 측정 행렬이 단위라 두 축은 섞이지 않는다(4×4 필터와 같은 결과).
  * 시작은 두 점 차분(Bar-Shalom 외 2001): 첫 측정은 기억만 하고, 둘째 측정에서 위치 = 둘째, 속도 = 차분, 공분산은 측정 잡음에서.
  * 검증 게이트(같은 책): 예측에서 벗어난 정도(혁신의 정규화 제곱, 자유도 2)가 문턱을 넘는 측정은 버리고 예측만 한다.
+ * 시작 게이트(M52, Blackman·Popoli 1999의 최대 속도 시작 게이트): 측정을 [initUpdates]개 받기 전에 지난 측정과의 수평 거리가
+ * [initMaxSpeedMps]·Δt + [initGateSigmas]·√(σ_이전² + σ_지금²)을 넘으면 다른 대상과 짝지은 측정으로 보고 지금 측정에서 다시 시작한다
+ * (검증 게이트처럼 버리면 첫 측정이 틀린 track이 뒤 측정을 모두 버려 발산했다, M48). [initMaxSpeedMps] 0 = 끔.
  * 과거 측정만 쓴다(미래 프레임 없음).
  */
-class MotionFilter(private val accelSigmaMps2: Float) {
+class MotionFilter(
+    private val accelSigmaMps2: Float,
+    private val initMaxSpeedMps: Float = 0f,
+    private val initGateSigmas: Float = 3f,
+    private val initUpdates: Int = 0,
+) {
 
     /** 한 축의 상태: 위치 p, 속도 v, 공분산 [[pp, pv], [pv, vv]]. */
     private class Axis(var p: Double, var v: Double, var pp: Double, var pv: Double, var vv: Double)
@@ -34,6 +42,13 @@ class MotionFilter(private val accelSigmaMps2: Float) {
     var lastInnovationChi2: Float = 0f
         private set
 
+    /** 시작 게이트로 다시 시작한 횟수. */
+    var restarts: Int = 0
+        private set
+
+    /** 마지막으로 반영한 측정(시각, 점, 분산): 시작 게이트가 쓴다. */
+    private var lastMeas: Triple<Long, Vec3, Double>? = null
+
     /**
      * 시각 [tNs]의 측정 [pW](수평만 씀)와 그 표준편차 [sigmaM]을 반영한다. 같은 시각 이하의 측정은 무시한다.
      * 준비된 뒤 혁신 χ²가 [gateChi2]를 넘으면 측정을 버리고 예측만 한다. 반영했으면 true.
@@ -41,6 +56,21 @@ class MotionFilter(private val accelSigmaMps2: Float) {
     fun update(tNs: Long, pW: Vec3, sigmaM: Float, gateChi2: Float = Float.POSITIVE_INFINITY): Boolean {
         if (tNs <= this.tNs) return false
         val r = sigmaM.toDouble() * sigmaM
+        val lm = lastMeas
+        if (initMaxSpeedMps > 0f && lm != null && nUpdates < initUpdates) {
+            val dt = (tNs - lm.first) / 1e9
+            val d = Math.hypot((pW.x - lm.second.x).toDouble(), (pW.z - lm.second.z).toDouble())
+            if (d > initMaxSpeedMps * dt + initGateSigmas * Math.sqrt(lm.third + r)) {
+                first = Triple(tNs, pW, r)
+                x = null
+                z = null
+                this.tNs = tNs
+                nUpdates = 1
+                restarts++
+                lastMeas = first
+                return true
+            }
+        }
         val f = first
         val ax = x
         if (ax == null) {
@@ -48,6 +78,7 @@ class MotionFilter(private val accelSigmaMps2: Float) {
                 first = Triple(tNs, pW, r)
                 this.tNs = tNs
                 nUpdates = 1
+                lastMeas = first
                 return true
             }
             val dt = (tNs - f.first) / 1e9
@@ -57,6 +88,7 @@ class MotionFilter(private val accelSigmaMps2: Float) {
             first = null
             this.tNs = tNs
             nUpdates = 2
+            lastMeas = Triple(tNs, pW, r)
             return true
         }
         val dt = (tNs - this.tNs) / 1e9
@@ -71,6 +103,7 @@ class MotionFilter(private val accelSigmaMps2: Float) {
         correctAxis(ax, pW.x.toDouble(), r)
         correctAxis(z!!, pW.z.toDouble(), r)
         nUpdates++
+        lastMeas = Triple(tNs, pW, r)
         return true
     }
 
@@ -89,6 +122,20 @@ class MotionFilter(private val accelSigmaMps2: Float) {
 
     /** 속도 추정(y = 0). 준비 전이면 null. */
     val velocityW: Vec3? get() = x?.let { Vec3(it.v.toFloat(), 0f, z!!.v.toFloat()) }
+
+    /**
+     * 시각 [tNs]의 위치와 위치 표준편차를 상태를 바꾸지 않고 예측한다(M52: 필터를 촬영 시각 − 뒤처짐으로 돌릴 때 출력은 촬영 시각으로).
+     * [tNs]가 필터 시각과 같으면 [positionW]·[positionSigmaM]과 같다. 준비 전이면 null.
+     */
+    fun predictedAt(tNs: Long): Pair<Vec3, Float>? {
+        val ax = x ?: return null
+        val az = z!!
+        val dt = (tNs - this.tNs) / 1e9
+        if (dt == 0.0) return positionW!! to positionSigmaM
+        val q = accelSigmaMps2.toDouble() * accelSigmaMps2
+        fun pp(a: Axis) = a.pp + 2 * dt * a.pv + dt * dt * a.vv + q * dt * dt * dt * dt / 4
+        return Vec3((ax.p + ax.v * dt).toFloat(), 0f, (az.p + az.v * dt).toFloat()) to Math.sqrt((pp(ax) + pp(az)) / 2).toFloat()
+    }
 
     /** 위치 표준편차(두 축 분산 평균의 제곱근, m). */
     val positionSigmaM: Float get() = x?.let { Math.sqrt((it.pp + z!!.pp) / 2).toFloat() } ?: Float.NaN
