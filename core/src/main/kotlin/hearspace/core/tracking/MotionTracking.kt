@@ -41,12 +41,15 @@ class MotionFrame(
     /** 점이 통로 안인지(출력은 통로 안 점유 칸만, 지금과 같음). */
     val inCorridor: (Vec3) -> Boolean,
     /**
-     * 움직임 정답(평가 전용): 시각·위치의 물체가 움직이는 종류인지(라벨처럼: true = 그렇다, null = 모름 → 지금 상태를 그대로 둔다).
+     * 움직임 정답(평가 전용): 시각과 track의 이번 장 측정 칸으로, 그 물체가 움직이는 종류인지(라벨처럼: true = 그렇다, null = 모름 → 지금 상태를
+     * 그대로 둔다). 비전 라벨이 마스크 영역으로 물체를 고르듯 칸들로 판정한다.
      * 이 함수가 있으면 추정한 판정(속도 문턱·χ²)은 쓰지 않는다. 앱은 넘기지 않는다.
      */
-    val movingOracle: ((Long, Vec3) -> Boolean?)? = null,
+    val movingOracle: ((Long, List<Vec3>) -> Boolean?)? = null,
     /** 카메라 위치(측정점: 카메라에서 본 가까운 면, 설계 3.1절 3). */
     val cameraW: Vec3 = Vec3.ZERO,
+    /** 관측 가중치(정지 지도와 같은 거리 가중, 점까지 카메라 거리로). */
+    val weightAt: (Vec3) -> Float = { 1f },
 )
 
 /**
@@ -65,10 +68,20 @@ fun nearSurfacePoint(cells: List<Vec3>, cameraW: Vec3): Vec3? {
     return Vec3((cameraW.x + r * kotlin.math.sin(bearing)).toFloat(), 0f, (cameraW.z + r * kotlin.math.cos(bearing)).toFloat())
 }
 
-/** track 하나의 움직임 상태(M48). */
-class MotionState(accelSigmaMps2: Float, val cells: MovingCells, val birthNs: Long, var candidate: Boolean) {
+/**
+ * track 하나의 움직임 상태(M48). 움직이는 물체의 HITS 증거는 물체 단위로 쌓는다: 측정된 장마다 표 += 거리 가중, 점수 += `hitGain` × 가중(최대 1),
+ * 예측 자리가 빈 곳으로 보인 장마다 점수 −= `decayPerObservation`(0 이하면 지움, 시야 밖·깊이 무효는 그대로). 점유 = 표 ≥ `minHits`이고
+ * 점수 ≥ `minScore`(정지 지도와 같은 문턱). 처음 설계는 물체 좌표 칸마다 쌓았으나, 실제 사람은 걸으며 모양이 바뀌고 칼만 원점이 2~4 cm
+ * 흔들려 5 cm 칸 하나에 6표가 모이지 않았다(T 150338 점유 칸 0, 합성 원기둥은 400여 칸).
+ */
+class MotionState(accelSigmaMps2: Float, val birthNs: Long, var candidate: Boolean) {
     val filter = MotionFilter(accelSigmaMps2)
     var moving = false
+    var votes = 0f
+    var score = 0f
+    /** 마지막으로 측정한 장의 창 안 칸(물체 모양)과 그 시각. */
+    var lastCells: List<Vec3> = emptyList()
+    var lastCellsNs: Long = Long.MIN_VALUE
     /** 마지막 측정 칸의 상자(없으면 짝지은 지도 군집의 상자). */
     var boxMin: Vec3 = Vec3.ZERO
     var boxMax: Vec3 = Vec3.ZERO
@@ -77,10 +90,20 @@ class MotionState(accelSigmaMps2: Float, val cells: MovingCells, val birthNs: Lo
     /** 마지막 측정(대표점)과 그 시각. */
     var lastMeasW: Vec3? = null
     var lastMeasNs: Long = Long.MIN_VALUE
-    /** 마지막 장의 측정 칸 수, 이번 장에 지운 칸 수(기록용). */
+    /** 마지막 장의 측정 칸 수(기록용). */
     var nMeasCells = 0
-    var nRemoved = 0
     var lastChi2 = 0f
+
+    fun occupied(minHits: Int, minScore: Float) = votes >= minHits && score >= minScore
+
+    /** 시각 [tNs]의 물체 모양: 마지막 측정 칸을 속도 × 경과만큼 옮긴 것(측정한 장이면 그대로). */
+    fun cellsAt(tNs: Long): List<Vec3> {
+        val v = filter.velocityW ?: return lastCells
+        val dt = ((tNs - lastCellsNs) / 1e9f).coerceAtLeast(0f)
+        if (dt == 0f) return lastCells
+        val d = v * dt
+        return lastCells.map { it + d }
+    }
 
     /** 원점 = 칼만 위치(준비 전이면 마지막 측정). */
     fun origin(): Vec3? = filter.positionW ?: lastMeasW
@@ -108,9 +131,8 @@ data class MotionDebug(
     val velSigmaMps: Float,
     val chi2: Float,
     val nMeasCells: Int,
-    val nCells: Int,
-    val nOccupied: Int,
-    val nRemoved: Int,
+    val votes: Float,
+    val score: Float,
 )
 
 internal fun inBox(p: Vec3, lo: Vec3, hi: Vec3) = p.x in lo.x..hi.x && p.y in lo.y..hi.y && p.z in lo.z..hi.z

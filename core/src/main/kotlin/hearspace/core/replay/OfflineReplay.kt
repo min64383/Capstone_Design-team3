@@ -93,7 +93,9 @@ class OfflineReplay(
     /** 학습형 장을 내보내기까지 기다리는 시간(ns, 기기에서 잰 모델 시간). */
     private val depthFromDelayNs: Long = 0L,
     /** 움직임 정답(M48 평가 전용, 합성 시험이 판정 단계를 정답으로 바꿀 때). null이면 추정한 판정(앱과 같음). */
-    private val movingOracle: ((Long, hearspace.core.geometry.Vec3) -> Boolean?)? = null,
+    private val movingOracle: ((Long, List<hearspace.core.geometry.Vec3>) -> Boolean?)? = null,
+    /** 움직임 정답의 출처(`replay_info.json` 기록용, 예: clicks). */
+    private val movingFrom: String? = null,
 ) {
 
     /** 마지막 [run]에서 세션을 읽으며 건너뛴 항목(없는·손상된 파일, 잘린 마지막 줄 등, [SessionReader.warnings]). */
@@ -107,7 +109,7 @@ class OfflineReplay(
      */
     fun run(session: File, outDir: File, overridesJson: String = "{}", slowPathNote: String = "") {
         val depthFromJson = depthFrom?.let { "{ \"variant\": \"$it\", \"delayMs\": ${depthFromDelayNs / 1_000_000.0} }" }
-        RunLogWriter(outDir, session, overridesJson, slowPathNote, substitution?.infoJson(alignFrom), rgbSource.name, depthFromJson).use { log ->
+        RunLogWriter(outDir, session, overridesJson, slowPathNote, substitution?.infoJson(alignFrom), rgbSource.name, depthFromJson, movingFrom).use { log ->
             val truth = File(session, "annotations/obstacles.json").isFile
             run(session, if (truth) MapEvalWriter(ClusterEvalWriter(log, outDir, session, config, substitution?.align), outDir, session, config, align = substitution?.align, alignFile = alignFrom.takeIf { it.isNotBlank() }?.let(::File)) else log)
         }

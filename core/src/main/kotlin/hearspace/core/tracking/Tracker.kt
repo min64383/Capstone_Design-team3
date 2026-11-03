@@ -55,7 +55,8 @@ class Tracker(
 ) {
 
     private class Track(
-        val id: Int,
+        /** 후보 track(M48)은 음수 번호를 쓰고, 움직이는 track이 되어 출력될 때 정식 번호를 받는다(움직이는 물체가 없으면 번호가 기준선과 같다). */
+        var id: Int,
         var reps: Map<RepStrategy, Vec3>,
         var nObservations: Int,
         var consecutiveObservations: Int,
@@ -87,6 +88,7 @@ class Tracker(
     private var tracks = listOf<Track>()
     private val lost = ArrayList<Lost>()
     private var nextId = 1
+    private var nextCandidateId = -1
     /** 물체 번호(C3b) → 마지막으로 그 번호였던 track id. 놓쳤다가 같은 번호로 다시 나타나면 그 id를 다시 쓴다(재식별). */
     private val idOfInstance = HashMap<Int, Int>()
 
@@ -98,13 +100,18 @@ class Tracker(
     fun update(detections: List<Detection>, tNs: Long = detections.maxOfOrNull { it.lastSeenNs } ?: 0L, frame: MotionFrame? = null): List<Obstacle> {
         if (cfg.reidLost) lost.removeAll { tNs - it.tNs > reidMemoryNs }
         // 움직이는 track(M48)은 지도 군집과 짝짓지 않는다: 그 점은 지도에 들어가지 않는다. 그 창 안의 군집(판정 전에 생긴 칸)은 흡수한다
-        val movingTracks = tracks.filter { it.motion?.moving == true }
-        if (movingTracks.isNotEmpty()) tracks = tracks.filter { it.motion?.moving != true }
+        // 후보 track도 짝짓기에서 뺀다: 따로 세운 가설이라 정지 track이 받을 군집을 가져가면 움직이는 물체가 없어도 정지 추적이 바뀐다
+        val movingTracks = tracks.filter { it.motion?.let { m -> m.moving || m.candidate } == true }
+        if (movingTracks.isNotEmpty()) tracks = tracks.filter { it.motion?.let { m -> m.moving || m.candidate } != true }
         @Suppress("NAME_SHADOWING")
-        val detections = if (movingTracks.isEmpty()) detections else detections.filter { d ->
+        val detections = if (movingTracks.none { it.motion!!.moving }) detections else detections.filter { d ->
             val c = d.repCandidatesW.getValue(RepStrategy.CENTROID)
-            movingTracks.none { t -> t.motion!!.gate(tNs, cfg.matchRadiusM).let { (lo, hi) -> inBox(c, lo, hi) } }
+            movingTracks.none { t -> t.motion!!.moving && t.motion!!.gate(tNs, cfg.matchRadiusM).let { (lo, hi) -> inBox(c, lo, hi) } }
         }
+        // 지도가 군집으로 잡은 자리의 후보는 지운다(정지 지도가 맡음). 움직이는 track 창 안 군집은 위에서 흡수했다
+        val candidatesTaken = movingTracks.filter { t ->
+            t.motion!!.candidate && detections.any { d -> t.motion!!.gate(tNs, cfg.matchRadiusM).let { (lo, hi) -> inBox(d.repCandidatesW.getValue(RepStrategy.CENTROID), lo, hi) } }
+        }.toSet()
         // 이전 track과 현재 detection 사이에서 matchRadius 안의 후보를 만든다.
         val pairs = ArrayList<Triple<Float, Int, Int>>()
         for ((ti, t) in tracks.withIndex()) for ((di, d) in detections.withIndex()) {
@@ -150,7 +157,6 @@ class Tracker(
                     t.instanceId = d.instanceId
                     t.aabbMin = d.aabbMinW
                     t.aabbMax = d.aabbMaxW
-                    t.motion?.let { m -> if (m.candidate) m.candidate = false } // 지도가 잡은 후보는 지도 track이 된다(M48)
                 }
             } else {
                 // 재식별(C3b): 같은 물체 번호의 예전 id가 살아 있는 track에 없으면 다시 쓴다. 물체가 하나뿐인 세션에서도 잠깐 놓쳤다가
@@ -197,7 +203,6 @@ class Tracker(
         // 출력은 하지 않으므로 놓친 프레임의 오래된 좌표가 안내에 쓰이지 않는다.
         for ((ti, old) in tracks.withIndex()) {
             if (usedTrack[ti]) continue
-            if (old.motion?.candidate == true) { next += old; continue } // 후보는 지도 군집이 없는 것이 정상: 움직임 단계가 정한다(M48)
             old.missedUpdates++
             old.consecutiveObservations = 0
             if (old.missedUpdates <= cfg.maxMissedUpdates) next += old
@@ -205,7 +210,7 @@ class Tracker(
         }
 
         for (t in next) if (t.instanceId != 0) idOfInstance[t.instanceId] = t.id
-        tracks = if (movingTracks.isEmpty()) next else next + movingTracks // 바닥을 잃은 장(frame 없음)에도 움직이는 track은 둔다
+        tracks = if (movingTracks.isEmpty()) next else next + movingTracks.filter { it !in candidatesTaken } // 바닥을 잃은 장(frame 없음)에도 둔다
         if (frame == null) return out
         return motionStep(frame, out)
     }
@@ -218,7 +223,7 @@ class Tracker(
         val mc = mapCfg ?: error("track.motion KALMAN needs MapConfig")
         val tNs = f.tNs
         for (t in tracks) if (t.motion == null) {
-            t.motion = MotionState(cfg.accelSigmaMps2, MovingCells(mc), tNs, candidate = false).also { it.boxMin = t.aabbMin; it.boxMax = t.aabbMax }
+            t.motion = MotionState(cfg.accelSigmaMps2, tNs, candidate = false).also { it.boxMin = t.aabbMin; it.boxMax = t.aabbMax }
         }
         val removed = HashSet<Track>()
         for (t in tracks) {
@@ -229,7 +234,6 @@ class Tracker(
             // 측정은 통로 밖 칸도 쓴다: 통로만 보면 옆으로 비켜 간 물체를 놓친 것으로 보고 마지막 자리를 정지 지도에 넘겨 유령 칸이 생겼다(SM-6)
             val meas = f.allCells.filter { inBox(it, lo, hi) }
             m.nMeasCells = meas.size
-            m.nRemoved = 0
             // 칼만 측정 = 이번 장 창 안 칸의 중심점(가장 앞 칸 기준 대표점은 장마다 칸이 바뀌어 크게 뛴다, M48 값 재기). 예측에서 벗어난 측정은 버린다
             val rep = if (meas.size >= minSamples) nearSurfacePoint(meas, f.cameraW) else null
             if (rep != null && !m.filter.update(tNs, rep, f.sigmaAt(rep), cfg.validationChi2)) {
@@ -238,44 +242,58 @@ class Tracker(
             } else if (rep != null) {
                 m.lastMeasW = rep
                 m.lastMeasNs = tNs
+                // 움직이는 track·후보의 창 크기는 그 물체의 것으로 둔다: 측정 칸 전체의 상자로 두면 옆 칸이 들 때마다 창이 장마다 넓어져
+                // 측정점이 다른 면으로 끌렸다(T 150338 칼만 속도 3 m/s). 창은 측정점 이동만큼 옮기고, 크기는 물체 좌표 점유 칸이 있으면 그 상자
+                val prev = m.lastMeasW
                 m.missed = 0
-                if (m.moving || m.candidate) {
-                    m.boxMin = Vec3(meas.minOf { it.x }, meas.minOf { it.y }, meas.minOf { it.z })
-                    m.boxMax = Vec3(meas.maxOf { it.x }, meas.maxOf { it.y }, meas.maxOf { it.z })
+                if ((m.moving || m.candidate) && prev != null) {
+                    val d = (rep - prev).horizontal()
+                    m.boxMin = m.boxMin + d
+                    m.boxMax = m.boxMax + d
                 }
+                // 물체 단위 HITS: 측정된 장마다 표·점수(정지 지도와 같은 거리 가중)
+                val w = f.weightAt(rep)
+                m.votes += w
+                m.score = kotlin.math.min(1f, m.score + mc.hitGain * w)
+                m.lastCells = meas
+                m.lastCellsNs = tNs
             } else {
                 m.filter.predictTo(tNs)
                 m.missed++
+                // 예측 자리가 빈 곳으로 보이면 점수를 깎는다(시야 밖·깊이 무효면 그대로: 시야 밖 보존)
+                val p = m.filter.positionW ?: m.lastMeasW
+                if ((m.moving || m.candidate) && p != null) {
+                    val probe = Vec3(p.x, (m.boxMin.y + m.boxMax.y) / 2, p.z)
+                    if (f.seenFree(probe)) m.score -= mc.decayPerObservation
+                }
             }
             val v = m.filter.velocityW
             m.lastChi2 = m.filter.velocityChi2
             val isMoving = m.filter.ready && v != null && if (f.movingOracle != null) {
-                (m.filter.positionW ?: m.lastMeasW)?.let { f.movingOracle.invoke(tNs, it) } ?: m.moving // 정답(라벨처럼): 모르면 지금 상태 유지
+                (if (meas.isEmpty()) null else f.movingOracle.invoke(tNs, meas)) ?: m.moving // 정답(라벨처럼): 모르면 지금 상태 유지
             } else v.norm() > cfg.minMovingMps && m.lastChi2 > cfg.movingChi2
             val origin = m.origin()
-            // 움직이는 track·후보는 창 안 점을 물체 좌표 HITS 칸에 쌓는다(정지 지도와 같은 산술)
-            if ((m.moving || m.candidate) && origin != null) {
-                for ((p, w) in f.points) if (inBox(p, lo, hi)) m.cells.hit(p, origin, w, f.frame)
-                m.nRemoved = m.cells.decay(origin, f.frame, f.seenFree)
-            }
+            val occupied = m.occupied(mc.minHits, mc.minScore)
             when {
-                !m.moving && isMoving && m.candidate -> if (origin != null && m.cells.occupiedCenters(origin).isNotEmpty()) {
-                    // 후보 → 움직이는 track: 판정 전에 같은 점이 정지 지도에도 들어갔으므로 이 후보가 생긴 뒤 생긴 창 안 칸을 옮긴다
-                    f.take(lo, hi, m.birthNs).forEach { m.cells.add(it, origin, f.frame) }
+                !m.moving && isMoving && m.candidate -> if (occupied) {
+                    // 후보 → 움직이는 track: 판정 전에 같은 점이 정지 지도에도 들어갔으므로 이 후보가 생긴 뒤 생긴 창 안 칸을 지도에서 뺀다
+                    f.take(lo, hi, m.birthNs)
                     m.moving = true
                     m.candidate = false
                     t.confirmed = true
+                    t.id = nextId++
                 }
                 !m.moving && isMoving && origin != null -> {
-                    // 지도 track → 움직이는 track: track이 생긴 뒤 생긴 창 안 칸을 옮기고(그 앞의 칸은 정지 물체일 수 있어 둔다) 이번 장 점을 쌓는다
-                    f.take(lo, hi, m.birthNs).forEach { m.cells.add(it, origin, f.frame) }
-                    for ((p, w) in f.points) if (inBox(p, lo, hi)) m.cells.hit(p, origin, w, f.frame)
+                    // 지도 track → 움직이는 track: track이 생긴 뒤 생긴 창 안 칸(뒤처진 흔적)을 지도에서 뺀다(그 앞의 칸은 정지 물체일 수 있어 둔다).
+                    // 표는 넘겨받지 않는다: 이번 장 측정으로 6표를 모아야 출력한다(그 사이 칼만 속도가 수렴한다. 넘겨받으면 막 시작한 필터의
+                    // 큰 속도 불확실성 때문에 TTC 하한이 작아져 가로지르는 사람에게 STOP을 냈다, 합성 SM-3)
+                    f.take(lo, hi, m.birthNs)
                     m.moving = true
                 }
                 m.moving && !isMoving && m.filter.ready && origin != null -> {
-                    // 섰다: 점유 칸을 표·점수 그대로 정지 지도로. 다음 장부터 창 안 점도 지도로 간다
-                    m.cells.occupiedEvidence(origin).forEach(f.seed)
-                    t.motion = MotionState(cfg.accelSigmaMps2, MovingCells(mc), m.birthNs, candidate = false).also { n ->
+                    // 섰다: 물체 모양(마지막 측정 칸)을 점유로 정지 지도에 넣는다. 다음 장부터 창 안 점도 지도로 간다
+                    if (m.occupied(mc.minHits, mc.minScore)) m.cellsAt(tNs).forEach { f.seed(hearspace.core.mapping.VoxelMap.CellEvidence(it, m.votes, m.score)) }
+                    t.motion = MotionState(cfg.accelSigmaMps2, m.birthNs, candidate = false).also { n ->
                         n.boxMin = m.boxMin
                         n.boxMax = m.boxMax
                         m.lastMeasW?.let { n.filter.update(m.lastMeasNs, it, f.sigmaAt(it)); n.lastMeasW = it; n.lastMeasNs = m.lastMeasNs }
@@ -288,12 +306,23 @@ class Tracker(
             val mm = t.motion!!
             when {
                 mm.moving && mm.lastMeasNs != Long.MIN_VALUE && tNs - mm.lastMeasNs > (mc.maxUnseenS * 1e9).toLong() -> removed += t
-                // 시야 밖으로 나감: 물체 좌표 칸은 시야 밖이라 감쇠하지 않고(시야 밖 보존) 움직임 가설대로 예측해 옮긴다. 지도의 시야 밖 칸처럼
+                // 시야 밖으로 나감: 물체는 시야 밖이라 점수를 깎지 않고(시야 밖 보존) 움직임 가설대로 예측해 옮긴다. 지도의 시야 밖 칸처럼
                 // `map.maxUnseenS` 동안 둔다. 처음 설계(마지막 자리를 정지 지도로 넘김)는 옆으로 비켜 시야를 벗어난 사람을 통로 가장자리의
                 // 유령 칸으로 남겼다(합성 SM-6)
-                mm.moving && mm.cells.size == 0 -> removed += t // 시야 안에서 빈 곳으로 보여 모두 지워짐
+                mm.moving && mm.score <= 0f -> removed += t // 시야 안에서 빈 곳으로 보여 지워짐
                 mm.candidate && mm.missed > cfg.maxMissedUpdates -> removed += t
-                mm.candidate && !isMoving && origin != null && mm.cells.occupiedCenters(origin).isNotEmpty() -> removed += t // 6표가 모였는데 정지: 정지 지도가 맡음
+                mm.candidate && !isMoving && mm.occupied(mc.minHits, mc.minScore) -> removed += t // 6표가 모였는데 정지: 정지 지도가 맡음
+            }
+        }
+        // 같은 물체를 따르는 움직이는 track·후보가 둘이면(한 사람이 두 묶음으로 갈려 후보 둘이 생김) 짝짓기 반경 안에서 젊은 쪽을 지운다
+        val live = tracks.filter { it !in removed && (it.motion!!.moving || it.motion!!.candidate) }.sortedBy { it.id }
+        for ((i, a) in live.withIndex()) {
+            if (a in removed) continue
+            val pa = a.motion!!.origin() ?: continue
+            for (b in live.subList(i + 1, live.size)) {
+                if (b in removed) continue
+                val pb = b.motion!!.origin() ?: continue
+                if ((pa - pb).horizontal().norm() <= cfg.matchRadiusM) removed += b
             }
         }
         if (removed.isNotEmpty()) tracks = tracks.filter { it !in removed }
@@ -304,16 +333,19 @@ class Tracker(
         if (free.size >= minSamples) for (cl in f.clusterXZ(free)) {
             val reps = f.reps(cl) ?: continue
             val rep = nearSurfacePoint(cl, f.cameraW) ?: continue
-            val m = MotionState(cfg.accelSigmaMps2, MovingCells(mc), tNs, candidate = true)
+            val m = MotionState(cfg.accelSigmaMps2, tNs, candidate = true)
             m.boxMin = Vec3(cl.minOf { it.x }, cl.minOf { it.y }, cl.minOf { it.z })
             m.boxMax = Vec3(cl.maxOf { it.x }, cl.maxOf { it.y }, cl.maxOf { it.z })
             m.filter.update(tNs, rep, f.sigmaAt(rep))
             m.lastMeasW = rep
             m.lastMeasNs = tNs
             m.nMeasCells = cl.size
-            val h = Vec3(f.voxelM, f.voxelM, f.voxelM)
-            for ((p, w) in f.points) if (inBox(p, m.boxMin - h, m.boxMax + h)) m.cells.hit(p, rep, w, f.frame)
-            tracks = tracks + Track(nextId++, reps, 0, 0, 0, false, motion = m).also { it.aabbMin = m.boxMin; it.aabbMax = m.boxMax }
+            val w = f.weightAt(rep)
+            m.votes = w
+            m.score = kotlin.math.min(1f, mc.hitGain * w)
+            m.lastCells = cl
+            m.lastCellsNs = tNs
+            tracks = tracks + Track(nextCandidateId--, reps, 0, 0, 0, false, motion = m).also { it.aabbMin = m.boxMin; it.aabbMax = m.boxMax }
         }
 
         // 출력: 정지 track은 짝짓기 출력에 움직임 값을 붙이고, 움직이는 track은 물체 좌표 점유 칸(통로 안)으로 낸다
@@ -330,13 +362,18 @@ class Tracker(
         for (t in tracks) {
             val m = t.motion!!
             if (!m.moving) continue
-            val origin = m.origin() ?: continue
-            val occ = m.cells.occupiedCenters(origin).filter(f.inCorridor)
+            if (!m.occupied(mc.minHits, mc.minScore)) continue
+            val occ = m.cellsAt(tNs).filter(f.inCorridor)
             if (occ.isEmpty()) continue
-            val reps = f.reps(occ) ?: continue
+            // 안내 대표점 = 칼만 위치(이번 장 가까운 면 점을 시간에 걸쳐 거른 값), 높이는 칸 중앙값. 한 장 칸의 가장 앞 칸은 잡음 한 칸에 당겨져
+            // 가로지르는 사람에게 STOP을 냈다(합성 SM-3). 이번 장 칸은 통로 안인지·높이 분류·상자에만 쓴다
+            val kp = m.filter.positionW ?: m.lastMeasW ?: continue
+            val ys = occ.map { it.y }.sorted()
+            val repW = Vec3(kp.x, ys[ys.size / 2], kp.z)
+            val reps = (f.reps(occ) ?: continue) + (strategy to repW)
             result += Obstacle(
                 id = t.id,
-                repPointW = reps.getValue(strategy),
+                repPointW = repW,
                 repCandidatesW = reps,
                 aabbMinW = Vec3(occ.minOf { it.x }, occ.minOf { it.y }, occ.minOf { it.z }),
                 aabbMaxW = Vec3(occ.maxOf { it.x }, occ.maxOf { it.y }, occ.maxOf { it.z }),
@@ -354,11 +391,9 @@ class Tracker(
         }
         lastMotionDebug = tracks.map { t ->
             val m = t.motion!!
-            val o = m.origin()
             MotionDebug(
                 tNs, t.id, m.candidate, m.moving, m.lastMeasW.takeIf { m.lastMeasNs == tNs }, m.filter.positionW, m.filter.velocityW,
-                m.filter.positionSigmaM, m.filter.velocitySigmaMps, m.lastChi2, m.nMeasCells, m.cells.size,
-                if (o == null) 0 else m.cells.occupiedCenters(o).size, m.nRemoved,
+                m.filter.positionSigmaM, m.filter.velocitySigmaMps, m.lastChi2, m.nMeasCells, m.votes, m.score,
             )
         }
         return result
