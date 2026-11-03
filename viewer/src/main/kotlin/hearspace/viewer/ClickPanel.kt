@@ -132,6 +132,8 @@ class ClickPanel(
             val feet = cs.firstOrNull { it.plane == ClickPlane.FEET }?.pointW ?: return@mapNotNull null
             val head = cs.firstOrNull { it.plane == ClickPlane.HEAD } ?: return@mapNotNull null
             val row = rows[head.tNs] ?: return@mapNotNull null
+            // 발 클릭 범위(1.9~3.5 m) 밖 짝은 쓰지 않는다(event_eval 검증과 같은 범위)
+            if ((feet - SessionReader.toPoseFrame(row).worldFromCam.translation()).horizontal().norm() > PAIR_MAX_M) return@mapNotNull null
             Triple(ClickTruth.HeadPair(feet, SessionReader.toPoseFrame(row).worldFromCam, head.u, head.v), head.floorY, feet)
         }
         if (pairs.size < 2) return status("같은 장에 발·허리를 둘 다 누른 짝이 2개 이상 필요합니다(지금 ${pairs.size}개)")
@@ -157,6 +159,8 @@ class ClickPanel(
     companion object {
         /** 발 클릭을 받지 않는 화면 가장자리 폭(px). 발이 잘리면 가장자리를 누르게 된다. */
         const val EDGE_PX = 20f
+        /** 허리 높이 맞춤에 쓰는 짝의 발 거리 상한(m), `event_eval.PAIR_MAX_M`과 같음. */
+        const val PAIR_MAX_M = 3.5f
     }
 
     private fun newObject(kind: String, shape: String) {

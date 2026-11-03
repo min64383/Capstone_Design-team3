@@ -10,6 +10,7 @@
 - ① STOP TTC: 움직이는 물체가 STOP 구간(통로 안 거리 < stopM)에 들어갈 때마다, 그 접근(거슬러 올라가 통로 밖이거나 lengthM보다 멀었던 때부터
   들어갈 때까지)에서 그 물체가 통로 안 가장 가까운 정답일 때 처음 STOP이 난 블록의 거리 ÷ 다가오는 속도. 없으면 놓침
 - ② 정지 STOP: 정지 물체가 STOP 구간에 1 s 이상 있었으면, 그 접근에서 처음 STOP 때 거리 ≥ 0.9 × stopM이어야 한다(§9.2)
+- STOP 구간 진입이 정답 띠(클릭 검증 p95) 안에서만 일어나면(통로를 띠만큼 좁히고 stopM − 띠보다 깊이 들어오지 않음) 판정 불가
 - ③ 오경보: 경고 시작 블록이 (가) 통로 안 정답 거리 ≤ warnMaxM + hysteresisM + 0.3 m도, (나) 어느 물체의 STOP 구간 진입 3 s 전 ~ 나갈 때도 아님
 - ④ 회전: |앱 진행 방향 − 정답 진행 방향| > 5°인 걷는 블록 비율, 걷기 시작·돌아선 뒤 TRANS_S 안(전환)과 그 밖(정상)
 더한 단계가 `check`인 물체(같은 점을 여러 거리에서 누른 클릭 검증 전용)는 검증에만 쓰고 채점에서 뺀다.
@@ -39,6 +40,7 @@ TTC_MIN_S = 1.0  # ① 기준(프로포절: stopM 1.0 m ÷ 보행 1 m/s)
 HEADING_TOL_DEG = 5.0  # ④(M42)
 TRANS_S = 2.0
 TURN_DEG, TURN_WIN_S = 30.0, 1.0  # 돌아섬: 정답 진행 방향이 TURN_WIN_S 안에 TURN_DEG 넘게 바뀜(자체 선택)
+PAIR_MAX_M = 3.5  # 클릭 검증 짝: 발이 이 안(발 클릭 범위 1.9~3.5 m)
 CLICK_TOL_M = 0.2  # 클릭 검증 목표 p95(자체 선택: 1.3 m/s에서 TTC 띠 0.15 s)
 
 
@@ -51,8 +53,9 @@ def clicks_of(o: dict) -> list[dict]:
     return [c for c in o.get("clicks", []) if c.get("pointW") is not None]
 
 
-def validation(ev: dict) -> dict:
-    """정지 점 물체를 여러 거리에서 누른 위치의 흩어짐(중앙값에서), 같은 장 발·머리 끝 클릭의 차(수평 m)."""
+def validation(ev: dict, frames: pd.DataFrame | None = None) -> dict:
+    """정지 점 물체를 여러 거리에서 누른 위치의 흩어짐(중앙값에서), 같은 장 발·허리 클릭의 차(수평 m). [frames]가 있으면 발이 카메라에서
+    PAIR_MAX_M 안인 짝만 쓴다(발 클릭을 쓰는 범위, §9.5: 4 m 짝은 화소·흔들림 오차가 0.2 m를 넘어 띠를 부풀렸다)."""
     spread, pair = [], []
     for o in ev["objects"]:
         cs = clicks_of(o)
@@ -63,7 +66,14 @@ def validation(ev: dict) -> dict:
             by_t: dict[int, dict] = {}
             for c in cs:
                 by_t.setdefault(c["tNs"], {})[c["plane"]] = c["pointW"]
-            pair += [float(np.hypot(v["FEET"][0] - v["HEAD"][0], v["FEET"][2] - v["HEAD"][2])) for v in by_t.values() if len(v) == 2]
+            for tn, v in by_t.items():
+                if len(v) != 2:
+                    continue
+                if frames is not None:
+                    cx, cz = np.interp(tn, frames.tNs, frames.tx), np.interp(tn, frames.tNs, frames.tz)
+                    if np.hypot(v["FEET"][0] - cx, v["FEET"][2] - cz) > PAIR_MAX_M:
+                        continue
+                pair.append(float(np.hypot(v["FEET"][0] - v["HEAD"][0], v["FEET"][2] - v["HEAD"][2])))
     allv = spread + pair
     floor_from: dict[str, int] = {}
     for o in ev["objects"]:
@@ -176,7 +186,12 @@ def compute(session: Path, run_dir: Path) -> dict:
     objs = [o for o in ev["objects"] if o.get("added") != "check"]  # 검증 전용 물체는 채점에서 뺀다
     tracks = [moving_track(o) if o["kind"] == "moving" else None for o in objs]
     statics = [None if o["kind"] == "moving" else line_samples(o) for o in objs]
+    val = validation(ev, frames)
+    tol = val["p95M"] if val["p95M"] is not None else CLICK_TOL_M
+    # 정답 띠: 통로를 양쪽으로 tol만큼 좁힌 통로(A_in)로도 STOP 구간 깊이 tol 넘게 들어와야 확실한 진입이다
+    cor_in = {**cor, "widthM": max(cor["widthM"] - 2 * tol, 0.0)}
     A = np.full((n, len(objs)), np.nan)  # 통로 안 진행 방향 거리
+    A_in = np.full((n, len(objs)), np.nan)
     V = np.full((n, len(objs), 2), np.nan)  # 물체 속도(움직이는 물체)
     for k in range(n):
         for j, o in enumerate(objs):
@@ -185,20 +200,22 @@ def compute(session: Path, run_dir: Path) -> dict:
                 if r is None:
                     continue
                 pos, vel = r
-                a = near_along(np.asarray(pos)[None, :], float(o.get("radiusM", 0.0)), head[k], fdir[k], cor)
+                pts, rad = np.asarray(pos)[None, :], float(o.get("radiusM", 0.0))
                 V[k, j] = vel
             else:
-                a = near_along(statics[j], 0.0, head[k], fdir[k], cor)
+                pts, rad = statics[j], 0.0
+            a = near_along(pts, rad, head[k], fdir[k], cor)
             if a is not None:
                 A[k, j] = a
+            a = near_along(pts, rad, head[k], fdir[k], cor_in)
+            if a is not None:
+                A_in[k, j] = a
 
     band = blocks.band.fillna("").to_numpy()
     active = blocks.state.isin(ACTIVE).to_numpy()
     with np.errstate(all="ignore"):
         nearest = np.where(np.isnan(A).all(axis=1), -1, np.nanargmin(np.where(np.isnan(A), np.inf, A), axis=1))
     stop_m = pol["stopM"]
-    val = validation(ev)
-    tol = val["p95M"] if val["p95M"] is not None else CLICK_TOL_M
 
     # STOP 구간 진입 사건(물체마다)
     entries, events = [], []
@@ -225,20 +242,33 @@ def compute(session: Path, run_dir: Path) -> dict:
             if ks is not None:
                 e["stopS"] = round(t[ks] - t[0], 3)
                 e["stopAlongM"] = round(float(A[ks, j]), 3)
-            if moving:
+            with np.errstate(all="ignore"):
+                deep = np.nanmin(np.r_[A_in[k0:k1 + 1, j], np.inf]) < stop_m - tol
+            e["minAlongM"] = round(float(np.nanmin(A[k0:k1 + 1, j])), 3)
+            ttc = band_s = None
+            if moving and ks is not None:
+                closing = float(-((V[ks, j] - vhead[ks]) @ fdir[ks]))
+                if np.isfinite(closing):
+                    ttc = A[ks, j] / closing if closing > 0.05 else float("inf")
+                    band_s = tol / closing if closing > 0.05 else 0.0
+                    e["closingMps"] = round(closing, 3)
+                    e["ttcS"] = round(float(ttc), 3) if np.isfinite(ttc) else None
+                    e["ttcBandS"] = round(band_s, 3)
+            if moving and ks is None:
+                # 들어온 뒤에야 난 STOP(보고): 놓침과 늦은 STOP을 가른다
+                kl = next((q for q in range(k0, k1 + 1) if band[q] == "STOP" and active[q] and nearest[q] == j), None)
+                if kl is not None:
+                    e["lateStopS"] = round(t[kl] - t[0], 3)
+                    e["lateStopAlongM"] = round(float(A[kl, j]), 3)
+            if not deep:
+                e["verdict"] = "undecided"  # 정답 띠 안에서만 STOP 구간에 닿음(가장자리 스침)
+            elif moving:
                 if ks is None:
                     e["verdict"] = "missed"
+                elif ttc is None:
+                    e["verdict"] = "noVelocity"
                 else:
-                    closing = float(-((V[ks, j] - vhead[ks]) @ fdir[ks]))
-                    if not np.isfinite(closing):
-                        e["verdict"] = "noVelocity"
-                    else:
-                        ttc = A[ks, j] / closing if closing > 0.05 else float("inf")
-                        e["closingMps"] = round(closing, 3)
-                        e["ttcS"] = round(float(ttc), 3) if np.isfinite(ttc) else None
-                        band_s = tol / closing if closing > 0.05 else 0.0
-                        e["ttcBandS"] = round(band_s, 3)
-                        e["verdict"] = "undecided" if abs(ttc - TTC_MIN_S) <= band_s else ("ok" if ttc >= TTC_MIN_S else "late")
+                    e["verdict"] = "undecided" if abs(ttc - TTC_MIN_S) <= band_s else ("ok" if ttc >= TTC_MIN_S else "late")
             else:
                 if t[k1] - t[k0] + (t[1] - t[0] if n > 1 else 0) < ZONE_MIN_S:
                     e["verdict"] = "short"
