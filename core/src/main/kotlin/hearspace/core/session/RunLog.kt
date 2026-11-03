@@ -17,6 +17,19 @@ object RunLog {
     const val GUIDANCE_FILE = "guidance.csv"
     const val OBSTACLES_FILE = "obstacles.csv"
 
+    const val GEOMETRY_FILE = "geometry_debug.csv"
+    val GEOMETRY_HEADER = listOf("tCaptureNs", "primary", "type", "distanceM", "confidence", "detail", "profile")
+
+    /** Diagnostic geometry only; no inference about safe passage from missing rows. */
+    fun geometryLines(tCaptureNs: Long, result: hearspace.core.types.IndoorGeometryResult): List<String> {
+        val profile = result.groundProfile.joinToString(";") { "${it.alongStartM}:${it.alongEndM}:${it.heightM ?: ""}:${it.nPoints}" }
+        fun quoted(s: String) = "\"" + s.replace("\"", "\"\"") + "\""
+        val findings = result.findings.ifEmpty { listOf(hearspace.core.types.GeometryFinding(result.primary, 0f, 0f, "no ground estimate")) }
+        return findings.map { f ->
+            listOf(tCaptureNs, result.primary, f.type, f.distanceM, f.confidence, quoted(f.detail), quoted(profile)).joinToString(",")
+        }
+    }
+
     /** 군집 통계(오인식 분석용, 명세 §10.1 추가 로그, v0.2.10). 형식은 [ClusterDebugCsv]. */
     const val CLUSTER_DEBUG_FILE = "cluster_debug.csv"
 

@@ -631,6 +631,12 @@ M10 공간(폭 약 1 m, 길이 4~5 m)에서 찍을 수 있게 구성한다. 모�
 | M16 | 통합 튜닝과 최종 평가 | 채택 조합의 전체 지표표, 정성 평가, 기준선 대비 개선 보고 |
 | M17(후보) | 기기 이식·실시간 | 이 문서 개정 후 착수(발열·정보 나이: M10 보고서 §4) |
 
+### M21 보완: 실내 대표점 동률 재현 (2026-10-30)
+
+실내 개선을 우선한다는 사용자 요청에 따른 작은 비교 실험. `repPoint.stableTies`는 기본 `false`이며, `true`이면 NEAREST의 수평 거리 또는 CORRIDOR_*의 |좌우|가 **정확히 같은** 후보를 진행 방향 거리 → 월드 높이 → 부호 있는 통로 좌우 순으로 고른다. 기존 거리·띠 폭·통로·추적 규칙은 유지한다. 선택 순서를 월드 x/z가 아니라 통로 좌표로 정의하고 합성 순열·90도 회전으로 검증한다. CENTROID의 합산 순서나 거의 같은 실수 값의 비교까지 안정화하는 규칙은 아니다.
+
+동률 때 낮은 점을 선택하면 DISTANCE_HEIGHT의 피치도 바뀐다. 따라서 방향·STOP 지표가 같다는 이유로 기본값에 채택하지 않는다. 실내 첫 비교에서는 수평 안내가 같고 높이만 달라졌으나 반복 재생에 로그 완전성 불일치가 있어 회귀 검증은 보류다. 실제 오탐 감소·회전 시 지도 정합 개선을 입증하지 못했다. 결과와 재현 명령은 [INDOOR_REP_STABILITY.md](INDOOR_REP_STABILITY.md). 새 의존성·모델·데이터는 없다.
+
 ## 14. 미결정 사항
 
 | 항목 | 현재 방침 | 결정 시점 |
@@ -700,3 +706,24 @@ M10 공간(폭 약 1 m, 길이 4~5 m)에서 찍을 수 있게 구성한다. 모�
 - 기존 `LEGACY_RISK`는 A/B 비교용으로 보존한다. 기본 JSON의 PULSE/LEGACY_RISK 기준선은 유지하고 앱 override와 PC GUI/내보내기 시작 설정은 DISTANCE_HEIGHT로 선택한다.
 - CSV 끝에 heightDeltaM/mapping 열 추가. 기존 열 순서는 보존. pitch/gain은 블록 끝 값, 같은 WAV의 frameStart를 시간 기준으로 삼는다.
 - 이 높이는 물체 전체 크기나 최상단 높이가 아니라 선택된 대표점의 위치다. 머리 Y는 기존 카메라 오프셋 기반 추정이다. 새로운 고도 HRTF나 실기기 검증은 포함하지 않는다.
+
+
+### M13.5 review implementation (2026-10-28)
+
+The nine PR #58 review items in §6.1.1 and consecutive OPENING deduplication are implemented as an isolated diagnostic path. `floor.mode` SINGLE (default) | ELEVATION is the sole activation mode; legacy `geometry.enabled` is retained but true requires ELEVATION. Map/cluster options remain unchanged. App and offline replay write `geometry_debug.csv`, and viewer displays causal completed-step results. Geometry never enters guidance.
+
+New geometry configuration defaults (experimental heuristics, not validated operating limits):
+
+| Keys | Defaults |
+|---|---|
+| maxDistanceM, groundHeightRangeM, histogramMinBinM, obstacleMinHeightM | 2.0 m, 0.65 m, 0.02 m, 0.10 m |
+| openingWidthFactor, maxStepGapBins, minSlopeBins | 1.35, 2, 3 |
+| unknownConfidence, stepConfidence, flatConfidence, maxConfidence | 0.2, 0.75, 0.7, 0.95 |
+| stairConfidenceBase, stairConfidenceIncrement | 0.65, 0.10 |
+| slopeConfidenceBase, slopeConfidenceIncrementMax, slopeConfidenceScaleDeg | 0.6, 0.35, 30 deg |
+| floorLossConfidenceBase, floorLossConfidencePerBin, floorLossConfidenceMax | 0.55, 0.08, 0.9 |
+| occupiedConfidenceBase, structureConfidenceBase | 0.5, 0.55 |
+| occupiedConfidenceCount, wallConfidenceCount | 100, 120 voxels |
+| narrowConfidenceMin, openingConfidence | 0.55, 0.6 |
+
+Full semantics, log format, test scope and remaining recording requirements: `docs/INDOOR_GEOMETRY_EXPERIMENT.md`. ELEVATION here denotes the prototype geometry diagnostics, not a validated elevation-map solution. Existing SINGLE mapping, source, decompose and obstacle policy retain their meanings. Geometry's near-range limit does not truncate ordinary obstacle detection.

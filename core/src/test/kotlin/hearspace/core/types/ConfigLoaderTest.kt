@@ -72,12 +72,32 @@ class ConfigLoaderTest {
     }
 
     @Test
+    fun `geometry mode is explicit and experimental parameters are validated`() {
+        assertEquals(FloorMode.SINGLE, load().floor.mode)
+        assertEquals(FloorMode.ELEVATION, load("""{"floor":{"mode":"ELEVATION"}}""").floor.mode)
+        assertConfigError("floor.mode", """{"floor":{"mode":"INVALID"}}""")
+        assertConfigError("geometry.enabled", """{"geometry":{"enabled":true}}""")
+        assertConfigError("geometry.maxDistanceM", """{"geometry":{"maxDistanceM":0}}""")
+        assertConfigError("geometry.stepConfidence", """{"geometry":{"stepConfidence":1.1}}""")
+        assertConfigError("geometry.minSlopeBins", """{"geometry":{"minSlopeBins":2}}""")
+    }
+
+    @Test
     fun `partial override changes only the given keys`() {
         val base = load()
         val c = load("""{ "corridor": { "widthM": 1.0 }, "repPoint": { "strategy": "NEAREST" } }""")
         assertEquals(base.corridor.copy(widthM = 1.0f), c.corridor)
         assertEquals(RepStrategy.NEAREST, c.repPoint.strategy)
         assertEquals(base.copy(corridor = c.corridor, repPoint = c.repPoint), c)
+    }
+
+    @Test
+    fun `stable representative ties are opt in and only change their own setting`() {
+        val base = load()
+        assertEquals(false, base.repPoint.stableTies)
+        val c = load("""{"repPoint":{"stableTies":true}}""")
+        assertEquals(base.copy(repPoint = base.repPoint.copy(stableTies = true)), c)
+        assertConfigError("repPoint.stableTies", """{"repPoint":{"stableTies":"true"}}""")
     }
 
     @Test

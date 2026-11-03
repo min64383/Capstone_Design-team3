@@ -36,11 +36,13 @@ class RunLogWriter(
     private val stageOut: Writer
     private var planesOut: Writer? = null
     private var motionOut: Writer? = null
+    private var geometryOut: Writer? = null
     private val outDir = outDir
 
     init {
         outDir.mkdirs()
         File(outDir, OfflineReplay.DONE_FILE).delete()
+        File(outDir, RunLog.GEOMETRY_FILE).delete() // No stale diagnostics when rerunning SINGLE in the same directory.
         File(outDir, OfflineReplay.INFO_FILE).writeText(
             "{\n  \"session\": \"${session.absolutePath.replace("\\", "/")}\",\n  \"slowPath\": \"$slowPathNote\",\n" +
                 "  \"rgbSource\": \"$rgbSource\",\n" +
@@ -70,6 +72,12 @@ class RunLogWriter(
             val w = motionOut ?: File(outDir, MOTION_FILE).bufferedWriter().also { it.line(MOTION_HEADER); motionOut = it }
             for (m in step.motion) w.line(motionLine(m))
         }
+        step.mapUpdate.geometry?.let { result ->
+            val w = geometryOut ?: File(outDir, RunLog.GEOMETRY_FILE).bufferedWriter().also {
+                it.line(RunLog.header(RunLog.GEOMETRY_HEADER)); geometryOut = it
+            }
+            RunLog.geometryLines(step.depth.tCaptureNs, result).forEach { w.line(it) }
+        }
         step.mapUpdate.planes?.let { p ->
             val w = planesOut ?: File(outDir, RunLog.PLANES_FILE).bufferedWriter().also { it.line(RunLog.header(RunLog.PLANES_HEADER)); planesOut = it }
             w.line(RunLog.planesLine(step.depth.tCaptureNs, p))
@@ -84,7 +92,7 @@ class RunLogWriter(
 
     /** 기록 파일을 모두 닫는다(여러 번 불러도 된다). */
     override fun close() {
-        listOfNotNull(slowOut, guidOut, obsOut, clusterOut, stageOut, planesOut, motionOut).forEach { it.close() }
+        listOfNotNull(slowOut, guidOut, obsOut, clusterOut, stageOut, planesOut, motionOut, geometryOut).forEach { it.close() }
     }
 
     private fun motionLine(m: hearspace.core.tracking.MotionDebug): String = listOf(
