@@ -336,18 +336,24 @@ class Tracker(
         val free = f.corridorCells.filter { (c, occ) -> !occ && gates.none { (lo, hi) -> inBox(c, lo, hi) } }.map { it.first }
         if (free.size >= minSamples) for (cl in f.clusterXZ(free)) {
             val reps = f.reps(cl) ?: continue
-            val rep = nearSurfacePoint(cl, f.cameraW) ?: continue
             val m = MotionState(cfg.accelSigmaMps2, tNs, candidate = true)
             m.boxMin = Vec3(cl.minOf { it.x }, cl.minOf { it.y }, cl.minOf { it.z })
             m.boxMax = Vec3(cl.maxOf { it.x }, cl.maxOf { it.y }, cl.maxOf { it.z })
+            // 첫 측정도 다음 장들과 같은 정의(창에 걸린 군집 전체)로 한다. 묶음(11칸)으로 시작하고 다음 장에 군집 전체(250칸)로 바뀌면
+            // 두 점 차분 속도가 −28 m/s로 시작해 출력 때까지 2~3 m/s가 남았다(T 150338 TTC STOP이 실제 2.16 m, TTC 4.5 s에서 남)
+            val (glo, ghi) = m.gate(tNs, cfg.matchRadiusM)
+            val meas = clustersAll.filter { c -> c.count { inBox(it, glo, ghi) } >= minSamples }.flatten().ifEmpty { cl }
+            val rep = nearSurfacePoint(meas, f.cameraW) ?: continue
+            m.boxMin = Vec3(meas.minOf { it.x }, meas.minOf { it.y }, meas.minOf { it.z })
+            m.boxMax = Vec3(meas.maxOf { it.x }, meas.maxOf { it.y }, meas.maxOf { it.z })
             m.filter.update(tNs, rep, f.sigmaAt(rep))
             m.lastMeasW = rep
             m.lastMeasNs = tNs
-            m.nMeasCells = cl.size
+            m.nMeasCells = meas.size
             val w = f.weightAt(rep)
             m.votes = w
             m.score = kotlin.math.min(1f, mc.hitGain * w)
-            m.lastCells = cl
+            m.lastCells = meas
             m.lastCellsNs = tNs
             tracks = tracks + Track(nextCandidateId--, reps, 0, 0, 0, false, motion = m).also { it.aabbMin = m.boxMin; it.aabbMax = m.boxMax }
         }

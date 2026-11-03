@@ -151,7 +151,9 @@ def lag(session: Path, run: Path) -> dict:
     g = g[g.band.isin(["WARN", "STOP"])]
     obs = pd.read_csv(run / "obstacles.csv")
     cd = pd.read_csv(run / "cluster_debug.csv")
-    cd = cd[~cd.filtered]
+    # 움직이는 물체만 있는 세션은 정지 지도 군집이 없어 머리줄만 있다(M48 분해: 그 물체의 점은 정지 지도로 가지 않음).
+    # 빈 열은 object 형이라 ~가 열 선택이 되므로 bool로 바꾼다
+    cd = cd[~cd.filtered.astype(bool)]
     rows = []
     for _, b in g.iterrows():
         tb, tc = b.tBlockNs / 1e9, b.snapshotTNs / 1e9
@@ -171,7 +173,8 @@ def lag(session: Path, run: Path) -> dict:
             continue
         app = np.array([ob.repCORRIDOR_BAND_x.iloc[0], ob.repCORRIDOR_BAND_z.iloc[0]])
         closing = float(-((rb[1] - (cam(tb + .5) - cam(tb - .5))) @ f))
-        row = dict(total=along(app) - a_b, age=a_c - a_b, closing=closing)
+        # heard = 안내가 실제로 쓴 거리(움직이는 물체는 블록 시각 외삽·kσ를 뺀 값, 정지 물체는 대표점 거리) − 실제
+        row = dict(total=along(app) - a_b, heard=float(b.distanceM) - a_b, age=a_c - a_b, closing=closing)
         c = cd[cd.tCaptureNs == b.snapshotTNs]
         if not c.empty:
             raws = c[["corridorBandX", "corridorBandZ"]].to_numpy()
@@ -183,7 +186,7 @@ def lag(session: Path, run: Path) -> dict:
         return {}
     mv = r[r.closing > 0.3]
     return {"blocks": int(len(mv)), "closingMps": float(mv.closing.median()) if len(mv) else None,
-            **{k: (float(mv[k].median()) if k in mv and mv[k].notna().any() else None) for k in ("total", "map", "age", "ema")}}
+            **{k: (float(mv[k].median()) if k in mv and mv[k].notna().any() else None) for k in ("total", "heard", "map", "age", "ema")}}
 
 
 def main(args: list[str]) -> None:
