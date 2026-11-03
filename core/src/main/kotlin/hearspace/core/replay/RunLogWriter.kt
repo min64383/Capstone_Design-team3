@@ -24,6 +24,8 @@ class RunLogWriter(
     substitutionJson: String? = null,
     /** RGB 안내 보정의 RGB 원천(M19, [RgbSource] 이름). */
     rgbSource: String = RgbSource.RECORDED.name,
+    /** 학습형 깊이 장(M37 `depthFrom`, JSON 객체). 없으면 null. */
+    depthFromJson: String? = null,
 ) : ReplayListener, Closeable {
     private val slowOut: Writer
     private val guidOut: Writer
@@ -41,7 +43,8 @@ class RunLogWriter(
                 "  \"rgbSource\": \"$rgbSource\",\n" +
                 // 재생한 코드 판(M41, Gradle이 넘김: git 커밋 짧은 해시, 바뀐 작업 트리면 -dirty). 없으면 unknown
                 "  \"gitHash\": \"${System.getProperty("hearspace.gitHash") ?: "unknown"}\",\n" +
-                "  \"configOverrides\": $overridesJson" + (substitutionJson?.let { ",\n  \"substitution\": $it" } ?: "") + "\n}\n",
+                "  \"configOverrides\": $overridesJson" + (substitutionJson?.let { ",\n  \"substitution\": $it" } ?: "") +
+                (depthFromJson?.let { ",\n  \"depthFrom\": $it" } ?: "") + "\n}\n",
         )
         slowOut = File(outDir, RunLog.SLOW_PATH_FILE).bufferedWriter()
         guidOut = File(outDir, RunLog.GUIDANCE_FILE).bufferedWriter()

@@ -1,0 +1,409 @@
+<!doctype html>
+<html lang="ko">
+<meta charset="utf-8">
+<title>HEARSPACE 로고 편집기</title>
+<style>
+  body { margin: 16px; font: 13px/1.5 system-ui, sans-serif; background: #eceff1; color: #222; }
+  .wrap { display: flex; gap: 16px; align-items: flex-start; flex-wrap: wrap; }
+  .boardwrap { position: relative; width: 520px; height: 520px; }
+  #boardCv { position: absolute; inset: 0; width: 520px; height: 520px; border-radius: 12px; }
+  #board { position: absolute; inset: 0; width: 520px; height: 520px; touch-action: none; cursor: crosshair; display: block; }
+  canvas { display: block; }
+  #board * { pointer-events: none; }
+  .previews { display: flex; gap: 10px; margin-top: 10px; }
+  .theme { border-radius: 12px; padding: 10px; display: flex; flex-direction: column; align-items: center; gap: 6px; width: 235px; box-sizing: border-box; }
+  .icons { display: flex; gap: 10px; align-items: center; background: #78909c; padding: 8px; border-radius: 8px; }
+  .icon { border-radius: 50%; overflow: hidden; box-shadow: 0 1px 4px #0006; }
+  .icon svg { display: block; }
+  .panel { background: #fff; border-radius: 12px; padding: 12px 14px; width: 500px; }
+  h3 { margin: 14px 0 6px; font-size: 13px; }
+  h3:first-child { margin-top: 0; }
+  table { border-collapse: collapse; }
+  th, td { padding: 1px 6px 1px 0; text-align: left; font-weight: normal; color: #555; white-space: nowrap; }
+  tr.sel { background: #e3f2fd; }
+  input[type=number] { width: 4.2em; }
+  input[type=color] { width: 40px; height: 22px; padding: 0 2px; vertical-align: middle; }
+  .sw { width: 16px; height: 16px; border-radius: 50%; display: inline-block; vertical-align: middle; }
+  .row { display: flex; gap: 10px; flex-wrap: wrap; align-items: center; margin: 4px 0; }
+  .hint { color: #777; }
+  .knobs { display: grid; grid-template-columns: auto 1fr 3.5em; gap: 2px 10px; align-items: center; }
+  .mono td { font: 12px monospace; }
+  textarea { width: 100%; height: 110px; font: 12px monospace; box-sizing: border-box; }
+</style>
+<div class="wrap">
+  <div>
+    <div class="boardwrap"><canvas id="boardCv"></canvas><svg id="board" viewBox="-10 -10 120 120"></svg></div>
+    <div class="previews" id="previews"></div>
+  </div>
+  <div class="panel">
+    <h3 id="count"></h3>
+    <table id="tbl"></table>
+    <div class="row"><button id="add">원 추가</button><select id="preset"></select><label><input id="guide" type="checkbox"> 격자·중심점</label></div>
+    <div class="hint">빈 곳 더블클릭: 추가 · 원 끌기: 이동 · 파란 점 끌기: 반지름 · Delete: 삭제 · 방향키: 0.5 이동(Shift 2) · Esc: 선택 해제.
+      원 색: '원 색 그대로'는 색 전부, 처음 방식은 색상만, OKLCH는 색상과 밝기를 쓴다.</div>
+
+    <h3>색 체계 &nbsp;<label><input type="radio" name="theme" value="light"> 라이트</label> <label><input type="radio" name="theme" value="dark"> 다크</label>
+      &nbsp;<select id="model"><option value="mix">원 색 그대로 (겹친 곳 = 사이 색)</option><option value="hsl">처음 방식 (HSL 빛 혼합)</option><option value="oklch">OKLCH (밝기 고르게)</option></select></h3>
+    <div class="knobs" id="knobs"></div>
+    <div class="hint" id="rule"></div>
+    <div class="row"><b id="fitinfo"></b></div>
+    <table class="mono" id="colors"></table>
+
+    <h3>저장</h3>
+    <div class="row"><label>아이콘 속 로고 크기 <input id="F" type="range" min="50" max="92"> <output id="Fv"></output>%</label>
+      <span class="hint">안전 영역 상한 92% (66/72dp)</span></div>
+    <div class="row"><button id="saveLight">SVG 저장 (라이트)</button><button id="saveDark">SVG 저장 (다크)</button>
+      <span class="hint">SVG는 작게 띄우면 겹친 곳 경계에 1픽셀 선이 생긴다. 작은 크기는 PNG로.</span></div>
+    <div class="row"><label>PNG <input id="pngSize" type="number" min="16" max="2048" value="512"> px</label>
+      <button id="pngLight">PNG 저장 (라이트)</button><button id="pngDark">PNG 저장 (다크)</button><span class="hint">배경 투명</span></div>
+    <div class="row"><button id="copy">JSON 복사</button><button id="apply">JSON 적용</button></div>
+    <textarea id="json" spellcheck="false"></textarea>
+  </div>
+</div>
+<script>
+const $ = id => document.getElementById(id);
+const board = $('board'), tbl = $('tbl');
+const NAMES = { light: '라이트', dark: '다크' };
+const round = v => Math.round(v * 10) / 10;
+
+// ── 색 공간: sRGB ↔ OKLab ──
+const hsl = (h, s, l) => { const a = s * Math.min(l, 1 - l), f = n => { const k = (n + h / 30) % 12; return l - a * Math.max(-1, Math.min(k - 3, 9 - k, 1)); }; return [f(0), f(8), f(4)]; };
+const lin = c => c <= 0.04045 ? c / 12.92 : ((c + 0.055) / 1.055) ** 2.4;
+const gam = c => c <= 0.0031308 ? 12.92 * c : 1.055 * c ** (1 / 2.4) - 0.055;
+function linToLab([r, g, b]) {
+  const [l, m, s] = [0.4122214708 * r + 0.5363325363 * g + 0.0514459929 * b, 0.2119034982 * r + 0.6806995451 * g + 0.1073969566 * b,
+    0.0883024619 * r + 0.2817188376 * g + 0.6299787005 * b].map(Math.cbrt);
+  return [0.2104542553 * l + 0.7936177850 * m - 0.0040720468 * s, 1.9779984951 * l - 2.4285922050 * m + 0.4505937099 * s,
+    0.0259040371 * l + 0.7827717662 * m - 0.8086757660 * s];
+}
+function labToLin(L, a, b) {
+  const [l, m, s] = [L + 0.3963377774 * a + 0.2158037573 * b, L - 0.1055613458 * a - 0.0638541728 * b, L - 0.0894841775 * a - 1.2914855480 * b].map(v => v ** 3);
+  return [4.0767416621 * l - 3.3077115913 * m + 0.2309699292 * s, -1.2684380046 * l + 2.6097574011 * m - 0.3413193965 * s,
+    -0.0041960863 * l - 0.7034186147 * m + 1.7076147010 * s];
+}
+const hexToRgb = h => [1, 3, 5].map(i => parseInt(h.slice(i, i + 2), 16) / 255);
+const hexToLin = h => hexToRgb(h).map(lin);
+const gHex = rgb => '#' + rgb.map(v => Math.round(Math.min(1, Math.max(0, v)) * 255).toString(16).padStart(2, '0')).join('');
+const linToHex = rgb => gHex(rgb.map(v => gam(Math.min(1, Math.max(0, v)))));
+const hueOf = ([r, g, b]) => { const mx = Math.max(r, g, b), d = mx - Math.min(r, g, b); return !d ? 0 : 60 * (mx === r ? ((g - b) / d + 6) % 6 : mx === g ? (b - r) / d + 2 : (r - g) / d + 4); };
+function oklch(L, C, h) { // sRGB 밖이면 색상·밝기는 두고 채도만 경계까지 줄인다
+  const rgb = c => labToLin(L, c * Math.cos(h), c * Math.sin(h)), inside = c => rgb(c).every(v => v >= -1e-4 && v <= 1 + 1e-4);
+  if (!inside(C)) { let lo = 0, hi = C; for (let i = 0; i < 30; i++) { const m = (lo + hi) / 2; if (inside(m)) lo = m; else hi = m; } C = lo; }
+  return linToHex(rgb(C));
+}
+const lum = h => { const [r, g, b] = hexToLin(h); return 0.2126 * r + 0.7152 * g + 0.0722 * b; };
+const contrast = (x, y) => { const [a, b] = [lum(x), lum(y)].sort((p, q) => q - p); return (a + 0.05) / (b + 0.05); };
+const source = hex => ({ lin: hexToLin(hex), lab: linToLab(hexToLin(hex)), hh: hueOf(hexToRgb(hex)) });
+
+// ── 색 규칙 ── light: 대비를 맞출 때 옮기는 값, darker: 그 값이 커질 때 어두워지면 +1
+const MODELS = {
+  mix: {
+    light: 'tint', darker: 1,
+    knobs: [['tint', '원 색 농도', 0.1, 1, 0.01, 2], ['mL', '겹칠 때마다 밝기', -0.15, 0.15, 0.005, 3], ['mC', '겹칠 때마다 채도', -0.1, 0.1, 0.005, 3]],
+    rule: '원 = 고른 색을 농도만큼 칠한 색(1 = 그대로, 낮추면 흰색 쪽으로 옅어져 파스텔). 겹친 곳 = 원 색들의 OKLab 평균' +
+      '(색상환에서 두 색 사이 색), 원이 하나 더 겹칠 때마다 밝기·채도가 위 값만큼 바뀐다.',
+  },
+  hsl: { // 처음 편집기의 빛 혼합
+    light: 'hL', darker: -1,
+    knobs: [['hS', '채도', 0, 1, 0.01, 2], ['hL', '명도', 0.3, 0.95, 0.005, 3], ['hD', '겹칠 때마다 어두워짐', 0, 0.15, 0.005, 3]],
+    rule: '원 = HSL(원 색의 색상, 채도, 명도). 겹친 곳 색상 = 원색(HSL 채도 1·명도 .5)의 합, 섞일수록 옅어지고(빨강+초록+파랑은 회색) ' +
+      '원이 하나 더 겹칠 때마다 명도가 위 값만큼 낮아진다.',
+  },
+  oklch: {
+    light: 'L', darker: -1,
+    knobs: [['L', '원 평균 밝기', 0.3, 0.95, 0.005, 3], ['k', '원래 밝기 차이 남김', 0, 1, 0.05, 2], ['C', '채도', 0, 0.25, 0.005, 3],
+      ['dL', '겹칠 때마다 밝기', -0.15, 0.15, 0.005, 3], ['dC', '겹칠 때마다 채도', -0.1, 0.1, 0.005, 3]],
+    rule: '원 밝기 = 평균 밝기 + 남김 비율 × (원 색의 밝기 − 원들의 평균). 겹친 곳 색상 = 원 색들의 OKLab 평균, ' +
+      '밝기·채도는 원이 하나 더 겹칠 때마다 위 값만큼 바뀐다.',
+  },
+};
+const MIN_C_KNOB = ['minC', '최소 대비 (0 = 끔)', 0, 4.5, 0.1, 1];
+function color(s, src, t) { // s: 원 묶음, src: 원마다 source(원 색), t: 테마
+  if (t.model === 'mix') {
+    const tinted = s.map(i => src[i].lin.map(v => 1 - t.tint * (1 - v))); // 빛 세기에서 흰색 쪽으로 옅게
+    if (s.length === 1) return linToHex(tinted[0]);
+    const labs = tinted.map(linToLab), [L, a, b] = [0, 1, 2].map(k => labs.reduce((p, q) => p + q[k], 0) / labs.length);
+    return oklch(L + t.mL * (s.length - 1), Math.hypot(a, b) + t.mC * (s.length - 1), Math.atan2(b, a));
+  }
+  if (t.model === 'hsl') {
+    const sum = [0, 0, 0];
+    for (const i of s) hsl(src[i].hh, 1, 0.5).forEach((v, k) => sum[k] += v);
+    const mx = Math.max(...sum), d = mx - Math.min(...sum);
+    return gHex(hsl(hueOf(sum), t.hS * d / mx, t.hL - t.hD * (s.length - 1)));
+  }
+  const mean = src.reduce((a, p) => a + p.lab[0], 0) / src.length;
+  const h = Math.atan2(s.reduce((a, i) => a + src[i].lab[2], 0), s.reduce((a, i) => a + src[i].lab[1], 0)); // OKLab 평균의 색상각
+  const L = s.reduce((a, i) => a + t.L + t.k * (src[i].lab[0] - mean), 0) / s.length;
+  return oklch(L + t.dL * (s.length - 1), t.C + t.dC * (s.length - 1), h);
+}
+const minContrast = (sets, src, t) => Math.min(...sets.map(s => contrast(color(s, src, t), t.bg)));
+function fit(sets, src, t) { // 모든 영역이 최소 대비를 넘도록 밝기 값을 필요한 만큼만 옮긴다 (밝은 배경 → 어둡게)
+  const md = MODELS[t.model], key = md.light;
+  if (!t.minC || !sets.length || minContrast(sets, src, t) >= t.minC) return t;
+  const [, , lo, hi] = md.knobs.find(k => k[0] === key), darkEnd = md.darker > 0 ? hi : lo;
+  let good = lum(t.bg) > 0.18 ? darkEnd : lo + hi - darkEnd, bad = t[key];
+  for (let i = 0; i < 30; i++) { const m = (good + bad) / 2; if (minContrast(sets, src, { ...t, [key]: m }) >= t.minC) good = m; else bad = m; }
+  return { ...t, [key]: good };
+}
+
+// ── 겹친 영역: 공통 부분이 있는 원 묶음마다 그 영역을 칠한다 ──
+function cross([x1, y1, r1], [x2, y2, r2]) {
+  const d = Math.hypot(x2 - x1, y2 - y1);
+  if (!d || d > r1 + r2 || d < Math.abs(r1 - r2)) return [];
+  const a = (r1 * r1 - r2 * r2 + d * d) / (2 * d), h = Math.sqrt(Math.max(0, r1 * r1 - a * a));
+  const mx = x1 + a * (x2 - x1) / d, my = y1 + a * (y2 - y1) / d, ux = (x2 - x1) / d, uy = (y2 - y1) / d;
+  return [[mx + h * uy, my - h * ux], [mx - h * uy, my + h * ux]];
+}
+// 원판들의 공통 부분이 비어 있지 않으면, 그 안에 어떤 원의 중심이나 두 원 경계의 교점이 있다
+function meets(s, c) {
+  const inAll = p => s.every(i => Math.hypot(p[0] - c[i][0], p[1] - c[i][1]) <= c[i][2] + 1e-6);
+  return s.some(i => inAll(c[i])) || s.some((i, a) => s.slice(a + 1).some(j => cross(c[i], c[j]).some(inAll)));
+}
+{ // 자체 확인: 둘씩은 겹쳐도 셋의 공통 부분은 없을 수 있다
+  const tri = t => [[0, 0, 1], [t, 0, 1], [t / 2, t * Math.sqrt(3) / 2, 1]];
+  if (meets([0, 1, 2], tri(1.9)) || !meets([0, 1, 2], tri(1.6))) throw new Error('meets() self-check failed');
+}
+function regionsOf(c) { // 작은 묶음부터: 더 많이 겹친 영역이 위에 칠해진다
+  let level = c.map((_, i) => [i]), sets = [...level];
+  while (level.length) {
+    level = level.flatMap(s => c.map((_, j) => j).filter(j => j > s.at(-1)).map(j => [...s, j])).filter(s => meets(s, c));
+    sets.push(...level);
+  }
+  return sets;
+}
+let uid = 0;
+function paint(c, sets, src, t) {
+  const id = 'u' + uid++, circ = ([x, y, r], fill = '') => `<circle cx="${x}" cy="${y}" r="${r}"${fill && ` fill="${fill}"`}/>`;
+  return `<defs>${c.map((k, i) => `<clipPath id="${id}_${i}">${circ(k)}</clipPath>`).join('')}</defs>` +
+    sets.map(s => s.slice(0, -1).reduce((inner, i) => `<g clip-path="url(#${id}_${i})">${inner}</g>`, circ(c[s.at(-1)], color(s, src, t)))).join('');
+}
+const svgOf = (m, t, viewBox, px) => `<svg xmlns="http://www.w3.org/2000/svg" viewBox="${viewBox}" width="${px}" height="${px}">${paint(m.c, m.sets, m.src, t)}</svg>`;
+// 픽셀마다 어느 원들 안인지 보고 그 영역 색을 칠한다. 원 경계에 걸린 픽셀만 4×4로 나눠 평균.
+// 벡터로 덧칠하면 위 원의 가장자리와 겹친 곳 가장자리가 같은 자리라 아래 색이 1픽셀 선으로 비치는데, 여기선 생기지 않는다.
+const DPR = Math.min(2, window.devicePixelRatio || 1);
+function raster(cv, m, t, viewBox, n, transparent = false) {
+  cv.width = cv.height = n;
+  const [vx, vy, vw] = viewBox.split(' ').map(Number), u = vw / n, c = m.c;
+  const ctx = cv.getContext('2d'), img = ctx.createImageData(n, n), px = img.data, bg = hexToRgb(t.bg).map(v => v * 255), cache = new Map();
+  const rgb = mask => {
+    if (!cache.has(mask)) cache.set(mask, hexToRgb(color(c.map((_, i) => i).filter(i => mask >> i & 1), m.src, t)).map(v => v * 255));
+    return cache.get(mask);
+  };
+  const maskAt = (x, y) => c.reduce((k, [cx, cy, r], i) => (x - cx) ** 2 + (y - cy) ** 2 <= r * r ? k | 1 << i : k, 0);
+  for (let j = 0; j < n; j++) for (let i = 0; i < n; i++) {
+    const x = vx + (i + 0.5) * u, y = vy + (j + 0.5) * u;
+    const S = c.some(([cx, cy, r]) => Math.abs(Math.hypot(x - cx, y - cy) - r) < u) ? 4 : 1, N = S * S;
+    let r = 0, g = 0, b = 0, a = 0;
+    for (let sj = 0; sj < S; sj++) for (let si = 0; si < S; si++) {
+      const k = maskAt(vx + (i + (si + 0.5) / S) * u, vy + (j + (sj + 0.5) / S) * u);
+      if (k) { const v = rgb(k); r += v[0]; g += v[1]; b += v[2]; a++; }
+    }
+    const o = (j * n + i) * 4;
+    if (transparent) { if (a) { px[o] = r / a; px[o + 1] = g / a; px[o + 2] = b / a; } px[o + 3] = 255 * a / N; }
+    else { px[o] = (r + bg[0] * (N - a)) / N; px[o + 1] = (g + bg[1] * (N - a)) / N; px[o + 2] = (b + bg[2] * (N - a)) / N; px[o + 3] = 255; }
+  }
+  ctx.putImageData(img, 0, 0);
+}
+function frame(c, fill) { // 원들 가운데 정사각형 viewBox, 로고 외접원 지름 = 변 × fill
+  if (!c.length) return '0 0 100 100';
+  const ext = (k, s) => c.map(q => q[k] + s * q[2]);
+  const cx = (Math.min(...ext(0, -1)) + Math.max(...ext(0, 1))) / 2, cy = (Math.min(...ext(1, -1)) + Math.max(...ext(1, 1))) / 2;
+  const h = Math.max(...c.map(q => Math.hypot(q[0] - cx, q[1] - cy) + q[2])) / fill;
+  return `${cx - h} ${cy - h} ${2 * h} ${2 * h}`;
+}
+
+// ── 상태 ── 원: [x, y, 반지름, 원 색], 판은 100×100
+const hx = list => list.map(([x, y, r, h]) => [x, y, r, gHex(hsl(h, 1, 0.5))]); // HSL 색상각 → 그 색상의 가장 진한 색
+const RING6 = [[37, 36, 17], [50, 16, 21], [74, 22, 21], [80, 48, 21], [68, 72, 21], [43, 79, 17.5]];
+// CMY 색상환: 노랑·청록·자홍 = 받은 인쇄 원색, 빨강·초록·파랑 = 그 둘씩 100% 겹친 색으로 흔히 쓰이는 화면 값(출처 미확인)
+const CMY_WHEEL = ['#ed1c24', '#fff200', '#00a651', '#00aeef', '#2e3192', '#ec008c']; // 빨강 노랑 초록 청록 파랑 자홍
+// 구글식 파스텔: 구글 로고 4색(OKLCH 측정: 빨강·초록·파랑 L≈0.63 C≈0.18, 노랑 L 0.83 C 0.17 h 84°)의 규칙
+// '노랑 말고는 밝기를 같게, 노랑은 더 밝게 하되 호박색 쪽으로'를 따르고, 밝기 +0.08·채도 ×0.7로 파스텔 쪽으로 옮김(직접 정한 값).
+// 색상은 CMY 색상환을 따르되 노랑만 구글의 84°. 흰 배경 대비: 노랑 1.54, 나머지 2.41~2.69 (구글 1.71, 3.06~3.92)
+const GOOGLE_PASTEL = ['#e88277', '#f8ca68', '#60b97a', '#40afe6', '#8c9cf2', '#e080a7']; // 빨강 노랑 초록 청록 파랑 자홍
+const PRESETS = {
+  'HEARSPACE 로고 (최종, 2026-10-30 확정)': RING6.map((k, i) => [...k, GOOGLE_PASTEL[i]]),
+  'HEARSPACE 로고 (CMY 색상환)': RING6.map((k, i) => [...k, CMY_WHEEL[i]]),
+  'HEARSPACE 로고 (RGB, 처음 색)': hx(RING6.map((k, i) => [...k, i * 60])),
+  '내 10개': hx([[42, 42, 11, 0], [37, 28, 14, 30], [44, 14, 15, 60], [60, 10, 16, 90], [74, 20, 16, 120], [81, 36, 16, 160],
+    [78, 53, 15, 200], [70, 68, 14, 240], [55, 77, 15, 280], [41, 68, 12, 320]]),
+  '원 3개': hx([[44, 30, 20, 0], [66, 46, 20, 120], [50, 72, 14, 240]]),
+  '원 6개 고리 (처음 시안)': hx([[40, 36, 13, 0], [50, 16, 16, 60], [74, 22, 16, 120], [80, 48, 16, 180], [68, 72, 16, 240], [46, 78, 14, 300]]),
+  '빈 판': [],
+};
+const KEY = 'hearspace-logo-editor-v6';
+let st = {
+  circles: PRESETS['HEARSPACE 로고 (최종, 2026-10-30 확정)'].map(k => [...k]),
+  themes: { // 다크 bg = Material 다크 표면색. 라이트 hS·hL·hD = 마지막으로 만지신 값, 나머지는 직접 정한 시작값
+    light: { model: 'mix', bg: '#ffffff', tint: 1, mL: -0.04, mC: 0.03, hS: 0.95, hL: 0.665, hD: 0.1, L: 0.82, k: 0, C: 0.11, dL: -0.04, dC: 0.03, minC: 0 },
+    dark: { model: 'oklch', bg: '#121212', tint: 1, mL: 0.08, mC: 0, hS: 0.9, hL: 0.6, hD: 0.02, L: 0.72, k: 0.35, C: 0.11, dL: 0.08, dC: 0, minC: 3 },
+  },
+  active: 'light', F: 85, guide: true,
+};
+try { const v = JSON.parse(localStorage.getItem(KEY)); if (v?.circles && v?.themes) st = { ...st, ...v, themes: { light: { ...st.themes.light, ...v.themes.light }, dark: { ...st.themes.dark, ...v.themes.dark } } }; } catch {}
+let sel = -1, drag = null;
+const knobsOf = t => [...MODELS[t.model].knobs, MIN_C_KNOB]; // [키, 이름, 최소, 최대, 간격, 소수 자리]
+
+// ── 화면 ──
+function model() {
+  const c = st.circles, sets = regionsOf(c), src = c.map(k => source(k[3]));
+  const fitted = Object.fromEntries(Object.entries(st.themes).map(([n, t]) => [n, fit(sets, src, t)]));
+  return { c, sets, src, fitted };
+}
+const toJson = () => `{"circles": [\n${st.circles.map(k => '  ' + JSON.stringify(k)).join(',\n')}\n],\n"themes": {\n` +
+  Object.entries(st.themes).map(([n, t]) => `  "${n}": ${JSON.stringify(t)}`).join(',\n') + `\n},\n"F": ${st.F}}`;
+function draw() {
+  const m = model(), { c, sets, src } = m, t = m.fitted[st.active], raw = st.themes[st.active], k = c[sel];
+  const grid = `<path d="${[...Array(13)].map((_, i) => `M${i * 10 - 10} -10V110M-10 ${i * 10 - 10}H110`).join('')}" stroke="#8883" stroke-width="0.3"/>` +
+    '<rect width="100" height="100" fill="none" stroke="#8886" stroke-width="0.4"/>';
+  raster($('boardCv'), m, t, board.getAttribute('viewBox'), Math.round(520 * DPR));
+  board.innerHTML = (st.guide ? grid + c.map(([x, y]) => `<circle cx="${x}" cy="${y}" r="0.6" fill="#8889"/>`).join('') : '') +
+    (k ? `<circle cx="${k[0]}" cy="${k[1]}" r="${k[2]}" fill="none" stroke="#1e88e5" stroke-width="0.4" stroke-dasharray="1.2 0.8"/>` +
+         `<circle cx="${k[0] + k[2]}" cy="${k[1]}" r="1.5" fill="#1e88e5"/>` : '');
+  const cv = (n, view, css) => `<canvas data-theme="${n}" data-view="${view}" data-css="${css}" style="width:${css}px;height:${css}px"></canvas>`;
+  $('previews').innerHTML = Object.entries(m.fitted).map(([n, ft]) =>
+    `<div class="theme" style="background:${ft.bg};color:${lum(ft.bg) > 0.18 ? '#222' : '#ddd'}"><b>${NAMES[n]}</b>${cv(n, frame(c, 1), 200)}` +
+    `<div class="icons">${[96, 48].map(px => `<div class="icon" style="width:${px}px;height:${px}px;background:${ft.bg}">${cv(n, frame(c, st.F / 100), px)}</div>`).join('')}</div>` +
+    `<span>최소 대비 ${sets.length ? minContrast(sets, src, ft).toFixed(2) : '-'}</span></div>`).join('');
+  for (const el of $('previews').querySelectorAll('canvas')) raster(el, m, m.fitted[el.dataset.theme], el.dataset.view, Math.round(el.dataset.css * DPR));
+  $('count').textContent = `원 ${c.length}개`;
+  c.forEach((_, i) => { const sw = tbl.querySelector(`tr[data-i="${i}"] .sw`); if (sw) sw.style.background = color([i], src, t); });
+  for (const [key, , , , , dp] of knobsOf(raw)) $('o_' + key).textContent = (+raw[key]).toFixed(dp);
+  $('Fv').textContent = st.F;
+  const lk = MODELS[raw.model].light;
+  $('fitinfo').textContent = !sets.length ? '' : `${NAMES[st.active]} 최소 대비 ${minContrast(sets, src, t).toFixed(2)}` +
+    (t[lk] !== raw[lk] ? ` · 대비 ${raw.minC}을 넘기려고 ${lk} 값을 ${raw[lk]} → ${t[lk].toFixed(3)}로 옮김` : '');
+  $('colors').innerHTML = '<tr><th></th><th>영역</th><th>색</th><th>배경 대비</th></tr>' + sets.map(s => {
+    const h = color(s, src, t);
+    return `<tr><td><span class="sw" style="background:${h}"></span></td><td>${s.map(i => i + 1).join('+')}</td><td>${h}</td><td>${contrast(h, t.bg).toFixed(2)}</td></tr>`;
+  }).join('');
+  if (document.activeElement !== $('json')) $('json').value = toJson();
+  try { localStorage.setItem(KEY, JSON.stringify(st)); } catch {}
+}
+function table() {
+  tbl.innerHTML = '<tr><th>#</th><th>그려진 색</th><th>x</th><th>y</th><th>반지름</th><th>원 색</th><th></th></tr>' +
+    st.circles.map((k, i) => `<tr data-i="${i}"${i === sel ? ' class="sel"' : ''}><td>${i + 1}</td><td><span class="sw"></span></td>` +
+      [0, 1, 2].map(f => `<td><input type="number" step="0.5" data-f="${f}" value="${k[f]}"></td>`).join('') +
+      `<td><input type="color" data-f="3" value="${k[3]}"> ${k[3]}</td><td><button data-del title="삭제">✕</button></td></tr>`).join('');
+  draw();
+}
+function syncRow(i) {
+  const tr = tbl.querySelector(`tr[data-i="${i}"]`);
+  if (tr) for (const inp of tr.querySelectorAll('input')) if (inp !== document.activeElement) inp.value = st.circles[i][inp.dataset.f];
+}
+function select(i) {
+  sel = i;
+  for (const tr of tbl.querySelectorAll('tr[data-i]')) tr.classList.toggle('sel', +tr.dataset.i === i);
+  draw();
+}
+function add(x = 50, y = 50) {
+  st.circles.push([round(x), round(y), 12, st.circles.at(-1)?.[3] ?? CMY_WHEEL[0]]);
+  sel = st.circles.length - 1;
+  table();
+}
+function remove(i) { st.circles.splice(i, 1); sel = -1; table(); }
+function controls() {
+  const t = st.themes[st.active];
+  $('knobs').innerHTML = knobsOf(t).map(([key, name, lo, hi, step]) =>
+    `<label for="k_${key}">${name}</label><input id="k_${key}" data-k="${key}" type="range" min="${lo}" max="${hi}" step="${step}" value="${t[key]}"><output id="o_${key}"></output>`).join('') +
+    `<label for="k_bg">배경색</label><input id="k_bg" type="color" value="${t.bg}"><span></span>`;
+  $('model').value = t.model;
+  $('rule').textContent = MODELS[t.model].rule + ' 최소 대비를 못 넘으면 밝기 값을 필요한 만큼만 옮긴다(WCAG 그래픽 기준 3).';
+  for (const r of document.querySelectorAll('[name=theme]')) r.checked = r.value === st.active;
+  $('guide').checked = st.guide;
+  $('F').value = st.F;
+}
+
+// ── 판 위 조작 ──
+const pt = e => { const p = new DOMPoint(e.clientX, e.clientY).matrixTransform(board.getScreenCTM().inverse()); return [p.x, p.y]; };
+board.addEventListener('pointerdown', e => {
+  document.activeElement?.blur();
+  const [px, py] = pt(e), c = st.circles, k = c[sel];
+  if (k && Math.hypot(px - k[0] - k[2], py - k[1]) < 2.5) drag = { resize: true };
+  else { // 겹친 곳을 누르면 선택된 원 우선, 아니면 가장 작은 원
+    const hit = c.map((_, i) => i).filter(i => Math.hypot(px - c[i][0], py - c[i][1]) <= c[i][2]);
+    const i = hit.includes(sel) ? sel : hit.sort((a, b) => c[a][2] - c[b][2])[0] ?? -1;
+    select(i);
+    if (i < 0) return;
+    drag = { dx: px - c[i][0], dy: py - c[i][1] };
+  }
+  board.setPointerCapture(e.pointerId);
+});
+board.addEventListener('pointermove', e => {
+  if (!drag) return;
+  const [px, py] = pt(e), k = st.circles[sel];
+  if (drag.resize) k[2] = Math.max(0.5, round(Math.hypot(px - k[0], py - k[1])));
+  else { k[0] = round(px - drag.dx); k[1] = round(py - drag.dy); }
+  syncRow(sel);
+  draw();
+});
+board.addEventListener('pointerup', () => drag = null);
+board.addEventListener('dblclick', e => {
+  const [px, py] = pt(e);
+  if (!st.circles.some(k => Math.hypot(px - k[0], py - k[1]) <= k[2])) add(px, py);
+});
+document.addEventListener('keydown', e => {
+  if (e.target.matches('input, textarea, select') || !st.circles[sel]) return;
+  const k = st.circles[sel], s = e.shiftKey ? 2 : 0.5;
+  const mv = { ArrowLeft: [-s, 0], ArrowRight: [s, 0], ArrowUp: [0, -s], ArrowDown: [0, s] }[e.key];
+  if (mv) { k[0] = round(k[0] + mv[0]); k[1] = round(k[1] + mv[1]); syncRow(sel); draw(); e.preventDefault(); }
+  else if (e.key === 'Delete' || e.key === 'Backspace') remove(sel);
+  else if (e.key === 'Escape') select(-1);
+});
+
+// ── 표·설정 ──
+tbl.addEventListener('input', e => {
+  const i = +e.target.closest('tr').dataset.i, f = +e.target.dataset.f;
+  if (f === 3) st.circles[i][3] = e.target.value;
+  else {
+    const v = parseFloat(e.target.value);
+    if (!Number.isFinite(v)) return;
+    st.circles[i][f] = f === 2 ? Math.max(0.5, v) : v;
+  }
+  syncRow(i);
+  select(i);
+});
+tbl.addEventListener('change', e => { if (+e.target.dataset.f === 3) table(); }); // 원 색 옆 HEX 글자 갱신
+tbl.addEventListener('focusin', e => { const tr = e.target.closest('tr[data-i]'); if (tr && +tr.dataset.i !== sel) select(+tr.dataset.i); });
+tbl.addEventListener('click', e => { if (e.target.hasAttribute('data-del')) remove(+e.target.closest('tr').dataset.i); });
+$('add').onclick = () => add();
+$('preset').innerHTML = '<option value="">원 배치 불러오기…</option>' + Object.keys(PRESETS).map(n => `<option>${n}</option>`).join('');
+$('preset').onchange = e => { if (!e.target.value) return; st.circles = PRESETS[e.target.value].map(k => [...k]); e.target.value = ''; sel = -1; table(); };
+$('knobs').oninput = e => { const t = st.themes[st.active]; if (e.target.id === 'k_bg') t.bg = e.target.value; else t[e.target.dataset.k] = +e.target.value; draw(); };
+$('model').onchange = e => { st.themes[st.active].model = e.target.value; controls(); draw(); };
+for (const r of document.querySelectorAll('[name=theme]')) r.onchange = () => { st.active = r.value; controls(); draw(); };
+$('guide').onchange = () => { st.guide = $('guide').checked; draw(); };
+$('F').oninput = () => { st.F = +$('F').value; draw(); };
+const save = n => {
+  const m = model(), a = document.createElement('a');
+  a.href = URL.createObjectURL(new Blob([svgOf(m, m.fitted[n], frame(m.c, 1), 1024)], { type: 'image/svg+xml' }));
+  a.download = `hearspace-logo-${n}.svg`;
+  a.click();
+};
+$('saveLight').onclick = () => save('light');
+$('saveDark').onclick = () => save('dark');
+const savePng = n => {
+  const m = model(), cv = document.createElement('canvas'), size = Math.max(16, Math.min(2048, Math.round(+$('pngSize').value) || 512));
+  raster(cv, m, m.fitted[n], frame(m.c, 1), size, true);
+  cv.toBlob(b => { const a = document.createElement('a'); a.href = URL.createObjectURL(b); a.download = `hearspace-logo-${n}-${size}.png`; a.click(); });
+};
+$('pngLight').onclick = () => savePng('light');
+$('pngDark').onclick = () => savePng('dark');
+$('copy').onclick = () => { $('json').select(); navigator.clipboard ? navigator.clipboard.writeText($('json').value) : document.execCommand('copy'); };
+$('apply').onclick = () => {
+  try {
+    const v = JSON.parse($('json').value);
+    const ok = k => Array.isArray(k) && k.length === 4 && k.slice(0, 3).every(Number.isFinite) && (Number.isFinite(k[3]) || /^#[0-9a-f]{6}$/i.test(k[3]));
+    if (!Array.isArray(v.circles) || !v.circles.every(ok)) throw 0;
+    st.circles = v.circles.map(([x, y, r, c]) => [x, y, r, typeof c === 'number' ? gHex(hsl(c, 1, 0.5)) : c.toLowerCase()]); // 예전 JSON은 HSL 색상각
+    for (const n of Object.keys(NAMES)) Object.assign(st.themes[n], v.themes?.[n]);
+    if (!v.themes && v.S) Object.assign(st.themes.light, { model: 'hsl', hS: v.S / 100, hL: v.L / 100, hD: v.D / 100 }); // 예전 색 설정
+    if (v.F) st.F = v.F;
+    sel = -1;
+    controls();
+    table();
+  } catch { alert('JSON 형식이 맞지 않아요: {"circles": [[x, y, 반지름, "#rrggbb"], ...], "themes": {...}}'); }
+};
+controls();
+table();
+</script>

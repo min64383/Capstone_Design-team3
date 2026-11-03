@@ -13,6 +13,7 @@ import hearspace.core.session.PoseEvent
 import hearspace.core.session.SessionReader
 import hearspace.core.types.Config
 import hearspace.core.types.DepthFrame
+import hearspace.core.types.DepthSource
 import hearspace.core.types.GuidanceOutput
 import hearspace.core.types.ObstacleSnapshot
 import hearspace.core.types.PoseFrame
@@ -85,6 +86,10 @@ class OfflineReplay(
     private val alignFrom: String = "",
     /** RGB 안내 보정에 붙일 RGB 원천(M19). */
     private val rgbSource: RgbSource = RgbSource.RECORDED,
+    /** 학습형 깊이 장(M37, `<변형>/<full|fill>`). null이면 쓰지 않음(앱과 같음). */
+    private val depthFrom: String? = null,
+    /** 학습형 장을 내보내기까지 기다리는 시간(ns, 기기에서 잰 모델 시간). */
+    private val depthFromDelayNs: Long = 0L,
 ) {
 
     /** 마지막 [run]에서 세션을 읽으며 건너뛴 항목(없는·손상된 파일, 잘린 마지막 줄 등, [SessionReader.warnings]). */
@@ -97,7 +102,8 @@ class OfflineReplay(
      * 모든 출력을 쓴 뒤에 완료 표시 `replay_done`을 남긴다. 예외로 끝나면 기록 파일은 닫지만 표시는 남기지 않는다(A1 FA9).
      */
     fun run(session: File, outDir: File, overridesJson: String = "{}", slowPathNote: String = "") {
-        RunLogWriter(outDir, session, overridesJson, slowPathNote, substitution?.infoJson(alignFrom), rgbSource.name).use { log ->
+        val depthFromJson = depthFrom?.let { "{ \"variant\": \"$it\", \"delayMs\": ${depthFromDelayNs / 1_000_000.0} }" }
+        RunLogWriter(outDir, session, overridesJson, slowPathNote, substitution?.infoJson(alignFrom), rgbSource.name, depthFromJson).use { log ->
             val truth = File(session, "annotations/obstacles.json").isFile
             run(session, if (truth) MapEvalWriter(ClusterEvalWriter(log, outDir, session, config, substitution?.align), outDir, session, config, align = substitution?.align, alignFile = alignFrom.takeIf { it.isNotBlank() }?.let(::File)) else log)
         }
@@ -166,7 +172,12 @@ class OfflineReplay(
             }
         }
 
-        val events = reader.events(config.depth.source).map { e ->
+        val learned = depthFrom?.let {
+            require(config.depth.source == DepthSource.RAW) { "depthFrom은 원시 장을 바꾼다: depth.source RAW가 필요" }
+            val (v, o) = it.split('/').also { p -> require(p.size == 2) { "depthFrom=<변형>/<full|fill>: $it" } }
+            SessionReader.Learned(session, v, o, depthFromDelayNs)
+        }
+        val events = reader.events(config.depth.source, learned).map { e ->
             when (e) {
                 is PoseEvent -> sysOf.getValue(e.frameIndex) to e
                 is DepthEvent -> sysOf.getValue(e.frameIndex) to e

@@ -15,6 +15,7 @@ import kotlin.math.roundToInt
  * 정답 대입 재생(M12.3 원인 분해, 평가 전용, IMPROVE_SPEC §9.2): 처리 단계의 출력을 정답으로 바꿔 넣어, 그 단계까지의 오차가
  * 사라진 안내를 얻는다. 앱 설정이 아니라 재생 인자(`substitute=`)로만 켠다.
  * - [depth]: 깊이 영상을 [TruthDepth]로(D). [depthNoisePerM] > 0이면 무작위 잡음만 더한다(Dn).
+ * - [depthMasked]: 입력 장에서 값이 있는 화소만 정답으로(M37 0단계). 측정 화소의 오차와 빈 화소의 몫을 가른다.
  * - [map]: 지도(바닥 추정·복셀 점유)를 정답 상자로 채운 고정 지도로(O). 통로·가장자리 규칙·군집·대표점·추적은 그대로 돈다.
  * - [heading]: 앱 진행 방향을 보행선 ±z 중 가까운 쪽으로(H, 지표의 정답 진행 방향과 같은 규칙).
  * - [floor]: 느린 경로가 요소 분해·통로·높이 분류에 쓰는 바닥 높이를 정렬의 바닥으로(F*, M35 전제 확인). TRISTATE는 지도 갱신이 바닥을 쓰지 않아
@@ -29,12 +30,21 @@ class Substitution(
     val map: Boolean = false,
     val heading: Boolean = false,
     val floor: Boolean = false,
+    val depthMasked: Boolean = false,
 ) {
+    init {
+        require(!(depth && depthMasked)) { "depth and depthMasked are exclusive" }
+    }
+
     /** 보행선 +z의 월드 방향(수평 단위). */
     private val walkW = align.toWorldDir(Vec3(0f, 0f, 1f))
 
     /** 깊이 대입. 끄면 그대로. */
-    fun depthOf(d: DepthFrame): DepthFrame = if (depth) TruthDepth.render(d, truth.obstacles, align, depthNoisePerM) else d
+    fun depthOf(d: DepthFrame): DepthFrame = when {
+        depth -> TruthDepth.render(d, truth.obstacles, align, depthNoisePerM)
+        depthMasked -> TruthDepth.renderMasked(d, truth.obstacles, align)
+        else -> d
+    }
 
     /** 진행 방향 대입(H): 앱 진행 방향과 같은 쪽의 보행선 방향. 끄면 null(대입 없음). */
     fun headingSnap(): ((Vec3) -> Vec3)? = if (!heading) null else { h -> if ((h dot walkW) >= 0f) walkW else -walkW }
@@ -47,7 +57,10 @@ class Substitution(
 
     /** `replay_info.json`에 남길 내용(분석 도구가 같은 정렬을 읽는다). */
     fun infoJson(alignFrom: String): String {
-        val on = listOfNotNull("depth".takeIf { depth }, "map".takeIf { map }, "heading".takeIf { heading }, "floor".takeIf { floor })
+        val on = listOfNotNull(
+            "depth".takeIf { depth }, "depthMasked".takeIf { depthMasked }, "map".takeIf { map }, "heading".takeIf { heading },
+            "floor".takeIf { floor },
+        )
         return "{ \"substitute\": [${on.joinToString { "\"$it\"" }}], \"depthNoisePerM\": $depthNoisePerM, " +
             "\"alignFrom\": \"${alignFrom.replace("\\", "/")}\" }"
     }
@@ -109,6 +122,17 @@ object TruthDepth {
             mm[v * k.width + u] = min((z * 1000f).roundToInt(), 65535).toShort()
         }
         return d.copy(depthMm = mm, confidence = null, source = "truth")
+    }
+
+    /**
+     * 입력 장에서 값이 있는 화소에만 정답 깊이, 나머지는 0(M37 0단계). 신뢰도는 입력 그대로 두어 지도의 신뢰도 거름
+     * (`depth.minConfidence`)도 입력과 같은 화소를 버린다. 정답 광선이 아무것도 맞지 않는 화소는 [render]처럼 0이다.
+     */
+    fun renderMasked(d: DepthFrame, obstacles: List<TruthObstacle>, align: Alignment): DepthFrame {
+        val t = render(d, obstacles, align)
+        val mm = t.depthMm
+        for (i in mm.indices) if (d.depthMm[i].toInt() == 0) mm[i] = 0
+        return t.copy(confidence = d.confidence, source = "truth_masked")
     }
 
     /** 광선과 축 정렬 상자의 첫 교차 t(앞쪽), 없으면 null(합성 `Box.intersect`와 같은 slab 계산). */

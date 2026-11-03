@@ -163,4 +163,23 @@ class TriStateMapTest {
         map.insert(Vec3(0f, 1f, -2f), 1L)
         assertTrue(map.freeCenters().isEmpty())
     }
+
+    /** M37: 학습형 화소는 재서 준 σ_L이 있어야 하고(없으면 멈춤), 출처마다 자기 σ를 쓴다. */
+    @Test
+    fun `learned pixels need a measured sigma and each pixel source uses its own sigma`() {
+        val o = """{ "map": { "mode": "TRISTATE", "triSameFrame": true, "triWeight": "SIGMA" }, "depth": { "source": "RAW" },
+            "frontend": { "enabled": false, "rgbGuide": "NONE" } }"""
+        val unset = ConfigLoader.load(base, o)
+        val f = Scenes.SC01.generate().frames.first { it.depth != null }
+        val d = f.depth!!.let { it.copy(pixelSource = ByteArray(it.depthMm.size) { hearspace.core.types.DepthFrame.PIXEL_LEARNED.toByte() }) }
+        org.junit.jupiter.api.assertThrows<IllegalStateException> { LocalMap(unset).update(d, d.worldFromCam.translation(), f.truthHead.headingW) }
+
+        val set = ConfigLoader.load(base, listOf(o, """{ "depth": { "learnedSigma0M": 0.01, "learnedSigmaPerM2": 0.02 } }"""))
+        LocalMap(set).update(d, d.worldFromCam.translation(), f.truthHead.headingW) // 재서 주면 돈다
+        val c = set.depth
+        val z = 2f
+        assertEquals(0.01f + 0.02f * z * z, c.sigmaM(true, z, hearspace.core.types.DepthFrame.PIXEL_LEARNED, null, 100f), 1e-6f)
+        assertEquals(c.sigmaM(false, z), c.sigmaM(true, z, hearspace.core.types.DepthFrame.PIXEL_SMOOTHED_FILL, null, 100f), 1e-6f)
+        assertEquals(c.sigmaM(true, z), c.sigmaM(true, z, hearspace.core.types.DepthFrame.PIXEL_MEASURED, null, 100f), 1e-6f)
+    }
 }

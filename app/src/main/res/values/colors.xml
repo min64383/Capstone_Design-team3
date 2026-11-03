@@ -1,0 +1,27 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- 화면 색 역할(M45, docs/ui/ui-mockup.html §1). 색상은 로고 원에서, 밝기는 배경 대비 목표(괄호)를 넘도록 계산(OKLCH).
+     라이트 값. 다크는 values-night. 작동 화면(run_*)은 늘 검은 배경이라 여기에만 둔다. -->
+<resources>
+    <color name="bg">#FFFFFF</color>
+    <color name="text">#25262D</color>      <!-- 15.1 -->
+    <color name="text2">#575860</color>     <!-- 7.1 -->
+    <color name="primary">#007FB0</color>   <!-- 4.5, 로고 청록 -->
+
+    <color name="run_bg">#000000</color>    <!-- MVP §11.2 검은 배경(배터리) -->
+    <color name="run_text">#FFFFFF</color>  <!-- 21 -->
+    <color name="run_text2">#B3B3B3</color> <!-- 10.0 -->
+    <color name="run_outline">#5F6167</color> <!-- 3.0, 설정 단추 테두리 -->
+    <color name="run_guide">#439ECC</color> <!-- 7.0, 안내 중 점, 로고 청록 -->
+    <color name="run_caution">#EAB431</color> <!-- 11.1, 주의·확인 불가, 로고 노랑(호박색) -->
+    <color name="run_stop">#F26A5F</color>  <!-- 7.0, 멈춤, 로고 빨강 -->
+
+    <!-- 로고 다크 여섯 원(준비 중 고리) -->
+    <color name="logo_1">#DE867C</color>
+    <color name="logo_2">#D2AC5A</color>
+    <color name="logo_3">#6AB67F</color>
+    <color name="logo_4">#53ADDC</color>
+    <color name="logo_5">#8E9CE7</color>
+    <color name="logo_6">#D884A5</color>
+
+    <color name="icon_bg">#FFFFFF</color>   <!-- 앱 아이콘 배경 -->
+</resources>

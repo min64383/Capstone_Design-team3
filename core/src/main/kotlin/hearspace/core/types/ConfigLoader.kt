@@ -78,6 +78,9 @@ object ConfigLoader {
                     rawBiasPerM = float("rawBiasPerM"),
                     smoothedBias0M = float("smoothedBias0M"),
                     smoothedBiasPerM = float("smoothedBiasPerM"),
+                    learnedSigma0M = float("learnedSigma0M"),
+                    learnedSigmaPerM2 = nonNegative("learnedSigmaPerM2"),
+                    sensorUsage = enumValue<DepthSensorUsage>("sensorUsage"),
                 )
             },
             frontend = root.section("frontend") {
