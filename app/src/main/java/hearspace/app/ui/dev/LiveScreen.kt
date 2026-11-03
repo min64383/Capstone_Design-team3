@@ -69,7 +69,7 @@ class LiveScreen : Activity(), GLSurfaceView.Renderer {
         config = AppConfig.get(this)
         hrtf = loadHrtf(this)
         sessionDir = intent.getStringExtra(EXTRA_SESSION_DIR)?.let(::File)
-        ar = ArSessionManager(this, sessionDir?.let { File(it, SessionFormat.MP4_FILE) })
+        ar = ArSessionManager(this, sessionDir?.let { File(it, SessionFormat.MP4_FILE) }, config.depth.sensorUsage)
         feeder = ArFeeder(config, replay, drawCamera = true)
         thermal = ThermalMonitor(this)
         window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)

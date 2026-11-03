@@ -97,7 +97,7 @@ class RecordScreen : Activity(), GLSurfaceView.Renderer {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         config = AppConfig.get(this)
-        ar = ArSessionManager(this)
+        ar = ArSessionManager(this, sensorUsage = config.depth.sensorUsage)
         thermal = ThermalMonitor(this)
         window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
         buildLayout()
@@ -289,6 +289,7 @@ class RecordScreen : Activity(), GLSurfaceView.Renderer {
                 FrameAdapter.toIntrinsics(camera.textureIntrinsics),
                 displayRotationDeg(),
                 cc.fpsRange.lower, cc.fpsRange.upper,
+                depth.sensorUsed,
             ),
             gripOffsetM = req.gripOffsetM,
             elapsedMinusMonotonicNs = SystemClock.elapsedRealtimeNanos() - System.nanoTime(),
@@ -343,7 +344,8 @@ class RecordScreen : Activity(), GLSurfaceView.Renderer {
         sb.append('\n')
         sb.append("깊이 지원(F1): AUTOMATIC=").append(d?.automatic ?: "?")
             .append(" RAW=").append(d?.rawDepthOnly ?: "?")
-            .append(" → ").append(d?.modeUsed ?: "?").append('\n')
+            .append(" → ").append(d?.modeUsed ?: "?")
+            .append(" | 깊이 센서: ").append(d?.sensorUsed ?: "?").append('\n')
         val r = recorder
         if (r != null) {
             val st = r.stats()
@@ -390,7 +392,8 @@ class RecordScreen : Activity(), GLSurfaceView.Renderer {
         private const val UI_REFRESH_MS = 250L
 
         /** 부록 A 장면 ID. K01: M31 보정 녹화(IMPROVE_SPEC §11.2). */
-        val SCENE_IDS = listOf("S01", "S02", "S03", "S04", "S05", "S06", "S07", "S08", "S09", "S10", "T01", "K01")
+        /** O06 ToF 확인·O07 사람 다가오기·O08 보도 걷기는 M47 실외 녹화(IMPROVE_SPEC §11.3). */
+        val SCENE_IDS = listOf("S01", "S02", "S03", "S04", "S05", "S06", "S07", "S08", "S09", "S10", "T01", "K01", "O06", "O07", "O08")
 
         /** 세션 폴더의 부모: `<앱 전용 외부 저장소>/sessions` (§8.1). */
         fun sessionsRoot(activity: Activity): File = File(activity.getExternalFilesDir(null), "sessions")

@@ -111,6 +111,8 @@ data class DepthConfig(
      */
     val learnedSigma0M: Float = 0f,
     val learnedSigmaPerM2: Float = 0f,
+    /** ARCore 카메라 설정의 깊이 센서 사용(M47 ToF 확인). 앱 세션 생성에만 쓴다. */
+    val sensorUsage: DepthSensorUsage = DepthSensorUsage.AUTO,
 ) {
     /** [learnedSigma0M]·[learnedSigmaPerM2]가 재서 주어졌는지. */
     val learnedSigmaSet: Boolean get() = learnedSigma0M != 0f || learnedSigmaPerM2 != 0f

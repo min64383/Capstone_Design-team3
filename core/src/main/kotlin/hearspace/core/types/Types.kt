@@ -17,6 +17,12 @@ enum class HeightClass { FLOOR, BODY, HEAD }
 /** 느린 경로 입력으로 쓸 ARCore 깊이 종류(F6): 일반(평활·채움, 30 Hz) 또는 원시(+신뢰도, 10~30 Hz). */
 enum class DepthSource { SMOOTHED, RAW }
 
+/**
+ * ARCore 카메라 설정의 깊이 센서(ToF) 사용(M47, `depth.sensorUsage`). AUTO = 설정을 고르지 않음(ARCore 기본 선택, 지금 동작),
+ * DO_NOT_USE·REQUIRE_AND_USE = 그 깊이 센서 사용의 카메라 설정만 고른다. 앱 전용(재생은 쓰지 않음).
+ */
+enum class DepthSensorUsage { AUTO, DO_NOT_USE, REQUIRE_AND_USE }
+
 /** 깊이 영상 앞단 ③ 평면 추출(IMPROVE_SPEC §6.1.1 M13.1c): NONE = 안 함(기준선), RANSAC = 바닥·벽 평면. */
 enum class PlaneMode { NONE, RANSAC }
 

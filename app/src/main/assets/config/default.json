@@ -28,7 +28,8 @@
     "smoothedBias0M": 0.0,
     "smoothedBiasPerM": 0.0,
     "learnedSigma0M": 0.0,
-    "learnedSigmaPerM2": 0.0
+    "learnedSigmaPerM2": 0.0,
+    "sensorUsage": "AUTO"
   },
   "frontend": {
     "enabled": false,

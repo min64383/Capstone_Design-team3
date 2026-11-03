@@ -23,6 +23,9 @@ M30 오차 모델:
 M37 학습형 깊이: --model·--absolute에 [--sources SMOOTHED,RAW,L:<변형>/<full|fill>]. L:은 learned_depth.py가 쓴 장
 (learned_depth/<변형>/index.csv의 도착 행 자세, 원시와 같은 규약). fill은 채운 화소(src = 1)만, full은 전부(모두 학습형).
 
+M47 ToF 확인(O06, 정답 없음):
+    python depth_error.py <세션 폴더> [...] --tof   → 세션별 화면 가운데 원시 유효 화소율·신뢰도 중앙값, 거리 묶음별 읽기 규칙 판정
+
 M31 보정 녹화 K01(끝 벽까지 거리를 미리 정한 정지 세션):
     python depth_error.py <세션 폴더> [...] --absolute <출력 폴더> --runs <기준 재생 폴더>   → depth_absolute.json, depth_absolute.png
 - 면 상수를 빼지 않은 끝 벽 잔차 중앙값 = 그 거리의 절대 편향(원천·원시 신뢰도 4구간별). 같은 거리 세션끼리 차 = 세션 사이 편향.
@@ -432,6 +435,55 @@ def dup(sessions: list[Path], runs: Path) -> list[dict]:
     return out
 
 
+def tof_check(sessions: list[Path]) -> dict:
+    """M47 ToF 확인(IMPROVE_SPEC §11.3 O06): 벽 앞 정지 세션마다 화면 가운데(가로·세로 가운데 절반) 원시 깊이의 유효 화소율과 신뢰도 중앙값,
+    평활 깊이 중앙값(= 벽까지 대략 거리, 정답 없이 세션을 거리별로 묶는 데만 씀), meta의 깊이 센서 사용. 거리 묶음(평활 중앙값 반올림 m)마다
+    읽기 규칙: AUTO 쪽(meta REQUIRE_AND_USE)과 DO_NOT_USE의 평균 차가 같은 설정 두 반복 차의 큰 쪽보다 크면 그 묶음에서 차이 있음.
+    모든 묶음에서 차이 있고 방향이 같으면 '기여함', 하나도 없으면 '안 함', 아니면 '가를 수 없음'."""
+    rows = []
+    for s in sessions:
+        meta = json.loads((s / "meta.json").read_text(encoding="utf-8"))
+        usage = (meta.get("camera") or {}).get("depthSensorUsage")
+        fr = pd.read_csv(s / "frames.csv").drop_duplicates("tNs")
+        raw = fr.dropna(subset=["rawDepthFile"]).drop_duplicates("rawDepthTNs")
+        valid, conf, dist = [], [], []
+        for _, r in raw.iterrows():
+            d = np.asarray(Image.open(s / r.rawDepthFile)).astype(np.float32)
+            h, w = d.shape
+            sl = (slice(h // 4, 3 * h // 4), slice(w // 4, 3 * w // 4))
+            valid.append(float((d[sl] > 0).mean()))
+            if isinstance(r.get("confFile"), str):
+                conf.append(float(np.median(np.asarray(Image.open(s / r.confFile))[sl])))
+            if isinstance(r.get("depthFile"), str):
+                sm = np.asarray(Image.open(s / r.depthFile)).astype(np.float32)[sl] / 1000
+                dist.append(float(np.median(sm[sm > 0]))) if (sm > 0).any() else None
+        rows.append({"session": s.name, "usage": usage, "frames": len(raw), "validFraction": float(np.median(valid)) if valid else None,
+                     "confidenceMedian": float(np.median(conf)) if conf else None, "distanceM": float(np.median(dist)) if dist else None})
+    verdicts = {}
+    for metric in ("validFraction", "confidenceMedian"):
+        signs = []
+        bins = sorted({round(r["distanceM"]) for r in rows if r["distanceM"] is not None})
+        for b in bins:
+            grp = {u: [r[metric] for r in rows if r["distanceM"] is not None and round(r["distanceM"]) == b and r["usage"] == u and r[metric] is not None]
+                   for u in ("REQUIRE_AND_USE", "DO_NOT_USE")}
+            on, off = grp["REQUIRE_AND_USE"], grp["DO_NOT_USE"]
+            if len(on) < 2 or len(off) < 2:
+                signs.append(None)
+                continue
+            rep = max(abs(on[0] - on[1]), abs(off[0] - off[1]))
+            diff = float(np.mean(on) - np.mean(off))
+            signs.append(np.sign(diff) if abs(diff) > rep else 0.0)
+        if not signs or any(x is None for x in signs):
+            verdicts[metric] = "자료 부족(거리 묶음마다 설정별 2회 필요)"
+        elif all(x != 0 for x in signs) and len(set(signs)) == 1:
+            verdicts[metric] = "기여함(켬 " + ("높음" if signs[0] > 0 else "낮음") + ")"
+        elif all(x == 0 for x in signs):
+            verdicts[metric] = "안 함"
+        else:
+            verdicts[metric] = "가를 수 없음"
+    return {"rows": rows, "verdicts": verdicts}
+
+
 def main() -> None:
     ap = argparse.ArgumentParser()
     ap.add_argument("sessions", nargs="+", type=Path)
@@ -441,8 +493,15 @@ def main() -> None:
     ap.add_argument("--absolute", type=Path, help="M31 K01 절대 편향 출력 폴더")
     ap.add_argument("--runs", type=Path, help="기준 재생 폴더(<runs>/<세션ID>/align.json, slow_path.csv)")
     ap.add_argument("--sources", default="SMOOTHED,RAW", help="--model·--absolute 원천(M37: L:<변형>/<full|fill>)")
+    ap.add_argument("--tof", action="store_true", help="M47 ToF 확인: 화면 가운데 원시 유효 화소율·신뢰도(정답 없이)")
     a = ap.parse_args()
     sources = tuple(a.sources.split(","))
+    if a.tof:
+        res = tof_check(a.sessions)
+        for r in res["rows"]:
+            print(f"{r['session']}  {r['usage']}  거리 {r['distanceM']}  장 {r['frames']}  유효 {r['validFraction']}  신뢰도 {r['confidenceMedian']}")
+        print(res["verdicts"])
+        return
     if a.model:
         res = model(a.sessions, a.runs, a.model, sources)
         for key, g in res["groups"].items():
