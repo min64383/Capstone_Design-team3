@@ -24,6 +24,7 @@
 | 군집·추적 | `track.matchByOverlap` (T1) | M13.3 기본값 | true | M35 |
 | 군집·추적 | `track.reidLost` (M22 R) | M22 꺼진 옵션 | false | M35 |
 | 군집·추적 | `track.smallClusterVoxels` (M25 S) | M25 꺼진 옵션 | 0 | M35 |
+| 군집·추적 | `track.motion` NONE → KALMAN(정지·움직임 분해, 월드 칼만, 블록 시각 외삽·TTC STOP) | M48: 깊이 기하 움직임 판정 F(정지 물체 겉보기 속도 p99 4.47 m/s > 사람 0.34~0.68), 판정을 정답으로 바꾸면 합성 관문 SM-5 잡음 깊이만 실패, T 150338 진입 전 STOP(시작 속도 과대) | NONE | M49(비전 라벨이 판정)
 | 군집·추적 | `falsePositiveFilter.*`, `geometry.*` | 팀 코드, 판정 기록 없음 | 끔 | M35(팀과 상의) |
 | 진행 방향 | `heading.windowS` 1.0 → 2.0 | M18 기본값(문헌 값) | 2.0 | — |
 | 진행 방향 | `heading.cameraSigmaDeg` 0 → 2.3 (가중 결합) | M42 | 0 | 기본값 후보 아님(사용자, 2026-10-31): 팀원 회전 개선 뒤 비교 |

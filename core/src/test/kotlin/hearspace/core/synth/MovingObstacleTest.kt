@@ -47,13 +47,9 @@ class MovingObstacleTest {
     }
 
     private var useOracle = false
-    private var noisyReportOnly = false
-
-    /**
-     * 관문으로 판정하는 경우. SM-5 잡음 깊이(s = 1)만 보고만 한다: 사람이 상자 곁을 지날 때 막·번짐 칸이 사람 군집 밖에 남아 정지 지도로
-     * 들어간다(M48 결과의 남은 결함).
-     */
-    private fun gated(n: Noise) = !(noisyReportOnly && n.depthQuadK != 0f)
+    /** 모든 경우를 관문으로 판정한다(M48 결과 기준. 깊이 기하 판정 시험은 따로 `useOracle`로 보고만). */
+    @Suppress("UNUSED_PARAMETER")
+    private fun gated(n: Noise) = true
 
     private fun replay(spec: SceneSpec, extra: String = ""): List<Block> {
         val g = spec.walk.gripOffsetM
@@ -276,6 +272,6 @@ class MovingObstacleTest {
     @Test fun `ORACLE SM-1`() { useOracle = true; `SM-1 KALMAN - an oncoming person is stopped before 1 m with TTC at least 1 s`() }
     @Test fun `ORACLE SM-2`() { useOracle = true; `SM-2 KALMAN - user and person walk toward each other`() }
     @Test fun `ORACLE SM-3`() { useOracle = true; `SM-3 KALMAN - a person crossing 2 m ahead is not a STOP and leaves no lingering warning`() }
-    @Test fun `ORACLE SM-5`() { useOracle = true; noisyReportOnly = true; `SM-5 KALMAN - a person crossing just in front of a box does not take the box cells`() }
+    @Test fun `ORACLE SM-5`() { useOracle = true; `SM-5 KALMAN - a person crossing just in front of a box does not take the box cells`() }
     @Test fun `ORACLE SM-6`() { useOracle = true; `SM-6 KALMAN - a person who comes close and steps aside is stopped in time and leaves less lingering warning`() }
 }
