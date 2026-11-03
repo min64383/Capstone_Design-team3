@@ -615,6 +615,16 @@ def check_event_eval():
         assert res["falseAlarm"]["onsets"] == 2 and res["falseAlarm"]["falseOnsetS"] == [0.5], res["falseAlarm"]
         assert res["staticStop"]["n"] == 0 and res["validation"]["staticSpreadM"]["n"] == 3, res
         assert res["validation"]["met"] is True and res["heading"]["transition"]["n"] == 0, res["validation"]
+        # 정답 없는 경고(M48): 0.45~0.7 s에 먼 사람에게 낸 경고 세 블록(0.5·0.6·0.7 s, 블록 0.1 s) = 0.3 s, 한 구간
+        u = res["unexplainedWarn"]
+        assert abs(u["s"] - 0.3) < 1e-3 and len(u["segments"]) == 1 and u["stopS"] == 0, u
+        # 정답 시각 = 블록 시각(M48): 블록이 자세보다 170 ms 뒤면 사람이 0.22 m 더 와 있어, 자세 거리 1.0 m의 STOP은 진입 뒤(놓침)
+        g = pd.read_csv(run / "guidance.csv")
+        g["tBlockNs"] = g["poseTNs"] + 170_000_000
+        g.to_csv(run / "guidance.csv", index=False)
+        res = ev_compute(session, run)
+        (e,) = [x for x in res["events"] if x["kind"] == "moving"]
+        assert e["verdict"] == "missed" and abs(e["lateStopAlongM"] - (0.98 - 1.3 * 0.17)) < 0.06, e
 
 
 def check_depth_absolute():
