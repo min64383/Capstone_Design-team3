@@ -12,7 +12,10 @@ import hearspace.core.types.JsonValue
 import hearspace.core.types.MiniJson
 import java.io.File
 
-/** 클릭한 점이 놓인 수평면(IMPROVE_SPEC §9.5): FEET = 바닥면, HEAD = 바닥면 + 그 물체의 키. */
+/**
+ * 클릭한 점이 놓인 수평면(IMPROVE_SPEC §9.5): FEET = 바닥면, HEAD = 바닥면 + 그 물체의 몸 기준점 높이(`heightM`). 기준점은 허리를 쓴다
+ * (2026-11-02: 카메라 1.5 m에서 머리 끝은 0.2 m 위라 거리가 크게 틀림). 높이는 [ClickTruth.fitHeadPlaneY]로 같은 장 발 짝에 맞춘다.
+ */
 enum class ClickPlane { FEET, HEAD }
 
 /**
@@ -64,6 +67,33 @@ object ClickTruth {
 
     /** 클릭의 면 높이: FEET = [floorY], HEAD = [floorY] + 물체 키. */
     fun planeY(plane: ClickPlane, floorY: Float, heightM: Float) = if (plane == ClickPlane.HEAD) floorY + heightM else floorY
+
+    /**
+     * 같은 장에 누른 발·머리 끝 짝으로 머리 끝 면의 월드 높이를 맞춘다(M47, 2026-11-02 첫 주석에서). 카메라가 머리 끝과 높이가 비슷하면
+     * (가슴 높이 1.5 m, 키 1.7 m) 키·카메라 높이의 몇 cm 오차가 머리 끝 거리를 수십 cm 바꾸므로, 발 점(바닥면, 오차 작음)과 수평 위치가
+     * 같아지는 면을 찾는다. 짝 i마다 머리 끝 광선(원점 oᵢ, 방향 dᵢ)의 면 y = Y 교점 수평 위치는 oᵢ + dᵢ(Y − oᵢ.y)/dᵢ.y라 발 점 fᵢ와의
+     * 차가 Y의 1차식 rᵢ + cᵢY이고, Σ|rᵢ + cᵢY|²를 최소로 하는 Y = −Σcᵢ·rᵢ / Σcᵢ·cᵢ. [pairs]는 (발 세계 점, 머리 끝 화소의 세계 ←
+     * C_cv, u, v). 쓸 짝이 없으면 null.
+     */
+    fun fitHeadPlaneY(pairs: List<HeadPair>, k: Intrinsics): Float? {
+        var num = 0.0
+        var den = 0.0
+        for (p in pairs) {
+            val d = p.worldFromCam.transformDir(Vec3((p.u - k.cx) / k.fx, (p.v - k.cy) / k.fy, 1f))
+            if (kotlin.math.abs(d.y) < 1e-6f) continue
+            val o = p.worldFromCam.translation()
+            val cx = d.x / d.y
+            val cz = d.z / d.y
+            val rx = o.x - cx * o.y - p.feetW.x
+            val rz = o.z - cz * o.y - p.feetW.z
+            num += cx * rx + cz * rz
+            den += cx * cx + cz * cz
+        }
+        return if (den <= 0.0) null else (-num / den).toFloat()
+    }
+
+    /** [fitHeadPlaneY]의 짝 하나: 같은 장의 발 세계 점과 머리 끝 클릭. */
+    data class HeadPair(val feetW: Vec3, val worldFromCam: Mat4, val u: Float, val v: Float)
 
     fun load(file: File): ClickAnnotations {
         val root = MiniJson.parse(file.readText()) as? JsonObject ?: throw IllegalArgumentException("$file: not an object")

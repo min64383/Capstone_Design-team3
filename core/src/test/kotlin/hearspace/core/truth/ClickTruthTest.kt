@@ -57,6 +57,22 @@ class ClickTruthTest {
     }
 
     @Test
+    fun headPlaneFitMatchesFeet() {
+        // 카메라 1.5 m, 실제 머리 끝 1.67 m(입력한 키와 다름): 같은 장 발·머리 끝 짝으로 머리 끝 면 높이를 되찾는다
+        val floor = -1.3f
+        val truthHeadY = floor + 1.67f
+        val pairs = listOf(0f to 2.0f, 5f to 2.4f, -10f to 2.6f).map { (yaw, dist) ->
+            val cam = camera(1.5f, 5f, yaw, Vec3(0f, floor, 0f))
+            val fwd = cam.transformDir(Vec3(0f, 0f, 1f)).horizontal().normalized()
+            val feet = cam.translation().horizontal() + Vec3(0f, floor, 0f) + fwd * dist
+            val (u, v) = Projection.project(cam.rigidInverse().transformPoint(Vec3(feet.x, truthHeadY, feet.z)), k)!!
+            ClickTruth.HeadPair(feet, cam, u, v)
+        }
+        assertEquals(truthHeadY, ClickTruth.fitHeadPlaneY(pairs, k)!!, 1e-3f)
+        assertNull(ClickTruth.fitHeadPlaneY(emptyList(), k))
+    }
+
+    @Test
     fun planeHeightForHeadClick() {
         assertEquals(-1.4f + 1.72f, ClickTruth.planeY(ClickPlane.HEAD, -1.4f, 1.72f), 1e-6f)
         assertEquals(-1.4f, ClickTruth.planeY(ClickPlane.FEET, -1.4f, 1.72f), 1e-6f)

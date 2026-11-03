@@ -34,9 +34,9 @@ class ClickPanel(
     private val list = DefaultListModel<String>()
     private val jlist = JList(list).apply { selectionMode = ListSelectionModel.SINGLE_SELECTION }
     private val mode = JCheckBox("클릭 모드(카메라 화면을 누르면 고른 물체에 더함)")
-    private val plane = JComboBox(arrayOf("발(바닥면)", "머리 끝(키 높이 면)"))
+    private val plane = JComboBox(arrayOf("발(바닥면)", "허리(높이는 발 짝으로 맞춤)"))
     private val label = JTextField("person", 8)
-    private val heightBox = JTextField("1.70", 4)
+    private val heightBox = JTextField("1.00", 4)
     private val radius = JTextField("0.20", 4)
     private val added = JComboBox(arrayOf("blind", "review"))
     private val situation = JComboBox(arrayOf("-", "S1", "S2", "S3"))
@@ -47,7 +47,7 @@ class ClickPanel(
         border = BorderFactory.createEmptyBorder(6, 6, 6, 6)
         add(JPanel(GridLayout(0, 2, 4, 2)).apply {
             add(JLabel("이름")); add(label)
-            add(JLabel("키 m(움직임)")); add(heightBox)
+            add(JLabel("허리 높이 m(어림, 맞추면 바뀜)")); add(heightBox)
             add(JLabel("반지름 m(움직임)")); add(radius)
             add(JLabel("더한 단계")); add(added)
             add(JLabel("상황")); add(situation)
@@ -66,6 +66,7 @@ class ClickPanel(
             add(JButton("RGB 장 ▶ (→)").apply { addActionListener { step(1) } })
             add(JButton("마지막 클릭 지우기").apply { addActionListener { undo() } })
             add(JButton("물체 지우기").apply { addActionListener { removeObject() } })
+            add(JButton("허리 높이 맞추기(같은 장 발·허리 짝)").apply { addActionListener { fitHead() } })
             add(JLabel("바꿀 때마다 annotations/events.json에 저장"))
         }, BorderLayout.SOUTH)
     }
@@ -95,7 +96,11 @@ class ClickPanel(
         val row = r.rgbRowAt(vm.tNs) ?: return status("이 시각에 RGB 장이 없습니다")
         val o = vm.clicks.objects[i]
         val p = if (plane.selectedIndex == 1) ClickPlane.HEAD else ClickPlane.FEET
-        if (p == ClickPlane.HEAD && o.heightM <= 0f) return status("머리 끝 클릭에는 물체의 키가 필요합니다")
+        if (p == ClickPlane.HEAD && o.heightM <= 0f) return status("허리 클릭에는 어림 허리 높이가 필요합니다(맞추면 바뀜)")
+        val k0 = r.reader.meta.camera.imageIntrinsics
+        // 발이 화면 끝에 걸리면 끝 화소를 누르게 돼 실제보다 멀게 나온다(2026-11-02 첫 주석: 1.9 m로 고정): 받지 않는다
+        if (p == ClickPlane.FEET && (u < EDGE_PX || v < EDGE_PX || u > k0.width - EDGE_PX || v > k0.height - EDGE_PX))
+            return status("발이 화면 끝(${EDGE_PX.toInt()} px 안)에 걸렸습니다. 발이 다 보이지 않으면 허리를 누르세요")
         val fileFloor = fallback.text.trim().toFloatOrNull()
         val (floorY, from) = r.rgbFloorAt(row.tNs)?.let { it.toFloat() to "rgb" }
             ?: fileFloor?.let { it to "file" }
@@ -110,6 +115,48 @@ class ClickPanel(
         val cam = SessionReader.toPoseFrame(row).worldFromCam.translation()
         status(if (w == null) "광선이 면과 카메라 앞에서 만나지 않습니다(바닥 위쪽을 눌렀나요?)"
         else "%s 클릭 %d: 수평 거리 %.2f m, 바닥면 %s".format(o.id, clicks.size, (w - cam).horizontal().norm(), from))
+    }
+
+    /**
+     * 고른 사람의 같은 장 발·허리 짝으로 허리 면 높이를 맞추고(core `ClickTruth.fitHeadPlaneY`) 모든 허리 클릭을 다시 계산한다.
+     * 허리 높이는 몰라도 발(바닥면) 기준으로 맞춰진다. 높이 칸에는 맞춘 '바닥 위 허리 면 높이'가 들어간다.
+     */
+    private fun fitHead() {
+        val r = vm.result ?: return
+        val i = jlist.selectedIndex.takeIf { it >= 0 } ?: return status("사람을 고르세요")
+        val o = vm.clicks.objects[i]
+        val rows = r.reader.rows.associateBy { it.tNs }
+        val k = r.reader.meta.camera.imageIntrinsics
+        val byT = o.clicks.groupBy { it.tNs }
+        val pairs = byT.values.mapNotNull { cs ->
+            val feet = cs.firstOrNull { it.plane == ClickPlane.FEET }?.pointW ?: return@mapNotNull null
+            val head = cs.firstOrNull { it.plane == ClickPlane.HEAD } ?: return@mapNotNull null
+            val row = rows[head.tNs] ?: return@mapNotNull null
+            Triple(ClickTruth.HeadPair(feet, SessionReader.toPoseFrame(row).worldFromCam, head.u, head.v), head.floorY, feet)
+        }
+        if (pairs.size < 2) return status("같은 장에 발·허리를 둘 다 누른 짝이 2개 이상 필요합니다(지금 ${pairs.size}개)")
+        val y = ClickTruth.fitHeadPlaneY(pairs.map { it.first }, k) ?: return status("맞출 수 없습니다")
+        val h = y - pairs.map { it.second }.average().toFloat()
+        val clicks = o.clicks.map { c ->
+            if (c.plane != ClickPlane.HEAD) c else rows[c.tNs]?.let { row ->
+                c.copy(pointW = ClickTruth.planePoint(SessionReader.toPoseFrame(row).worldFromCam, k, c.u, c.v, ClickTruth.planeY(ClickPlane.HEAD, c.floorY, h)))
+            } ?: c
+        }
+        val fitted = o.copy(heightM = h, clicks = clicks)
+        replace(i, fitted)
+        // 맞춘 뒤 짝의 수평 차(같은 짝으로 맞춰 조금 낙관적)
+        val diffs = fitted.clicks.groupBy { it.tNs }.values.mapNotNull { cs ->
+            val f = cs.firstOrNull { it.plane == ClickPlane.FEET }?.pointW
+            val hd = cs.firstOrNull { it.plane == ClickPlane.HEAD }?.pointW
+            if (f == null || hd == null) null else (f - hd).horizontal().norm()
+        }.sorted()
+        heightBox.text = "%.3f".format(h)
+        status("%s 허리 면 높이 %.3f m(바닥 위, 어림 %.2f), 짝 %d개, 맞춘 뒤 차 최대 %.2f m".format(o.id, h, o.heightM, pairs.size, diffs.lastOrNull() ?: 0f))
+    }
+
+    companion object {
+        /** 발 클릭을 받지 않는 화면 가장자리 폭(px). 발이 잘리면 가장자리를 누르게 된다. */
+        const val EDGE_PX = 20f
     }
 
     private fun newObject(kind: String, shape: String) {
