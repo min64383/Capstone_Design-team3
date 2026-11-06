@@ -93,6 +93,7 @@
     "weightRefM": 2.0,
     "freeMarginRatio": 0.03,
     "hitWeighting": "DISTANCE",
+    "decayWeighting": "NONE",
     "tsdfTruncMinM": 0.1,
     "tsdfTruncPerM": 0.05,
     "tsdfMaxWeight": 12,

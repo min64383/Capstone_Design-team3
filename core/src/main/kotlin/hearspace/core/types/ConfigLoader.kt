@@ -155,6 +155,7 @@ object ConfigLoader {
                     weightRefM = positive("weightRefM"),
                     freeMarginRatio = nonNegative("freeMarginRatio"),
                     hitWeighting = enumValue<HitWeighting>("hitWeighting"),
+                    decayWeighting = enumValue<DecayWeighting>("decayWeighting"),
                     tsdfTruncMinM = positive("tsdfTruncMinM"),
                     tsdfTruncPerM = nonNegative("tsdfTruncPerM"),
                     tsdfMaxWeight = positive("tsdfMaxWeight"),
@@ -414,6 +415,9 @@ object ConfigLoader {
     private fun crossCheck(c: Config) {
         c.vision.movingLabels.firstOrNull { it !in c.vision.maxSpeedMps }?.let { throw ConfigException("vision.maxSpeedMps", "missing moving label $it") }
         if (c.corridor.judge == CorridorJudgeMode.LABEL && !c.vision.voxelLabels) throw ConfigException("corridor.judge", "LABEL requires vision.voxelLabels")
+        if (c.map.decayWeighting == DecayWeighting.CONFIDENCE && c.map.hitWeighting != HitWeighting.CONFIDENCE) {
+            throw ConfigException("map.decayWeighting", "CONFIDENCE requires map.hitWeighting CONFIDENCE")
+        }
         val p = c.policy
         val s = c.sonify
         if (s.minHistoryS > s.historyS) throw ConfigException("sonify", "minHistoryS must be <= historyS")

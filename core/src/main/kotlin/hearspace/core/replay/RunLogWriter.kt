@@ -41,6 +41,7 @@ class RunLogWriter(
     private var insertsOut: Writer? = null
     private var rolesOut: Writer? = null
     private var planeOut: Writer? = null
+    private var decaysOut: Writer? = null
     private var frameClustersOut: Writer? = null
     private val outDir = outDir
 
@@ -101,6 +102,10 @@ class RunLogWriter(
             }
             for (c in cs) w.line("${step.depth.tCaptureNs},${c.kind},${c.n},${c.centerW.x},${c.centerW.y},${c.centerW.z},${c.normalW.x},${c.normalW.y},${c.normalW.z},${c.thicknessM},${c.lengthM}")
         }
+        step.decayedVoxels?.let { v -> // M54 감쇠한 칸과 그 화소 신뢰도 구간(평가 전용)
+            val w = decaysOut ?: File(outDir, DECAYS_FILE).bufferedWriter().also { it.line("tCaptureNs,ix,iy,iz,cls"); decaysOut = it }
+            for (i in 0 until v.size / 4) w.line("${step.depth.tCaptureNs},${v[4 * i]},${v[4 * i + 1]},${v[4 * i + 2]},${v[4 * i + 3]}")
+        }
         step.insertedVoxels?.let { v ->
             val w = insertsOut ?: File(outDir, INSERTS_FILE).bufferedWriter().also { it.line("tCaptureNs,ix,iy,iz"); insertsOut = it }
             for (i in 0 until v.size / 3) w.line("${step.depth.tCaptureNs},${v[3 * i]},${v[3 * i + 1]},${v[3 * i + 2]}")
@@ -119,7 +124,7 @@ class RunLogWriter(
 
     /** 기록 파일을 모두 닫는다(여러 번 불러도 된다). */
     override fun close() {
-        listOfNotNull(slowOut, guidOut, obsOut, clusterOut, stageOut, planesOut, motionOut, geometryOut, m54Out, insertsOut, rolesOut, planeOut, frameClustersOut).forEach { it.close() }
+        listOfNotNull(slowOut, guidOut, obsOut, clusterOut, stageOut, planesOut, motionOut, geometryOut, m54Out, insertsOut, rolesOut, planeOut, frameClustersOut, decaysOut).forEach { it.close() }
     }
 
     private fun motionLine(m: hearspace.core.tracking.MotionDebug): String = listOf(
@@ -134,6 +139,7 @@ class RunLogWriter(
         const val INSERTS_FILE = "map_inserts.csv"
         const val ROLES_FILE = "map_roles.csv"
         const val FRAME_FLOOR_FILE = "frame_floor.csv"
+        const val DECAYS_FILE = "map_decays.csv"
         const val FRAME_CLUSTERS_FILE = "frame_clusters.csv"
         const val MOTION_HEADER = "tCaptureNs,id,candidate,moving,measX,measZ,posX,posZ,velX,velZ,posSigmaM,velSigmaMps,chi2,nMeasCells,votes,score," +
             "measTNs,labelVotes,labelScore,nRawPoints"

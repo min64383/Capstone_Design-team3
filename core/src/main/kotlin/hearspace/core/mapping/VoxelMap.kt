@@ -152,7 +152,14 @@ class VoxelMap(private val cfg: MapConfig) {
     /** 새 깊이 한 장을 시작한다. [insert]의 "한 장에 한 번" 판정에 쓴다. */
     fun beginFrame() {
         frame++
+        decayedVoxels.clear()
     }
+
+    /** true면 [decayFree]가 감쇠한 칸을 [decayedVoxels]에 모은다(M54 평가 전용). */
+    var collectDecays = false
+
+    /** 이번 장에 감쇠한 칸(ix, iy, iz, 그 칸을 비었다고 본 깊이 화소 번호 교차). */
+    val decayedVoxels = ArrayList<Int>()
 
     /**
      * 비바닥 점 하나를 관측으로 넣는다. [weight]는 관측 가중치([weight] 함수): LOG_ODDS와 HITS의 `hitWeighting` DISTANCE가 쓴다.
@@ -485,7 +492,8 @@ class VoxelMap(private val cfg: MapConfig) {
      * 현재 깊이 이미지로 빈 공간을 관측한 복셀을 감쇠한다. 이번 장에서 관측된 복셀은 건너뛴다.
      * [depthMm]은 이미 신뢰도 필터를 거친 깊이(0 = 무효). 돌려주는 값은 감쇠한 복셀 수.
      */
-    fun decayFree(depthMm: ShortArray, k: Intrinsics, camFromWorld: Mat4): Int {
+    /** [pixelWeight]: 깊이 화소 번호 → 감쇠 세기 배수(`map.decayWeighting` CONFIDENCE, HITS만). null이면 1. */
+    fun decayFree(depthMm: ShortArray, k: Intrinsics, camFromWorld: Mat4, pixelWeight: ((Int) -> Float)? = null): Int {
         if (tsdf) return updateTsdf(depthMm, k, camFromWorld)
         if (tristate) return 0 // 빈 증거는 광선이 쌓는다([insertRay])
         var decayed = 0
@@ -502,7 +510,11 @@ class VoxelMap(private val cfg: MapConfig) {
                 if (v.logOdds <= cfg.logMin) it.remove()
                 continue
             }
-            v.score -= cfg.decayPerObservation
+            val px = if (pixelWeight != null || collectDecays) pixelIndex(pCv, k) else -1
+            v.score -= cfg.decayPerObservation * (pixelWeight?.invoke(px) ?: 1f)
+            if (collectDecays) {
+                decayedVoxels += ix(key); decayedVoxels += iy(key); decayedVoxels += iz(key); decayedVoxels += px
+            }
             if (cfg.freeEvidenceDecay > 0f) v.currentEvidence = max(0f, v.currentEvidence - cfg.freeEvidenceDecay)
             decayed++
             if (v.score <= 0f) it.remove()
@@ -516,6 +528,10 @@ class VoxelMap(private val cfg: MapConfig) {
      */
     fun cellView(centerW: Vec3, hitThisFrame: Boolean, depthMm: ShortArray, k: Intrinsics, camFromWorld: Mat4): CellView =
         if (hitThisFrame) CellView.HIT else sight(camFromWorld.transformPoint(centerW), depthMm, k)
+
+    /** [sight]와 같은 반올림으로 칸이 투영되는 깊이 화소 번호(시야 안이라고 가정). */
+    private fun pixelIndex(pCv: Vec3, k: Intrinsics): Int =
+        (k.fy * pCv.y / pCv.z + k.cy).roundToInt() * k.width + (k.fx * pCv.x / pCv.z + k.cx).roundToInt()
 
     /** 카메라 좌표 [pCv]의 칸이 이 깊이 장에서 어떻게 보이는가(관측 여부 제외). 빈 공간 여유는 지도 방식마다 다르다. */
     private fun sight(pCv: Vec3, depthMm: ShortArray, k: Intrinsics): CellView {

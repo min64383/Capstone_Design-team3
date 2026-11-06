@@ -359,6 +359,8 @@ data class MapConfig(
     val triViewRangeLn: Float,
     /** RV 묶음 경계 시선각 α(도): 칸에서 본 시선 방향이 묶음 첫 관측과 이만큼 이상 다르면 새 묶음. 40° = 상관이 0 근처인 것을 확인한 각(M39, 작은 각은 측정 부족). */
     val triViewAngleDeg: Float,
+    /** 빈 곳 감쇠 세기([DecayWeighting], M54). */
+    val decayWeighting: DecayWeighting = DecayWeighting.NONE,
 )
 
 /** 바닥 추정 설정. */

@@ -123,7 +123,7 @@ class LocalMap(private val config: Config) {
         val planes = if (config.frontend.planes == PlaneMode.RANSAC) PlaneDetector.detect(pts, camW, config.frontend, config.map.radiusM) else null
         // M54: 라벨·원시 장(과거 값, 나이 한도 안)과 점마다 원시 신뢰도(지도·바닥 무게), 움직이는 라벨 여부(사람 원천)
         val labels54 = if (m54MovableRaw) freshLabels(depth) else null
-        val raw54 = if (m54ConfWeights || m54FloorWeights || config.vision.voxelLabels) freshRaw(depth) else null
+        val raw54 = if (m54ConfWeights || m54FloorWeights || config.vision.voxelLabels || collectInserted) freshRaw(depth) else null
         val rawCamFromWorld = raw54?.worldFromCam?.rigidInverse()
         val confOf = if (raw54 == null) null else IntArray(n) { i -> rawConfidenceAt(raw54, rawCamFromWorld, Vec3(pts[3 * i], pts[3 * i + 1], pts[3 * i + 2])) }
         val floorWeights = if (m54FloorWeights) FloatArray(n) { i -> config.depth.floorConfidenceWeights[config.depth.confidenceClass(confOf?.get(i) ?: 0)] } else null
@@ -199,7 +199,28 @@ class LocalMap(private val config: Config) {
             commitLabels()
             lastVotedLabelTNs = labelsForVotes!!.tCaptureNs
         }
-        val nDecayed = voxels.decayFree(if (labels54 != null) withoutMovable(depthMm, depth, labels54) else depthMm, depth.K, depth.worldFromCam.rigidInverse())
+        // 감쇠 무게(M54 결과 검토): 그 칸을 비었다고 본 화소의 원시 신뢰도 구간 = 표와 같은 규칙(원시 없음·나이 초과면 원시 없음 구간)
+        val pixCls = if (m54DecayWeights || collectInserted) IntArray(depthMm.size) { -1 } else null
+        fun clsAt(px: Int): Int {
+            val c = pixCls!![px]
+            if (c >= 0) return c
+            val z = (depthMm[px].toInt() and 0xFFFF) / 1000f
+            val k = depth.K
+            val pW = depth.worldFromCam.transformPoint(Vec3((px % k.width - k.cx) / k.fx * z, (px / k.width - k.cy) / k.fy * z, z))
+            return config.depth.confidenceClass(rawConfidenceAt(raw54, rawCamFromWorld, pW)).also { pixCls[px] = it }
+        }
+        voxels.collectDecays = collectInserted
+        val nDecayed = voxels.decayFree(
+            if (labels54 != null) withoutMovable(depthMm, depth, labels54) else depthMm, depth.K, depth.worldFromCam.rigidInverse(),
+            if (m54DecayWeights) { px -> config.depth.mapConfidenceWeights[clsAt(px)] } else null,
+        )
+        decayTrace.clear()
+        if (collectInserted) {
+            val d = voxels.decayedVoxels
+            for (j in 0 until d.size / 4) {
+                decayTrace += d[4 * j]; decayTrace += d[4 * j + 1]; decayTrace += d[4 * j + 2]; decayTrace += clsAt(d[4 * j + 3])
+            }
+        }
         val pruned = voxels.prune(userPosW, headingW, depth.tCaptureNs)
         return MapUpdate(
             depth.tCaptureNs, n, nFloor, nBelow, nInserted, nDecayed, pruned, voxels.size, floor.floorY, MapHealth.OK, planes, segments, null,
@@ -390,6 +411,7 @@ class LocalMap(private val config: Config) {
 
     private val m54MovableRaw = config.vision.movableDepth == hearspace.core.types.MovableDepth.RAW
     private val m54ConfWeights = config.map.hitWeighting == hearspace.core.types.HitWeighting.CONFIDENCE
+    private val m54DecayWeights = config.map.decayWeighting == hearspace.core.types.DecayWeighting.CONFIDENCE
     private val m54FloorWeights = config.floor.weighting == hearspace.core.types.FloorWeighting.CONFIDENCE
     private val movingPixels = config.vision.movingLabels.map { it.pixel }.toSet()
     private val maxAgeNs = config.vision.maxLabelAgeMs * 1_000_000L
@@ -405,6 +427,9 @@ class LocalMap(private val config: Config) {
     /** true면 [update]가 이번 장에 지도에 넣은 칸 번호(ix, iy, iz 교차)를 [insertedVoxels]에 모은다(M54 평가 `-PmapInserts=true`). */
     var collectInserted = false
     val insertedVoxels = ArrayList<Int>()
+
+    /** [collectInserted]일 때 이번 장에 감쇠한 칸과 그 칸을 비었다고 본 화소의 신뢰도 구간(ix, iy, iz, 구간 교차; 0 = 원시 없음). */
+    val decayTrace = ArrayList<Int>()
 
     /** 칸 라벨 표(M54 3.5절): 이번 장에 지도에 넣은 점의 칸마다 라벨 값 수. 새 라벨 영상일 때만 장 끝에 칸마다 가장 많은 라벨로 한 표. */
     private val frameLabels = HashMap<Long, IntArray>()
@@ -466,7 +491,7 @@ class LocalMap(private val config: Config) {
     }
 
     /** M54 옵션 중 하나라도 켰는지(기록 파일 `m54.csv`). */
-    val m54On = m54MovableRaw || m54ConfWeights || m54FloorWeights || config.frontend.labelBandPx > 0 || config.vision.voxelLabels
+    val m54On = m54MovableRaw || m54ConfWeights || m54FloorWeights || config.frontend.labelBandPx > 0 || config.vision.voxelLabels || m54DecayWeights
 
     private var bandField: hearspace.core.frontend.LabelBand.Field? = null
     private var lastMovableRawTNs = Long.MIN_VALUE

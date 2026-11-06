@@ -52,6 +52,8 @@ class SlowStep(
     val framePlane: hearspace.core.mapping.FramePlane? = null,
     /** 프레임 군집 법선(M54, 칸 역할 기록 장에서만). */
     val frameClusters: List<hearspace.core.mapping.FrameCluster>? = null,
+    /** 이번 장에 감쇠한 칸과 그 화소 신뢰도 구간(ix, iy, iz, 구간 교차). [OfflineReplay.mapInserts]일 때만. */
+    val decayedVoxels: IntArray? = null,
 )
 
 /** [OfflineReplay] 결과를 받는 쪽: 실행 로그 파일([RunLogWriter]) 또는 평가 GUI의 메모리 수집. */
@@ -180,6 +182,7 @@ class OfflineReplay(
                 slow.lastClusters, slow.lastUserPosW, if (substitution?.map == true) null else slow.map.lastDepthMm, free, slow.lastMotionDebug,
                 if (slow.map.m54On) intArrayOf(slow.map.lastBandRemoved, slow.map.lastMovableExcluded, slow.map.lastMovableRawInserted) else null,
                 if (mapInserts) slow.map.insertedVoxels.toIntArray() else null,
+                if (mapInserts) slow.map.decayTrace.toIntArray() else null,
                 if (config.vision.voxelLabels) slow.map.lastFramePlane else null,
                 if (roleDump && voxels != null) hearspace.core.mapping.FrameRecords.clusters(
                     voxels, d.worldFromCam.translation(), config.map.radiusM, config.cluster.epsM, config.cluster.minSamples,
@@ -195,7 +198,7 @@ class OfflineReplay(
                 val applied = resetAfterNs == j.resetMark
                 if (applied) snapshot = j.snapshot
                 listener.onSlowStep(
-                    SlowStep(j.depth, j.startNs, j.doneNs, j.snapshot, j.mapUpdate, j.clusterDebug, j.stageNs, applied, j.voxels, j.clusters, j.userPosW, j.mapDepthMm, j.free, j.motion, j.m54Counts, j.inserted, j.framePlane, j.frameClusters),
+                    SlowStep(j.depth, j.startNs, j.doneNs, j.snapshot, j.mapUpdate, j.clusterDebug, j.stageNs, applied, j.voxels, j.clusters, j.userPosW, j.mapDepthMm, j.free, j.motion, j.m54Counts, j.inserted, j.framePlane, j.frameClusters, j.decayed),
                 )
                 startIfIdle(j.doneNs)
             }
@@ -282,6 +285,7 @@ class OfflineReplay(
         val motion: List<hearspace.core.tracking.MotionDebug>,
         val m54Counts: IntArray?,
         val inserted: IntArray?,
+        val decayed: IntArray?,
         val framePlane: hearspace.core.mapping.FramePlane?,
         val frameClusters: List<hearspace.core.mapping.FrameCluster>?,
     )

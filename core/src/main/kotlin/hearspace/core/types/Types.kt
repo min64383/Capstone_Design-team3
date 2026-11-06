@@ -93,6 +93,13 @@ enum class MapMode { HITS, LOG_ODDS, TSDF, TRISTATE }
 enum class HitWeighting { NONE, DISTANCE, CONFIDENCE }
 
 /**
+ * HITS 빈 곳 감쇠 한 번의 세기(M54 결과 검토, 사용자 제안): NONE = `map.decayPerObservation` 그대로(기준선), CONFIDENCE = 그 칸을 비었다고 본
+ * 깊이 화소의 원시 신뢰도 구간 지도 무게(`depth.mapConfidenceWeights`)를 곱함. 점유 격자에서 차지·빈 증거는 같은 센서 모형에서 나오므로(Thrun 2005)
+ * 표에 신뢰도 무게를 주면 감쇠에도 같은 무게를 준다. `map.hitWeighting` CONFIDENCE일 때만.
+ */
+enum class DecayWeighting { NONE, CONFIDENCE }
+
+/**
  * 지도에 넣는 사람·차량(`vision.movingLabels`) 라벨 화소의 깊이 원천(M54): SMOOTHED = 평활 화소 그대로(기준선), RAW = 평활 화소는 지도·빈 곳 감쇠에서
  * 빼고(후보 세기용 이번 장 점에는 남김) 새 원시 장의 같은 라벨 원시 점(신뢰도 ≥ `vision.movableRawMinConfidence`)을 넣는다.
  */
