@@ -578,7 +578,18 @@ def sigma_table(vertical: list[tuple[Path, bool]], floor: list[Path], person: li
     for j in range(nd):
         e = pdf.e[pdb == j]
         mov.append(round(float(1.4826 * (e - e.median()).abs().median()), 3) if len(e) >= 200 else None)
-    return {"distEdgesM": DIST_EDGES, "confClasses": [c for c, _ in classes], "sigmaRefM": sigma_ref, "table": table, "movableRawMinConf30": mov}
+    # 사용자 결정(2026-11-06, 재생 전): 거리를 나누지 않고 그 자리 원시 신뢰도 구간만으로 — 면 종류마다 1~5 m 합친 σ, 무게 =
+    # (가장 정확한 구간(≥ 128)의 σ / 그 구간 σ)²를 [지금 거리 무게의 반경 끝 값, 1]로 자름. 지도(바닥 위 칸)는 그 밖의 정지 면 표, 바닥 히스토그램은 바닥 표
+    w_min = (cfg["map"]["weightRefM"] / cfg["map"]["radiusM"]) ** 2
+    pooled_w = {}
+    for kname, df in kinds.items():
+        d = df[(df.dist >= DIST_EDGES[0]) & (df.dist < DIST_EDGES[-1]) & df.r.notna()]
+        sig = {cname: float(1.4826 * d.r[f(d.conf)].median()) for cname, f in classes}
+        pooled_w[kname] = {"sigmaM": {c: round(s, 3) for c, s in sig.items()},
+                           "weight": {c: round(min(1.0, max(w_min, (sig["128-255"] / s) ** 2)), 2) for c, s in sig.items()},
+                           "pixelShare": {cname: round(float(f(d.conf).mean()), 3) for cname, f in classes}}
+    return {"distEdgesM": DIST_EDGES, "confClasses": [c for c, _ in classes], "sigmaRefM": sigma_ref, "table": table, "movableRawMinConf30": mov,
+            "confidenceOnly": pooled_w, "weightMin": round(w_min, 3)}
 
 
 def main(args: list[str]) -> None:
