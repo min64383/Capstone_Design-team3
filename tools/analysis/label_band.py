@@ -597,8 +597,9 @@ BLOCK_S, BOOT = 0.5, 2000
 
 
 def _spread_series(session: Path, run: Path) -> pd.DataFrame:
-    """사람 둘레 퍼짐 몫(설계 5장): 장마다 지도에 넣은 칸(`map_inserts.csv`) 중 그 장 시각의 클릭 정답 중심에서 수평 1.0 m 안이고 바닥 위 0~2 m인 칸에서
-    0.3~1.0 m 고리에 든 몫. 정답 중심이 카메라에서 3.5 m 안인 장만, 1 m 안 칸이 5개 이상인 장만."""
+    """사람 둘레 퍼짐(설계 5장): 장마다 지도에 넣은 칸(`map_inserts.csv`) 중 그 장 시각의 클릭 정답 중심에서 수평 1.0 m 안이고 바닥 위 0~2 m인 칸.
+    정답 중심이 카메라에서 3.5 m 안인 장만. ring = 0.3~1.0 m 고리 칸 수(판정 지표, 결과 뒤 사용자 승인), total = 그 장에 넣은 칸 전체 수,
+    share = 고리 몫(처음 지표, 1 m 안 칸이 5개 이상인 장만, 아니면 NaN)."""
     ins = pd.read_csv(run / "map_inserts.csv")
     cfg = load_config(run)
     vs = cfg["map"]["voxelSizeM"]
@@ -624,9 +625,8 @@ def _spread_series(session: Path, run: Path) -> pd.DataFrame:
         z = (g.iz.to_numpy() + 0.5) * vs
         r = np.hypot(x - pos[0], z - pos[1])
         m = (r <= SPREAD_OUT_M) & (y >= floor_y) & (y <= floor_y + 2.0)
-        if m.sum() < 5:
-            continue
-        rows.append({"t": tn / 1e9, "share": float((r[m] >= SPREAD_IN_M).mean()), "n": int(m.sum())})
+        ring = int((m & (r >= SPREAD_IN_M)).sum())
+        rows.append({"t": tn / 1e9, "share": float((r[m] >= SPREAD_IN_M).mean()) if m.sum() >= 5 else np.nan, "n": int(m.sum()), "ring": ring, "total": int(len(g))})
     return pd.DataFrame(rows)
 
 
@@ -643,13 +643,21 @@ def main_spread(args: list[str]) -> None:
         j = a.merge(b, on="t", suffixes=("0", "1"))
         if j.empty:
             continue
+        counts = {"framesAll": len(j), "ringMedianBase": float(j.ring0.median()), "ringMedianVariant": float(j.ring1.median()),
+                  "totalMedianBase": float(j.total0.median()), "totalMedianVariant": float(j.total1.median()),
+                  "ringBase": int(j.ring0.sum()), "ringVariant": int(j.ring1.sum()), "totalBase": int(j.total0.sum()), "totalVariant": int(j.total1.sum())}
+        j = j.dropna(subset=["share0", "share1"])
+        if j.empty:
+            out[s.name] = counts
+            print(s.name, counts, flush=True)
+            continue
         blk = np.floor((j.t - j.t.min()) / BLOCK_S).astype(int).to_numpy()
         groups = [np.where(blk == k)[0] for k in np.unique(blk)]
         boots = []
         for _ in range(BOOT):
             idx = np.concatenate([groups[i] for i in rng.integers(0, len(groups), len(groups))])
             boots.append(float(np.median(j.share1.to_numpy()[idx]) - np.median(j.share0.to_numpy()[idx])))
-        out[s.name] = {"frames": len(j), "base": round(float(j.share0.median()), 3), "variant": round(float(j.share1.median()), 3),
+        out[s.name] = {**counts, "frames": len(j), "base": round(float(j.share0.median()), 3), "variant": round(float(j.share1.median()), 3),
                        "diff": round(float(j.share1.median() - j.share0.median()), 3),
                        "ci95": [round(float(np.percentile(boots, 2.5)), 3), round(float(np.percentile(boots, 97.5)), 3)]}
         print(s.name, out[s.name], flush=True)
