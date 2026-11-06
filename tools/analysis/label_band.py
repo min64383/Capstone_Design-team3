@@ -318,10 +318,12 @@ def _truth_targets(session: Path, fr: pd.DataFrame, cfg: dict, face: bool = Fals
             half = (min(abs(s["max"][0]) if s["max"][0] < 0 else abs(s["min"][0]) for s in side) - WALL_SIDE_MARGIN_M) if side else max(abs(o["min"][0]), abs(o["max"][0]))
             return {"kind": "wall", "p0": cam0 + o["min"][2] * h, "n": h, "cam0": cam0, "half": half}
     f = session / "floor_rgb.json"
-    if f.is_file():
-        fy = json.loads(f.read_text(encoding="utf-8")).get("floorY")
-        if fy is not None:
-            return {"kind": "floor", "p0": np.array([0.0, fy, 0.0]), "n": np.array([0.0, 1.0, 0.0])}
+    fy = json.loads(f.read_text(encoding="utf-8")).get("floorY") if f.is_file() else None
+    ev = session / "annotations" / "events.json"
+    if fy is None and ev.is_file():  # 서 있는 세션: 클릭에 쓴 바닥(깊이 바닥 중앙값, 허리·발 클릭 짝 검증 p95 0.03~0.17 m, M47)
+        fy = json.loads(ev.read_text(encoding="utf-8")).get("floorYFallback")
+    if fy is not None:
+        return {"kind": "floor", "p0": np.array([0.0, fy, 0.0]), "n": np.array([0.0, 1.0, 0.0])}
     return None
 
 
@@ -332,7 +334,7 @@ def _rays(k: dict, rot: np.ndarray, shape):
     return d, u.ravel(), v.ravel()
 
 
-def truth_pairs(session: Path, cfg: dict, face: bool = False) -> pd.DataFrame | None:
+def truth_pairs(session: Path, cfg: dict, face: bool = False, lower: bool = False) -> pd.DataFrame | None:
     """원시 장마다, 광선이 정답 면에 닿는 화소(깊이 값과 무관하게 고름)의 정답 깊이와 원시·평활 깊이를 짝짓는다. 평활은 촬영 시각이
     가장 가까운 장에서 같은 정답 점을 투영해 읽는다(정지 면이라 시각 차는 자세로 맞춰짐). 바닥은 그 점의 라벨이 바닥류, 받침대 앞면은 구조물인 화소만."""
     meta = json.loads((session / "meta.json").read_text(encoding="utf-8"))
@@ -357,6 +359,9 @@ def truth_pairs(session: Path, cfg: dict, face: bool = False) -> pd.DataFrame | 
         kr = depth_k(meta, zr.shape[1], zr.shape[0])
         rr, cr = pose_at(r.rawDepthTNs)
         d, u, v = _rays(kr, rr, zr.shape)
+        if lower:  # 아래 절반: 광선의 내려다보는 각이 그 장 중앙값 이상인 화소(세로로 든 폰이라 영상 행이 아니라 월드 각으로)
+            elev = d[:, 1] / np.hypot(d[:, 0], d[:, 2])
+            low = elev <= np.median(elev)
         den = d @ tg["n"]
         t = np.where(np.abs(den) > 1e-6, ((tg["p0"] - cr) @ tg["n"]) / np.where(np.abs(den) > 1e-6, den, 1.0), -1.0)
         x = cr + t[:, None] * d
@@ -382,6 +387,8 @@ def truth_pairs(session: Path, cfg: dict, face: bool = False) -> pd.DataFrame | 
             rl, cl = pose_at(int(sem.imageTNs.iloc[li]))
             ul, vl, _, okl = _project(x, rl, cl, kl)
             sel &= okl & np.isin(np.where(okl, lab[vl, ul], 0), want)
+        if lower:
+            sel &= low
         if not sel.any():
             continue
         j = int(np.argmin(np.abs(sm_t - r.rawDepthTNs)))
@@ -513,8 +520,8 @@ def main_truth(args: list[str]) -> None:
     groups: dict[str, list] = {}
     for s in args:
         name, s = s.split("=", 1) if "=" in s else ("all", s)
-        face = name.endswith("face")  # 이름이 face로 끝나면 받침대 앞면
-        df = truth_pairs(Path(s), cfg, face)
+        face = name.endswith("face")  # 이름이 face로 끝나면 받침대 앞면, lower로 끝나면 아래 절반 화소만
+        df = truth_pairs(Path(s), cfg, face, name.endswith("lower"))
         print(f"{Path(s).name}: {0 if df is None else len(df)} points", flush=True)
         if df is not None:
             groups.setdefault(name, []).append(df)
