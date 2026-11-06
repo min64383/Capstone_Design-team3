@@ -264,7 +264,7 @@ class Tracker(
                 // 움직이는 track·후보의 창 = 측정한 군집의 상자(+ 여유는 gate가 붙인다). 창 안 칸 전체의 상자로 두면 장마다 여유만큼
                 // 넓어졌다(T 150338 칼만 속도 3 m/s). 군집 상자는 장마다 다시 재므로 쌓여 커지지 않는다
                 m.missed = 0
-                if (m.moving || m.candidate) {
+                if ((m.moving || m.candidate) && !(rawMode && m.rawMeasTNs != Long.MIN_VALUE)) { // RAW_MASK는 원시 측정이 생긴 뒤로는 마스크 점 상자
                     m.boxMin = Vec3(meas.minOf { it.x }, meas.minOf { it.y }, meas.minOf { it.z })
                     m.boxMax = Vec3(meas.maxOf { it.x }, meas.maxOf { it.y }, meas.maxOf { it.z })
                     m.boxNs = tNs
@@ -339,7 +339,9 @@ class Tracker(
                 // 유령 칸으로 남겼다(합성 SM-6)
                 mm.moving && mm.score <= 0f -> removed += t // 시야 안에서 빈 곳으로 보여 지워짐
                 mm.candidate && mm.missed > cfg.maxMissedUpdates -> removed += t
-                mm.candidate && !isMoving && mm.occupied(mc.minHits, mc.minScore) -> removed += t // 6표가 모였는데 정지: 정지 지도가 맡음
+                // 6표가 모였는데 정지: 정지 지도가 맡음. RAW_MASK는 칼만이 원시 장(10 Hz)으로만 차므로 준비 전에는 판정하지 않는다
+                mm.candidate && !isMoving && mm.occupied(mc.minHits, mc.minScore) &&
+                    (cfg.measureFrom != MeasureFrom.RAW_MASK || mm.filter.ready) -> removed += t
             }
         }
         // 같은 물체를 따르는 움직이는 track·후보가 둘이면(한 사람이 두 묶음으로 갈려 후보 둘이 생김) 짝짓기 반경 안에서 움직이는 track을 먼저,
@@ -373,7 +375,8 @@ class Tracker(
             m.boxMin = Vec3(meas.minOf { it.x }, meas.minOf { it.y }, meas.minOf { it.z })
             m.boxMax = Vec3(meas.maxOf { it.x }, meas.maxOf { it.y }, meas.maxOf { it.z })
             m.boxNs = tNs
-            m.filter.update(tf, rep, f.sigmaAt(rep))
+            // RAW_MASK: 후보의 칼만은 원시 점으로만 시작한다(평활 칸 대표점을 넣지 않음)
+            if (cfg.measureFrom == MeasureFrom.RAW_MASK) m.filterRaw = true else m.filter.update(tf, rep, f.sigmaAt(rep))
             m.lastMeasW = rep
             m.lastMeasNs = tNs
             m.nMeasCells = meas.size
@@ -460,10 +463,13 @@ class Tracker(
         m.lastLabelTNs = label.tCaptureNs
         val v = if (m.moving || m.candidate) m.filter.velocityW else null
         val shift = (v ?: Vec3.ZERO) * ((label.tCaptureNs - tNs) / 1e9f)
+        val shiftRaw = (v ?: Vec3.ZERO) * ((f.rawLatestTNs - tNs) / 1e9f)
         var nIn = 0
         var nMoving = 0
         for (c in f.allCells) {
             if (!inBox(c, lo, hi)) continue
+            // 가시성 검사: 원시 깊이에서 보이는 표면인 칸만 센다(평활 막 칸·가려진 칸은 그 화소의 라벨을 받지 않는다). 원시 깊이가 없으면 세지 않는다
+            if (f.rawVisible != null && f.rawVisible.invoke(c + shiftRaw) != true) continue
             val px = label.pixelAt(c + shift)
             if (px < 0) continue
             nIn++
@@ -488,13 +494,27 @@ class Tracker(
             return
         }
         val shift = (m.filter.velocityW ?: Vec3.ZERO) * ((label.tCaptureNs - f.rawTNs) / 1e9f)
-        val pts = points.filter { inBox(it, lo, hi) && label.pixelAt(it + shift) in f.movingPixels }
+        val labelled = points.mapNotNull { p -> if (inBox(p, lo, hi)) label.pixelAt(p + shift).takeIf { it in f.movingPixels }?.let { p to it } else null }
+        val pts = labelled.map { it.first }
         m.nRawPoints = pts.size
         if (pts.size < minSamples) return
         val r = nearSurfacePoint(pts, f.rawCameraW) ?: return
-        if (m.filter.update(f.rawTNs, r, f.sigmaAt(r), cfg.validationChi2)) {
+        // 원천을 섞지 않는다: 평활 칸으로 쌓인 칼만이면 첫 원시 측정에서 다시 시작한다(지도 track → 움직이는 track 전환)
+        if (!m.filterRaw) {
+            m.filter.reset()
+            m.filterRaw = true
+        }
+        // 시작 게이트의 최대 속도 = 마스크 점의 다수 라벨 종류의 최대 속도(사람 2.5·차량 6.9 m/s, M49 측정 단계 결과 뒤 사용자 승인)
+        val major = labelled.groupingBy { it.second }.eachCount().maxByOrNull { it.value }!!.key
+        val vmax = f.maxSpeedOfPixel[major] ?: cfg.initMaxSpeedMps
+        if (m.filter.update(f.rawTNs, r, f.sigmaAt(r), cfg.validationChi2, maxSpeedMps = vmax)) {
             m.lastMeasW = r
             m.rawMeasTNs = f.rawTNs
+            // 창 = 측정한 것의 상자(M48 규칙): RAW_MASK의 측정은 마스크 점이므로 그 점들의 범위로. 평활 군집 전체로 두면 큰 군집이 창을 키워
+            // 엉뚱한 라벨 점이 섞였다(T 150338 창 안 평활 칸 283~661, 측정이 사람과 2.3 m 사이를 오감)
+            m.boxMin = Vec3(pts.minOf { it.x }, pts.minOf { it.y }, pts.minOf { it.z })
+            m.boxMax = Vec3(pts.maxOf { it.x }, pts.maxOf { it.y }, pts.maxOf { it.z })
+            m.boxNs = f.rawTNs
         }
     }
 

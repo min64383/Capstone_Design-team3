@@ -668,6 +668,11 @@ data class VisionConfig(
     val label: VisionLabelSource,
     val movingLabels: Set<SemanticLabel>,
     val maxLabelAgeMs: Int,
+    /**
+     * 종류별 최대 속도(m/s): RAW_MASK 시작 게이트가 마스크 점의 다수 라벨로 고른다(M49 측정 단계 결과 뒤 사용자 승인). 사람 2.5(Bohannon 1997
+     * 최대 보행), 차량 6.9(도로교통법 개인형 이동장치 25 km/h). 하나로 6.9를 쓰면 사람이 원시 깊이에 막 들어오는 첫 부분 측정의 뜀이 통과했다.
+     */
+    val maxSpeedMps: Map<SemanticLabel, Float>,
 )
 
 enum class VisionLabelSource { NONE, SEMANTICS }

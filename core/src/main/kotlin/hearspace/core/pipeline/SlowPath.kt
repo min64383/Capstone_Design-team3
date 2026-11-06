@@ -281,7 +281,32 @@ class SlowPath(
             rawPoints = rawNew?.let { map.obstaclePointsOf(it, tr.rawMinConfidence, lastUserPosW) },
             rawTNs = rawNew?.tCaptureNs ?: Long.MIN_VALUE,
             rawCameraW = rawNew?.worldFromCam?.translation() ?: Vec3.ZERO,
+            maxSpeedOfPixel = config.vision.maxSpeedMps.mapKeys { it.key.pixel },
+            rawVisible = depth.raw?.takeIf { useLabels }?.let { r -> rawVisibility(r, tr.rawMinConfidence) },
+            rawLatestTNs = depth.raw?.tCaptureNs ?: Long.MIN_VALUE,
         )
+    }
+
+    /** 가시성 검사(M49, [MotionFrame.rawVisible]): 원시 장 [r]에서 월드 점이 보이는 표면인지. */
+    private fun rawVisibility(r: DepthFrame, minConfidence: Int): (Vec3) -> Boolean? {
+        val camFromWorld = r.worldFromCam.rigidInverse()
+        val k = r.K
+        val sm = config.map.sigmaMultiple
+        val vs = config.map.voxelSizeM
+        return { p ->
+            val c = camFromWorld.transformPoint(p)
+            if (c.z <= 0.1f) null else {
+                val u = (k.fx * c.x / c.z + k.cx).toInt()
+                val v = (k.fy * c.y / c.z + k.cy).toInt()
+                if (u < 0 || v < 0 || u >= k.width || v >= k.height) null else {
+                    val i = v * k.width + u
+                    val mm = r.depthMm[i].toInt() and 0xFFFF
+                    val conf = r.confidence?.get(i)?.toInt()?.and(0xFF) ?: 255
+                    if (mm == 0 || conf < minConfidence) null
+                    else kotlin.math.abs(mm / 1000f - c.z) <= kotlin.math.max(sm * config.depth.sigmaM(true, c.z), vs)
+                }
+            }
+        }
     }
 
     /** RAW_MASK(M49): 마지막으로 측정에 넘긴 원시 장 시각. 같은 원시 장은 한 번만 넘긴다(원시 약 10 Hz, 평활 30 Hz). */

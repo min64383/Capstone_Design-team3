@@ -65,6 +65,16 @@ class MotionFrame(
     /** [rawPoints]의 촬영 시각과 카메라 위치. */
     val rawTNs: Long = Long.MIN_VALUE,
     val rawCameraW: Vec3 = Vec3.ZERO,
+    /** 라벨 화소 값 → 그 종류의 최대 속도(m/s, `vision.maxSpeedMps`): RAW_MASK 시작 게이트가 마스크 점의 다수 라벨로 고른다. */
+    val maxSpeedOfPixel: Map<Int, Float> = emptyMap(),
+    /**
+     * 가시성 검사(M49 판정 단계 결과 뒤 사용자 승인): 월드 점이 가장 최근 원시 깊이 장에서 보이는 표면인지. 그 장 카메라로 투영한 화소의 원시
+     * 깊이(신뢰도 ≥ `track.rawMinConfidence`)와 점의 카메라 거리 차가 max(`map.sigmaMultiple` × σ_원시(Z), 복셀) 안이면 true, 넘으면 false,
+     * 원시 깊이가 없거나 영상 밖이면 null. 라벨은 그 화소에서 보이는 표면에만 붙인다(SemanticFusion은 보이는 표면 요소만 갱신).
+     */
+    val rawVisible: ((Vec3) -> Boolean?)? = null,
+    /** [rawVisible]이 쓰는 원시 장의 촬영 시각(속도 있는 track은 칸을 이 시각으로 옮겨 검사한다). */
+    val rawLatestTNs: Long = Long.MIN_VALUE,
 )
 
 /**
@@ -149,6 +159,8 @@ class MotionState(
     var nRawPoints = -1
     /** 마지막으로 칼만에 넣은 원시 측정의 촬영 시각(RAW_MASK). */
     var rawMeasTNs = Long.MIN_VALUE
+    /** 칼만이 원시 점만으로 쌓였는지(RAW_MASK). 아니면 첫 원시 측정 때 다시 시작한다. */
+    var filterRaw = false
 
     fun occupied(minHits: Int, minScore: Float) = votes >= minHits && score >= minScore
 

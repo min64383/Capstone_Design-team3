@@ -193,5 +193,8 @@ class ConfigLoaderTest {
         assertEquals(SemanticLabel.PERSON, SemanticLabel.ofPixel(10))
         assertConfigError("vision.movingLabels", """{"vision":{"movingLabels":["PERSON","CAT"]}}""")
         assertConfigError("vision.movingLabels", """{"vision":{"movingLabels":"PERSON"}}""")
+        assertEquals(mapOf(SemanticLabel.PERSON to 2.5f, SemanticLabel.VEHICLE to 6.9f), c.vision.maxSpeedMps)
+        assertConfigError("vision.maxSpeedMps", """{"vision":{"movingLabels":["PERSON","OBJECT"]}}""")
+        assertConfigError("vision.maxSpeedMps.CAT", """{"vision":{"maxSpeedMps":{"CAT":1}}}""")
     }
 }

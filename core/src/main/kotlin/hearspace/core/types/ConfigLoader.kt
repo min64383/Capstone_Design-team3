@@ -352,6 +352,11 @@ object ConfigLoader {
                     label = enumValue<VisionLabelSource>("label"),
                     movingLabels = enumList<SemanticLabel>("movingLabels").toSet(),
                     maxLabelAgeMs = atLeast1("maxLabelAgeMs"),
+                    maxSpeedMps = (raw("maxSpeedMps") as? JsonObject ?: throw ConfigException(path("maxSpeedMps"), "must be an object")).fields.map { (k, v) ->
+                        val label = enumValues<SemanticLabel>().firstOrNull { it.name == k } ?: throw ConfigException(path("maxSpeedMps.$k"), "unknown label")
+                        val mps = (v as? JsonNumber)?.value?.toFloat()?.takeIf { it > 0f && it.isFinite() } ?: throw ConfigException(path("maxSpeedMps.$k"), "must be > 0")
+                        label to mps
+                    }.toMap(),
                 )
             },
             sonify = root.section("sonify") {
@@ -392,6 +397,7 @@ object ConfigLoader {
 
     /** 여러 키에 걸친 일관성 검사. */
     private fun crossCheck(c: Config) {
+        c.vision.movingLabels.firstOrNull { it !in c.vision.maxSpeedMps }?.let { throw ConfigException("vision.maxSpeedMps", "missing moving label $it") }
         val p = c.policy
         val s = c.sonify
         if (s.minHistoryS > s.historyS) throw ConfigException("sonify", "minHistoryS must be <= historyS")
