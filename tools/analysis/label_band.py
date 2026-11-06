@@ -23,6 +23,7 @@ import numpy as np
 import pandas as pd
 from PIL import Image
 
+import event_eval as E
 from align import load_config, load_frames
 from motion_stats import FLIP, _sem_k
 from spike_check import quat_to_rot
@@ -421,6 +422,87 @@ def truth_summary(df: pd.DataFrame, cfg: dict) -> list[dict]:
     return out
 
 
+PERSON_HALF_WIDTH_M = 0.30  # 사람 정답 화소: 몸 중심 수직면에서 좌우 이 폭 안(라벨이 사람인 화소만이라 넉넉히)
+
+
+def person_truth(session: Path, source: str) -> pd.DataFrame:
+    """다가오는 사람의 아래 절반(바닥 + 5 cm ~ 허리 클릭 높이) 정답 비교(사용자 요청 2026-11-06). 깊이 장마다 그 장 촬영 시각의 클릭 보간 위치를
+    지나고 카메라를 마주 보는 수직면을 몸 중심면으로 둔다(앞면 거리는 원시로 잰 M52 값이라 쓰지 않음). 광선이 그 면과 만나는 점이 좌우
+    `PERSON_HALF_WIDTH_M`·높이 범위 안이고 촬영 시각에 가장 가까운 라벨 영상에서 사람인 화소만(깊이 값과 무관하게 고름). e = 측정 깊이 − 중심면 깊이."""
+    meta = json.loads((session / "meta.json").read_text(encoding="utf-8"))
+    fr = load_frames(session).reset_index(drop=True)
+    ev = E.load_events(session)
+    objs = [o for o in (ev or {}).get("objects", []) if o["kind"] == "moving" and o.get("added") != "check"]
+    if not objs:
+        return pd.DataFrame()
+    o = objs[0]
+    tr = E.moving_track(o)
+    floor_y = float(np.median([c["floorY"] for c in o["clicks"]]))
+    waist_y = floor_y + float(o["heightM"])
+    sem = pd.read_csv(session / "semantic" / "index.csv").sort_values("imageTNs").reset_index(drop=True)
+    col_t, col_f = ("depthTNs", "depthFile") if source == "SMOOTHED" else ("rawDepthTNs", "rawDepthFile")
+    ft = fr.tNs.to_numpy()
+    rows, last = [], -1
+    for i, row in fr.iterrows():
+        if not isinstance(row[col_f], str) or row.tracking != "TRACKING" or row[col_t] <= last:
+            continue
+        last = row[col_t]
+        tn = int(row[col_t])
+        got = tr(tn / 1e9)
+        if got is None:
+            continue
+        pos, _ = got
+        rot, cam = _pose(fr.iloc[int(np.argmin(np.abs(ft[:i + 1] - tn)))])
+        p0 = np.array([pos[0], floor_y, pos[1]])
+        hd = float(np.hypot(p0[0] - cam[0], p0[2] - cam[2]))
+        if hd < 0.3:
+            continue
+        n = np.array([(p0[0] - cam[0]) / hd, 0.0, (p0[2] - cam[2]) / hd])
+        z = load_depth_m(session / row[col_f])
+        k = depth_k(meta, z.shape[1], z.shape[0])
+        d, u, v = _rays(k, rot, z.shape)
+        den = d @ n
+        t = np.where(den > 1e-6, ((p0 - cam) @ n) / np.where(den > 1e-6, den, 1.0), -1.0)
+        x = cam + t[:, None] * d
+        lat = (x - p0) @ np.cross(n, [0.0, 1.0, 0.0])
+        sel = (t > 0.1) & (np.abs(lat) <= PERSON_HALF_WIDTH_M) & (x[:, 1] >= floor_y + WALL_SIDE_MARGIN_M) & (x[:, 1] <= waist_y)
+        li = int(np.argmin(np.abs(sem.imageTNs.to_numpy() - tn)))
+        lab = np.array(Image.open(session / sem.file.iloc[li]))
+        kl = _sem_k(meta, lab.shape[1], lab.shape[0])
+        rl, cl = _pose(fr.iloc[int(np.argmin(np.abs(ft - int(sem.imageTNs.iloc[li]))))])
+        ul, vl, _, okl = _project(x, rl, cl, kl)
+        sel &= okl & (np.where(okl, lab[vl, ul], 0) == PERSON)
+        if not sel.any():
+            continue
+        zm = z[v[sel], u[sel]]
+        conf = np.array(Image.open(session / row.confFile))[v[sel], u[sel]] if source == "RAW" and isinstance(row.confFile, str) else np.full(zm.shape, 255)
+        rows.append(pd.DataFrame({"t": tn / 1e9, "hd": hd, "conf": np.where(zm > 0, conf, 0), "e": np.where(zm > 0, zm - t[sel], np.nan)}))
+    return pd.concat(rows, ignore_index=True) if rows else pd.DataFrame()
+
+
+def main_person(args: list[str]) -> None:
+    out = {}
+    for src in ("SMOOTHED", "RAW"):
+        df = pd.concat([person_truth(Path(s), src).assign(session=Path(s).name[9:15]) for s in args], ignore_index=True)
+        df["db"] = np.digitize(df.hd, DIST_EDGES) - 1
+        groups = [("all", df)] if src == "SMOOTHED" else [("conf 1-29", df[(df.conf >= 1) & (df.conf < 30)]), ("conf 30-127", df[(df.conf >= 30) & (df.conf < 128)]),
+                                                          ("conf 128-255", df[df.conf >= 128]), ("none", df[df.conf == 0])]
+        for gname, g in groups:
+            for j in range(len(DIST_EDGES) - 1):
+                h = g[g.db == j]
+                if len(h) < 30:
+                    continue
+                e = h.e.dropna()
+                key = f"{src} {gname} {DIST_EDGES[j]:g}-{DIST_EDGES[j + 1]:g}m"
+                out[key] = {"n": len(h), "valid": round(float(h.e.notna().mean()), 3),
+                            "eP10": round(float(e.quantile(0.1)), 3) if len(e) else None, "eMedian": round(float(e.median()), 3) if len(e) else None,
+                            "eP90": round(float(e.quantile(0.9)), 3) if len(e) else None,
+                            "within0to-0.3": round(float(((e <= 0.05) & (e >= -0.3)).mean()), 3) if len(e) else None}
+    print(pd.DataFrame(out).T.to_string())
+    Path("../../data/sweeps/m54").mkdir(parents=True, exist_ok=True)
+    Path("../../data/sweeps/m54/truth_person_lower.json").write_text(json.dumps(out, ensure_ascii=False, indent=1), encoding="utf-8")
+
+
 def main_truth(args: list[str]) -> None:
     out = None
     if "--out" in args:
@@ -448,6 +530,8 @@ def main_truth(args: list[str]) -> None:
 def main(args: list[str]) -> None:
     if args and args[0] == "--truth":
         return main_truth(args[1:])
+    if args and args[0] == "--person":
+        return main_person(args[1:])
     out = None
     if "--out" in args:
         i = args.index("--out")
