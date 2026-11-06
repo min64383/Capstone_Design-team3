@@ -194,7 +194,9 @@
     "measureWeight": "CELLS",
     "depthLagMs": 0,
     "initMaxSpeedMps": 0,
-    "initGateSigmas": 3
+    "initGateSigmas": 3,
+    "measureFrom": "CELLS",
+    "rawMinConfidence": 1
   },
   "repPoint": { "strategy": "CORRIDOR_BAND", "bandM": 0.20, "stableTies": false },
   "policy": {

@@ -74,6 +74,27 @@ class LocalMap(private val config: Config) {
     val frameObstaclePoints = ArrayList<Pair<Vec3, Float>>()
 
     /**
+     * 원시 깊이 장의 장애물 점(M49 `track.measureFrom` RAW_MASK, 지도에는 넣지 않음): 신뢰도 [minConfidence] 미만 화소를 빼고
+     * [update]와 같은 바닥·반경 규칙으로 고른다. 바닥을 아직 모르면 빈 목록.
+     */
+    fun obstaclePointsOf(raw: DepthFrame, minConfidence: Int, userPosW: Vec3): List<Vec3> {
+        val floorY = floor.floorY ?: return emptyList()
+        val mm = raw.depthMm.copyOf()
+        raw.confidence?.let { c -> for (i in mm.indices) if ((c[i].toInt() and 0xFF) < minConfidence) mm[i] = 0 }
+        val pts = Projection.backprojectToWorld(mm, raw.K, raw.worldFromCam, config.depth.subsample)
+        val camW = raw.worldFromCam.translation()
+        val out = ArrayList<Vec3>(pts.size / 3)
+        for (i in 0 until pts.size / 3) {
+            val p = Vec3(pts[3 * i], pts[3 * i + 1], pts[3 * i + 2])
+            val camDist = (p - camW).horizontal().norm()
+            if (floor.isFloor(p.y, camDist) || floor.isBelowFloor(p.y, camDist) || p.y < floorY) continue
+            if ((p - userPosW).horizontal().norm() > config.map.radiusM) continue
+            out += p
+        }
+        return out
+    }
+
+    /**
      * 깊이 한 장을 반영한다. [userPosW]·[headingW]는 삭제 조건(지나감·반경)의 기준(진행 방향 추정은 M5).
      * 바닥을 아직 모르면 맵을 갱신하지 않고 `DEGRADED`를 돌려준다(사용자 결정 2026-09-28). TRISTATE는 예외([updateTriState]).
      */

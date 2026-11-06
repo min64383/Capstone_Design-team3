@@ -527,7 +527,18 @@ data class TrackConfig(
     val initMaxSpeedMps: Float = 0f,
     /** 시작 게이트의 측정 잡음 배수(관례: 2차원 99%에 가까운 3). */
     val initGateSigmas: Float = 3f,
+    /**
+     * 움직이는 track·후보의 칼만 측정(M49 설계 3.4절). CELLS = 이번 장 평활 칸(기준선). RAW_MASK = 새 원시 깊이 장에서 신뢰도 ≥
+     * [rawMinConfidence]이고 의미 영상 라벨이 `vision.movingLabels`이며 창 안인 점의 가까운 면 점, 원시 장의 촬영 시각으로(평활과 섞지 않음).
+     * 표·점수(물체가 있는지)는 그대로 평활 칸으로 센다(출력 시점이 원시 10 Hz에 묶이지 않게).
+     */
+    val measureFrom: MeasureFrom = MeasureFrom.CELLS,
+    /** RAW_MASK 원시 점의 신뢰도 하한(M39 원시 규칙: 0인 화소 버림). */
+    val rawMinConfidence: Int = 1,
 )
+
+/** 움직이는 track 칼만 측정의 원천(M49). */
+enum class MeasureFrom { CELLS, RAW_MASK }
 
 /** 움직이는 장애물 처리(M48). */
 enum class MotionMode { NONE, KALMAN }

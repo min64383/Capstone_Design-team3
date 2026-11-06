@@ -3,6 +3,7 @@ package hearspace.core.tracking
 import hearspace.core.geometry.Vec3
 import hearspace.core.types.HeightClass
 import hearspace.core.types.MapConfig
+import hearspace.core.types.MeasureFrom
 import hearspace.core.types.MeasureWeight
 import hearspace.core.types.Obstacle
 import hearspace.core.types.RepStrategy
@@ -81,7 +82,7 @@ class Tracker(
 
     /** 시각 [tNs]의 움직이는 track 추적 창(정지 지도에 넣지 않을 점의 상자, M48). 지난 장의 상태로 정한다. */
     fun movingGates(tNs: Long): List<Pair<Vec3, Vec3>> =
-        tracks.mapNotNull { t -> t.motion?.takeIf { it.moving }?.gate(tNs, cfg.matchRadiusM) }
+        tracks.mapNotNull { t -> t.motion?.takeIf { it.moving }?.let { gateOf(it, tNs) } }
 
     /** 지워진 track(M22 R): id, 마지막 상자, 지워진 시각. */
     private class Lost(val id: Int, val aabbMin: Vec3, val aabbMax: Vec3, val tNs: Long)
@@ -107,11 +108,11 @@ class Tracker(
         @Suppress("NAME_SHADOWING")
         val detections = if (movingTracks.none { it.motion!!.moving }) detections else detections.filter { d ->
             val c = d.repCandidatesW.getValue(RepStrategy.CENTROID)
-            movingTracks.none { t -> t.motion!!.moving && t.motion!!.gate(tNs, cfg.matchRadiusM).let { (lo, hi) -> inBox(c, lo, hi) } }
+            movingTracks.none { t -> t.motion!!.moving && gateOf(t.motion!!, tNs).let { (lo, hi) -> inBox(c, lo, hi) } }
         }
         // 지도가 군집으로 잡은 자리의 후보는 지운다(정지 지도가 맡음). 움직이는 track 창 안 군집은 위에서 흡수했다
         val candidatesTaken = movingTracks.filter { t ->
-            t.motion!!.candidate && detections.any { d -> t.motion!!.gate(tNs, cfg.matchRadiusM).let { (lo, hi) -> inBox(d.repCandidatesW.getValue(RepStrategy.CENTROID), lo, hi) } }
+            t.motion!!.candidate && detections.any { d -> gateOf(t.motion!!, tNs).let { (lo, hi) -> inBox(d.repCandidatesW.getValue(RepStrategy.CENTROID), lo, hi) } }
         }.toSet()
         // 이전 track과 현재 detection 사이에서 matchRadius 안의 후보를 만든다.
         val pairs = ArrayList<Triple<Float, Int, Int>>()
@@ -240,19 +241,25 @@ class Tracker(
             val m = t.motion!!
             // 추적 창: 움직이는 track·후보는 측정 상자를 예측만큼 옮긴 것, 지도 track은 이번 지도 군집 상자(지도 앞면이 뒤처지므로 여유로 덮음)
             if (!m.moving && !m.candidate) { m.boxMin = t.aabbMin; m.boxMax = t.aabbMax }
-            val (lo, hi) = m.gate(tf, cfg.matchRadiusM)
+            val rawMode = cfg.measureFrom == MeasureFrom.RAW_MASK && (m.moving || m.candidate)
+            val (lo, hi) = gateOf(m, tf)
             // 측정은 통로 밖 칸도 쓴다: 통로만 보면 옆으로 비켜 간 물체를 놓친 것으로 보고 마지막 자리를 정지 지도에 넘겨 유령 칸이 생겼다(SM-6)
             val meas = if (m.moving || m.candidate) clustersAll.filter { cl -> cl.count { inBox(it, lo, hi) } >= minSamples }.flatten()
             else f.allCells.filter { inBox(it, lo, hi) }
             m.nMeasCells = meas.size
+            // 라벨 표(M49): 칼만 갱신 전 속도로 창 안 칸을 라벨 영상 시각까지 되돌려 센다
+            if (f.labelVotes) labelEvidence(m, f, lo, hi, tNs, mc)
             // 칼만 측정 = 이번 장 창 안 칸의 중심점(가장 앞 칸 기준 대표점은 장마다 칸이 바뀌어 크게 뛴다, M48 값 재기). 예측에서 벗어난 측정은 버린다
             val rep = if (meas.size >= minSamples) nearSurfacePoint(meas, f.cameraW, wt) else null
             val restarts = m.filter.restarts
-            if (rep != null && !m.filter.update(tf, rep, f.sigmaAt(rep), cfg.validationChi2)) {
+            // RAW_MASK(M49): 움직이는 track·후보의 칼만은 새 원시 장의 마스크 점으로만, 원시 장 촬영 시각으로 갱신한다. 원시 장이 없는 장에는
+            // 필터를 건드리지 않는다(평활 시각으로 예측해 두면 더 이른 원시 시각의 측정이 버려진다). 표·점수·창은 아래처럼 평활 칸으로 센다
+            if (rawMode) f.rawPoints?.let { rawMeasure(m, f, it, lo, hi) }
+            if (rep != null && !rawMode && !m.filter.update(tf, rep, f.sigmaAt(rep), cfg.validationChi2)) {
                 m.missed++
                 m.nMeasCells = -meas.size // 버린 측정(기록용 음수)
             } else if (rep != null) {
-                m.lastMeasW = rep
+                if (!rawMode) m.lastMeasW = rep
                 m.lastMeasNs = tNs
                 // 움직이는 track·후보의 창 = 측정한 군집의 상자(+ 여유는 gate가 붙인다). 창 안 칸 전체의 상자로 두면 장마다 여유만큼
                 // 넓어졌다(T 150338 칼만 속도 3 m/s). 군집 상자는 장마다 다시 재므로 쌓여 커지지 않는다
@@ -260,6 +267,7 @@ class Tracker(
                 if (m.moving || m.candidate) {
                     m.boxMin = Vec3(meas.minOf { it.x }, meas.minOf { it.y }, meas.minOf { it.z })
                     m.boxMax = Vec3(meas.maxOf { it.x }, meas.maxOf { it.y }, meas.maxOf { it.z })
+                    m.boxNs = tNs
                 }
                 // 시작 게이트가 필터를 다시 시작했으면(다른 대상과 짝지은 측정) 표·점수도 처음부터 모은다(M52): 남은 표로 바로 출력되면
                 // 막 시작한 필터의 큰 속도 불확실성으로 TTC STOP이 났다(M48 SM-3과 같은 까닭)
@@ -271,7 +279,7 @@ class Tracker(
                 m.lastCells = meas
                 m.lastCellsNs = tNs
             } else {
-                m.filter.predictTo(tf)
+                if (!rawMode) m.filter.predictTo(tf)
                 m.missed++
                 // 예측 자리가 빈 곳으로 보이면 점수를 깎는다(시야 밖·깊이 무효면 그대로: 시야 밖 보존)
                 val p = m.filter.predictedAt(tNs)?.first ?: m.lastMeasW
@@ -282,9 +290,16 @@ class Tracker(
             }
             val v = m.filter.velocityW
             m.lastChi2 = m.filter.velocityChi2
-            val isMoving = m.filter.ready && v != null && if (f.movingOracle != null) {
-                (if (meas.isEmpty()) null else f.movingOracle.invoke(tNs, meas)) ?: m.moving // 정답(라벨처럼): 모르면 지금 상태 유지
-            } else v.norm() > cfg.minMovingMps && m.lastChi2 > cfg.movingChi2
+            val isMoving = m.filter.ready && v != null && when {
+                f.movingOracle != null -> (if (meas.isEmpty()) null else f.movingOracle.invoke(tNs, meas)) ?: m.moving // 정답(라벨처럼): 모르면 지금 상태 유지
+                // 라벨 표(M49): 지도의 점유 조건과 같이 표 ≥ minHits·점수 ≥ minScore면 참, 표가 있는데 점수가 0이면 거짓, 그 사이는 지금 상태
+                f.labelVotes -> when {
+                    m.labelVotes >= mc.minHits && m.labelScore >= mc.minScore -> true
+                    m.labelVotes > 0f && m.labelScore <= 0f -> false
+                    else -> m.moving
+                }
+                else -> v.norm() > cfg.minMovingMps && m.lastChi2 > cfg.movingChi2
+            }
             val origin = m.origin()
             val occupied = m.occupied(mc.minHits, mc.minScore)
             when {
@@ -343,7 +358,7 @@ class Tracker(
         if (removed.isNotEmpty()) tracks = tracks.filter { it !in removed }
 
         // 후보 track: 정지 지도가 아직 점유로 만들지 못했고 어느 창에도 들지 않는 이번 장 칸의 묶음
-        val gates = tracks.map { it.motion!!.gate(tNs, cfg.matchRadiusM) }
+        val gates = tracks.map { gateOf(it.motion!!, tNs) }
         val free = f.corridorCells.filter { (c, occ) -> !occ && gates.none { (lo, hi) -> inBox(c, lo, hi) } }.map { it.first }
         if (free.size >= minSamples) for (cl in f.clusterXZ(free)) {
             val reps = f.reps(cl) ?: continue
@@ -357,6 +372,7 @@ class Tracker(
             val rep = nearSurfacePoint(meas, f.cameraW, wt) ?: continue
             m.boxMin = Vec3(meas.minOf { it.x }, meas.minOf { it.y }, meas.minOf { it.z })
             m.boxMax = Vec3(meas.maxOf { it.x }, meas.maxOf { it.y }, meas.maxOf { it.z })
+            m.boxNs = tNs
             m.filter.update(tf, rep, f.sigmaAt(rep))
             m.lastMeasW = rep
             m.lastMeasNs = tNs
@@ -420,6 +436,56 @@ class Tracker(
             )
         }
         return result
+    }
+
+    /** 추적 창(M48). RAW_MASK의 움직이는 track·후보는 상자를 잰 시각부터 옮긴다([MotionState.gate]). */
+    private fun gateOf(m: MotionState, tNs: Long) =
+        m.gate(tNs, cfg.matchRadiusM, fromBox = cfg.measureFrom == MeasureFrom.RAW_MASK && (m.moving || m.candidate))
+
+    /**
+     * 라벨 표(M49 설계 3.3절): 새 의미 영상마다 한 번, 창 안 이번 장 칸을 그 영상에 투영한다. 속도가 있는 track(움직이는 track·후보)은 칸을
+     * 칼만 속도로 영상 시각까지 되돌린다(과거 상태만). 움직일 수 있는 라벨 칸이 `cluster.minSamples` 이상이면 표 +1·점수 + hitGain(최대 1),
+     * 영상 안 칸은 그만큼인데 그 라벨 칸이 적으면 점수 − decayPerObservation(0 아래로는 내리지 않음), 그 밖은 모름. 지도 HITS와 같은 상수.
+     */
+    private fun labelEvidence(m: MotionState, f: MotionFrame, lo: Vec3, hi: Vec3, tNs: Long, mc: hearspace.core.types.MapConfig) {
+        val label = f.labels ?: return
+        if (label.tCaptureNs == m.lastLabelTNs) return
+        m.lastLabelTNs = label.tCaptureNs
+        val v = if (m.moving || m.candidate) m.filter.velocityW else null
+        val shift = (v ?: Vec3.ZERO) * ((label.tCaptureNs - tNs) / 1e9f)
+        var nIn = 0
+        var nMoving = 0
+        for (c in f.allCells) {
+            if (!inBox(c, lo, hi)) continue
+            val px = label.pixelAt(c + shift)
+            if (px < 0) continue
+            nIn++
+            if (px in f.movingPixels) nMoving++
+        }
+        if (nMoving >= minSamples) {
+            m.labelVotes += 1f
+            m.labelScore = kotlin.math.min(1f, m.labelScore + mc.hitGain)
+        } else if (nIn >= minSamples) {
+            m.labelScore = kotlin.math.max(0f, m.labelScore - mc.decayPerObservation)
+        }
+    }
+
+    /**
+     * RAW_MASK 측정(M49 설계 3.4절): 새 원시 장의 장애물 점 중 창 안이고 라벨이 움직일 수 있는 라벨인 점(원시 장 시각에서 라벨 영상 시각까지
+     * 칼만 속도로 되돌려 투영)의 가까운 면 점으로 칼만을 원시 장 촬영 시각에 갱신한다. 점 하나 = 관측 하나. 라벨이 없거나 점이 적으면 측정 없음.
+     */
+    private fun rawMeasure(m: MotionState, f: MotionFrame, points: List<Vec3>, lo: Vec3, hi: Vec3) {
+        val label = f.labels
+        if (label == null) {
+            m.nRawPoints = 0
+            return
+        }
+        val shift = (m.filter.velocityW ?: Vec3.ZERO) * ((label.tCaptureNs - f.rawTNs) / 1e9f)
+        val pts = points.filter { inBox(it, lo, hi) && label.pixelAt(it + shift) in f.movingPixels }
+        m.nRawPoints = pts.size
+        if (pts.size < minSamples) return
+        val r = nearSurfacePoint(pts, f.rawCameraW) ?: return
+        if (m.filter.update(f.rawTNs, r, f.sigmaAt(r), cfg.validationChi2)) m.lastMeasW = r
     }
 
     /** 위에서 본 두 상자(x, z)가 작은 쪽 면적의 과반 넘게 겹치는지. */

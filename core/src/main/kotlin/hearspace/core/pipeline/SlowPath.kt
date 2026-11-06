@@ -248,6 +248,10 @@ class SlowPath(
         }
         val depthMm = map.lastDepthMm
         val tr = config.track
+        val rawMask = tr.measureFrom == hearspace.core.types.MeasureFrom.RAW_MASK
+        val useLabels = config.vision.label == hearspace.core.types.VisionLabelSource.SEMANTICS || rawMask
+        val rawNew = depth.raw?.takeIf { rawMask && it.tCaptureNs > lastRawTNs }
+        if (rawNew != null) lastRawTNs = rawNew.tCaptureNs
         return MotionFrame(
             tNs = depth.tCaptureNs,
             frame = frameNo,
@@ -271,8 +275,17 @@ class SlowPath(
                 (count[key(kotlin.math.floor(c.x / vs).toInt(), kotlin.math.floor(c.y / vs).toInt(), kotlin.math.floor(c.z / vs).toInt())] ?: 1).toFloat()
             },
             measLagNs = if (config.depth.source == DepthSource.SMOOTHED) (tr.depthLagMs * 1e6).toLong() else 0L,
+            labels = depth.labels?.takeIf { useLabels && kotlin.math.abs(depth.tCaptureNs - it.tCaptureNs) <= config.vision.maxLabelAgeMs * 1_000_000L },
+            labelVotes = config.vision.label == hearspace.core.types.VisionLabelSource.SEMANTICS,
+            movingPixels = config.vision.movingLabels.map { it.pixel }.toSet(),
+            rawPoints = rawNew?.let { map.obstaclePointsOf(it, tr.rawMinConfidence, lastUserPosW) },
+            rawTNs = rawNew?.tCaptureNs ?: Long.MIN_VALUE,
+            rawCameraW = rawNew?.worldFromCam?.translation() ?: Vec3.ZERO,
         )
     }
+
+    /** RAW_MASK(M49): 마지막으로 측정에 넘긴 원시 장 시각. 같은 원시 장은 한 번만 넘긴다(원시 약 10 Hz, 평활 30 Hz). */
+    private var lastRawTNs = Long.MIN_VALUE
 
     /**
      * 위에서 본 바닥 사각형(복셀 중심 ± 반 칸)이 작은 쪽 면적의 과반 넘게 겹치는 군집을 합친다(C3b). 같은 물체의 앞면과 윗면은

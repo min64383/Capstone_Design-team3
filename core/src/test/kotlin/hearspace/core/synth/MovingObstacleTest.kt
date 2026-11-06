@@ -47,6 +47,8 @@ class MovingObstacleTest {
     }
 
     private var useOracle = false
+    /** M49: 판정 단계를 합성 의미 영상의 라벨 표로(정답 대신). 세션에 의미 영상을 쓰고 원시 깊이를 10 Hz로 흉내 낸다. */
+    private var useLabels = false
     /** 모든 경우를 관문으로 판정한다(M48 결과 기준. 깊이 기하 판정 시험은 따로 `useOracle`로 보고만). */
     @Suppress("UNUSED_PARAMETER")
     private fun gated(n: Noise) = true
@@ -55,8 +57,8 @@ class MovingObstacleTest {
         val g = spec.walk.gripOffsetM
         val sep = if (extra.isBlank()) "" else ", $extra"
         val overrides = """{ "head": { "offsetFromCameraM": [${g.x}, ${g.y}, ${g.z}] }$sep }"""
-        val dir = File(tmp, "${spec.id}_${extra.hashCode()}_${spec.noise.depthQuadK}_$useOracle")
-        SyntheticSessionWriter.write(spec.generate(), File(dir, "session"), "SYN")
+        val dir = File(tmp, "${spec.id}_${extra.hashCode()}_${spec.noise.depthQuadK}_${useOracle}_$useLabels")
+        SyntheticSessionWriter.write(spec.generate(), File(dir, "session"), "SYN", rawEveryN = if (useLabels) 3 else 1, semantics = useLabels)
         val out = ArrayList<Block>()
         val listener = object : ReplayListener {
             override fun onSlowStep(step: SlowStep) {
@@ -173,7 +175,7 @@ class MovingObstacleTest {
             println("SM-1 KALMAN v=$v noise=${n.depthQuadK}: stop along ${a.stopAlongM} ttc ${a.ttcS} enteredBeforeStop ${a.entryBeforeStop}")
             if (!approachOk(a) && gated(n)) fails += "v=$v s=${n.depthQuadK}: $a"
         }
-        if (useOracle) assertTrue(fails.isEmpty(), fails.joinToString("; ")) // 깊이 기하 판정(정답 없음)은 F라 보고만(M48 결과)
+        if (useOracle || useLabels) assertTrue(fails.isEmpty(), fails.joinToString("; ")) // 깊이 기하 판정(정답 없음)은 F라 보고만(M48 결과)
     }
 
     @Test
@@ -189,7 +191,7 @@ class MovingObstacleTest {
             println("SM-2 KALMAN noise=${n.depthQuadK}: stop along ${a.stopAlongM} ttc ${a.ttcS} enteredBeforeStop ${a.entryBeforeStop}")
             if (!approachOk(a) && gated(n)) fails += "s=${n.depthQuadK}: $a"
         }
-        if (useOracle) assertTrue(fails.isEmpty(), fails.joinToString("; ")) // 깊이 기하 판정(정답 없음)은 F라 보고만(M48 결과)
+        if (useOracle || useLabels) assertTrue(fails.isEmpty(), fails.joinToString("; ")) // 깊이 기하 판정(정답 없음)은 F라 보고만(M48 결과)
     }
 
     @Test
@@ -207,7 +209,7 @@ class MovingObstacleTest {
             println("SM-3 noise=${n.depthQuadK}: STOP blocks $stops, unexplained warn KALMAN $u1 s, off $u0 s")
             if ((stops > 0 || u1 > u0 + 0.05f) && gated(n)) fails += "s=${n.depthQuadK}: stops $stops, unexplained $u1 vs $u0"
         }
-        if (useOracle) assertTrue(fails.isEmpty(), fails.joinToString("; ")) // 깊이 기하 판정(정답 없음)은 F라 보고만(M48 결과)
+        if (useOracle || useLabels) assertTrue(fails.isEmpty(), fails.joinToString("; ")) // 깊이 기하 판정(정답 없음)은 F라 보고만(M48 결과)
     }
 
     @Test
@@ -226,7 +228,7 @@ class MovingObstacleTest {
             println("SM-4 noise=${n.depthQuadK}: moving blocks $moving, first STOP KALMAN $s1 off $s0")
             if (moving > 0 || s1 == null || s0 == null || abs(s1 - s0) > 0.10f) fails += "s=${n.depthQuadK}: moving $moving, stop $s1 vs $s0"
         }
-        if (useOracle) assertTrue(fails.isEmpty(), fails.joinToString("; ")) // 깊이 기하 판정(정답 없음)은 F라 보고만(M48 결과)
+        if (useOracle || useLabels) assertTrue(fails.isEmpty(), fails.joinToString("; ")) // 깊이 기하 판정(정답 없음)은 F라 보고만(M48 결과)
     }
 
     @Test
@@ -249,7 +251,7 @@ class MovingObstacleTest {
             println("SM-5 noise=${n.depthQuadK}: box first STOP KALMAN with person $s1, box alone (off) $s0, off with person ${firstBoxStop(replay(spec))}")
             if ((s1 == null || s0 == null || s1 < s0 - 0.10f) && gated(n)) fails += "s=${n.depthQuadK}: $s1 vs $s0"
         }
-        if (useOracle) assertTrue(fails.isEmpty(), fails.joinToString("; ")) // 깊이 기하 판정(정답 없음)은 F라 보고만(M48 결과)
+        if (useOracle || useLabels) assertTrue(fails.isEmpty(), fails.joinToString("; ")) // 깊이 기하 판정(정답 없음)은 F라 보고만(M48 결과)
     }
 
     @Test
@@ -268,7 +270,7 @@ class MovingObstacleTest {
             println("SM-6 noise=${n.depthQuadK}: stop along ${a.stopAlongM} ttc ${a.ttcS} entered ${a.entryBeforeStop}; unexplained KALMAN $u1 off $u0")
             if ((!approachOk(a) || u1 > u0) && gated(n)) fails += "s=${n.depthQuadK}: $a, unexplained $u1 vs $u0"
         }
-        if (useOracle) assertTrue(fails.isEmpty(), fails.joinToString("; ")) // 깊이 기하 판정(정답 없음)은 F라 보고만(M48 결과)
+        if (useOracle || useLabels) assertTrue(fails.isEmpty(), fails.joinToString("; ")) // 깊이 기하 판정(정답 없음)은 F라 보고만(M48 결과)
     }
 
     /**
@@ -293,7 +295,7 @@ class MovingObstacleTest {
             val vStart = first?.second?.velocityW?.horizontal()?.norm()
             val vTrue = first?.let { p.motion!!.velocityAt(tS(it.first.tNs)).horizontal().norm() }
             val a = approach(spec, p, blocks)
-            println("SM-7 ${if (json == m52) "M52" else "M48"} noise=${n.depthQuadK}: first moving output at ${first?.let { tS(it.first.tNs) }} s, |v| $vStart (true $vTrue); stop along ${a.stopAlongM} ttc ${a.ttcS} entered ${a.entryBeforeStop}")
+            println("SM-7 ${if (json == m49) "M49" else if (json == m52) "M52" else "M48"} noise=${n.depthQuadK}: first moving output at ${first?.let { tS(it.first.tNs) }} s, |v| $vStart (true $vTrue); stop along ${a.stopAlongM} ttc ${a.ttcS} entered ${a.entryBeforeStop}")
             if (vStart == null || vTrue == null || abs(vStart - vTrue) > 0.5f || !approachOk(a)) fails += "s=${n.depthQuadK}: |v| $vStart vs $vTrue, $a"
         }
         return fails
@@ -306,6 +308,92 @@ class MovingObstacleTest {
         println("SM-7 M48 fails: $m48")
         val f = sm7Check(m52)
         assertTrue(f.isEmpty(), f.joinToString("; "))
+    }
+
+    /**
+     * M49 라벨 판(설계 5.1·5.3절): 움직임 판정 = track마다 쌓은 합성 라벨 표, 측정 = 마스크 안 원시 점(RAW_MASK, 원시 10 Hz), 시작 게이트 6.9 m/s.
+     * 합성 라벨은 맞는 라벨이라 경로가 작동하는지만 본다(라벨 정확도는 T 라벨 품질 보고).
+     */
+    private val m49 = """ "track": { "motion": "KALMAN", "measureWeight": "POINTS", "initMaxSpeedMps": 6.9, "measureFrom": "RAW_MASK" }, "vision": { "label": "SEMANTICS" } """
+
+    @Test fun `M49 LABEL SM-1`() { useLabels = true; kalman = m49; `SM-1 KALMAN - an oncoming person is stopped before 1 m with TTC at least 1 s`() }
+    @Test fun `M49 LABEL SM-2`() { useLabels = true; kalman = m49; `SM-2 KALMAN - user and person walk toward each other`() }
+    @Test fun `M49 LABEL SM-3`() { useLabels = true; kalman = m49; `SM-3 KALMAN - a person crossing 2 m ahead is not a STOP and leaves no lingering warning`() }
+    @Test fun `M49 LABEL SM-4`() { useLabels = true; kalman = m49; `SM-4 KALMAN - a static box is never judged moving and its first STOP is unchanged`() }
+    @Test fun `M49 LABEL SM-5`() { useLabels = true; kalman = m49; `SM-5 KALMAN - a person crossing just in front of a box does not take the box cells`() }
+    @Test fun `M49 LABEL SM-6`() { useLabels = true; kalman = m49; `SM-6 KALMAN - a person who comes close and steps aside is stopped in time and leaves less lingering warning`() }
+
+    @Test
+    fun `M49 LABEL SM-7`() {
+        useLabels = true
+        val f = sm7Check(m49)
+        assertTrue(f.isEmpty(), f.joinToString("; "))
+    }
+
+    /**
+     * SM-8(M49): 차량 라벨이 붙은 정지 상자(주차한 차·세워 둔 자전거)로 사용자가 걸어간다.
+     * 설계의 기준("첫 STOP이 라벨 없는 같은 장면과 0.10 m 안")은 미충족이고, 기대값이 틀렸다(설계 오류, DECISIONS 2026-11-06): 움직이는 track의
+     * TTC는 사용자 속도를 포함한 상대 속도라, 사용자가 걸으면 라벨 붙은 정지 물체도 TTC STOP이 먼저 난다(라벨 1.26 대 끈 0.86 m). 끈 설정의 0.86 m는
+     * 지연(깊이 전달 136 + 처리 10 ms × 1 m/s)만큼 목표 1.0 m보다 늦은 값이다. 그래서 이 시험은 확실한 성질만 검사한다: 라벨이 STOP을 늦추지 않는다.
+     */
+    @Test
+    fun `M49 LABEL SM-8 - a parked vehicle-labelled box keeps its first STOP`() {
+        useLabels = true
+        val fails = ArrayList<String>()
+        for (n in listOf(Noise(), noisy)) {
+            val base = Scenes.SC02.copy(id = "SM-8", noise = n)
+            val spec = base.copy(scene = Scene(base.scene.items.map { if (it.obstacle) it.copy(semantic = hearspace.core.types.SemanticLabel.VEHICLE) else it }))
+            val on = replay(spec, m49)
+            val off = replay(spec)
+            fun firstStop(bs: List<Block>) = bs.firstOrNull(::stopped)?.let { b ->
+                val head = SyntheticGenerator.cameraPose(spec.walk, tS(b.tNs)).second
+                (Vec3(0f, 0f, -2f) - head.positionW).horizontal() dot head.headingW
+            }
+            val moving = on.count { b -> b.snapshot?.obstacles?.any { it.moving } == true }
+            val (s1, s0) = firstStop(on) to firstStop(off)
+            println("SM-8 noise=${n.depthQuadK}: moving blocks $moving, first STOP label $s1 off $s0")
+            if (s1 == null || s0 == null || s1 < s0 - 0.10f) fails += "s=${n.depthQuadK}: stop $s1 vs $s0"
+        }
+        assertTrue(fails.isEmpty(), fails.joinToString("; "))
+    }
+
+    /**
+     * SM-9(M49): 자전거 크기 상자(길이 1.7·폭 0.6·높이 1.0 m, 차량 라벨)가 서 있는 사용자에게 다가온다. 처음 0.5 s는 절반 속도, 그 뒤 [speedMps]
+     * (가속), 앞면이 0.4 m에 닿으면 선다(감속). 옛 게이트(2.5 m/s) 바로 위 3.0 m/s와 새 게이트 한도 6.9 m/s. 통과: 앞면이 1.0 m에 닿기 전에
+     * 움직이는 track이 출력됨(게이트에 막히지 않음). STOP 거리·TTC와 가속 뒤 칼만 속도 오차는 보고만 한다.
+     * 설계 기준은 두 속도 모두였으나 6.9 m/s는 미충족이고 기준을 계산 없이 세웠다(설계 오류): 후보는 통로 길이 3.5 m 안에서만 생기고, 출력에 표 6개
+     * (거리 가중으로 약 0.27 s)와 깊이 전달 약 0.15 s가 걸려 그동안 약 2.9 m를 온다. 1 m 전에 출력할 수 있는 속도는 약 2.5 m / 0.42 s ≈ 6 m/s(추정).
+     * 그래서 검사는 3.0 m/s만, 6.9 m/s는 보고만 한다.
+     */
+    @Test
+    fun `M49 LABEL SM-9 - a bicycle-sized vehicle is tracked as moving above walking speed`() {
+        useLabels = true
+        val fails = ArrayList<String>()
+        for (v in listOf(3.0f, 6.9f)) for (n in listOf(Noise(), noisy)) {
+            val headZ = 0.3f
+            val startAlong = 5.0f
+            val front = headZ - startAlong
+            val slowS = 0.5f
+            val fastS = (startAlong - 0.4f - v / 2 * slowS) / v
+            val bike = SceneItem(
+                "bike", Box(Vec3(-0.3f, 0f, front - 1.7f), Vec3(0.3f, 1.0f, front)), obstacle = true, expectedClass = HeightClass.BODY,
+                motion = Motion(Vec3(0f, 0f, v / 2), 1.5f, 1.5f + slowS, then = Motion(Vec3(0f, 0f, v), 1.5f + slowS, 1.5f + slowS + fastS)),
+                semantic = hearspace.core.types.SemanticLabel.VEHICLE,
+            )
+            val spec = SceneSpec("SM-9-$v", Scene(listOf(floor, bike)), Walk(standS = 1000f, durationS = 1.5f + slowS + fastS + 1.0f), n)
+            val blocks = replay(spec, m49)
+            fun along(t: Float): Float {
+                val head = SyntheticGenerator.cameraPose(spec.walk, t).second
+                return (Vec3(0f, 0f, front) + bike.offsetAt(t) - head.positionW).horizontal() dot head.headingW
+            }
+            val firstMoving = blocks.firstOrNull { b -> b.snapshot?.obstacles?.any { it.moving } == true }
+            val stop = blocks.firstOrNull(::stopped)
+            val vErr = blocks.filter { tS(it.tNs) in (1.5f + slowS + 0.5f)..(1.5f + slowS + fastS) }
+                .mapNotNull { b -> b.snapshot?.obstacles?.firstOrNull { it.moving }?.velocityW?.let { abs(it.horizontal().norm() - v) } }.maxOrNull()
+            println("SM-9 v=$v noise=${n.depthQuadK}: first moving output at along ${firstMoving?.let { along(tS(it.tNs)) }}, STOP at along ${stop?.let { along(tS(it.tNs)) }}, max |v err| 0.5 s after speed-up $vErr")
+            if (v < 6f && (firstMoving == null || along(tS(firstMoving.tNs)) < 1.0f)) fails += "v=$v s=${n.depthQuadK}: no moving output before 1 m"
+        }
+        assertTrue(fails.isEmpty(), fails.joinToString("; "))
     }
 
     /** M52 새 옵션을 켜고 SM-1~SM-6 정답 판정이 그대로 통과하는지(회귀). */

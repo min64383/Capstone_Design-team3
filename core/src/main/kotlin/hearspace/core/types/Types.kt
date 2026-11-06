@@ -40,6 +40,24 @@ enum class RgbGuideMode { NONE, WEIGHTED_MEDIAN, EDGE, EDGE_MARGIN }
 /** RGB 안내 깊이 보정(M13.7)에 쓰는 같은 카메라의 밝기 영상. [K]는 이 영상의 내부 파라미터, [luma]는 행 우선 0~255. */
 class GuideImage(val tCaptureNs: Long, val luma: ByteArray, val K: Intrinsics)
 
+/**
+ * ARCore 의미 영상(M49): 화소 값 = [SemanticLabel.pixel]. [K]·[worldFromCam]은 이 영상 촬영 시각의 내부 파라미터와 C_cv → W 자세.
+ * 깊이 장에는 그 깊이를 전달한 프레임까지 받은 가장 최근 영상을 붙인다(과거만).
+ */
+class LabelImage(val tCaptureNs: Long, val labels: ByteArray, val K: Intrinsics, val worldFromCam: hearspace.core.geometry.Mat4) {
+    private val camFromWorld = worldFromCam.rigidInverse()
+
+    /** 월드 점 [pW]가 맺히는 화소의 라벨 값. 카메라 뒤이거나 영상 밖이면 −1. */
+    fun pixelAt(pW: hearspace.core.geometry.Vec3): Int {
+        val c = camFromWorld.transformPoint(pW)
+        if (c.z <= 0f) return -1
+        val u = (K.fx * c.x / c.z + K.cx).toInt()
+        val v = (K.fy * c.y / c.z + K.cy).toInt()
+        if (u < 0 || v < 0 || u >= K.width || v >= K.height) return -1
+        return labels[v * K.width + u].toInt() and 0xFF
+    }
+}
+
 /** 바닥 높이 추정 원천(M13.1c): HISTOGRAM = 높이 히스토그램 최빈값(기준선), PLANE = 평면 추출의 바닥(없으면 갱신하지 않고 유지). */
 /** SINGLE preserves obstacle guidance; ELEVATION adds diagnostic geometry only. */
 enum class FloorMode { SINGLE, ELEVATION }
@@ -176,6 +194,10 @@ data class DepthFrame(
      * null이면 모두 측정값. 3상태 지도가 출처별 오차 σ를 쓴다([DepthConfig.sigmaM]).
      */
     val pixelSource: ByteArray? = null,
+    /** 의미 영상(M49, 과거 것만). 없으면 null. 같음 비교에는 넣지 않는다. */
+    val labels: LabelImage? = null,
+    /** 이 깊이를 전달한 프레임까지 받은 가장 최근 원시 깊이 장(M49 `track.measureFrom` RAW_MASK). 없으면 null. 같음 비교에는 넣지 않는다. */
+    val raw: DepthFrame? = null,
 ) {
     companion object {
         const val PIXEL_MEASURED = 0

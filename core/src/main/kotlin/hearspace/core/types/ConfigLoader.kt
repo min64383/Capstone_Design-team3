@@ -274,6 +274,8 @@ object ConfigLoader {
                     depthLagMs = nonNegative("depthLagMs"),
                     initMaxSpeedMps = nonNegative("initMaxSpeedMps"),
                     initGateSigmas = positive("initGateSigmas"),
+                    measureFrom = enumValue<MeasureFrom>("measureFrom"),
+                    rawMinConfidence = intIn("rawMinConfidence", 0, 255),
                 )
             },
             repPoint = root.section("repPoint") {

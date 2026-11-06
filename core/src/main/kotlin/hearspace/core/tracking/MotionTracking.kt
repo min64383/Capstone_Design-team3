@@ -54,6 +54,17 @@ class MotionFrame(
     val pointCount: (Vec3) -> Float = { 1f },
     /** 평활 깊이 뒤처짐(ns, M52): 칼만에 측정을 [tNs] − 이 값으로 넣는다. 0 = 끔. */
     val measLagNs: Long = 0L,
+    /** 의미 영상(M49): 깊이 장 시각과의 차가 `vision.maxLabelAgeMs` 안인 것만. null = 라벨 모름. */
+    val labels: hearspace.core.types.LabelImage? = null,
+    /** track마다 라벨 표를 쌓아 움직임을 판정한다(`vision.label` SEMANTICS). [movingOracle]이 있으면 그쪽이 먼저다. */
+    val labelVotes: Boolean = false,
+    /** 움직일 수 있는 라벨의 화소 값(`vision.movingLabels`). */
+    val movingPixels: Set<Int> = emptySet(),
+    /** 새 원시 깊이 장의 장애물 점(`track.measureFrom` RAW_MASK). 이번 장에 새 원시 장이 없으면 null. */
+    val rawPoints: List<Vec3>? = null,
+    /** [rawPoints]의 촬영 시각과 카메라 위치. */
+    val rawTNs: Long = Long.MIN_VALUE,
+    val rawCameraW: Vec3 = Vec3.ZERO,
 )
 
 /**
@@ -119,6 +130,8 @@ class MotionState(
     /** 마지막 측정 칸의 상자(없으면 짝지은 지도 군집의 상자). */
     var boxMin: Vec3 = Vec3.ZERO
     var boxMax: Vec3 = Vec3.ZERO
+    /** 상자를 잰 장의 시각(RAW_MASK: 칼만은 원시 장 시각, 상자는 평활 장 시각이라 창은 이 시각부터 옮긴다, M49). */
+    var boxNs: Long = Long.MIN_VALUE
     /** 연속으로 측정이 없던 장 수. */
     var missed = 0
     /** 마지막 측정(대표점)과 그 시각. */
@@ -127,6 +140,13 @@ class MotionState(
     /** 마지막 장의 측정 칸 수(기록용). */
     var nMeasCells = 0
     var lastChi2 = 0f
+    /** 라벨 표(M49): 새 의미 영상마다 창 안 칸 중 움직일 수 있는 라벨 칸이 `cluster.minSamples` 이상이면 표 +1·점수 + hitGain. */
+    var labelVotes = 0f
+    var labelScore = 0f
+    /** 마지막으로 센 의미 영상 시각(같은 영상은 한 번만 센다). */
+    var lastLabelTNs = Long.MIN_VALUE
+    /** 마지막 원시 장에서 고른 마스크 점 수(RAW_MASK, 기록용). −1 = 원시 측정 없음. */
+    var nRawPoints = -1
 
     fun occupied(minHits: Int, minScore: Float) = votes >= minHits && score >= minScore
 
@@ -142,10 +162,14 @@ class MotionState(
     /** 원점 = 칼만 위치(준비 전이면 마지막 측정). */
     fun origin(): Vec3? = filter.positionW ?: lastMeasW
 
-    /** 시각 [tNs]의 추적 창: 측정 상자를 예측 속도 × 경과만큼 옮기고 [marginM]만큼 넓힌다. */
-    fun gate(tNs: Long, marginM: Float): Pair<Vec3, Vec3> {
+    /**
+     * 시각 [tNs]의 추적 창: 측정 상자를 예측 속도 × 경과만큼 옮기고 [marginM]만큼 넓힌다. 경과는 칼만 시각부터(M48), [fromBox]면 상자를 잰
+     * 시각부터(M49 RAW_MASK: 칼만 시각이 원시 장이라 최대 0.1 s 앞서 지나간 상자를 한 번 더 옮겨 창이 물체 앞으로 밀렸다, 합성 SM-9 6.9 m/s).
+     */
+    fun gate(tNs: Long, marginM: Float, fromBox: Boolean = false): Pair<Vec3, Vec3> {
         val v = filter.velocityW ?: Vec3.ZERO
-        val dt = if (filter.tNs == Long.MIN_VALUE) 0f else ((tNs - filter.tNs) / 1e9f).coerceAtLeast(0f)
+        val t0 = if (fromBox && boxNs != Long.MIN_VALUE) boxNs else filter.tNs
+        val dt = if (t0 == Long.MIN_VALUE) 0f else ((tNs - t0) / 1e9f).coerceAtLeast(0f)
         val d = v * dt
         val m = Vec3(marginM, marginM, marginM)
         return (boxMin + d - m) to (boxMax + d + m)
