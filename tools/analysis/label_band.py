@@ -280,8 +280,29 @@ def _static_frame(fr: pd.DataFrame, window_s: float):
     return np.median(w[["tx", "ty", "tz"]].to_numpy(), axis=0), h / np.linalg.norm(h)
 
 
-def _truth_targets(session: Path, fr: pd.DataFrame, cfg: dict):
-    """정답 면: 정면 벽(K01·O01: `annotations/obstacles.json`의 wall_end, 카메라에서 잰 거리) 또는 바닥(`floor_rgb.json`의 RGB 바닥)."""
+def _face_target(session: Path):
+    """받침대 앞면(T 클릭 정답, 검증 안 한 가정: 앞면은 바닥 접점 선을 지나는 수직 평면): `events.json`의 정지 선 물체(검증용 빼고)의
+    바닥 접점 클릭 점들을 위에서 본 직선으로 맞춘다. 화소는 그 점의 라벨이 구조물이고 선분 안·바닥 위인 것만."""
+    ev = session / "annotations" / "events.json"
+    if not ev.is_file():
+        return None
+    objs = [o for o in json.loads(ev.read_text(encoding="utf-8"))["objects"] if o["kind"] == "static" and o.get("shape") == "line" and o.get("added") != "check"]
+    if not objs:
+        return None
+    pts = np.array([c["pointW"] for c in objs[0]["clicks"]])
+    xz = pts[:, [0, 2]]
+    c = xz.mean(axis=0)
+    a = np.linalg.svd(xz - c)[2][0]  # 선 방향
+    s = (xz - c) @ a
+    return {"kind": "face", "p0": np.array([c[0], 0.0, c[1]]), "n": np.array([-a[1], 0.0, a[0]]), "c": c, "a": a,
+            "lo": float(s.min()) + WALL_SIDE_MARGIN_M, "hi": float(s.max()) - WALL_SIDE_MARGIN_M, "floorY": float(np.median(pts[:, 1]))}
+
+
+def _truth_targets(session: Path, fr: pd.DataFrame, cfg: dict, face: bool = False):
+    """정답 면: 정면 벽(K01·O01: `annotations/obstacles.json`의 wall_end, 카메라에서 잰 거리) 또는 바닥(`floor_rgb.json`의 RGB 바닥).
+    [face]면 받침대 앞면([_face_target])."""
+    if face:
+        return _face_target(session)
     ann = session / "annotations" / "obstacles.json"
     if not ann.is_file():
         alt = Path(str(session).replace("data/sessions", "testdata/sessions").replace("data\\sessions", "testdata\\sessions")) / "annotations" / "obstacles.json"
@@ -310,12 +331,12 @@ def _rays(k: dict, rot: np.ndarray, shape):
     return d, u.ravel(), v.ravel()
 
 
-def truth_pairs(session: Path, cfg: dict) -> pd.DataFrame | None:
+def truth_pairs(session: Path, cfg: dict, face: bool = False) -> pd.DataFrame | None:
     """원시 장마다, 광선이 정답 면에 닿는 화소(깊이 값과 무관하게 고름)의 정답 깊이와 원시·평활 깊이를 짝짓는다. 평활은 촬영 시각이
-    가장 가까운 장에서 같은 정답 점을 투영해 읽는다(정지 면이라 시각 차는 자세로 맞춰짐). 바닥은 그 점의 라벨이 바닥류인 화소만."""
+    가장 가까운 장에서 같은 정답 점을 투영해 읽는다(정지 면이라 시각 차는 자세로 맞춰짐). 바닥은 그 점의 라벨이 바닥류, 받침대 앞면은 구조물인 화소만."""
     meta = json.loads((session / "meta.json").read_text(encoding="utf-8"))
     fr = load_frames(session).reset_index(drop=True)
-    tg = _truth_targets(session, fr, cfg)
+    tg = _truth_targets(session, fr, cfg, face)
     if tg is None:
         return None
     ft = fr.tNs.to_numpy()
@@ -343,7 +364,13 @@ def truth_pairs(session: Path, cfg: dict) -> pd.DataFrame | None:
             lat = (x - tg["cam0"]) @ np.cross(tg["n"], [0.0, 1.0, 0.0])
             sel = (t > 0.1) & (np.abs(lat) <= tg["half"]) & (np.abs(x[:, 1] - cr[1]) <= WALL_HALF_HEIGHT_M)
         else:
-            sel = (t > 0.1) & (dh >= DIST_EDGES[0]) & (dh < DIST_EDGES[-1])
+            if tg["kind"] == "face":
+                s_ = (x[:, [0, 2]] - tg["c"]) @ tg["a"]
+                sel = (t > 0.1) & (s_ >= tg["lo"]) & (s_ <= tg["hi"]) & (x[:, 1] > tg["floorY"] + WALL_SIDE_MARGIN_M)
+                want = (7,)  # 구조물
+            else:
+                sel = (t > 0.1) & (dh >= DIST_EDGES[0]) & (dh < DIST_EDGES[-1])
+                want = FLOORISH
             if sem is None:
                 continue
             li = int(np.searchsorted(sem.frameTNs.to_numpy(), int(r.tNs), side="right")) - 1
@@ -353,7 +380,7 @@ def truth_pairs(session: Path, cfg: dict) -> pd.DataFrame | None:
             kl = _sem_k(meta, lab.shape[1], lab.shape[0])
             rl, cl = pose_at(int(sem.imageTNs.iloc[li]))
             ul, vl, _, okl = _project(x, rl, cl, kl)
-            sel &= okl & np.isin(np.where(okl, lab[vl, ul], 0), FLOORISH)
+            sel &= okl & np.isin(np.where(okl, lab[vl, ul], 0), want)
         if not sel.any():
             continue
         j = int(np.argmin(np.abs(sm_t - r.rawDepthTNs)))
@@ -404,7 +431,8 @@ def main_truth(args: list[str]) -> None:
     groups: dict[str, list] = {}
     for s in args:
         name, s = s.split("=", 1) if "=" in s else ("all", s)
-        df = truth_pairs(Path(s), cfg)
+        face = name.endswith("face")  # 이름이 face로 끝나면 받침대 앞면
+        df = truth_pairs(Path(s), cfg, face)
         print(f"{Path(s).name}: {0 if df is None else len(df)} points", flush=True)
         if df is not None:
             groups.setdefault(name, []).append(df)
