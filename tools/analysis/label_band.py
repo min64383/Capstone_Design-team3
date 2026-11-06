@@ -262,7 +262,164 @@ def summarize(a: Acc) -> dict:
     }
 
 
+# --- 정답 대비 원시·평활 짝 비교(0단계 멈춤 뒤 사용자 결정 2026-11-06): 두 깊이가 다를 때 어느 쪽이 맞는가 ---
+CONF_EDGES = [1, 30, 128, 256]  # 원시 신뢰도 구간(0 = 원시 없음)
+WALL_HALF_HEIGHT_M = 0.8  # 벽 정답 화소: 광선이 벽과 만나는 높이가 카메라 ± 이 값(바닥·천장·벽 위 끝 밖)
+WALL_SIDE_MARGIN_M = 0.05  # K01 옆 벽 모서리에서 뗄 폭
+
+
+def _static_frame(fr: pd.DataFrame, window_s: float):
+    """정지 세션의 정답 틀: 처음 [window_s]초 카메라 위치 중앙값과 수평 정면(C_cv +Z) 평균."""
+    w = fr[(fr.tNs - fr.tNs.iloc[0]) / 1e9 <= window_s]
+    fwd = []
+    for row in w.itertuples():
+        r, _ = _pose(row)
+        f = r @ np.array([0.0, 0.0, 1.0])
+        fwd.append([f[0], 0.0, f[2]])
+    h = np.mean(fwd, axis=0)
+    return np.median(w[["tx", "ty", "tz"]].to_numpy(), axis=0), h / np.linalg.norm(h)
+
+
+def _truth_targets(session: Path, fr: pd.DataFrame, cfg: dict):
+    """정답 면: 정면 벽(K01·O01: `annotations/obstacles.json`의 wall_end, 카메라에서 잰 거리) 또는 바닥(`floor_rgb.json`의 RGB 바닥)."""
+    ann = session / "annotations" / "obstacles.json"
+    if not ann.is_file():
+        alt = Path(str(session).replace("data/sessions", "testdata/sessions").replace("data\\sessions", "testdata\\sessions")) / "annotations" / "obstacles.json"
+        ann = alt if alt.is_file() else ann
+    if ann.is_file():
+        a = json.loads(ann.read_text(encoding="utf-8"))
+        ends = [o for o in a.get("obstacles", []) if o["name"] == "wall_end"]
+        if ends and a.get("distanceFrom") == "camera":
+            cam0, h = _static_frame(fr, cfg["align"]["headingWindowS"])
+            o = ends[0]
+            side = [s for s in a["obstacles"] if s["name"] in ("wall_left", "wall_right")]
+            half = (min(abs(s["max"][0]) if s["max"][0] < 0 else abs(s["min"][0]) for s in side) - WALL_SIDE_MARGIN_M) if side else max(abs(o["min"][0]), abs(o["max"][0]))
+            return {"kind": "wall", "p0": cam0 + o["min"][2] * h, "n": h, "cam0": cam0, "half": half}
+    f = session / "floor_rgb.json"
+    if f.is_file():
+        fy = json.loads(f.read_text(encoding="utf-8")).get("floorY")
+        if fy is not None:
+            return {"kind": "floor", "p0": np.array([0.0, fy, 0.0]), "n": np.array([0.0, 1.0, 0.0])}
+    return None
+
+
+def _rays(k: dict, rot: np.ndarray, shape):
+    """화소마다 월드 광선 방향(카메라 깊이 1 m에 해당하는 길이)과 화소 좌표."""
+    v, u = np.mgrid[0:shape[0], 0:shape[1]]
+    d = np.stack([(u - k["cx"]) / k["fx"], (v - k["cy"]) / k["fy"], np.ones(shape)], axis=-1).reshape(-1, 3) @ rot.T
+    return d, u.ravel(), v.ravel()
+
+
+def truth_pairs(session: Path, cfg: dict) -> pd.DataFrame | None:
+    """원시 장마다, 광선이 정답 면에 닿는 화소(깊이 값과 무관하게 고름)의 정답 깊이와 원시·평활 깊이를 짝짓는다. 평활은 촬영 시각이
+    가장 가까운 장에서 같은 정답 점을 투영해 읽는다(정지 면이라 시각 차는 자세로 맞춰짐). 바닥은 그 점의 라벨이 바닥류인 화소만."""
+    meta = json.loads((session / "meta.json").read_text(encoding="utf-8"))
+    fr = load_frames(session).reset_index(drop=True)
+    tg = _truth_targets(session, fr, cfg)
+    if tg is None:
+        return None
+    ft = fr.tNs.to_numpy()
+    sm = fr[fr.depthFile.notna()].drop_duplicates("depthTNs")
+    sm_t = sm.depthTNs.to_numpy()
+    sem = pd.read_csv(session / "semantic" / "index.csv").sort_values("frameTNs").reset_index(drop=True) if (session / "semantic" / "index.csv").is_file() else None
+    rows = []
+
+    def pose_at(t):
+        return _pose(fr.iloc[int(np.argmin(np.abs(ft - t)))])
+
+    for r in fr[fr.rawDepthFile.notna()].drop_duplicates("rawDepthTNs").itertuples():
+        if r.tracking != "TRACKING" or not isinstance(r.confFile, str):
+            continue
+        zr = load_depth_m(session / r.rawDepthFile)
+        conf = np.array(Image.open(session / r.confFile))
+        kr = depth_k(meta, zr.shape[1], zr.shape[0])
+        rr, cr = pose_at(r.rawDepthTNs)
+        d, u, v = _rays(kr, rr, zr.shape)
+        den = d @ tg["n"]
+        t = np.where(np.abs(den) > 1e-6, ((tg["p0"] - cr) @ tg["n"]) / np.where(np.abs(den) > 1e-6, den, 1.0), -1.0)
+        x = cr + t[:, None] * d
+        dh = np.hypot(x[:, 0] - cr[0], x[:, 2] - cr[2])
+        if tg["kind"] == "wall":
+            lat = (x - tg["cam0"]) @ np.cross(tg["n"], [0.0, 1.0, 0.0])
+            sel = (t > 0.1) & (np.abs(lat) <= tg["half"]) & (np.abs(x[:, 1] - cr[1]) <= WALL_HALF_HEIGHT_M)
+        else:
+            sel = (t > 0.1) & (dh >= DIST_EDGES[0]) & (dh < DIST_EDGES[-1])
+            if sem is None:
+                continue
+            li = int(np.searchsorted(sem.frameTNs.to_numpy(), int(r.tNs), side="right")) - 1
+            if li < 0:
+                continue
+            lab = np.array(Image.open(session / sem.file.iloc[li]))
+            kl = _sem_k(meta, lab.shape[1], lab.shape[0])
+            rl, cl = pose_at(int(sem.imageTNs.iloc[li]))
+            ul, vl, _, okl = _project(x, rl, cl, kl)
+            sel &= okl & np.isin(np.where(okl, lab[vl, ul], 0), FLOORISH)
+        if not sel.any():
+            continue
+        j = int(np.argmin(np.abs(sm_t - r.rawDepthTNs)))
+        srow = sm.iloc[j]
+        zs = load_depth_m(session / srow.depthFile)
+        ks = depth_k(meta, zs.shape[1], zs.shape[0])
+        rs, cs = pose_at(srow.depthTNs)
+        xs = x[sel]
+        us, vs, zexp_s, oks = _project(xs, rs, cs, ks)
+        zsv = np.where(oks, zs[vs, us], 0)
+        zrv = zr[v[sel], u[sel]]
+        cfv = np.where(zrv > 0, conf[v[sel], u[sel]], 0)
+        rows.append(pd.DataFrame({"t": r.rawDepthTNs, "dist": dh[sel], "zexp": t[sel], "conf": cfv, "eRaw": np.where(zrv > 0, zrv - t[sel], np.nan),
+                                  "eSm": np.where(oks & (zsv > 0), zsv - zexp_s, np.nan)}))
+    return pd.concat(rows, ignore_index=True) if rows else None
+
+
+def truth_summary(df: pd.DataFrame, cfg: dict) -> list[dict]:
+    """거리·신뢰도 구간마다 원시·평활 오차(같은 점), 둘이 어긋날 때 원시가 정답에 더 가까운 몫, 원시 없는 점의 평활 오차."""
+    s0, s2, smul, vox = cfg["depth"]["rawSigma0M"], cfg["depth"]["rawSigmaPerM2"], cfg["map"]["sigmaMultiple"], cfg["map"]["voxelSizeM"]
+    out = []
+    df = df.assign(tol=np.maximum(smul * (s0 + s2 * df.zexp ** 2), vox), db=np.digitize(df.dist, DIST_EDGES) - 1,
+                   cb=np.where(df.conf > 0, np.digitize(df.conf, CONF_EDGES) - 1, -1))
+    for j in range(len(DIST_EDGES) - 1):
+        for c in range(-1, len(CONF_EDGES) - 1):
+            g = df[(df.db == j) & (df.cb == c) & df.eSm.notna()]
+            if len(g) < 50:
+                continue
+            row = {"dist": f"{DIST_EDGES[j]:g}-{DIST_EDGES[j + 1]:g}", "conf": "none" if c < 0 else f"{CONF_EDGES[c]}-{CONF_EDGES[c + 1] - 1}", "n": len(g),
+                   "smBias": round(float(g.eSm.median()), 3), "smSigma": round(float(1.4826 * (g.eSm - g.eSm.median()).abs().median()), 3),
+                   "smWithinTol": round(float((g.eSm.abs() <= g.tol).mean()), 3)}
+            if c >= 0:
+                dis = (g.eRaw - g.eSm).abs() > g.tol
+                row |= {"rawBias": round(float(g.eRaw.median()), 3), "rawSigma": round(float(1.4826 * (g.eRaw - g.eRaw.median()).abs().median()), 3),
+                        "rawWithinTol": round(float((g.eRaw.abs() <= g.tol).mean()), 3), "disagree": round(float(dis.mean()), 3),
+                        "rawCloserWhenDisagree": round(float((g.eRaw.abs() < g.eSm.abs())[dis].mean()), 3) if dis.any() else None}
+            out.append(row)
+    return out
+
+
+def main_truth(args: list[str]) -> None:
+    out = None
+    if "--out" in args:
+        i = args.index("--out")
+        out = Path(args[i + 1])
+        args = args[:i] + args[i + 2:]
+    cfg = load_config(Path("."))
+    groups: dict[str, list] = {}
+    for s in args:
+        name, s = s.split("=", 1) if "=" in s else ("all", s)
+        df = truth_pairs(Path(s), cfg)
+        print(f"{Path(s).name}: {0 if df is None else len(df)} points", flush=True)
+        if df is not None:
+            groups.setdefault(name, []).append(df)
+    res = {g: truth_summary(pd.concat(v, ignore_index=True), cfg) for g, v in groups.items()}
+    for g, rows in res.items():
+        print(f"== {g}")
+        print(pd.DataFrame(rows).to_string(index=False))
+    if out:
+        out.parent.mkdir(parents=True, exist_ok=True)
+        out.write_text(json.dumps(res, ensure_ascii=False, indent=1), encoding="utf-8")
+
+
 def main(args: list[str]) -> None:
+    if args and args[0] == "--truth":
+        return main_truth(args[1:])
     out = None
     if "--out" in args:
         i = args.index("--out")
