@@ -310,6 +310,12 @@ class VoxelMapTest {
         }.occupied().size
         assertEquals(0, occupied(intArrayOf(4, 5, 6)))
         assertEquals(1, occupied(intArrayOf(4, 6)))
+        // 정해지지 않은 칸을 프레임 문턱으로: 라벨 표가 없으면 문턱 6이라 점유가 아니고, 장애물 표 6개로 정해지면 문턱 3
+        val strict = cfg.copy(weightedUndecidedAsFrame = true)
+        val noLabel = VoxelMap(strict, intArrayOf(4, 6)).also { m -> repeat(6) { i -> m.beginFrame(); m.insert(p, i.toLong(), 0.57f) } }
+        assertEquals(0, noLabel.occupied().size)
+        val labeled = VoxelMap(strict, intArrayOf(4, 6)).also { m -> repeat(6) { i -> m.beginFrame(); m.insert(p, i.toLong(), 0.57f); m.voteLabel(p, 5) } }
+        assertEquals(1, labeled.occupied().size)
     }
 
     @Test

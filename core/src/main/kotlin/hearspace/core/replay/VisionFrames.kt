@@ -15,7 +15,8 @@ import kotlin.math.abs
  * 원시 깊이는 [SessionReader.rawDepthAt]. 의미 영상의 자세는 그 영상 촬영 시각에 가장 가까운, 이미 받은 프레임의 자세다.
  * 의미 영상이 없는 세션은 원시 깊이만 붙인다.
  */
-class VisionFrames(private val dir: File, private val reader: SessionReader) {
+/** [remap]: 라벨 화소 값 바꾸기(평가 전용 `-PlabelRemap=5:8`, M55 시험: 보도 → 물체). 비면 그대로. */
+class VisionFrames(private val dir: File, private val reader: SessionReader, private val remap: Map<Int, Int> = emptyMap()) {
     private class Entry(val frameTNs: Long, val imageTNs: Long, val width: Int, val height: Int, val file: String)
 
     private val entries: List<Entry> = File(dir, SessionFormat.SEMANTIC_INDEX).takeIf { it.isFile }?.readLines()?.drop(1)
@@ -60,7 +61,8 @@ class VisionFrames(private val dir: File, private val reader: SessionReader) {
             val img = Png16.decode(f.readBytes(), e.width.toLong() * e.height)
             require(img.bitDepth == 8 && img.width == e.width && img.height == e.height) { "${e.file}: semantic must be 8-bit ${e.width}x${e.height}" }
             val pose = poses.filter { it.tCaptureNs <= nowNs }.minByOrNull { abs(it.tCaptureNs - e.imageTNs) } ?: return null
-            LabelImage(e.imageTNs, img.gray8!!, intrinsicsFor(e.width, e.height), pose.worldFromCam)
+            val px = if (remap.isEmpty()) img.gray8!! else ByteArray(img.gray8!!.size) { i -> (remap[img.gray8[i].toInt() and 0xFF] ?: (img.gray8[i].toInt() and 0xFF)).toByte() }
+            LabelImage(e.imageTNs, px, intrinsicsFor(e.width, e.height), pose.worldFromCam)
         }
         return cache
     }

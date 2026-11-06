@@ -158,6 +158,7 @@ object ConfigLoader {
                     decayWeighting = enumValue<DecayWeighting>("decayWeighting"),
                     weightedMinHits = positive("weightedMinHits"),
                     weightedFrameMinHits = positive("weightedFrameMinHits"),
+                    weightedUndecidedAsFrame = boolean("weightedUndecidedAsFrame"),
                     tsdfTruncMinM = positive("tsdfTruncMinM"),
                     tsdfTruncPerM = nonNegative("tsdfTruncPerM"),
                     tsdfMaxWeight = positive("tsdfMaxWeight"),

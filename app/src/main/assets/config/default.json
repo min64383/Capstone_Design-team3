@@ -96,6 +96,7 @@
     "decayWeighting": "NONE",
     "weightedMinHits": 6,
     "weightedFrameMinHits": 6,
+    "weightedUndecidedAsFrame": false,
     "tsdfTruncMinM": 0.1,
     "tsdfTruncPerM": 0.05,
     "tsdfMaxWeight": 12,

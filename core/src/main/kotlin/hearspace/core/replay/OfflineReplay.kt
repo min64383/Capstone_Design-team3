@@ -142,7 +142,7 @@ class OfflineReplay(
             config.frontend.labelBandPx > 0 || config.map.hitWeighting == hearspace.core.types.HitWeighting.CONFIDENCE ||
             config.floor.weighting == hearspace.core.types.FloorWeighting.CONFIDENCE || config.vision.voxelLabels ||
             config.track.measureFrom == hearspace.core.types.MeasureFrom.RAW_MASK || cellTraceOut != null
-        ) VisionFrames(session, reader) else null
+        ) VisionFrames(session, reader, labelRemap) else null
         val fast = FastPath(config, substitution?.headingSnap())
         val slow = SlowPath(config, substitution?.fixedMap(config.map.voxelSizeM), floorOverrideY = substitution?.floorY(), movingOracle = movingOracle)
         slow.map.collectInserted = mapInserts
@@ -270,6 +270,9 @@ class OfflineReplay(
 
     /** true면 장마다 지도에 넣은 칸을 [SlowStep.insertedVoxels]·`map_inserts.csv`로 낸다(M54 평가 전용, `-PmapInserts=true`). */
     var mapInserts = false
+
+    /** 라벨 화소 값 바꾸기(M55 평가 전용 `-PlabelRemap=5:8`). */
+    var labelRemap: Map<Int, Int> = emptyMap()
 
     /** 있으면 칸 관측 기록([hearspace.core.mapping.CellTrace])을 여기에 쓴다(M55 평가 전용, `-PcellTrace=true`). 닫는 것은 부르는 쪽. */
     var cellTraceOut: java.io.OutputStream? = null

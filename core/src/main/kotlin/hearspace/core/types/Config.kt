@@ -369,6 +369,8 @@ data class MapConfig(
     val weightedMinHits: Float = 6f,
     /** 신뢰도 지도 무게에서 칸 라벨 표가 프레임 역할(건물·`vision.floorishLabels`)인 칸의 점유 문턱(M55 라벨 역할별 문턱). 기본 6. */
     val weightedFrameMinHits: Float = 6f,
+    /** true면 라벨 표로 장애물 역할이 정해지지 않은 칸(라벨 표 없음·표 모자람)도 [weightedFrameMinHits]를 쓴다(M55 라벨 시험). false = 장애물 문턱. */
+    val weightedUndecidedAsFrame: Boolean = false,
 ) {
     /** 칸 점유에 쓰는 표 문턱: 신뢰도 지도 무게면 [weightedMinHits], 아니면 [minHits]. */
     val occupiedEvidence: Float get() = if (hitWeighting == HitWeighting.CONFIDENCE) weightedMinHits else minHits.toFloat()

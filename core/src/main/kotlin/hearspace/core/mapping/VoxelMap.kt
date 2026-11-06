@@ -613,9 +613,18 @@ class VoxelMap(private val cfg: MapConfig, private val floorishPixels: IntArray 
      * `weightedMinHits` 기본값과 같아 끄면 그대로), 아니면 [MapConfig.occupiedEvidence].
      */
     private fun occupiedEvidenceOf(v: Voxel): Float {
-        if (!maxVotePerFrame || v.labelCounts == null) return cfg.occupiedEvidence
-        val r = roleOf(v)
-        return if (r == VoxelRole.BUILDING || r == VoxelRole.FLOORISH) cfg.weightedFrameMinHits else cfg.occupiedEvidence
+        if (!maxVotePerFrame) return cfg.occupiedEvidence
+        val c = v.labelCounts
+        if (c != null) {
+            val r = roleOf(v)
+            if (r == VoxelRole.BUILDING || r == VoxelRole.FLOORISH) return cfg.weightedFrameMinHits
+        }
+        if (!cfg.weightedUndecidedAsFrame) return cfg.occupiedEvidence
+        // 라벨 표로 장애물 역할이 정해진 칸(장애물 표 ≥ minHits이고 프레임 표보다 많음)만 장애물 문턱, 아직 정해지지 않은 칸은 프레임 문턱
+        if (c == null) return cfg.weightedFrameMinHits
+        val frame = c[2] + floorishPixels.sumOf { c[it] }
+        val obstacle = c.sum() - frame
+        return if (obstacle >= cfg.minHits && obstacle > frame) cfg.occupiedEvidence else cfg.weightedFrameMinHits
     }
 
     /**
