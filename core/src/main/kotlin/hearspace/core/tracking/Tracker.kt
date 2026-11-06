@@ -430,9 +430,16 @@ class Tracker(
         }
         lastMotionDebug = tracks.map { t ->
             val m = t.motion!!
+            // RAW_MASK의 움직이는 track·후보는 이번 장에 원시 측정을 넣었을 때만 측정점을 적고, 그 시각은 원시 장 촬영 시각이다
+            val rawMode = cfg.measureFrom == MeasureFrom.RAW_MASK && (m.moving || m.candidate)
+            val rawNow = rawMode && f.rawPoints != null && m.rawMeasTNs == f.rawTNs
             MotionDebug(
-                tNs, t.id, m.candidate, m.moving, m.lastMeasW.takeIf { m.lastMeasNs == tNs }, m.filter.predictedAt(tNs)?.first, m.filter.velocityW,
+                tNs, t.id, m.candidate, m.moving,
+                if (rawMode) m.lastMeasW.takeIf { rawNow } else m.lastMeasW.takeIf { m.lastMeasNs == tNs },
+                m.filter.predictedAt(tNs)?.first, m.filter.velocityW,
                 m.filter.positionSigmaM, m.filter.velocitySigmaMps, m.lastChi2, m.nMeasCells, m.votes, m.score,
+                measTNs = if (rawNow) f.rawTNs else tNs, labelVotes = m.labelVotes, labelScore = m.labelScore,
+                nRawPoints = if (rawMode && f.rawPoints != null) m.nRawPoints else -1,
             )
         }
         return result
@@ -485,7 +492,10 @@ class Tracker(
         m.nRawPoints = pts.size
         if (pts.size < minSamples) return
         val r = nearSurfacePoint(pts, f.rawCameraW) ?: return
-        if (m.filter.update(f.rawTNs, r, f.sigmaAt(r), cfg.validationChi2)) m.lastMeasW = r
+        if (m.filter.update(f.rawTNs, r, f.sigmaAt(r), cfg.validationChi2)) {
+            m.lastMeasW = r
+            m.rawMeasTNs = f.rawTNs
+        }
     }
 
     /** 위에서 본 두 상자(x, z)가 작은 쪽 면적의 과반 넘게 겹치는지. */

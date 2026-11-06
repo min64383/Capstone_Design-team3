@@ -147,6 +147,8 @@ class MotionState(
     var lastLabelTNs = Long.MIN_VALUE
     /** 마지막 원시 장에서 고른 마스크 점 수(RAW_MASK, 기록용). −1 = 원시 측정 없음. */
     var nRawPoints = -1
+    /** 마지막으로 칼만에 넣은 원시 측정의 촬영 시각(RAW_MASK). */
+    var rawMeasTNs = Long.MIN_VALUE
 
     fun occupied(minHits: Int, minScore: Float) = votes >= minHits && score >= minScore
 
@@ -191,6 +193,13 @@ data class MotionDebug(
     val nMeasCells: Int,
     val votes: Float,
     val score: Float,
+    /** [measW]의 측정 시각(RAW_MASK = 원시 장 촬영 시각, 아니면 [tCaptureNs]). */
+    val measTNs: Long = tCaptureNs,
+    /** 라벨 표·점수(M49). */
+    val labelVotes: Float = 0f,
+    val labelScore: Float = 0f,
+    /** 이번 장 원시 측정에서 고른 마스크 점 수(RAW_MASK, −1 = 원시 측정 없음). */
+    val nRawPoints: Int = -1,
 )
 
 internal fun inBox(p: Vec3, lo: Vec3, hi: Vec3) = p.x in lo.x..hi.x && p.y in lo.y..hi.y && p.z in lo.z..hi.z
