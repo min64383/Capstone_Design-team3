@@ -44,6 +44,9 @@ TRANS_S = 2.0
 TURN_DEG, TURN_WIN_S = 30.0, 1.0  # 돌아섬: 정답 진행 방향이 TURN_WIN_S 안에 TURN_DEG 넘게 바뀜(자체 선택)
 PAIR_MAX_M = 3.5  # 클릭 검증 짝: 발이 이 안(발 클릭 범위 1.9~3.5 m)
 CLICK_TOL_M = 0.2  # 클릭 검증 목표 p95(자체 선택: 1.3 m/s에서 TTC 띠 0.15 s)
+# 움직이는 물체 앞면 = 클릭 점 − 이 값(M52 P2: D_a 안 원시 깊이 몸통 화소 − 클릭 점의 중앙값을 뒤집은 값, T 접근 3세션 합친 0.149 m
+# [0.112, 0.207]). 이전에는 반지름 0.2 m(M47 자체 선택)를 썼다. 옆 방향(통로 안인지)은 반지름 그대로: 몸 앞뒤 두께와 어깨 폭이 다르다
+FRONT_OFFSET_M = 0.15
 UNEXPL_GAP_S = 0.2  # 정답 없는 경고 구간을 이을 때 이보다 짧은 틈은 같은 구간(보고용 묶음)
 
 
@@ -132,14 +135,15 @@ def line_samples(o: dict) -> np.ndarray:
     return np.array(out)
 
 
-def near_along(pts: np.ndarray, radius: float, head: np.ndarray, f: np.ndarray, c: dict) -> float | None:
-    """점들 중 통로 안(머리 [head], 진행 방향 [f]) 가장 가까운 진행 방향 거리(`metrics.truth_nearest`와 같은 규칙). 통로 밖이면 None."""
+def near_along(pts: np.ndarray, radius: float, head: np.ndarray, f: np.ndarray, c: dict, front: float | None = None) -> float | None:
+    """점들 중 통로 안(머리 [head], 진행 방향 [f]) 가장 가까운 진행 방향 거리(`metrics.truth_nearest`와 같은 규칙). 통로 밖이면 None.
+    앞면은 진행 방향 거리 − [front](없으면 [radius]), 옆 방향은 [radius]."""
     if len(pts) == 0:
         return None
     rel = pts - head
     along = rel @ f
     lat = rel @ np.array([-f[1], f[0]])
-    near = np.maximum(along - radius, -c["behindM"])
+    near = np.maximum(along - (radius if front is None else front), -c["behindM"])
     ok = (np.abs(lat) - radius <= c["widthM"] / 2) & (near <= along + radius) & (near <= c["lengthM"])
     return float(near[ok].min()) if ok.any() else None
 
@@ -209,14 +213,14 @@ def compute(session: Path, run_dir: Path) -> dict:
                 if r is None:
                     continue
                 pos, vel = r
-                pts, rad = np.asarray(pos)[None, :], float(o.get("radiusM", 0.0))
+                pts, rad, front = np.asarray(pos)[None, :], float(o.get("radiusM", 0.0)), FRONT_OFFSET_M
                 V[k, j] = vel
             else:
-                pts, rad = statics[j], 0.0
-            a = near_along(pts, rad, head[k], fdir[k], cor)
+                pts, rad, front = statics[j], 0.0, None
+            a = near_along(pts, rad, head[k], fdir[k], cor, front)
             if a is not None:
                 A[k, j] = a
-            a = near_along(pts, rad, head[k], fdir[k], cor_in)
+            a = near_along(pts, rad, head[k], fdir[k], cor_in, front)
             if a is not None:
                 A_in[k, j] = a
 

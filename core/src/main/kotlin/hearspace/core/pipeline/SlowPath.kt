@@ -24,6 +24,7 @@ import hearspace.core.tracking.Tracker
 import hearspace.core.types.Config
 import hearspace.core.types.CorridorJudgeMode
 import hearspace.core.types.DepthFrame
+import hearspace.core.types.DepthSource
 import hearspace.core.types.MapMode
 import hearspace.core.types.MotionMode
 import hearspace.core.types.MapHealth
@@ -232,11 +233,15 @@ class SlowPath(
         val seen = HashSet<Long>()
         val cells = ArrayList<Pair<Vec3, Boolean>>()
         val all = ArrayList<Vec3>()
+        val count = HashMap<Long, Int>() // 칸마다 이번 장 점 수(M52 measureWeight POINTS)
+        fun key(ix: Int, iy: Int, iz: Int) = (ix.toLong() shl 42) xor (iy.toLong() shl 21) xor iz.toLong()
         for ((p, _) in pts) {
             val ix = kotlin.math.floor(p.x / vs).toInt()
             val iy = kotlin.math.floor(p.y / vs).toInt()
             val iz = kotlin.math.floor(p.z / vs).toInt()
-            if (!seen.add((ix.toLong() shl 42) xor (iy.toLong() shl 21) xor iz.toLong())) continue
+            val k = key(ix, iy, iz)
+            count.merge(k, 1, Int::plus)
+            if (!seen.add(k)) continue
             val c = Vec3((ix + 0.5f) * vs, (iy + 0.5f) * vs, (iz + 0.5f) * vs)
             all += c
             if (corridor.contains(c)) cells += c to map.voxels.occupiedAt(c)
@@ -262,6 +267,10 @@ class SlowPath(
             movingOracle = movingOracle,
             cameraW = camW,
             weightAt = { p -> map.voxels.weight((p - camW).norm()) },
+            pointCount = { c ->
+                (count[key(kotlin.math.floor(c.x / vs).toInt(), kotlin.math.floor(c.y / vs).toInt(), kotlin.math.floor(c.z / vs).toInt())] ?: 1).toFloat()
+            },
+            measLagNs = if (config.depth.source == DepthSource.SMOOTHED) (tr.depthLagMs * 1e6).toLong() else 0L,
         )
     }
 

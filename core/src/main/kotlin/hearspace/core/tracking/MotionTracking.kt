@@ -50,22 +50,49 @@ class MotionFrame(
     val cameraW: Vec3 = Vec3.ZERO,
     /** 관측 가중치(정지 지도와 같은 거리 가중, 점까지 카메라 거리로). */
     val weightAt: (Vec3) -> Float = { 1f },
+    /** 칸(중심)에 이번 장 든 깊이 점 수(M52 `track.measureWeight` POINTS의 가중치). */
+    val pointCount: (Vec3) -> Float = { 1f },
+    /** 평활 깊이 뒤처짐(ns, M52): 칼만에 측정을 [tNs] − 이 값으로 넣는다. 0 = 끔. */
+    val measLagNs: Long = 0L,
 )
 
 /**
  * 칼만 측정점(M48): 칸들을 카메라에서 본 방위의 중앙값 방향으로, 거리의 아래 사분위(25%)만큼 떨어진 수평 점.
  * 깊이 영상의 막·번짐은 물체 뒤(배경 쪽)에 생기므로 중심점은 가까이 올수록 뒤로 끌리고(합성 SM-1 잡음 깊이에서 속도 1.0 → 0.6~0.8 m/s),
  * 가장 앞 칸 하나는 장마다 칸이 바뀌어 크게 뛴다. 가까운 면의 아래 사분위는 둘 다 덜 받는다(자체 선택, 관례적 강건 통계).
+ * [weight]가 있으면(M52 POINTS) 칸마다 그만큼 센 가중 중앙값·가중 아래 사분위(누적 가중이 처음 비율 이상이 되는 값), 없으면 칸마다 한 번.
  */
-fun nearSurfacePoint(cells: List<Vec3>, cameraW: Vec3): Vec3? {
+fun nearSurfacePoint(cells: List<Vec3>, cameraW: Vec3, weight: ((Vec3) -> Float)? = null): Vec3? {
     if (cells.isEmpty()) return null
     val ang = cells.map { kotlin.math.atan2((it.x - cameraW.x).toDouble(), (it.z - cameraW.z).toDouble()) }
     val ref = ang.first()
-    val unwrapped = ang.map { a -> var d = a - ref; while (d > Math.PI) d -= 2 * Math.PI; while (d < -Math.PI) d += 2 * Math.PI; ref + d }.sorted()
-    val bearing = unwrapped[unwrapped.size / 2]
-    val ranges = cells.map { kotlin.math.hypot((it.x - cameraW.x).toDouble(), (it.z - cameraW.z).toDouble()) }.sorted()
-    val r = ranges[(ranges.size - 1) / 4]
+    val unwrap = ang.map { a -> var d = a - ref; while (d > Math.PI) d -= 2 * Math.PI; while (d < -Math.PI) d += 2 * Math.PI; ref + d }
+    val range = cells.map { kotlin.math.hypot((it.x - cameraW.x).toDouble(), (it.z - cameraW.z).toDouble()) }
+    val bearing: Double
+    val r: Double
+    if (weight == null) {
+        val unwrapped = unwrap.sorted()
+        bearing = unwrapped[unwrapped.size / 2]
+        val ranges = range.sorted()
+        r = ranges[(ranges.size - 1) / 4]
+    } else {
+        val w = cells.map { weight(it).toDouble() }
+        bearing = weightedQuantile(unwrap, w, 0.5)
+        r = weightedQuantile(range, w, 0.25)
+    }
     return Vec3((cameraW.x + r * kotlin.math.sin(bearing)).toFloat(), 0f, (cameraW.z + r * kotlin.math.cos(bearing)).toFloat())
+}
+
+/** 가중 분위수: 값 순으로 누적 가중이 처음 [q] × 전체 이상이 되는 값. */
+internal fun weightedQuantile(v: List<Double>, w: List<Double>, q: Double): Double {
+    val idx = v.indices.sortedBy { v[it] }
+    val total = w.sum()
+    var cum = 0.0
+    for (i in idx) {
+        cum += w[i]
+        if (cum >= q * total) return v[i]
+    }
+    return v[idx.last()]
 }
 
 /**
@@ -74,8 +101,15 @@ fun nearSurfacePoint(cells: List<Vec3>, cameraW: Vec3): Vec3? {
  * 점수 ≥ `minScore`(정지 지도와 같은 문턱). 처음 설계는 물체 좌표 칸마다 쌓았으나, 실제 사람은 걸으며 모양이 바뀌고 칼만 원점이 2~4 cm
  * 흔들려 5 cm 칸 하나에 6표가 모이지 않았다(T 150338 점유 칸 0, 합성 원기둥은 400여 칸).
  */
-class MotionState(accelSigmaMps2: Float, val birthNs: Long, var candidate: Boolean) {
-    val filter = MotionFilter(accelSigmaMps2)
+class MotionState(
+    accelSigmaMps2: Float,
+    val birthNs: Long,
+    var candidate: Boolean,
+    initMaxSpeedMps: Float = 0f,
+    initGateSigmas: Float = 3f,
+    initUpdates: Int = 0,
+) {
+    val filter = MotionFilter(accelSigmaMps2, initMaxSpeedMps, initGateSigmas, initUpdates)
     var moving = false
     var votes = 0f
     var score = 0f

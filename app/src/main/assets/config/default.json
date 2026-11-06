@@ -190,7 +190,11 @@
     "minMovingMps": 0.3,
     "movingChi2": 9.21,
     "validationChi2": 1000000,
-    "userVelocityS": 0.5
+    "userVelocityS": 0.5,
+    "measureWeight": "CELLS",
+    "depthLagMs": 0,
+    "initMaxSpeedMps": 0,
+    "initGateSigmas": 3
   },
   "repPoint": { "strategy": "CORRIDOR_BAND", "bandM": 0.20, "stableTies": false },
   "policy": {

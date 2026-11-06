@@ -270,6 +270,10 @@ object ConfigLoader {
                     movingChi2 = positive("movingChi2"),
                     validationChi2 = positive("validationChi2"),
                     userVelocityS = positive("userVelocityS"),
+                    measureWeight = enumValue<MeasureWeight>("measureWeight"),
+                    depthLagMs = nonNegative("depthLagMs"),
+                    initMaxSpeedMps = nonNegative("initMaxSpeedMps"),
+                    initGateSigmas = positive("initGateSigmas"),
                 )
             },
             repPoint = root.section("repPoint") {

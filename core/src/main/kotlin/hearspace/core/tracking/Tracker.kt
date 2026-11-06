@@ -3,6 +3,7 @@ package hearspace.core.tracking
 import hearspace.core.geometry.Vec3
 import hearspace.core.types.HeightClass
 import hearspace.core.types.MapConfig
+import hearspace.core.types.MeasureWeight
 import hearspace.core.types.Obstacle
 import hearspace.core.types.RepStrategy
 import hearspace.core.types.TrackConfig
@@ -222,8 +223,14 @@ class Tracker(
     private fun motionStep(f: MotionFrame, out: List<Obstacle>): List<Obstacle> {
         val mc = mapCfg ?: error("track.motion KALMAN needs MapConfig")
         val tNs = f.tNs
+        // 필터 시각(M52): 평활 깊이 뒤처짐만큼 앞당긴 측정 시각. 필터의 갱신·예측·창은 이 시각으로, 지도·출력·기록은 촬영 시각으로 한다
+        val tf = tNs - f.measLagNs
+        // 측정점 가중(M52 POINTS): 칸마다 이번 장 점 수
+        val wt = if (cfg.measureWeight == MeasureWeight.POINTS) f.pointCount else null
+        fun newMotion(birthNs: Long, candidate: Boolean) =
+            MotionState(cfg.accelSigmaMps2, birthNs, candidate, cfg.initMaxSpeedMps, cfg.initGateSigmas, mc.minHits)
         for (t in tracks) if (t.motion == null) {
-            t.motion = MotionState(cfg.accelSigmaMps2, tNs, candidate = false).also { it.boxMin = t.aabbMin; it.boxMax = t.aabbMax }
+            t.motion = newMotion(tNs, candidate = false).also { it.boxMin = t.aabbMin; it.boxMax = t.aabbMax }
         }
         val removed = HashSet<Track>()
         // 움직이는 track·후보의 측정 = 창에 걸린 군집 전체(창은 군집을 고르는 데만 쓴다). 창 안 칸만 쓰면 측정점이 창 쪽(예측 쪽)으로 끌려
@@ -233,14 +240,15 @@ class Tracker(
             val m = t.motion!!
             // 추적 창: 움직이는 track·후보는 측정 상자를 예측만큼 옮긴 것, 지도 track은 이번 지도 군집 상자(지도 앞면이 뒤처지므로 여유로 덮음)
             if (!m.moving && !m.candidate) { m.boxMin = t.aabbMin; m.boxMax = t.aabbMax }
-            val (lo, hi) = m.gate(tNs, cfg.matchRadiusM)
+            val (lo, hi) = m.gate(tf, cfg.matchRadiusM)
             // 측정은 통로 밖 칸도 쓴다: 통로만 보면 옆으로 비켜 간 물체를 놓친 것으로 보고 마지막 자리를 정지 지도에 넘겨 유령 칸이 생겼다(SM-6)
             val meas = if (m.moving || m.candidate) clustersAll.filter { cl -> cl.count { inBox(it, lo, hi) } >= minSamples }.flatten()
             else f.allCells.filter { inBox(it, lo, hi) }
             m.nMeasCells = meas.size
             // 칼만 측정 = 이번 장 창 안 칸의 중심점(가장 앞 칸 기준 대표점은 장마다 칸이 바뀌어 크게 뛴다, M48 값 재기). 예측에서 벗어난 측정은 버린다
-            val rep = if (meas.size >= minSamples) nearSurfacePoint(meas, f.cameraW) else null
-            if (rep != null && !m.filter.update(tNs, rep, f.sigmaAt(rep), cfg.validationChi2)) {
+            val rep = if (meas.size >= minSamples) nearSurfacePoint(meas, f.cameraW, wt) else null
+            val restarts = m.filter.restarts
+            if (rep != null && !m.filter.update(tf, rep, f.sigmaAt(rep), cfg.validationChi2)) {
                 m.missed++
                 m.nMeasCells = -meas.size // 버린 측정(기록용 음수)
             } else if (rep != null) {
@@ -253,6 +261,9 @@ class Tracker(
                     m.boxMin = Vec3(meas.minOf { it.x }, meas.minOf { it.y }, meas.minOf { it.z })
                     m.boxMax = Vec3(meas.maxOf { it.x }, meas.maxOf { it.y }, meas.maxOf { it.z })
                 }
+                // 시작 게이트가 필터를 다시 시작했으면(다른 대상과 짝지은 측정) 표·점수도 처음부터 모은다(M52): 남은 표로 바로 출력되면
+                // 막 시작한 필터의 큰 속도 불확실성으로 TTC STOP이 났다(M48 SM-3과 같은 까닭)
+                if (m.filter.restarts != restarts) { m.votes = 0f; m.score = 0f }
                 // 물체 단위 HITS: 측정된 장마다 표·점수(정지 지도와 같은 거리 가중)
                 val w = f.weightAt(rep)
                 m.votes += w
@@ -260,10 +271,10 @@ class Tracker(
                 m.lastCells = meas
                 m.lastCellsNs = tNs
             } else {
-                m.filter.predictTo(tNs)
+                m.filter.predictTo(tf)
                 m.missed++
                 // 예측 자리가 빈 곳으로 보이면 점수를 깎는다(시야 밖·깊이 무효면 그대로: 시야 밖 보존)
-                val p = m.filter.positionW ?: m.lastMeasW
+                val p = m.filter.predictedAt(tNs)?.first ?: m.lastMeasW
                 if ((m.moving || m.candidate) && p != null) {
                     val probe = Vec3(p.x, (m.boxMin.y + m.boxMax.y) / 2, p.z)
                     if (f.seenFree(probe)) m.score -= mc.decayPerObservation
@@ -295,10 +306,10 @@ class Tracker(
                 m.moving && !isMoving && m.filter.ready && origin != null -> {
                     // 섰다: 물체 모양(마지막 측정 칸)을 점유로 정지 지도에 넣는다. 다음 장부터 창 안 점도 지도로 간다
                     if (m.occupied(mc.minHits, mc.minScore)) m.cellsAt(tNs).forEach { f.seed(hearspace.core.mapping.VoxelMap.CellEvidence(it, m.votes, m.score)) }
-                    t.motion = MotionState(cfg.accelSigmaMps2, m.birthNs, candidate = false).also { n ->
+                    t.motion = newMotion(m.birthNs, candidate = false).also { n ->
                         n.boxMin = m.boxMin
                         n.boxMax = m.boxMax
-                        m.lastMeasW?.let { n.filter.update(m.lastMeasNs, it, f.sigmaAt(it)); n.lastMeasW = it; n.lastMeasNs = m.lastMeasNs }
+                        m.lastMeasW?.let { n.filter.update(m.lastMeasNs - f.measLagNs, it, f.sigmaAt(it)); n.lastMeasW = it; n.lastMeasNs = m.lastMeasNs }
                     }
                     t.aabbMin = m.boxMin
                     t.aabbMax = m.boxMax
@@ -336,17 +347,17 @@ class Tracker(
         val free = f.corridorCells.filter { (c, occ) -> !occ && gates.none { (lo, hi) -> inBox(c, lo, hi) } }.map { it.first }
         if (free.size >= minSamples) for (cl in f.clusterXZ(free)) {
             val reps = f.reps(cl) ?: continue
-            val m = MotionState(cfg.accelSigmaMps2, tNs, candidate = true)
+            val m = newMotion(tNs, candidate = true)
             m.boxMin = Vec3(cl.minOf { it.x }, cl.minOf { it.y }, cl.minOf { it.z })
             m.boxMax = Vec3(cl.maxOf { it.x }, cl.maxOf { it.y }, cl.maxOf { it.z })
             // 첫 측정도 다음 장들과 같은 정의(창에 걸린 군집 전체)로 한다. 묶음(11칸)으로 시작하고 다음 장에 군집 전체(250칸)로 바뀌면
             // 두 점 차분 속도가 −28 m/s로 시작해 출력 때까지 2~3 m/s가 남았다(T 150338 TTC STOP이 실제 2.16 m, TTC 4.5 s에서 남)
-            val (glo, ghi) = m.gate(tNs, cfg.matchRadiusM)
+            val (glo, ghi) = m.gate(tf, cfg.matchRadiusM)
             val meas = clustersAll.filter { c -> c.count { inBox(it, glo, ghi) } >= minSamples }.flatten().ifEmpty { cl }
-            val rep = nearSurfacePoint(meas, f.cameraW) ?: continue
+            val rep = nearSurfacePoint(meas, f.cameraW, wt) ?: continue
             m.boxMin = Vec3(meas.minOf { it.x }, meas.minOf { it.y }, meas.minOf { it.z })
             m.boxMax = Vec3(meas.maxOf { it.x }, meas.maxOf { it.y }, meas.maxOf { it.z })
-            m.filter.update(tNs, rep, f.sigmaAt(rep))
+            m.filter.update(tf, rep, f.sigmaAt(rep))
             m.lastMeasW = rep
             m.lastMeasNs = tNs
             m.nMeasCells = meas.size
@@ -364,9 +375,10 @@ class Tracker(
         for (o in out) {
             val m = byId[o.id]?.motion
             if (m != null && m.moving) continue // 이번 장에 움직이는 track이 됨: 아래에서 물체 좌표 칸으로 낸다
-            result += if (m == null || !m.filter.ready) o else o.copy(
-                velocityW = m.filter.velocityW, motionRepW = m.filter.positionW,
-                positionSigmaM = m.filter.positionSigmaM, velocitySigmaMps = m.filter.velocitySigmaMps,
+            val pr = m?.filter?.predictedAt(tNs) // 출력은 촬영 시각(필터가 뒤처짐만큼 앞선 시각이면 예측, M52)
+            result += if (m == null || pr == null) o else o.copy(
+                velocityW = m.filter.velocityW, motionRepW = pr.first,
+                positionSigmaM = pr.second, velocitySigmaMps = m.filter.velocitySigmaMps,
             )
         }
         for (t in tracks) {
@@ -377,7 +389,8 @@ class Tracker(
             if (occ.isEmpty()) continue
             // 안내 대표점 = 칼만 위치(이번 장 가까운 면 점을 시간에 걸쳐 거른 값), 높이는 칸 중앙값. 한 장 칸의 가장 앞 칸은 잡음 한 칸에 당겨져
             // 가로지르는 사람에게 STOP을 냈다(합성 SM-3). 이번 장 칸은 통로 안인지·높이 분류·상자에만 쓴다
-            val kp = m.filter.positionW ?: m.lastMeasW ?: continue
+            val pr = m.filter.predictedAt(tNs)
+            val kp = pr?.first ?: m.lastMeasW ?: continue
             val ys = occ.map { it.y }.sorted()
             val repW = Vec3(kp.x, ys[ys.size / 2], kp.z)
             val reps = (f.reps(occ) ?: continue) + (strategy to repW)
@@ -393,16 +406,16 @@ class Tracker(
                 lastSeenNs = m.lastMeasNs,
                 nObservations = m.filter.nUpdates,
                 velocityW = m.filter.velocityW,
-                motionRepW = m.filter.positionW,
+                motionRepW = pr?.first,
                 moving = true,
-                positionSigmaM = m.filter.positionSigmaM,
+                positionSigmaM = pr?.second ?: Float.NaN,
                 velocitySigmaMps = m.filter.velocitySigmaMps,
             )
         }
         lastMotionDebug = tracks.map { t ->
             val m = t.motion!!
             MotionDebug(
-                tNs, t.id, m.candidate, m.moving, m.lastMeasW.takeIf { m.lastMeasNs == tNs }, m.filter.positionW, m.filter.velocityW,
+                tNs, t.id, m.candidate, m.moving, m.lastMeasW.takeIf { m.lastMeasNs == tNs }, m.filter.predictedAt(tNs)?.first, m.filter.velocityW,
                 m.filter.positionSigmaM, m.filter.velocitySigmaMps, m.lastChi2, m.nMeasCells, m.votes, m.score,
             )
         }
