@@ -33,6 +33,8 @@ object SyntheticSessionWriter {
         rawEveryN: Int = 1,
         /** 깊이 장마다 같은 시각의 합성 의미 영상을 `semantic/`에 쓴다(M49, 그 프레임이 전달, 화소 = 맞은 요소의 라벨). */
         semantics: Boolean = false,
+        /** 원시 깊이·신뢰도를 합성 원시 장(평활 전 깊이, 요소별 신뢰도, M54)으로 쓴다. false면 일반 깊이와 같은 영상(기준선). */
+        realRaw: Boolean = false,
     ): File {
         dir.mkdirs()
         listOf(SessionFormat.DEPTH_DIR, SessionFormat.RAW_DEPTH_DIR, SessionFormat.DEPTH_CONF_DIR).forEach { File(dir, it).mkdirs() }
@@ -58,8 +60,9 @@ object SyntheticSessionWriter {
                     val png = Png16.encode(GrayImage.of16(d.K.width, d.K.height, d.depthMm))
                     File(dir, SessionFormat.depthFile(f.index.toLong())).writeBytes(png)
                     if (rawNew) {
-                        File(dir, SessionFormat.rawDepthFile(f.index.toLong())).writeBytes(png)
-                        val conf = ByteArray(d.depthMm.size) { i -> if (d.depthMm[i].toInt() == 0) 0 else 255.toByte() }
+                        val r = d.raw?.takeIf { realRaw }
+                        File(dir, SessionFormat.rawDepthFile(f.index.toLong())).writeBytes(if (r == null) png else Png16.encode(GrayImage.of16(r.K.width, r.K.height, r.depthMm)))
+                        val conf = r?.confidence ?: ByteArray(d.depthMm.size) { i -> if (d.depthMm[i].toInt() == 0) 0 else 255.toByte() }
                         File(dir, SessionFormat.confFile(f.index.toLong())).writeBytes(Png16.encode(GrayImage.of8(d.K.width, d.K.height, conf)))
                         lastRawT = depthT
                     }

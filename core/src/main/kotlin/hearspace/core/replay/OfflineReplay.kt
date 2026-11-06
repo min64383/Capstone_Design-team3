@@ -44,6 +44,10 @@ class SlowStep(
     val freeCentersW: List<Vec3>? = null,
     /** 움직임 기록(M48 `track.motion` KALMAN). 끈 설정에서는 빈 목록. */
     val motion: List<hearspace.core.tracking.MotionDebug> = emptyList(),
+    /** M54 앞단 개수 [경계 띠가 뺀 화소, 지도에서 뺀 움직이는 라벨 점, 넣은 움직이는 라벨 원시 점]. M54 옵션을 하나라도 켰을 때만, 아니면 null. */
+    val m54Counts: IntArray? = null,
+    /** 이번 장에 지도에 넣은 칸 번호(ix, iy, iz 교차). [OfflineReplay.mapInserts]일 때만, 아니면 null. */
+    val insertedVoxels: IntArray? = null,
 )
 
 /** [OfflineReplay] 결과를 받는 쪽: 실행 로그 파일([RunLogWriter]) 또는 평가 GUI의 메모리 수집. */
@@ -128,11 +132,14 @@ class OfflineReplay(
         }
 
         // M49: 라벨 판정이나 RAW_MASK 측정을 켜면 깊이 장마다 그 프레임까지 받은 의미 영상·원시 깊이를 붙인다
-        val vision = if (config.vision.label == hearspace.core.types.VisionLabelSource.SEMANTICS ||
+        val vision = if (config.vision.label == hearspace.core.types.VisionLabelSource.SEMANTICS || config.vision.movableDepth == hearspace.core.types.MovableDepth.RAW ||
+            config.frontend.labelBandPx > 0 || config.map.hitWeighting == hearspace.core.types.HitWeighting.CONFIDENCE ||
+            config.floor.weighting == hearspace.core.types.FloorWeighting.CONFIDENCE || config.vision.voxelLabels ||
             config.track.measureFrom == hearspace.core.types.MeasureFrom.RAW_MASK
         ) VisionFrames(session, reader) else null
         val fast = FastPath(config, substitution?.headingSnap())
         val slow = SlowPath(config, substitution?.fixedMap(config.map.voxelSizeM), floorOverrideY = substitution?.floorY(), movingOracle = movingOracle)
+        slow.map.collectInserted = mapInserts
         var pose: PoseFrame? = null
         var snapshot: ObstacleSnapshot? = null
         var heading: Vec3? = null
@@ -165,6 +172,8 @@ class OfflineReplay(
             job = Job(
                 d, atNs, atNs + slowPathNs(d), s, resetAfterNs, slow.lastMapUpdate!!, slow.lastClusterDebug, slow.lastStageNs, voxels,
                 slow.lastClusters, slow.lastUserPosW, if (substitution?.map == true) null else slow.map.lastDepthMm, free, slow.lastMotionDebug,
+                if (slow.map.m54On) intArrayOf(slow.map.lastBandRemoved, slow.map.lastMovableExcluded, slow.map.lastMovableRawInserted) else null,
+                if (mapInserts) slow.map.insertedVoxels.toIntArray() else null,
             )
         }
 
@@ -176,7 +185,7 @@ class OfflineReplay(
                 val applied = resetAfterNs == j.resetMark
                 if (applied) snapshot = j.snapshot
                 listener.onSlowStep(
-                    SlowStep(j.depth, j.startNs, j.doneNs, j.snapshot, j.mapUpdate, j.clusterDebug, j.stageNs, applied, j.voxels, j.clusters, j.userPosW, j.mapDepthMm, j.free, j.motion),
+                    SlowStep(j.depth, j.startNs, j.doneNs, j.snapshot, j.mapUpdate, j.clusterDebug, j.stageNs, applied, j.voxels, j.clusters, j.userPosW, j.mapDepthMm, j.free, j.motion, j.m54Counts, j.inserted),
                 )
                 startIfIdle(j.doneNs)
             }
@@ -243,6 +252,9 @@ class OfflineReplay(
         listener.onEnd()
     }
 
+    /** true면 장마다 지도에 넣은 칸을 [SlowStep.insertedVoxels]·`map_inserts.csv`로 낸다(M54 평가 전용, `-PmapInserts=true`). */
+    var mapInserts = false
+
     private class Job(
         val depth: DepthFrame,
         val startNs: Long,
@@ -258,6 +270,8 @@ class OfflineReplay(
         val mapDepthMm: ShortArray?,
         val free: List<Vec3>?,
         val motion: List<hearspace.core.tracking.MotionDebug>,
+        val m54Counts: IntArray?,
+        val inserted: IntArray?,
     )
 
     companion object {

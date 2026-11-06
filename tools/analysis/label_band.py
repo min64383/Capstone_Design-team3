@@ -592,7 +592,95 @@ def sigma_table(vertical: list[tuple[Path, bool]], floor: list[Path], person: li
             "confidenceOnly": pooled_w, "weightMin": round(w_min, 3)}
 
 
+SPREAD_IN_M, SPREAD_OUT_M, SPREAD_MAX_M = 0.3, 1.0, 3.5  # 설계 5장: 사람 반폭(약 0.23 m) 밖 ~ 사용자가 본 거리, 정답 중심이 3.5 m 안인 장
+BLOCK_S, BOOT = 0.5, 2000
+
+
+def _spread_series(session: Path, run: Path) -> pd.DataFrame:
+    """사람 둘레 퍼짐 몫(설계 5장): 장마다 지도에 넣은 칸(`map_inserts.csv`) 중 그 장 시각의 클릭 정답 중심에서 수평 1.0 m 안이고 바닥 위 0~2 m인 칸에서
+    0.3~1.0 m 고리에 든 몫. 정답 중심이 카메라에서 3.5 m 안인 장만, 1 m 안 칸이 5개 이상인 장만."""
+    ins = pd.read_csv(run / "map_inserts.csv")
+    cfg = load_config(run)
+    vs = cfg["map"]["voxelSizeM"]
+    ev = E.load_events(session)
+    objs = [o for o in (ev or {}).get("objects", []) if o["kind"] == "moving" and o.get("added") != "check"]
+    if not objs:
+        return pd.DataFrame()
+    tr = E.moving_track(objs[0])
+    floor_y = float(np.median([c["floorY"] for c in objs[0]["clicks"]]))
+    fr = load_frames(session)
+    ft = fr.tNs.to_numpy()
+    rows = []
+    for tn, g in ins.groupby("tCaptureNs"):
+        got = tr(tn / 1e9)
+        if got is None:
+            continue
+        pos, _ = got
+        cam = fr.iloc[int(np.argmin(np.abs(ft - tn)))]
+        if np.hypot(pos[0] - cam.tx, pos[1] - cam.tz) > SPREAD_MAX_M:
+            continue
+        x = (g.ix.to_numpy() + 0.5) * vs
+        y = (g.iy.to_numpy() + 0.5) * vs
+        z = (g.iz.to_numpy() + 0.5) * vs
+        r = np.hypot(x - pos[0], z - pos[1])
+        m = (r <= SPREAD_OUT_M) & (y >= floor_y) & (y <= floor_y + 2.0)
+        if m.sum() < 5:
+            continue
+        rows.append({"t": tn / 1e9, "share": float((r[m] >= SPREAD_IN_M).mean()), "n": int(m.sum())})
+    return pd.DataFrame(rows)
+
+
+def main_spread(args: list[str]) -> None:
+    """--spread <기준 재생 묶음> <변형 재생 묶음> <세션> ...: 세션마다 퍼짐 몫 중앙값(기준·변형)과 차의 0.5 s 묶음 부트스트랩 95% 구간(같은 시각 장끼리)."""
+    base, var, sessions = Path(args[0]), Path(args[1]), [Path(s) for s in args[2:]]
+    rng = np.random.default_rng(0)
+    out = {}
+    for s in sessions:
+        a = _spread_series(s, base / s.name)
+        b = _spread_series(s, var / s.name)
+        if a.empty or b.empty:
+            continue
+        j = a.merge(b, on="t", suffixes=("0", "1"))
+        if j.empty:
+            continue
+        blk = np.floor((j.t - j.t.min()) / BLOCK_S).astype(int).to_numpy()
+        groups = [np.where(blk == k)[0] for k in np.unique(blk)]
+        boots = []
+        for _ in range(BOOT):
+            idx = np.concatenate([groups[i] for i in rng.integers(0, len(groups), len(groups))])
+            boots.append(float(np.median(j.share1.to_numpy()[idx]) - np.median(j.share0.to_numpy()[idx])))
+        out[s.name] = {"frames": len(j), "base": round(float(j.share0.median()), 3), "variant": round(float(j.share1.median()), 3),
+                       "diff": round(float(j.share1.median() - j.share0.median()), 3),
+                       "ci95": [round(float(np.percentile(boots, 2.5)), 3), round(float(np.percentile(boots, 97.5)), 3)]}
+        print(s.name, out[s.name], flush=True)
+    Path(var / "spread.json").write_text(json.dumps(out, ensure_ascii=False, indent=1), encoding="utf-8")
+
+
+def main_floorerr(args: list[str]) -> None:
+    """--floorerr <재생 묶음> <세션> ...: 장마다 앱 바닥(`slow_path.csv` floorY) − 정답 바닥. 정답은 걷는 세션이면 RGB 바닥(`floor_rgb.json`, 깊이와 독립),
+    서 있는 세션이면 클릭 바닥(깊이 바닥 중앙값이라 앱 기준선에 유리, 따로 보고). 세션마다 |오차| 중앙값·p95."""
+    root, sessions = Path(args[0]), [Path(s) for s in args[1:]]
+    out = {}
+    for s in sessions:
+        fr = json.loads((s / "floor_rgb.json").read_text(encoding="utf-8")) if (s / "floor_rgb.json").is_file() else {}
+        truth, kind = fr.get("floorY"), "rgb"
+        if truth is None:
+            ev = E.load_events(s)
+            truth, kind = (ev or {}).get("floorYFallback"), "click(depth median)"
+        if truth is None:
+            continue
+        sp = pd.read_csv(root / s.name / "slow_path.csv")
+        e = (sp.floorY.dropna() - truth).abs()
+        out[s.name] = {"truth": kind, "absMedian": round(float(e.median()), 3), "absP95": round(float(e.quantile(0.95)), 3), "n": int(len(e))}
+        print(s.name, out[s.name], flush=True)
+    Path(root / "floorerr.json").write_text(json.dumps(out, ensure_ascii=False, indent=1), encoding="utf-8")
+
+
 def main(args: list[str]) -> None:
+    if args and args[0] == "--spread":
+        return main_spread(args[1:])
+    if args and args[0] == "--floorerr":
+        return main_floorerr(args[1:])
     if args and args[0] == "--sigma":  # --sigma vertical=<s>,... face=<s>,... floor=<s>,... person=<s>,...
         kv = dict(a.split("=", 1) for a in args[1:])
         sp = lambda k: [Path(x) for x in kv.get(k, "").split(",") if x]

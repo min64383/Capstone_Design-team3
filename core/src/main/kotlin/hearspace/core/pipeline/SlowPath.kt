@@ -126,6 +126,7 @@ class SlowPath(
             CorridorJudgeMode.BOUNDARY -> withoutParallelBoundaries(
                 occupied, withoutEdgeStructures(occupied, occupied.filter { corridor.contains(it.centerW) }, corridor, config), corridor, config,
             )
+            CorridorJudgeMode.LABEL -> error("corridor.judge LABEL은 M54 역할 단계(R)에서 만든다") // 앞단(P·B·W·F) 판정 뒤
         }
         // C2: 남은 칸을 벽 칸과 나머지로 나눠 따로 묶는다(벽도 장애물로 남는다). 끄면 한 묶음(기준선). 가장자리 구조물 규칙을 먼저 전체에
         // 적용해야 한다: 벽 칸을 먼저 떼면 라벨 없는 옆 벽 밑동 조각이 짧은 덩어리로 남아 오경보가 됐다(S02 130646 0.11 → 0.22)

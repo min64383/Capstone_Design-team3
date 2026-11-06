@@ -98,6 +98,8 @@ class VoxelMap(private val cfg: MapConfig) {
         var group: ViewGroup? = null,
         /** 처음 맞은 시각(M48 정지·움직임 분해: 움직이는 track이 생긴 뒤에 생긴 칸만 옮긴다). MIN = 모름. */
         var firstNs: Long = Long.MIN_VALUE,
+        /** 이번 장에 이 칸이 받은 표의 무게(M54 `map.hitWeighting` CONFIDENCE: 장마다 칸별 가장 큰 무게). */
+        var lastVote: Float = 0f,
     )
 
     /**
@@ -123,7 +125,10 @@ class VoxelMap(private val cfg: MapConfig) {
 
     /** TSDF 잘림 폭: 깊이 [depthM]에서 max(`tsdfTruncMinM`, `tsdfTruncPerM` × 깊이). */
     fun truncation(depthM: Float): Float = max(cfg.tsdfTruncMinM, cfg.tsdfTruncPerM * depthM)
-    private val weighted = cfg.hitWeighting == HitWeighting.DISTANCE || tristate
+    private val weighted = cfg.hitWeighting == HitWeighting.DISTANCE || cfg.hitWeighting == HitWeighting.CONFIDENCE || tristate
+
+    /** M54 CONFIDENCE: 한 장에서 칸마다 그 장 점들의 가장 큰 무게로 한 번 갱신(OctoMap). 다른 방식은 그 장 첫 점의 무게(기준선 그대로). */
+    private val maxVotePerFrame = cfg.hitWeighting == HitWeighting.CONFIDENCE
 
     /** 관측 가중치: 거리 [distM]에서 min(1, (weightRefM / 거리)²). */
     fun weight(distM: Float): Float = if (distM <= cfg.weightRefM) 1f else (cfg.weightRefM / distM).let { it * it }
@@ -328,9 +333,16 @@ class VoxelMap(private val cfg: MapConfig) {
         if (v == null) {
             voxels[key] = Voxel(
                 1, min(1f, cfg.hitGain * vote), tNs, frame, min(cfg.logMax, cfg.logHit * weight), vote, if (wall) 1 else 0, if (wall) frame else -1,
-                currentEvidence = vote, firstNs = tNs,
+                currentEvidence = vote, firstNs = tNs, lastVote = vote,
             )
             return
+        }
+        if (maxVotePerFrame && v.lastHitFrame == frame && vote > v.lastVote) {
+            val d = vote - v.lastVote
+            v.weightedHits += d
+            v.currentEvidence += d
+            v.score = min(1f, v.score + cfg.hitGain * d)
+            v.lastVote = vote
         }
         if (wall && v.lastWallFrame != frame) {
             v.wallHits++
@@ -344,6 +356,7 @@ class VoxelMap(private val cfg: MapConfig) {
             v.lastSeenNs = tNs
             v.lastHitFrame = frame
             v.logOdds = min(cfg.logMax, v.logOdds + cfg.logHit * weight)
+            v.lastVote = vote
         }
     }
 
