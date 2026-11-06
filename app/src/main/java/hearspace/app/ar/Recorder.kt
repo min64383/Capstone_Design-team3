@@ -52,12 +52,14 @@ data class RecorderStats(
  * - 파일 작업: 슬롯 1개. 슬롯이 비어 있을 때만 이번 프레임의 파일을 복사해 넣고, 차 있으면 이번 파일을 건너뛴다.
  *   건너뛴 파일은 행에 이름을 쓰지 않으므로, 행에 적힌 파일은 쓰기 오류가 없으면 모두 실제로 저장된다(오류는 nWriteErrors에 센다).
  * - `frames.csv`·`device.csv` 쓰기 오류(저장 공간 부족 등)는 앱을 죽이지 않는다: 그 뒤 행은 버리고 정지 때 meta.json은 마저 쓴다(A1 FA7).
+ * - [semantics]면 ARCore 의미 영상을 `semantic/`에 따로 쓴다([SemanticSaver], M49).
  */
 class Recorder(
     private val dir: File,
     private val initialMeta: SessionMeta,
     private val cfg: RecordConfig,
     private val thermal: ThermalMonitor,
+    private val semantics: Boolean = false,
 ) {
     private class FileJob(
         val frameIndex: Long,
@@ -74,6 +76,7 @@ class Recorder(
     @Volatile
     private var stopping = false
     private var writer: Thread? = null
+    private var semantic: SemanticSaver? = null
 
     // GL 스레드 전용 상태
     private var frameIndex = 0L
@@ -112,6 +115,7 @@ class Recorder(
         session.startRecording(RecordingConfig(session).setMp4DatasetUri(mp4).setAutoStopOnPause(true))
         startElapsedNs = SystemClock.elapsedRealtimeNanos()
         writer = Thread(::writerLoop, "RecorderWriter").apply { start() }
+        if (semantics) semantic = SemanticSaver(dir)
         Log.i(TAG, "recording started: $dir")
     }
 
@@ -120,6 +124,7 @@ class Recorder(
         if (stopping) return
         val idx = frameIndex++
         val sysNs = SystemClock.elapsedRealtimeNanos()
+        semantic?.onFrame(frame)
         val slotFree = slot.get() == null // 슬롯을 비우는 쪽은 저장 스레드뿐이므로 여기서 비어 있으면 아래 set까지 비어 있다.
         var wantedFiles = false
 
@@ -194,6 +199,7 @@ class Recorder(
             stats = null,
         )
         pendingFinish = {
+            semantic?.close()
             try {
                 writeFinalMeta(finalMeta, durationS)
             } catch (e: IOException) {

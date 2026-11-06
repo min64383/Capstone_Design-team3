@@ -344,6 +344,14 @@ object ConfigLoader {
                 AlignConfig(fitLengthM = positive("fitLengthM"), minTravelM = positive("minTravelM"), headingWindowS = positive("headingWindowS"))
             },
             slowPath = root.section("slowPath") { SlowPathConfig(maxRateHz = nonNegative("maxRateHz")) },
+            vision = root.section("vision") {
+                VisionConfig(
+                    semantics = boolean("semantics"),
+                    label = enumValue<VisionLabelSource>("label"),
+                    movingLabels = enumList<SemanticLabel>("movingLabels").toSet(),
+                    maxLabelAgeMs = atLeast1("maxLabelAgeMs"),
+                )
+            },
             sonify = root.section("sonify") {
                 SonifyConfig(
                     mode = enumValue<SonifyMode>("mode"),
@@ -525,6 +533,15 @@ object ConfigLoader {
             }
             if (xs.size != 3) throw ConfigException(path(key), "must have 3 elements, got ${xs.size}")
             return Vec3(xs[0], xs[1], xs[2])
+        }
+
+        inline fun <reified E : Enum<E>> enumList(key: String): List<E> {
+            val arr = raw(key) as? JsonArray ?: throw ConfigException(path(key), "must be an array of strings")
+            return arr.items.map { v ->
+                val str = (v as? JsonString)?.value ?: throw ConfigException(path(key), "must be an array of strings")
+                enumValues<E>().firstOrNull { it.name == str }
+                    ?: throw ConfigException(path(key), "must be one of ${enumValues<E>().joinToString { it.name }}, got '$str'")
+            }
         }
 
         inline fun <reified E : Enum<E>> enumValue(key: String): E {
