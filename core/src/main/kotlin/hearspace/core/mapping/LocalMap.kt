@@ -55,7 +55,7 @@ class LocalMap(private val config: Config) {
     val floor = Floor(config.floor, config.map.radiusM)
 
     /** 복셀 맵. */
-    val voxels = VoxelMap(config.map)
+    val voxels = VoxelMap(config.map, config.vision.floorishLabels.map { it.pixel }.toIntArray())
 
     /** 마지막 [update]가 지도에 쓴 깊이(신뢰도·앞단 필터 뒤). 대표점 칸 상태 진단(M20)이 같은 장으로 판정한다. */
     var lastDepthMm: ShortArray? = null

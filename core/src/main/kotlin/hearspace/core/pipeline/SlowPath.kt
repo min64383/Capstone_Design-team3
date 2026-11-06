@@ -142,7 +142,7 @@ class SlowPath(
         fun dbscan(g: List<VoxelView>): List<List<VoxelView>> {
             val multiplier = config.cluster.coreEvidenceMultiplier
             val coreMask = if (multiplier <= 1f || config.map.mode != hearspace.core.types.MapMode.HITS) null else {
-                val minCoreEvidence = config.map.minHits * multiplier
+                val minCoreEvidence = config.map.occupiedEvidence * multiplier
                 BooleanArray(g.size) { i -> g[i].evidence >= minCoreEvidence }
             }
             return Cluster.dbscanXZ(g.map { it.centerW }, config.cluster.epsM, config.cluster.minSamples, coreMask)

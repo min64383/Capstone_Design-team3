@@ -92,7 +92,8 @@ data class PruneCounts(val passed: Int, val unseen: Int, val outOfRadius: Int)
  * 기록이 있고 점유가 아니면 빈 곳, 기록이 없으면 모름. 투영 감쇠([decayFree])는 하지 않는다: 광선이 닿지 않는 시야 밖·깊이 무효 칸은
  * 그대로다(§2.2-6). 삭제(지나감·오래 안 보임·반경 밖)된 칸은 모름이 된다.
  */
-class VoxelMap(private val cfg: MapConfig) {
+/** [floorishPixels]: 칸 역할에서 바닥류로 세는 라벨 화소 값(`vision.floorishLabels`, M54 기본 도로·보도·지형). */
+class VoxelMap(private val cfg: MapConfig, private val floorishPixels: IntArray = intArrayOf(4, 5, 6)) {
 
     private class Voxel(
         var hits: Int, var score: Float, var lastSeenNs: Long, var lastHitFrame: Long, var logOdds: Float, var weightedHits: Float,
@@ -432,7 +433,7 @@ class VoxelMap(private val cfg: MapConfig) {
     private fun roleOf(v: Voxel): VoxelRole {
         val c = v.labelCounts ?: return VoxelRole.NONE
         val building = c[2]
-        val floorish = c[4] + c[5] + c[6]
+        val floorish = floorishPixels.sumOf { c[it] }
         val frame = building + floorish
         val other = c.sum() - frame
         return if (frame >= cfg.minHits && frame > other) (if (building >= floorish) VoxelRole.BUILDING else VoxelRole.FLOORISH) else VoxelRole.OBSTACLE
@@ -603,8 +604,18 @@ class VoxelMap(private val cfg: MapConfig) {
         else -> {
             val historical = if (weighted) v.weightedHits else v.hits.toFloat()
             val evidence = if (cfg.freeEvidenceDecay > 0f) v.currentEvidence else historical
-            evidence >= cfg.minHits && v.score >= cfg.minScore
+            evidence >= occupiedEvidenceOf(v) && v.score >= cfg.minScore
         }
+    }
+
+    /**
+     * HITS 점유 문턱. 신뢰도 지도 무게에서 칸 라벨 표가 프레임 역할(건물·바닥류)이면 `map.weightedFrameMinHits`(M55 라벨 역할별 문턱, 기본 6 =
+     * `weightedMinHits` 기본값과 같아 끄면 그대로), 아니면 [MapConfig.occupiedEvidence].
+     */
+    private fun occupiedEvidenceOf(v: Voxel): Float {
+        if (!maxVotePerFrame || v.labelCounts == null) return cfg.occupiedEvidence
+        val r = roleOf(v)
+        return if (r == VoxelRole.BUILDING || r == VoxelRole.FLOORISH) cfg.weightedFrameMinHits else cfg.occupiedEvidence
     }
 
     /**

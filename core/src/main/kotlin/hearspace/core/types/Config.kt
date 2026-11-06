@@ -361,7 +361,18 @@ data class MapConfig(
     val triViewAngleDeg: Float,
     /** 빈 곳 감쇠 세기([DecayWeighting], M54). */
     val decayWeighting: DecayWeighting = DecayWeighting.NONE,
-)
+    /**
+     * 신뢰도 지도 무게(`hitWeighting` CONFIDENCE)일 때 칸 점유 문턱(가중 표 합, M55). 무게가 구간마다 1 이하라 무게 없는 표로 정한 `minHits`를 그대로 쓰면
+     * 신뢰도 중간 화소의 낮은 물체를 놓친다(M54 131039). 값은 낮은 물체 STOP이 `policy.stopM` 전에 나오는 가장 큰 정수에서 정한다(M55 결과).
+     * 움직이는 track의 물체 표·칸 라벨 표는 `minHits` 그대로다.
+     */
+    val weightedMinHits: Float = 6f,
+    /** 신뢰도 지도 무게에서 칸 라벨 표가 프레임 역할(건물·`vision.floorishLabels`)인 칸의 점유 문턱(M55 라벨 역할별 문턱). 기본 6. */
+    val weightedFrameMinHits: Float = 6f,
+) {
+    /** 칸 점유에 쓰는 표 문턱: 신뢰도 지도 무게면 [weightedMinHits], 아니면 [minHits]. */
+    val occupiedEvidence: Float get() = if (hitWeighting == HitWeighting.CONFIDENCE) weightedMinHits else minHits.toFloat()
+}
 
 /** 바닥 추정 설정. */
 data class FloorConfig(
@@ -706,6 +717,8 @@ data class VisionConfig(
     val movableRawMinConfidence: Int = 30,
     /** 칸마다 라벨 표와 역할(M54). false = 기준선. */
     val voxelLabels: Boolean = false,
+    /** 칸 역할에서 바닥류로 세는 라벨(M54 도로·보도·지형). M55 시험: 실내 누운 캐리어가 보도 87~100%라 보도를 빼면 장애물 역할이 된다. */
+    val floorishLabels: Set<SemanticLabel> = setOf(SemanticLabel.ROAD, SemanticLabel.SIDEWALK, SemanticLabel.TERRAIN),
 )
 
 enum class VisionLabelSource { NONE, SEMANTICS }

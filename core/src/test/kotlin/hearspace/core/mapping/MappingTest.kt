@@ -289,6 +289,30 @@ class VoxelMapTest {
     }
 
     @Test
+    fun `confidence weighting uses its own occupancy threshold`() {
+        // M55: 무게 0.57 여섯 장(가중 표 3.42)은 무게 없는 문턱 6으로는 점유가 아니고, 신뢰도 무게 문턱 3이면 점유다. 거리 무게(DISTANCE)는 그대로 minHits
+        val p = Vec3(0f, 0f, -2f)
+        fun occupiedAfterSixHits(cfg: hearspace.core.types.MapConfig) =
+            VoxelMap(cfg).also { m -> repeat(6) { i -> m.beginFrame(); m.insert(p, i.toLong(), 0.57f) } }.occupied().size
+        val conf = hitsCfg.copy(hitWeighting = hearspace.core.types.HitWeighting.CONFIDENCE)
+        assertEquals(0, occupiedAfterSixHits(conf))
+        assertEquals(1, occupiedAfterSixHits(conf.copy(weightedMinHits = 3f)))
+        assertEquals(0, occupiedAfterSixHits(hitsCfg.copy(hitWeighting = hearspace.core.types.HitWeighting.DISTANCE, weightedMinHits = 3f)))
+    }
+
+    @Test
+    fun `confidence weighting can use a separate threshold for frame-role cells`() {
+        // M55: 보도 라벨 표 6개를 받은 칸(가중 표 3.42)은 바닥류(프레임)라 문턱 6으로 점유가 아니고, 보도를 바닥류에서 빼면 장애물 역할이라 문턱 3으로 점유다
+        val p = Vec3(0f, 0f, -2f)
+        val cfg = hitsCfg.copy(hitWeighting = hearspace.core.types.HitWeighting.CONFIDENCE, weightedMinHits = 3f, weightedFrameMinHits = 6f)
+        fun occupied(floorish: IntArray) = VoxelMap(cfg, floorish).also { m ->
+            repeat(6) { i -> m.beginFrame(); m.insert(p, i.toLong(), 0.57f); m.voteLabel(p, 5) }
+        }.occupied().size
+        assertEquals(0, occupied(intArrayOf(4, 5, 6)))
+        assertEquals(1, occupied(intArrayOf(4, 6)))
+    }
+
+    @Test
     fun `cell view uses the same rule as free-space decay`() {
         val p = Vec3(0f, 0f, -2f) // 광축 위 2 m
         val m = mapWithVoxelAt(p)

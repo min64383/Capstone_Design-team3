@@ -156,6 +156,8 @@ object ConfigLoader {
                     freeMarginRatio = nonNegative("freeMarginRatio"),
                     hitWeighting = enumValue<HitWeighting>("hitWeighting"),
                     decayWeighting = enumValue<DecayWeighting>("decayWeighting"),
+                    weightedMinHits = positive("weightedMinHits"),
+                    weightedFrameMinHits = positive("weightedFrameMinHits"),
                     tsdfTruncMinM = positive("tsdfTruncMinM"),
                     tsdfTruncPerM = nonNegative("tsdfTruncPerM"),
                     tsdfMaxWeight = positive("tsdfMaxWeight"),
@@ -373,6 +375,7 @@ object ConfigLoader {
                     movableDepth = enumValue<MovableDepth>("movableDepth"),
                     movableRawMinConfidence = intIn("movableRawMinConfidence", 1, 255),
                     voxelLabels = boolean("voxelLabels"),
+                    floorishLabels = enumList<SemanticLabel>("floorishLabels").toSet(),
                 )
             },
             sonify = root.section("sonify") {
