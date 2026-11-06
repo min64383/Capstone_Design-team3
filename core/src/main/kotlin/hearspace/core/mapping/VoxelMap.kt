@@ -38,7 +38,15 @@ data class VoxelView(
     val evidence: Float = hits.toFloat(),
     /** TRISTATE의 빈 증거 F(광선이 지난 장의 관측 가중 합). 다른 모드는 0. */
     val free: Float = 0f,
+    /** 칸의 라벨 역할(M54 `vision.voxelLabels`). 끄면 NONE. */
+    val role: VoxelRole = VoxelRole.NONE,
 )
+
+/**
+ * 칸의 라벨 역할(M54 설계 3.5절). 프레임 표(건물+보도+도로+지면)가 `map.minHits` 이상이고 나머지 표의 합보다 많으면 프레임(건물 표가 바닥류 표 이상이면
+ * BUILDING, 아니면 FLOORISH), 아니면 OBSTACLE(라벨 없음·하늘·물·표 모자람 포함, 처음 보는 종류가 소리 없이 지나가지 않게). NONE = 라벨 표를 끔.
+ */
+enum class VoxelRole { NONE, OBSTACLE, BUILDING, FLOORISH }
 
 /**
  * 칸이 깊이 한 장에서 어떻게 보이는가(M20 대표점 진단). HIT = 이번 장에 점이 들어옴, FREE = 칸 뒤가 관측됨(빈 공간, 감쇠 대상),
@@ -100,6 +108,8 @@ class VoxelMap(private val cfg: MapConfig) {
         var firstNs: Long = Long.MIN_VALUE,
         /** 이번 장에 이 칸이 받은 표의 무게(M54 `map.hitWeighting` CONFIDENCE: 장마다 칸별 가장 큰 무게). */
         var lastVote: Float = 0f,
+        /** 라벨 값(0~11)별 표 수(M54 `vision.voxelLabels`). null = 아직 표 없음. */
+        var labelCounts: IntArray? = null,
     )
 
     /**
@@ -404,6 +414,23 @@ class VoxelMap(private val cfg: MapConfig) {
     /**
      * [pW]가 든 칸에 물체 번호 [id]를 한 표(한 장에 한 번, 다수결 투표: 같은 번호면 +1, 다르면 −1이고 0이 되면 바뀐다). 칸이 없으면 무시.
      */
+    /** 칸 [pW]에 라벨 [label](의미 영상 화소 값) 한 표(M54). 칸이 없거나 값이 범위 밖이면 무시. 부르는 쪽이 새 라벨 영상마다 칸당 한 번만 부른다. */
+    fun voteLabel(pW: Vec3, label: Int) {
+        if (label !in 0 until LABEL_KINDS) return
+        val v = voxels[key(index(pW.x), index(pW.y), index(pW.z))] ?: return
+        val c = v.labelCounts ?: IntArray(LABEL_KINDS).also { v.labelCounts = it }
+        c[label]++
+    }
+
+    private fun roleOf(v: Voxel): VoxelRole {
+        val c = v.labelCounts ?: return VoxelRole.NONE
+        val building = c[2]
+        val floorish = c[4] + c[5] + c[6]
+        val frame = building + floorish
+        val other = c.sum() - frame
+        return if (frame >= cfg.minHits && frame > other) (if (building >= floorish) VoxelRole.BUILDING else VoxelRole.FLOORISH) else VoxelRole.OBSTACLE
+    }
+
     fun voteInstance(pW: Vec3, id: Int) {
         val v = voxels[key(index(pW.x), index(pW.y), index(pW.z))] ?: return
         if (v.lastInstFrame == frame) return
@@ -618,7 +645,7 @@ class VoxelMap(private val cfg: MapConfig) {
             cfg.freeEvidenceDecay > 0f -> v.currentEvidence
             else -> historical
         }
-        return VoxelView(ix(key), iy(key), iz(key), center(key), v.hits, v.score, v.lastSeenNs, v.logOdds, v.wallHits, v.instId, evidence, v.free)
+        return VoxelView(ix(key), iy(key), iz(key), center(key), v.hits, v.score, v.lastSeenNs, v.logOdds, v.wallHits, v.instId, evidence, v.free, roleOf(v))
     }
 
     /** 모든 score에 [factor]를 곱한다(추적 복귀 시 `state.recoverScoreScale`, §7.5). LOG_ODDS는 로그 오즈를 0(모름) 쪽으로 같은 비율만큼. */
@@ -654,6 +681,8 @@ class VoxelMap(private val cfg: MapConfig) {
     )
 
     private companion object {
+        /** 의미 영상 라벨 종류 수(ARCore SemanticLabel 0~11, M54 칸 라벨 표). */
+        const val LABEL_KINDS = 12
         const val BITS = 21
         const val OFFSET = 1 shl (BITS - 1) // ±2^20 칸 (0.05 m면 ±52 km)
         const val MASK = (1L shl BITS) - 1

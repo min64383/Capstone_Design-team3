@@ -123,7 +123,7 @@ class LocalMap(private val config: Config) {
         val planes = if (config.frontend.planes == PlaneMode.RANSAC) PlaneDetector.detect(pts, camW, config.frontend, config.map.radiusM) else null
         // M54: 라벨·원시 장(과거 값, 나이 한도 안)과 점마다 원시 신뢰도(지도·바닥 무게), 움직이는 라벨 여부(사람 원천)
         val labels54 = if (m54MovableRaw) freshLabels(depth) else null
-        val raw54 = if (m54ConfWeights || m54FloorWeights) freshRaw(depth) else null
+        val raw54 = if (m54ConfWeights || m54FloorWeights || config.vision.voxelLabels) freshRaw(depth) else null
         val rawCamFromWorld = raw54?.worldFromCam?.rigidInverse()
         val confOf = if (raw54 == null) null else IntArray(n) { i -> rawConfidenceAt(raw54, rawCamFromWorld, Vec3(pts[3 * i], pts[3 * i + 1], pts[3 * i + 2])) }
         val floorWeights = if (m54FloorWeights) FloatArray(n) { i -> config.depth.floorConfidenceWeights[config.depth.confidenceClass(confOf?.get(i) ?: 0)] } else null
@@ -153,6 +153,8 @@ class LocalMap(private val config: Config) {
         voxels.beginFrame()
         frameObstaclePoints.clear()
         insertedVoxels.clear()
+        // 칸 라벨 표: 나이 한도 안의 새 라벨 영상일 때만 이번 장 칸들이 한 표씩(16 Hz 라벨, 30 Hz 깊이)
+        labelsForVotes = if (config.vision.voxelLabels) freshLabels(depth)?.takeIf { it.tCaptureNs != lastVotedLabelTNs } else null
         val instOf = if (config.map.instances && segments != null) associate(pts, n, camW, userPosW, floorY, segments, depthMm, depth) else null
         var nFloor = 0
         var nBelow = 0
@@ -192,6 +194,11 @@ class LocalMap(private val config: Config) {
         lastMovableExcluded = nMovable
         val rawMov = if (labels54 != null) freshRaw(depth) else null
         lastMovableRawInserted = if (rawMov != null) insertMovableRaw(rawMov, labels54!!, camW, userPosW, floorY) else 0
+        if (config.vision.voxelLabels) freshLabels(depth)?.let { fitFramePlane(pts, n, confOf, it, camW) }
+        if (labelsForVotes != null) {
+            commitLabels()
+            lastVotedLabelTNs = labelsForVotes!!.tCaptureNs
+        }
         val nDecayed = voxels.decayFree(if (labels54 != null) withoutMovable(depthMm, depth, labels54) else depthMm, depth.K, depth.worldFromCam.rigidInverse())
         val pruned = voxels.prune(userPosW, headingW, depth.tCaptureNs)
         return MapUpdate(
@@ -399,7 +406,58 @@ class LocalMap(private val config: Config) {
     var collectInserted = false
     val insertedVoxels = ArrayList<Int>()
 
+    /** 칸 라벨 표(M54 3.5절): 이번 장에 지도에 넣은 점의 칸마다 라벨 값 수. 새 라벨 영상일 때만 장 끝에 칸마다 가장 많은 라벨로 한 표. */
+    private val frameLabels = HashMap<Long, IntArray>()
+    private var labelsForVotes: hearspace.core.types.LabelImage? = null
+    private var lastVotedLabelTNs = Long.MIN_VALUE
+
+    private fun noteLabel(p: Vec3) {
+        val img = labelsForVotes ?: return
+        val l = img.pixelAt(p)
+        if (l < 0) return
+        val vs = config.map.voxelSizeM
+        val k = (kotlin.math.floor(p.x / vs).toLong() and 0x1FFFFF) or ((kotlin.math.floor(p.y / vs).toLong() and 0x1FFFFF) shl 21) or ((kotlin.math.floor(p.z / vs).toLong() and 0x1FFFFF) shl 42)
+        // 칸 대표점(그 칸에 처음 든 점)을 기억: 표는 대표점의 칸에 준다
+        val c = frameLabels.getOrPut(k) { frameRep[k] = p; IntArray(12) }
+        if (l < 12) c[l]++
+    }
+
+    private val frameRep = HashMap<Long, Vec3>()
+
+    /** 프레임 바닥면(M54 3.7절, 기록만, `vision.voxelLabels`일 때): 바닥류 라벨 평활 점을 바닥 무게로 맞춘 면. 못 맞춘 장은 앞 면 유지(fresh = false). */
+    var lastFramePlane: FramePlane? = null
+        private set
+
+    private fun fitFramePlane(pts: FloatArray, n: Int, confOf: IntArray?, labels: hearspace.core.types.LabelImage, camW: Vec3) {
+        val sel = ArrayList<Int>()
+        for (i in 0 until n) {
+            val p = Vec3(pts[3 * i], pts[3 * i + 1], pts[3 * i + 2])
+            if ((p - camW).horizontal().norm() > config.map.radiusM) continue
+            if (labels.pixelAt(p) in FLOORISH_PIXELS) sel += i
+        }
+        val sp = FloatArray(3 * sel.size)
+        val w = FloatArray(sel.size)
+        for ((j, i) in sel.withIndex()) {
+            sp[3 * j] = pts[3 * i]; sp[3 * j + 1] = pts[3 * i + 1]; sp[3 * j + 2] = pts[3 * i + 2]
+            w[j] = config.depth.floorConfidenceWeights[config.depth.confidenceClass(confOf?.get(i) ?: 0)]
+        }
+        val fit = FrameRecords.fitPlane(sp, w, config.floor.minPoints)
+        lastFramePlane = if (fit != null) FramePlane(fit.first, fit.second, fit.third, sel.size, true) else lastFramePlane?.copy(n = sel.size, fresh = false)
+    }
+
+    private fun commitLabels() {
+        for ((k, c) in frameLabels) {
+            var best = -1
+            var n = 0
+            for (l in 0 until 12) if (c[l] > n) { n = c[l]; best = l }
+            if (best >= 0) voxels.voteLabel(frameRep.getValue(k), best)
+        }
+        frameLabels.clear()
+        frameRep.clear()
+    }
+
     private fun noteInserted(p: Vec3) {
+        noteLabel(p)
         if (!collectInserted) return
         val vs = config.map.voxelSizeM
         insertedVoxels += kotlin.math.floor(p.x / vs).toInt()
@@ -548,5 +606,10 @@ class LocalMap(private val config: Config) {
             lastBandRemoved = removed
         }
         return out
+    }
+
+    private companion object {
+        /** 바닥류 라벨 화소 값(도로·보도·지면, ARCore SemanticLabel). */
+        val FLOORISH_PIXELS = setOf(4, 5, 6)
     }
 }

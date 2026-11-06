@@ -48,6 +48,10 @@ class SlowStep(
     val m54Counts: IntArray? = null,
     /** 이번 장에 지도에 넣은 칸 번호(ix, iy, iz 교차). [OfflineReplay.mapInserts]일 때만, 아니면 null. */
     val insertedVoxels: IntArray? = null,
+    /** 프레임 바닥면(M54, `vision.voxelLabels`일 때만). */
+    val framePlane: hearspace.core.mapping.FramePlane? = null,
+    /** 프레임 군집 법선(M54, 칸 역할 기록 장에서만). */
+    val frameClusters: List<hearspace.core.mapping.FrameCluster>? = null,
 )
 
 /** [OfflineReplay] 결과를 받는 쪽: 실행 로그 파일([RunLogWriter]) 또는 평가 GUI의 메모리 수집. */
@@ -167,13 +171,19 @@ class OfflineReplay(
             lastStartNs = atNs
             val stepIndex = startedSteps++
             val s = slow.process(d, h)
-            val voxels = if (listener.captureVoxels) slow.map.voxels.occupied() else null
+            // M54 평가: 칸 역할 기록(map_roles.csv)은 mapInserts이고 칸 라벨 표를 켰을 때 0.5 s(15장)마다
+            val roleDump = mapInserts && config.vision.voxelLabels && stepIndex % 15 == 0
+            val voxels = if (listener.captureVoxels || roleDump) slow.map.voxels.occupied() else null
             val free = if (config.map.mode == hearspace.core.types.MapMode.TRISTATE && listener.captureFree(stepIndex)) slow.map.voxels.freeCenters() else null
             job = Job(
                 d, atNs, atNs + slowPathNs(d), s, resetAfterNs, slow.lastMapUpdate!!, slow.lastClusterDebug, slow.lastStageNs, voxels,
                 slow.lastClusters, slow.lastUserPosW, if (substitution?.map == true) null else slow.map.lastDepthMm, free, slow.lastMotionDebug,
                 if (slow.map.m54On) intArrayOf(slow.map.lastBandRemoved, slow.map.lastMovableExcluded, slow.map.lastMovableRawInserted) else null,
                 if (mapInserts) slow.map.insertedVoxels.toIntArray() else null,
+                if (config.vision.voxelLabels) slow.map.lastFramePlane else null,
+                if (roleDump && voxels != null) hearspace.core.mapping.FrameRecords.clusters(
+                    voxels, d.worldFromCam.translation(), config.map.radiusM, config.cluster.epsM, config.cluster.minSamples,
+                ) else null,
             )
         }
 
@@ -185,7 +195,7 @@ class OfflineReplay(
                 val applied = resetAfterNs == j.resetMark
                 if (applied) snapshot = j.snapshot
                 listener.onSlowStep(
-                    SlowStep(j.depth, j.startNs, j.doneNs, j.snapshot, j.mapUpdate, j.clusterDebug, j.stageNs, applied, j.voxels, j.clusters, j.userPosW, j.mapDepthMm, j.free, j.motion, j.m54Counts, j.inserted),
+                    SlowStep(j.depth, j.startNs, j.doneNs, j.snapshot, j.mapUpdate, j.clusterDebug, j.stageNs, applied, j.voxels, j.clusters, j.userPosW, j.mapDepthMm, j.free, j.motion, j.m54Counts, j.inserted, j.framePlane, j.frameClusters),
                 )
                 startIfIdle(j.doneNs)
             }
@@ -272,6 +282,8 @@ class OfflineReplay(
         val motion: List<hearspace.core.tracking.MotionDebug>,
         val m54Counts: IntArray?,
         val inserted: IntArray?,
+        val framePlane: hearspace.core.mapping.FramePlane?,
+        val frameClusters: List<hearspace.core.mapping.FrameCluster>?,
     )
 
     companion object {

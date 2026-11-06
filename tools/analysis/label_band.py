@@ -676,7 +676,107 @@ def main_floorerr(args: list[str]) -> None:
     Path(root / "floorerr.json").write_text(json.dumps(out, ensure_ascii=False, indent=1), encoding="utf-8")
 
 
+def main_roles(args: list[str]) -> None:
+    """--roles <재생 묶음> <세션> ...: 칸 역할 기록(`map_roles.csv`, 0.5 s마다 점유 칸)에서 정답 물체 둘레 0.3 m 안(바닥 + 0.05~2 m) 칸의 역할 몫
+    (움직이는 사람 = 그 시각 클릭 보간 중심, 받침대 = 바닥 접점 클릭 선)과 세션 전체 역할 몫·건물 칸 수(법선 기록의 재료)."""
+    root, sessions = Path(args[0]), [Path(s) for s in args[1:]]
+    out = {}
+    for s in sessions:
+        f = root / s.name / "map_roles.csv"
+        if not f.is_file():
+            continue
+        df = pd.read_csv(f)
+        vs = load_config(root / s.name)["map"]["voxelSizeM"]
+        df["x"], df["y"], df["z"] = (df.ix + 0.5) * vs, (df.iy + 0.5) * vs, (df.iz + 0.5) * vs
+        ev = E.load_events(s) or {}
+        near = []
+        for o in [o for o in ev.get("objects", []) if o.get("added") != "check"]:
+            fy = float(np.median([c["floorY"] for c in o["clicks"]]))
+            if o["kind"] == "moving":
+                tr = E.moving_track(o)
+                for tn, g in df.groupby("tCaptureNs"):
+                    got = tr(tn / 1e9)
+                    if got is None:
+                        continue
+                    m = (np.hypot(g.x - got[0][0], g.z - got[0][1]) <= SPREAD_IN_M) & (g.y >= fy + 0.05) & (g.y <= fy + 2.0)
+                    near.append(g[m].assign(obj="person"))
+            elif o.get("shape") == "line":
+                pts = np.array([c["pointW"] for c in o["clicks"]])[:, [0, 2]]
+                c0 = pts.mean(axis=0)
+                a_ = np.linalg.svd(pts - c0)[2][0]
+                s_ = (pts - c0) @ a_
+                q = df[["x", "z"]].to_numpy() - c0
+                along = np.clip(q @ a_, s_.min(), s_.max())
+                d = np.hypot(*(q - along[:, None] * a_).T)
+                m = (d <= SPREAD_IN_M) & (df.y >= fy + 0.05) & (df.y <= fy + 2.0)
+                near.append(df[m].assign(obj="pedestal"))
+        res = {"roleShareAll": df.role.value_counts(normalize=True).round(3).to_dict(),
+               "buildingVoxelsPerSnapshot": round(float(df[df.role == "BUILDING"].groupby("tCaptureNs").size().reindex(df.tCaptureNs.unique(), fill_value=0).median()), 1)}
+        if near:
+            nd = pd.concat(near)
+            res["nearTruth"] = {k: {"n": int(len(g)), "share": g.role.value_counts(normalize=True).round(3).to_dict()} for k, g in nd.groupby("obj")}
+        out[s.name] = res
+        print(s.name, res, flush=True)
+    Path(root / "roles.json").write_text(json.dumps(out, ensure_ascii=False, indent=1), encoding="utf-8")
+
+
+def main_frame(args: list[str]) -> None:
+    """--frame <재생 묶음> <세션> ...: 프레임 바닥면(`frame_floor.csv`)의 카메라 자리·3 m 앞 높이 − 정답 바닥, 기울기, 같은 장 앱 바닥(`slow_path.csv`) 오차.
+    프레임 군집 법선(`frame_clusters.csv`)은 기록 장마다 가장 큰 건물 군집의 두께·길이, 이웃 기록 장 사이 법선 각 변화, 벽 방향(법선에 수직인 수평 방향)과
+    걷는 방향(카메라 ±0.5 s 이동이 0.25 m 넘을 때)의 차(0~90°)."""
+    root, sessions = Path(args[0]), [Path(s) for s in args[1:]]
+    out = {}
+    for s in sessions:
+        fr = load_frames(s)
+        ft = fr.tNs.to_numpy()
+        rgb = json.loads((s / "floor_rgb.json").read_text(encoding="utf-8")).get("floorY") if (s / "floor_rgb.json").is_file() else None
+        truth = rgb if rgb is not None else (E.load_events(s) or {}).get("floorYFallback")
+        res = {"truth": "rgb" if rgb is not None else "click(depth median)"}
+        fp = root / s.name / "frame_floor.csv"
+        if fp.is_file() and truth is not None:
+            p = pd.read_csv(fp)
+            p = p[p.fresh]
+            cams = fr.iloc[[int(np.argmin(np.abs(ft - t))) for t in p.tCaptureNs]]
+            rot = [_pose(r)[0] for r in cams.itertuples()]
+            fwd = np.array([[r[0, 2], r[2, 2]] for r in rot])
+            fwd /= np.linalg.norm(fwd, axis=1, keepdims=True)
+            xc, zc = cams.tx.to_numpy(), cams.tz.to_numpy()
+            h0 = p.a.to_numpy() * xc + p.b.to_numpy() * zc + p.c.to_numpy() - truth
+            h3 = p.a.to_numpy() * (xc + 3 * fwd[:, 0]) + p.b.to_numpy() * (zc + 3 * fwd[:, 1]) + p.c.to_numpy() - truth
+            sp = pd.read_csv(root / s.name / "slow_path.csv")
+            app = (sp.floorY.dropna() - truth).abs()
+            res["plane"] = {"frames": int(len(p)), "absErrAtCameraMedian": round(float(np.median(np.abs(h0))), 3), "absErrAt3mMedian": round(float(np.median(np.abs(h3))), 3),
+                            "slopeDegMedian": round(float(np.degrees(np.arctan(np.median(np.hypot(p.a, p.b))))), 1), "appFloorAbsErrMedian": round(float(app.median()), 3)}
+        fc = root / s.name / "frame_clusters.csv"
+        if fc.is_file():
+            c = pd.read_csv(fc)
+            b = c[c.kind == "BUILDING"].sort_values("n").groupby("tCaptureNs").tail(1).sort_values("tCaptureNs")
+            if len(b) >= 2:
+                ang = np.degrees(np.arctan2(b.nz, b.nx))
+                d = np.abs((np.diff(ang) + 180) % 360 - 180)
+                walk = []
+                for r in b.itertuples():
+                    i0, i1 = int(np.argmin(np.abs(ft - (r.tCaptureNs - 5e8)))), int(np.argmin(np.abs(ft - (r.tCaptureNs + 5e8))))
+                    dx, dz = fr.tx.iloc[i1] - fr.tx.iloc[i0], fr.tz.iloc[i1] - fr.tz.iloc[i0]
+                    if np.hypot(dx, dz) < 0.25:
+                        continue
+                    wall = np.array([-r.nz, r.nx]) / max(np.hypot(r.nx, r.nz), 1e-6)
+                    cosv = abs(wall @ np.array([dx, dz]) / np.hypot(dx, dz))
+                    walk.append(float(np.degrees(np.arccos(min(1.0, cosv)))))
+                res["buildingNormal"] = {"snapshots": int(len(b)), "nMedian": int(b.n.median()), "thicknessMedianM": round(float(b.thicknessM.median()), 3),
+                                         "lengthMedianM": round(float(b.lengthM.median()), 3), "angleChangeDegMedian": round(float(np.median(d)), 1),
+                                         "angleChangeDegP90": round(float(np.percentile(d, 90)), 1),
+                                         "wallVsWalkDegMedian": round(float(np.median(walk)), 1) if walk else None, "walkSnapshots": len(walk)}
+        out[s.name] = res
+        print(s.name, res, flush=True)
+    Path(root / "frame.json").write_text(json.dumps(out, ensure_ascii=False, indent=1), encoding="utf-8")
+
+
 def main(args: list[str]) -> None:
+    if args and args[0] == "--frame":
+        return main_frame(args[1:])
+    if args and args[0] == "--roles":
+        return main_roles(args[1:])
     if args and args[0] == "--spread":
         return main_spread(args[1:])
     if args and args[0] == "--floorerr":

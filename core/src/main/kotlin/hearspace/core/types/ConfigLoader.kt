@@ -413,6 +413,7 @@ object ConfigLoader {
     /** 여러 키에 걸친 일관성 검사. */
     private fun crossCheck(c: Config) {
         c.vision.movingLabels.firstOrNull { it !in c.vision.maxSpeedMps }?.let { throw ConfigException("vision.maxSpeedMps", "missing moving label $it") }
+        if (c.corridor.judge == CorridorJudgeMode.LABEL && !c.vision.voxelLabels) throw ConfigException("corridor.judge", "LABEL requires vision.voxelLabels")
         val p = c.policy
         val s = c.sonify
         if (s.minHistoryS > s.historyS) throw ConfigException("sonify", "minHistoryS must be <= historyS")
