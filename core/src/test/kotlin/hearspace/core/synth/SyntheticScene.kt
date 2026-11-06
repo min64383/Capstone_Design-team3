@@ -153,9 +153,33 @@ data class SceneItem(
     val structure: Boolean = false,
     /** RGB 안내 보정(M13.7) 시험용 밝기 0~255. 기본은 모두 같아 대비가 없다. */
     val luma: Int = 128,
+    /** 움직이는 요소(M48): 도형을 시각마다 이만큼 옮긴다. null이면 정지. */
+    val motion: Motion? = null,
 ) {
     /** 시각 [tS]에 존재하는지. */
     fun presentAt(tS: Float) = removeAtS == null || tS < removeAtS
+
+    /** 시각 [tS]의 도형 이동량(월드). */
+    fun offsetAt(tS: Float): Vec3 = motion?.offsetAt(tS) ?: Vec3.ZERO
+}
+
+/**
+ * 등속 이동(M48 합성 이동 물체): [startS]부터 [stopS]까지 [velocityW]로 움직이고 그 밖에서는 선다(처음 자리 → 마지막 자리).
+ * 여러 구간이 필요하면 [then]으로 다음 구간을 잇는다(앞 구간이 끝난 자리에서 시작).
+ */
+data class Motion(val velocityW: Vec3, val startS: Float = 0f, val stopS: Float = Float.POSITIVE_INFINITY, val then: Motion? = null) {
+    fun offsetAt(tS: Float): Vec3 {
+        val here = velocityW * ((tS.coerceIn(startS, stopS) - startS))
+        val next = then ?: return here
+        return if (tS <= stopS) here else here + next.offsetAt(tS) // 다음 구간은 이 구간이 끝난 자리에서
+    }
+
+    /** 시각 [tS]의 속도(월드). */
+    fun velocityAt(tS: Float): Vec3 = when {
+        tS in startS..stopS && tS < stopS -> velocityW
+        then != null && tS >= stopS -> then.velocityAt(tS)
+        else -> Vec3.ZERO
+    }
 }
 
 /** 장면: 도형 목록. */
@@ -165,7 +189,7 @@ data class Scene(val items: List<SceneItem>) {
         var best: Pair<Float, SceneItem>? = null
         for (it in items) {
             if (!it.presentAt(tS)) continue
-            val t = it.shape.intersect(o, d) ?: continue
+            val t = it.shape.intersect(o - it.offsetAt(tS), d) ?: continue
             if (best == null || t < best.first) best = t to it
         }
         return best
@@ -173,7 +197,7 @@ data class Scene(val items: List<SceneItem>) {
 
     /** 시각 [tS]에 존재하는 도형 표면까지의 최소 거리. */
     fun surfaceDistance(p: Vec3, tS: Float): Float =
-        items.filter { it.presentAt(tS) }.minOf { it.shape.surfaceDistance(p) }
+        items.filter { it.presentAt(tS) }.minOf { it.shape.surfaceDistance(p - it.offsetAt(tS)) }
 }
 
 /** 폰 파지 방향. 세로 파지면 센서 +X(GL)가 월드 아래를 향한다(F2 실측). */

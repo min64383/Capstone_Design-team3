@@ -182,7 +182,15 @@
     "maxConfirmCentroidJumpM": 0.3,
     "matchByOverlap": true,
     "reidLost": false,
-    "smallClusterVoxels": 0
+    "smallClusterVoxels": 0,
+    "motion": "NONE",
+    "accelSigmaMps2": 1.13,
+    "measSigma0M": 0.032,
+    "measSigmaPerM2": 0.0024,
+    "minMovingMps": 0.3,
+    "movingChi2": 9.21,
+    "validationChi2": 1000000,
+    "userVelocityS": 0.5
   },
   "repPoint": { "strategy": "CORRIDOR_BAND", "bandM": 0.20, "stableTies": false },
   "policy": {
@@ -192,7 +200,9 @@
     "hysteresisM": 0.15,
     "maxSources": 1,
     "maxInfoAgeMs": 500,
-    "prioritizeStop": false
+    "prioritizeStop": false,
+    "ttcStopS": 1.0,
+    "motionSigmaMultiple": 2.0
   },
   "state": {
     "recoverFrames": 10,

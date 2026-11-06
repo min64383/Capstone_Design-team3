@@ -26,6 +26,8 @@ class RunLogWriter(
     rgbSource: String = RgbSource.RECORDED.name,
     /** 학습형 깊이 장(M37 `depthFrom`, JSON 객체). 없으면 null. */
     depthFromJson: String? = null,
+    /** 움직임 정답의 출처(M48 평가 전용, 예: clicks). 없으면 null(기록하지 않음). */
+    movingFrom: String? = null,
 ) : ReplayListener, Closeable {
     private val slowOut: Writer
     private val guidOut: Writer
@@ -33,6 +35,7 @@ class RunLogWriter(
     private val clusterOut: Writer
     private val stageOut: Writer
     private var planesOut: Writer? = null
+    private var motionOut: Writer? = null
     private var geometryOut: Writer? = null
     private val outDir = outDir
 
@@ -46,7 +49,7 @@ class RunLogWriter(
                 // 재생한 코드 판(M41, Gradle이 넘김: git 커밋 짧은 해시, 바뀐 작업 트리면 -dirty). 없으면 unknown
                 "  \"gitHash\": \"${System.getProperty("hearspace.gitHash") ?: "unknown"}\",\n" +
                 "  \"configOverrides\": $overridesJson" + (substitutionJson?.let { ",\n  \"substitution\": $it" } ?: "") +
-                (depthFromJson?.let { ",\n  \"depthFrom\": $it" } ?: "") + "\n}\n",
+                (depthFromJson?.let { ",\n  \"depthFrom\": $it" } ?: "") + (movingFrom?.let { ",\n  \"movingFrom\": \"$it\"" } ?: "") + "\n}\n",
         )
         slowOut = File(outDir, RunLog.SLOW_PATH_FILE).bufferedWriter()
         guidOut = File(outDir, RunLog.GUIDANCE_FILE).bufferedWriter()
@@ -65,6 +68,10 @@ class RunLogWriter(
         RunLog.obstacleLines(step.snapshot).forEach { obsOut.line(it) }
         RunLog.clusterDebugLines(step.clusterDebug).forEach { clusterOut.line(it) }
         stageOut.line(RunLog.stageTimingLine(step.depth.tCaptureNs, step.stageNs))
+        if (step.motion.isNotEmpty()) { // M48 `track.motion` KALMAN일 때만 생긴다(끈 설정은 파일 목록이 그대로)
+            val w = motionOut ?: File(outDir, MOTION_FILE).bufferedWriter().also { it.line(MOTION_HEADER); motionOut = it }
+            for (m in step.motion) w.line(motionLine(m))
+        }
         step.mapUpdate.geometry?.let { result ->
             val w = geometryOut ?: File(outDir, RunLog.GEOMETRY_FILE).bufferedWriter().also {
                 it.line(RunLog.header(RunLog.GEOMETRY_HEADER)); geometryOut = it
@@ -85,7 +92,18 @@ class RunLogWriter(
 
     /** 기록 파일을 모두 닫는다(여러 번 불러도 된다). */
     override fun close() {
-        listOfNotNull(slowOut, guidOut, obsOut, clusterOut, stageOut, planesOut, geometryOut).forEach { it.close() }
+        listOfNotNull(slowOut, guidOut, obsOut, clusterOut, stageOut, planesOut, motionOut, geometryOut).forEach { it.close() }
+    }
+
+    private fun motionLine(m: hearspace.core.tracking.MotionDebug): String = listOf(
+        m.tCaptureNs, m.id, m.candidate, m.moving, m.measW?.x, m.measW?.z, m.posW?.x, m.posW?.z, m.velW?.x, m.velW?.z,
+        m.posSigmaM, m.velSigmaMps, m.chi2, m.nMeasCells, m.votes, m.score,
+    ).joinToString(",") { it?.toString() ?: "" }
+
+    companion object {
+        /** 움직임 기록(M48): track마다 칼만·판정·물체 좌표 칸 수. */
+        const val MOTION_FILE = "motion.csv"
+        const val MOTION_HEADER = "tCaptureNs,id,candidate,moving,measX,measZ,posX,posZ,velX,velZ,posSigmaM,velSigmaMps,chi2,nMeasCells,votes,score"
     }
 
     private fun Writer.line(s: String) {

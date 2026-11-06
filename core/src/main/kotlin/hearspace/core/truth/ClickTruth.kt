@@ -51,6 +51,41 @@ data class ClickAnnotations(val objects: List<ClickObject>, val floorYFallback: 
  * 이 계산은 여기 하나만 두고, viewer가 결과를 파일에 쓰며 `tools/analysis/event_eval.py`는 세계 점만 읽는다.
  */
 object ClickTruth {
+    /** 정답 경로를 잇는 두 클릭 사이 최대 간격(s, `event_eval.py` GAP_MAX_S와 같음). */
+    private const val GAP_MAX_S = 1.5f
+
+    /** 클릭 정답 허용 오차(m, `event_eval.py` CLICK_TOL_M과 같음: 클릭 검증 목표 p95). */
+    private const val CLICK_TOL_M = 0.2f
+
+    /**
+     * 움직임 정답(M48 평가 전용, 판정 단계를 정답으로 바꿔 분해·안내 단계만 판정, 사람 라벨을 흉내): 시각 tNs에 track의 측정 칸 중 절반 이상이
+     * 움직이는 물체의 클릭 위치(같은 장 클릭 평균, 클릭 사이 선형 보간)에서 반지름 + 0.05 m(칸 반 대각선 정도) + 클릭 허용 오차 안이면 true,
+     * 아니면 null(모름). 비전 라벨이 사람 마스크로 칸을 고르는 것을 흉내 낸다.
+     */
+    fun movingOracle(a: ClickAnnotations): (Long, List<Vec3>) -> Boolean? {
+        val tracks = a.objects.filter { it.kind == "moving" && it.added != "check" }.map { o ->
+            val pts = o.clicks.filter { it.pointW != null }.groupBy { it.tNs }.toSortedMap().map { (t, cs) ->
+                t to Vec3(cs.map { it.pointW!!.x }.average().toFloat(), 0f, cs.map { it.pointW!!.z }.average().toFloat())
+            }
+            o.radiusM to pts
+        }
+        return { tNs, cells ->
+            val hit = tracks.any { (r, pts) ->
+                val i = pts.indexOfFirst { it.first > tNs }
+                val q = when {
+                    i > 0 && (pts[i].first - pts[i - 1].first) / 1e9f <= GAP_MAX_S -> {
+                        val (t0, a0) = pts[i - 1]
+                        val (t1, a1) = pts[i]
+                        a0 + (a1 - a0) * ((tNs - t0).toFloat() / (t1 - t0))
+                    }
+                    else -> null
+                }
+                q != null && cells.count { (q - it).horizontal().norm() < r + 0.05f + CLICK_TOL_M } * 2 >= cells.size
+            }
+            if (hit) true else null
+        }
+    }
+
     const val FILE = "annotations/events.json"
 
     /**

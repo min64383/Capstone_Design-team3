@@ -62,6 +62,18 @@ class LocalMap(private val config: Config) {
         private set
 
     /**
+     * 정지·움직임 분해(M48): 이 상자들(월드 AABB, 움직이는 track의 추적 창) 안의 장애물 점은 지도에 넣지 않는다. 빈 목록 = 기준선.
+     * [update] 전에 느린 경로가 정한다(지난 장의 track 상태로, 인과적).
+     */
+    var excludeBoxes: List<Pair<Vec3, Vec3>> = emptyList()
+
+    /** true면 [update]가 이번 장의 장애물 점(바닥 위·반경 안, 지도에 넣었든 뺐든)과 관측 가중치를 [frameObstaclePoints]에 모은다(M48). */
+    var collectFramePoints = false
+
+    /** 마지막 [update]의 장애물 점과 가중치([collectFramePoints]일 때만). */
+    val frameObstaclePoints = ArrayList<Pair<Vec3, Float>>()
+
+    /**
      * 깊이 한 장을 반영한다. [userPosW]·[headingW]는 삭제 조건(지나감·반경)의 기준(진행 방향 추정은 M5).
      * 바닥을 아직 모르면 맵을 갱신하지 않고 `DEGRADED`를 돌려준다(사용자 결정 2026-09-28). TRISTATE는 예외([updateTriState]).
      */
@@ -112,6 +124,7 @@ class LocalMap(private val config: Config) {
             null
         }
         voxels.beginFrame()
+        frameObstaclePoints.clear()
         val instOf = if (config.map.instances && segments != null) associate(pts, n, camW, userPosW, floorY, segments, depthMm, depth) else null
         var nFloor = 0
         var nBelow = 0
@@ -126,8 +139,11 @@ class LocalMap(private val config: Config) {
                 p.y < floorY -> Unit // 바닥보다 낮은데 단차로도 확실하지 않은 점: 장애물일 수 없으므로 버린다
                 (p - userPosW).horizontal().norm() > radius -> Unit
                 else -> {
+                    val w = voxels.weight((p - camW).norm())
+                    if (collectFramePoints) frameObstaclePoints += p to w
+                    if (excludeBoxes.isNotEmpty() && excludeBoxes.any { (lo, hi) -> p.x in lo.x..hi.x && p.y in lo.y..hi.y && p.z in lo.z..hi.z }) continue
                     voxels.insert(
-                        p, depth.tCaptureNs, voxels.weight((p - camW).norm()), wallLabels?.get(i) == PlaneResult.WALL,
+                        p, depth.tCaptureNs, w, wallLabels?.get(i) == PlaneResult.WALL,
                         camW, floorY + config.floor.toleranceM,
                     )
                     nInserted++

@@ -262,6 +262,14 @@ object ConfigLoader {
                     matchByOverlap = boolean("matchByOverlap"),
                     reidLost = boolean("reidLost"),
                     smallClusterVoxels = intIn("smallClusterVoxels", 0, Int.MAX_VALUE),
+                    motion = enumValue<MotionMode>("motion"),
+                    accelSigmaMps2 = positive("accelSigmaMps2"),
+                    measSigma0M = nonNegative("measSigma0M"),
+                    measSigmaPerM2 = nonNegative("measSigmaPerM2"),
+                    minMovingMps = nonNegative("minMovingMps"),
+                    movingChi2 = positive("movingChi2"),
+                    validationChi2 = positive("validationChi2"),
+                    userVelocityS = positive("userVelocityS"),
                 )
             },
             repPoint = root.section("repPoint") {
@@ -276,6 +284,8 @@ object ConfigLoader {
                     maxSources = atLeast1("maxSources"),
                     maxInfoAgeMs = positive("maxInfoAgeMs"),
                     prioritizeStop = boolean("prioritizeStop"),
+                    ttcStopS = positive("ttcStopS"),
+                    motionSigmaMultiple = nonNegative("motionSigmaMultiple"),
                 )
             },
             state = root.section("state") {
@@ -414,6 +424,9 @@ object ConfigLoader {
         }
         if (c.track.suspiciousConfirmObservations < c.track.minConfirmObservations) {
             throw ConfigException("track", "must satisfy minConfirmObservations <= suspiciousConfirmObservations")
+        }
+        if (c.track.motion == MotionMode.KALMAN && c.map.mode != MapMode.HITS) {
+            throw ConfigException("track.motion", "KALMAN requires map.mode = HITS (물체 좌표 칸이 HITS 산술을 쓴다)")
         }
         if (c.track.maxConfirmCentroidJumpM > c.track.matchRadiusM) {
             throw ConfigException("track", "must satisfy maxConfirmCentroidJumpM <= matchRadiusM")

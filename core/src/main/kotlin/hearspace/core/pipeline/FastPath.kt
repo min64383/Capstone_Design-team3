@@ -33,6 +33,8 @@ class FastPath(
     private var lastTracked: PoseFrame? = null
     private var pendingMapAction = MapAction.NONE
     private var lastPoseTNs = Long.MIN_VALUE
+    /** 머리 위치 이력(M48: 사용자 속도 = 지난 `track.userVelocityS` 동안의 머리 이동). */
+    private val headHistory = ArrayDeque<Pair<Long, Vec3>>()
 
     /** 사용자 일시정지(§7.5 PAUSED). */
     var paused = false
@@ -60,6 +62,13 @@ class FastPath(
 
         val h = adjusted(if (newFrame) heading.update(pose) else heading.headingW)
         head = h?.let { HeadPose.fromCamera(pose.worldFromCam.translation(), it, config.head.offsetFromCameraM) }
+        val hp = head
+        if (discontinuity) headHistory.clear()
+        if (newFrame && hp != null) {
+            headHistory.addLast(pose.tCaptureNs to hp.positionW)
+            val windowNs = (config.track.userVelocityS * 1e9).toLong()
+            while (headHistory.size > 2 && pose.tCaptureNs - headHistory[1].first >= windowNs) headHistory.removeFirst()
+        }
         val infoAgeMs = snapshot?.let { (nowNs - it.tCaptureNs) / 1e6f }
         val step = stateMachine.step(nowNs, newFrame, pose.tracking, discontinuity, infoAgeMs, snapshot?.mapHealth, paused)
         if (step.mapAction == MapAction.RESET || (step.mapAction == MapAction.SCALE && pendingMapAction == MapAction.NONE)) {
@@ -69,12 +78,21 @@ class FastPath(
         val active = step.state == GuidanceState.NORMAL || step.state == GuidanceState.DEGRADED
         val hd = head
         val commands = if (active && hd != null && snapshot != null && infoAgeMs != null) {
-            policy.commands(snapshot, hd, infoAgeMs)
+            policy.commands(snapshot, hd, infoAgeMs, userVelocity())
         } else {
             policy.clear() // 확인 불가·정지 중에는 음원 없음(§2.2-5), 구간 기억도 버린다
             emptyList()
         }
         return GuidanceOutput(nowNs, step.state, commands, h?.let { Heading.toDeg(it) } ?: Float.NaN, step.alert)
+    }
+
+    /** 지난 `track.userVelocityS` 동안의 머리 평균 속도(수평). 이력이 짧으면 0. */
+    private fun userVelocity(): Vec3 {
+        if (headHistory.size < 2) return Vec3.ZERO
+        val (t0, p0) = headHistory.first()
+        val (t1, p1) = headHistory.last()
+        val dt = (t1 - t0) / 1e9f
+        return if (dt <= 0f) Vec3.ZERO else (p1 - p0).horizontal() * (1f / dt)
     }
 
     private fun adjusted(h: Vec3?): Vec3? = h?.let { headingOverride?.invoke(it) ?: it }

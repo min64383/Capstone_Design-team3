@@ -486,7 +486,31 @@ data class TrackConfig(
      * 작은 군집의 깜빡임 대응. 0 = 끔(기준선). 쓰는 값은 2 × `cluster.minSamples`.
      */
     val smallClusterVoxels: Int,
+    /**
+     * 움직이는 장애물(M48, IMPROVE_SPEC §13): NONE = 지금 동작(기준선). KALMAN = track마다 월드 좌표 등속 칼만(측정 = 이번 장 칸),
+     * 정지·움직임 분해(움직이는 track의 창 안 점은 정지 지도 대신 물체 좌표 HITS 칸으로), 이번 장 칸 묶음에서 후보 track.
+     */
+    val motion: MotionMode = MotionMode.NONE,
+    /** 칼만 과정 잡음: 이산 백색 가속 표준편차(m/s²). T 클릭 정답 사람 가속 a_M(M48 설계 5.2절). */
+    val accelSigmaMps2: Float = 1.13f,
+    /** 칼만 측정 잡음 σ_m(Z) = measSigma0M + measSigmaPerM2 × Z²(Z = 카메라에서 측정점까지 m). 정지 물체 이번 장 대표점의 흔들림. */
+    val measSigma0M: Float = 0.032f,
+    val measSigmaPerM2: Float = 0.0024f,
+    /** 움직임 판정 속도 문턱(m/s): 정지 물체 칼만 속도 p99. */
+    val minMovingMps: Float = 0.3f,
+    /** 움직임 판정 χ² 문턱(자유도 2): 9.21 = 99%. */
+    val movingChi2: Float = 9.21f,
+    /**
+     * 칼만 검증 게이트(자유도 2): 혁신 χ²가 이보다 크면 그 장 측정을 버린다(Bar-Shalom 외 2001, 99% = 9.21). 기본 1e6 = 끔: M48 값 재기에서
+     * 9.21로 켜면 정지 장면 측정의 26%를 버리고 그 사이 예측이 흘러 속도가 발산했다(1 s 넘은 track p90 3.96 m/s).
+     */
+    val validationChi2: Float = 1_000_000f,
+    /** 사용자 속도 창(s): 지난 이만큼의 머리 이동(TTC의 다가오는 속도). */
+    val userVelocityS: Float = 0.5f,
 )
+
+/** 움직이는 장애물 처리(M48). */
+enum class MotionMode { NONE, KALMAN }
 
 /** 대표점 설정. */
 data class RepPointConfig(
@@ -506,6 +530,10 @@ data class PolicyConfig(
     val maxSources: Int,
     val maxInfoAgeMs: Float,
     val prioritizeStop: Boolean = false,
+    /** 움직이는 물체 TTC STOP 문턱(s, M48): 성공 기준 ①. */
+    val ttcStopS: Float = 1f,
+    /** 움직이는 물체를 가깝게 보는 표준편차 배수(M48): 2 = 한쪽 97.7%. */
+    val motionSigmaMultiple: Float = 2f,
 )
 
 /** 안내 상태 기계 설정. */

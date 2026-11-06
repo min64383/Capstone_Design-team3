@@ -42,6 +42,8 @@ class SlowStep(
     val mapDepthMm: ShortArray? = null,
     /** TRISTATE 지도의 빈 곳 칸 중심(M32 장면 지표의 칸 상태). [ReplayListener.captureVoxels]가 true이고 TRISTATE일 때만, 아니면 null. */
     val freeCentersW: List<Vec3>? = null,
+    /** 움직임 기록(M48 `track.motion` KALMAN). 끈 설정에서는 빈 목록. */
+    val motion: List<hearspace.core.tracking.MotionDebug> = emptyList(),
 )
 
 /** [OfflineReplay] 결과를 받는 쪽: 실행 로그 파일([RunLogWriter]) 또는 평가 GUI의 메모리 수집. */
@@ -90,6 +92,10 @@ class OfflineReplay(
     private val depthFrom: String? = null,
     /** 학습형 장을 내보내기까지 기다리는 시간(ns, 기기에서 잰 모델 시간). */
     private val depthFromDelayNs: Long = 0L,
+    /** 움직임 정답(M48 평가 전용, 합성 시험이 판정 단계를 정답으로 바꿀 때). null이면 추정한 판정(앱과 같음). */
+    private val movingOracle: ((Long, List<hearspace.core.geometry.Vec3>) -> Boolean?)? = null,
+    /** 움직임 정답의 출처(`replay_info.json` 기록용, 예: clicks). */
+    private val movingFrom: String? = null,
 ) {
 
     /** 마지막 [run]에서 세션을 읽으며 건너뛴 항목(없는·손상된 파일, 잘린 마지막 줄 등, [SessionReader.warnings]). */
@@ -103,7 +109,7 @@ class OfflineReplay(
      */
     fun run(session: File, outDir: File, overridesJson: String = "{}", slowPathNote: String = "") {
         val depthFromJson = depthFrom?.let { "{ \"variant\": \"$it\", \"delayMs\": ${depthFromDelayNs / 1_000_000.0} }" }
-        RunLogWriter(outDir, session, overridesJson, slowPathNote, substitution?.infoJson(alignFrom), rgbSource.name, depthFromJson).use { log ->
+        RunLogWriter(outDir, session, overridesJson, slowPathNote, substitution?.infoJson(alignFrom), rgbSource.name, depthFromJson, movingFrom).use { log ->
             val truth = File(session, "annotations/obstacles.json").isFile
             run(session, if (truth) MapEvalWriter(ClusterEvalWriter(log, outDir, session, config, substitution?.align), outDir, session, config, align = substitution?.align, alignFile = alignFrom.takeIf { it.isNotBlank() }?.let(::File)) else log)
         }
@@ -122,7 +128,7 @@ class OfflineReplay(
         }
 
         val fast = FastPath(config, substitution?.headingSnap())
-        val slow = SlowPath(config, substitution?.fixedMap(config.map.voxelSizeM), floorOverrideY = substitution?.floorY())
+        val slow = SlowPath(config, substitution?.fixedMap(config.map.voxelSizeM), floorOverrideY = substitution?.floorY(), movingOracle = movingOracle)
         var pose: PoseFrame? = null
         var snapshot: ObstacleSnapshot? = null
         var heading: Vec3? = null
@@ -154,7 +160,7 @@ class OfflineReplay(
             val free = if (config.map.mode == hearspace.core.types.MapMode.TRISTATE && listener.captureFree(stepIndex)) slow.map.voxels.freeCenters() else null
             job = Job(
                 d, atNs, atNs + slowPathNs(d), s, resetAfterNs, slow.lastMapUpdate!!, slow.lastClusterDebug, slow.lastStageNs, voxels,
-                slow.lastClusters, slow.lastUserPosW, if (substitution?.map == true) null else slow.map.lastDepthMm, free,
+                slow.lastClusters, slow.lastUserPosW, if (substitution?.map == true) null else slow.map.lastDepthMm, free, slow.lastMotionDebug,
             )
         }
 
@@ -166,7 +172,7 @@ class OfflineReplay(
                 val applied = resetAfterNs == j.resetMark
                 if (applied) snapshot = j.snapshot
                 listener.onSlowStep(
-                    SlowStep(j.depth, j.startNs, j.doneNs, j.snapshot, j.mapUpdate, j.clusterDebug, j.stageNs, applied, j.voxels, j.clusters, j.userPosW, j.mapDepthMm, j.free),
+                    SlowStep(j.depth, j.startNs, j.doneNs, j.snapshot, j.mapUpdate, j.clusterDebug, j.stageNs, applied, j.voxels, j.clusters, j.userPosW, j.mapDepthMm, j.free, j.motion),
                 )
                 startIfIdle(j.doneNs)
             }
@@ -247,6 +253,7 @@ class OfflineReplay(
         val userPosW: Vec3,
         val mapDepthMm: ShortArray?,
         val free: List<Vec3>?,
+        val motion: List<hearspace.core.tracking.MotionDebug>,
     )
 
     companion object {

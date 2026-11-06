@@ -221,6 +221,15 @@ data class Obstacle(
     val confidence: Float,
     val lastSeenNs: Long,
     val nObservations: Int,
+    /** 수평 속도(m/s, M48 `track.motion` KALMAN). 칼만이 없으면 null. */
+    val velocityW: Vec3? = null,
+    /** 칼만 위치(이번 장 대표점을 거른 값, M48). */
+    val motionRepW: Vec3? = null,
+    /** 움직임 판정(M48 설계 3.3절). true면 [repPointW]는 물체 좌표 HITS 점유 칸의 대표점이다. */
+    val moving: Boolean = false,
+    /** 위치·속도 표준편차(공분산 대각 평균의 제곱근). 칼만이 없으면 NaN. */
+    val positionSigmaM: Float = Float.NaN,
+    val velocitySigmaMps: Float = Float.NaN,
 )
 
 /** 느린 경로의 출력. */

@@ -96,6 +96,8 @@ class VoxelMap(private val cfg: MapConfig) {
         var lastUpdNs: Long = Long.MIN_VALUE,
         /** RV 시점 묶음(M39). null = 아직 증거 없음 또는 RV 꺼짐. */
         var group: ViewGroup? = null,
+        /** 처음 맞은 시각(M48 정지·움직임 분해: 움직이는 track이 생긴 뒤에 생긴 칸만 옮긴다). MIN = 모름. */
+        var firstNs: Long = Long.MIN_VALUE,
     )
 
     /**
@@ -326,7 +328,7 @@ class VoxelMap(private val cfg: MapConfig) {
         if (v == null) {
             voxels[key] = Voxel(
                 1, min(1f, cfg.hitGain * vote), tNs, frame, min(cfg.logMax, cfg.logHit * weight), vote, if (wall) 1 else 0, if (wall) frame else -1,
-                currentEvidence = vote,
+                currentEvidence = vote, firstNs = tNs,
             )
             return
         }
@@ -549,6 +551,51 @@ class VoxelMap(private val cfg: MapConfig) {
 
     /** 모든 복셀. */
     fun views(): List<VoxelView> = voxels.map { (key, v) -> view(key, v) }
+
+    /** 점 [pW]가 든 칸이 점유인지(M48 후보 묶음: 지도가 이미 점유로 만든 칸은 후보에서 뺀다). */
+    fun occupiedAt(pW: Vec3): Boolean = voxels[key(index(pW.x), index(pW.y), index(pW.z))]?.let(::isOccupied) ?: false
+
+    /** 칸 [pW]의 맞은 증거(가중 표)와 점수(M48 물체 좌표 HITS와 같은 산술의 표시용). 없으면 null. */
+    class CellEvidence(val centerW: Vec3, val weightedHits: Float, val score: Float)
+
+    /**
+     * 상자([minW], [maxW], 칸 중심 기준) 안의 칸 중 [sinceNs] 이후에 처음 맞은 칸을 지도에서 빼서 돌려준다(M48: 움직인다고 판정한 track이
+     * 생긴 뒤 그 창 안에 생긴 칸을 물체 좌표 칸으로 옮긴다). HITS만, 다른 모드는 빈 목록.
+     */
+    fun takeCells(minW: Vec3, maxW: Vec3, sinceNs: Long): List<CellEvidence> {
+        if (tsdf || logOdds || tristate) return emptyList()
+        val out = ArrayList<CellEvidence>()
+        val it = voxels.entries.iterator()
+        while (it.hasNext()) {
+            val (key, v) = it.next()
+            if (v.firstNs == Long.MIN_VALUE || v.firstNs < sinceNs) continue
+            val c = center(key)
+            if (c.x < minW.x || c.x > maxW.x || c.y < minW.y || c.y > maxW.y || c.z < minW.z || c.z > maxW.z) continue
+            out += CellEvidence(c, if (weighted) v.weightedHits else v.hits.toFloat(), v.score)
+            it.remove()
+        }
+        return out
+    }
+
+    /**
+     * 칸 [centerW]에 증거를 넣는다(M48 넘겨주기: 움직이던 track이 서거나 시야 밖에서 끝나면 물체 좌표 점유 칸을 표·점수 그대로 넘긴다).
+     * 이미 있으면 큰 쪽을 남긴다. 이번 장에 맞은 것으로 세지 않는다.
+     */
+    fun seed(centerW: Vec3, tNs: Long, weightedHits: Float, score: Float) {
+        if (tsdf || logOdds || tristate) return
+        val key = key(index(centerW.x), index(centerW.y), index(centerW.z))
+        val v = voxels[key]
+        val n = kotlin.math.ceil(weightedHits).toInt()
+        if (v == null) {
+            voxels[key] = Voxel(n, min(1f, score), tNs, -1, 0f, weightedHits, 0, -1, currentEvidence = weightedHits, firstNs = tNs)
+            return
+        }
+        v.hits = max(v.hits, n)
+        v.weightedHits = max(v.weightedHits, weightedHits)
+        v.currentEvidence = max(v.currentEvidence, weightedHits)
+        v.score = min(1f, max(v.score, score))
+        v.lastSeenNs = max(v.lastSeenNs, tNs)
+    }
 
     private fun view(key: Long, v: Voxel): VoxelView {
         val historical = if (weighted) v.weightedHits else v.hits.toFloat()

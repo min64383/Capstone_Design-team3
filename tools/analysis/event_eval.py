@@ -13,6 +13,8 @@
 - STOP 구간 진입이 정답 띠(클릭 검증 p95) 안에서만 일어나면(통로를 띠만큼 좁히고 stopM − 띠보다 깊이 들어오지 않음) 판정 불가
 - ③ 오경보: 경고 시작 블록이 (가) 통로 안 정답 거리 ≤ warnMaxM + hysteresisM + 0.3 m도, (나) 어느 물체의 STOP 구간 진입 3 s 전 ~ 나갈 때도 아님
 - ④ 회전: |앱 진행 방향 − 정답 진행 방향| > 5°인 걷는 블록 비율, 걷기 시작·돌아선 뒤 TRANS_S 안(전환)과 그 밖(정상)
+- 정답은 소리를 낸 블록 시각(`tBlockNs`)에서 읽는다(M48, ①~③). ④는 진행 방향 추정 오차라 블록이 쓴 자세 시각 그대로
+- 정답 없는 경고 시간(M48, 보고): 경고 블록 중 통로 안 정답이 경고 거리 안에 없는 시간
 더한 단계가 `check`인 물체(같은 점을 여러 거리에서 누른 클릭 검증 전용)는 검증에만 쓰고 채점에서 뺀다.
 """
 from __future__ import annotations
@@ -42,6 +44,7 @@ TRANS_S = 2.0
 TURN_DEG, TURN_WIN_S = 30.0, 1.0  # 돌아섬: 정답 진행 방향이 TURN_WIN_S 안에 TURN_DEG 넘게 바뀜(자체 선택)
 PAIR_MAX_M = 3.5  # 클릭 검증 짝: 발이 이 안(발 클릭 범위 1.9~3.5 m)
 CLICK_TOL_M = 0.2  # 클릭 검증 목표 p95(자체 선택: 1.3 m/s에서 TTC 띠 0.15 s)
+UNEXPL_GAP_S = 0.2  # 정답 없는 경고 구간을 이을 때 이보다 짧은 틈은 같은 구간(보고용 묶음)
 
 
 def load_events(session: Path) -> dict | None:
@@ -166,22 +169,28 @@ def compute(session: Path, run_dir: Path) -> dict:
     def cam(ts):
         return np.array([np.interp(ts, ft, fx_), np.interp(ts, ft, fz_)])
 
-    t = blocks.poseTNs.to_numpy() / 1e9
+    def truth_dirs(times):
+        """시각마다 정답 진행 방향·머리·머리 속도·걷는 방향 여부."""
+        m = len(times)
+        hd, fd, vh, wd = np.zeros((m, 2)), np.zeros((m, 2)), np.zeros((m, 2)), np.full(m, False)
+        for k, ts in enumerate(times):
+            d = cam(ts + HALF_WIN_S) - cam(ts - HALF_WIN_S)
+            vh[k] = d / (2 * HALF_WIN_S)
+            if np.linalg.norm(d) > MOVE_MIN_M:
+                f = d / np.linalg.norm(d)
+                wd[k] = True
+            else:
+                f = fwd[min(np.searchsorted(ft, ts), len(ft) - 1)]
+            fd[k] = f
+            hd[k] = cam(ts) + np.array([-f[1], f[0]]) * ox + f * oz
+        return hd, fd, vh, wd
+
+    # 정답은 소리를 낸 블록 시각에서 읽는다(M48: 블록은 그 블록이 쓴 자세보다 약 170 ms 뒤라 자세 시각으로는 정보 나이 몫을 못 봄).
+    # ④는 진행 방향 추정 오차를 보므로 자세 시각 그대로(tp).
+    t = blocks.tBlockNs.to_numpy() / 1e9
+    tp = blocks.poseTNs.to_numpy() / 1e9
     n = len(t)
-    head = np.zeros((n, 2))
-    fdir = np.zeros((n, 2))
-    vhead = np.zeros((n, 2))
-    walk_dir = np.full(n, False)
-    for k, ts in enumerate(t):
-        d = cam(ts + HALF_WIN_S) - cam(ts - HALF_WIN_S)
-        vhead[k] = d / (2 * HALF_WIN_S)
-        if np.linalg.norm(d) > MOVE_MIN_M:
-            f = d / np.linalg.norm(d)
-            walk_dir[k] = True
-        else:
-            f = fwd[min(np.searchsorted(ft, ts), len(ft) - 1)]
-        fdir[k] = f
-        head[k] = cam(ts) + np.array([-f[1], f[0]]) * ox + f * oz
+    head, fdir, vhead, _ = truth_dirs(t)
 
     objs = [o for o in ev["objects"] if o.get("added") != "check"]  # 검증 전용 물체는 채점에서 뺀다
     tracks = [moving_track(o) if o["kind"] == "moving" else None for o in objs]
@@ -295,20 +304,40 @@ def compute(session: Path, run_dir: Path) -> dict:
         prev = warned
     dur_min = (t[-1] - t[0]) / 60 if n > 1 else 0.0
 
+    # 정답 없는 경고 시간(M48): 경고 블록 중 통로 안 정답이 경고 거리(far) 안에 없는 시간. ③은 시작만 세어 물체가 떠난 뒤 이어지는 경고를 못 봄
+    dt = np.diff(t, append=t[-1] + (t[-1] - t[-2] if n > 1 else 0.0))
+    with np.errstate(all="ignore"):
+        near_all = np.where(np.isnan(A).all(axis=1), np.inf, np.nanmin(np.where(np.isnan(A), np.inf, A), axis=1))
+    unexpl = active & np.isin(band, ("WARN", "STOP")) & (near_all > far)
+    segs = []  # 틈이 UNEXPL_GAP_S보다 짧은 블록끼리 한 구간
+    for k in np.flatnonzero(unexpl):
+        if segs and t[k] - segs[-1]["_end"] < UNEXPL_GAP_S:
+            g = segs[-1]
+        else:
+            g = {"startS": round(t[k] - t[0], 3), "durS": 0.0, "stop": False}
+            segs.append(g)
+        g["_end"] = t[k]
+        g["durS"] += float(dt[k])
+        g["stop"] = g["stop"] or band[k] == "STOP"
+    for g in segs:
+        g.pop("_end")
+        g["durS"] = round(g["durS"], 3)
+
     # ④ 회전
+    _, fdir_p, _, walk_dir = truth_dirs(tp)
     app = blocks.headingDeg.to_numpy(dtype=float)
-    truth_deg = np.degrees(np.arctan2(fdir[:, 0], -fdir[:, 1]))  # 월드 −Z에서 +X 쪽(core Heading 규약)
+    truth_deg = np.degrees(np.arctan2(fdir_p[:, 0], -fdir_p[:, 1]))  # 월드 −Z에서 +X 쪽(core Heading 규약)
     err = wrap(app - truth_deg)
-    ref = np.maximum(np.searchsorted(t, t - 1.0, side="right") - 1, 0)
-    speed = np.array([np.linalg.norm(cam(t[k]) - cam(t[ref[k]])) / max(t[k] - t[ref[k]], 1e-3) for k in range(n)])
+    ref = np.maximum(np.searchsorted(tp, tp - 1.0, side="right") - 1, 0)
+    speed = np.array([np.linalg.norm(cam(tp[k]) - cam(tp[ref[k]])) / max(tp[k] - tp[ref[k]], 1e-3) for k in range(n)])
     walking = (speed > WALKING_MPS) & ~np.isnan(app) & walk_dir
-    tw = np.maximum(np.searchsorted(t, t - TURN_WIN_S, side="right") - 1, 0)
+    tw = np.maximum(np.searchsorted(tp, tp - TURN_WIN_S, side="right") - 1, 0)
     turned = np.abs(wrap(truth_deg - truth_deg[tw])) > TURN_DEG
     last, since = -1e9, np.empty(n)
     for k in range(n):
         if k > 0 and ((walking[k] and not walking[k - 1]) or (walking[k] and turned[k])):
-            last = t[k]
-        since[k] = t[k] - last
+            last = tp[k]
+        since[k] = tp[k] - last
     trans = walking & (since < TRANS_S)
     steady = walking & (since >= TRANS_S)
 
@@ -324,6 +353,7 @@ def compute(session: Path, run_dir: Path) -> dict:
                        "missed": sum(e["kind"] != "moving" and e["verdict"] in ("missed", "late") for e in events)},
         "falseAlarm": {"onsets": onsets, "false": len(fa_t), "perMin": len(fa_t) / dur_min if dur_min > 0 else None,
                        "falseOnsetS": fa_t, "durationMin": round(dur_min, 3)},
+        "unexplainedWarn": {"s": round(float(dt[unexpl].sum()), 3), "stopS": round(float(dt[unexpl & (band == "STOP")].sum()), 3), "segments": segs},
         "heading": {"transition": frac(trans), "steady": frac(steady)},
     }
 
@@ -349,6 +379,7 @@ def main(args: list[str]) -> None:
               f"TTC {e.get('ttcS', '-')}±{e.get('ttcBandS', '-')}  → {e['verdict']}")
     print(f"오경보 {fa['false']}/{fa['onsets']} 시작, 분당 {fa['perMin']}, 시각 {fa['falseOnsetS']}")
     print(f"회전 5° 넘는 블록: 전환 {res['heading']['transition']}, 정상 {res['heading']['steady']}")
+    print(f"정답 없는 경고 {res['unexplainedWarn']['s']} s(STOP {res['unexplainedWarn']['stopS']} s), 구간 {res['unexplainedWarn']['segments']}")
 
 
 if __name__ == "__main__":
