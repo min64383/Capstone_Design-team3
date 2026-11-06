@@ -114,7 +114,25 @@ data class DepthConfig(
     val learnedSigmaPerM2: Float = 0f,
     /** ARCore 카메라 설정의 깊이 센서 사용(M47 ToF 확인). 앱 세션 생성에만 쓴다. */
     val sensorUsage: DepthSensorUsage = DepthSensorUsage.AUTO,
+    /**
+     * 원시 신뢰도 구간의 아래 끝(M54): [1, 30, 128]이면 구간은 원시 없음(신뢰도 0·깊이 0·영상 밖·`vision.maxLabelAgeMs`보다 오래된 장), 1~29, 30~127, 128 이상.
+     */
+    val confidenceEdges: List<Int> = listOf(1, 30, 128),
+    /**
+     * 신뢰도 구간마다 지도 표의 무게(`map.hitWeighting` CONFIDENCE, 원시 없음부터 차례로). M54 0단계 정답 비교(실내 K01·실외 O01·받침대, 1~5 m 합친 σ)의
+     * (σ(≥ 128) / σ(구간))²를 [(`map.weightRefM` / `map.radiusM`)², 1]로 자른 값(DECISIONS 2026-11-06, data/sweeps/m54/sigma_table.json).
+     */
+    val mapConfidenceWeights: List<Float> = listOf(0.37f, 0.16f, 0.57f, 1f),
+    /** 신뢰도 구간마다 바닥 히스토그램의 점 무게(`floor.weighting` CONFIDENCE). 같은 방식으로 T 7세션 바닥(RGB·클릭 바닥)에서. */
+    val floorConfidenceWeights: List<Float> = listOf(0.16f, 0.18f, 0.16f, 1f),
 ) {
+    /** 원시 신뢰도 [conf](0~255, 원시 없음이면 0) → 구간 번호(0 = 원시 없음). */
+    fun confidenceClass(conf: Int): Int {
+        var c = 0
+        for (e in confidenceEdges) if (conf >= e) c++
+        return c
+    }
+
     /** [learnedSigma0M]·[learnedSigmaPerM2]가 재서 주어졌는지. */
     val learnedSigmaSet: Boolean get() = learnedSigma0M != 0f || learnedSigmaPerM2 != 0f
 
@@ -230,6 +248,11 @@ data class FrontendConfig(
      * `cluster.minSamples`(격자 픽셀)를 쓴다(새 수치 없음).
      */
     val segment: SegmentMode,
+    /**
+     * 라벨 경계 띠(M54, 화소): 장애물 역할 라벨(라벨 없음·하늘·나무·구조물·물체·차량·사람·물) 영역의 경계에서 이 거리(깊이 영상 화소) 안의 화소를 원시 유무와
+     * 상관없이 무효로 한다. 영역 안쪽은 영역 안쪽 반지름의 절반까지만. 프레임 라벨끼리의 경계는 보지 않는다. 0 = 끔(기준선). 값은 0단계 측정(b = 6).
+     */
+    val labelBandPx: Int = 0,
 )
 
 /** 로컬 복셀 맵 설정. */
@@ -336,6 +359,8 @@ data class MapConfig(
     val triViewRangeLn: Float,
     /** RV 묶음 경계 시선각 α(도): 칸에서 본 시선 방향이 묶음 첫 관측과 이만큼 이상 다르면 새 묶음. 40° = 상관이 0 근처인 것을 확인한 각(M39, 작은 각은 측정 부족). */
     val triViewAngleDeg: Float,
+    /** 빈 곳 감쇠 세기([DecayWeighting], M54). */
+    val decayWeighting: DecayWeighting = DecayWeighting.NONE,
 )
 
 /** 바닥 추정 설정. */
@@ -379,6 +404,8 @@ data class FloorConfig(
      */
     val regionM: Float = 2f,
     val mode: FloorMode = FloorMode.SINGLE,
+    /** 바닥 높이 히스토그램의 점 무게(M54). NONE = 기준선. 최소 점 수 검사는 무게와 상관없이 점 수로 한다. */
+    val weighting: FloorWeighting = FloorWeighting.NONE,
 )
 
 /** 군집·높이 분류 설정. */
@@ -673,6 +700,12 @@ data class VisionConfig(
      * 최대 보행), 차량 6.9(도로교통법 개인형 이동장치 25 km/h). 하나로 6.9를 쓰면 사람이 원시 깊이에 막 들어오는 첫 부분 측정의 뜀이 통과했다.
      */
     val maxSpeedMps: Map<SemanticLabel, Float>,
+    /** 지도에 넣는 움직일 수 있는 라벨 화소의 깊이 원천(M54, [MovableDepth]). SMOOTHED = 기준선. */
+    val movableDepth: MovableDepth = MovableDepth.SMOOTHED,
+    /** [movableDepth] RAW에서 쓰는 원시 점의 신뢰도 하한(M54 정답 비교: 사람 다리 1~29 틀림, 30~127 맞음). */
+    val movableRawMinConfidence: Int = 30,
+    /** 칸마다 라벨 표와 역할(M54). false = 기준선. */
+    val voxelLabels: Boolean = false,
 )
 
 enum class VisionLabelSource { NONE, SEMANTICS }

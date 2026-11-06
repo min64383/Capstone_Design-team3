@@ -157,6 +157,10 @@ data class SceneItem(
     val motion: Motion? = null,
     /** 합성 의미 영상(M49)의 라벨. null이면 움직이는 요소는 사람, 나머지는 라벨 없음(UNLABELED). */
     val semantic: hearspace.core.types.SemanticLabel? = null,
+    /** 합성 원시 깊이(M54)의 신뢰도(0~255). 0이면 원시 없음. */
+    val rawConfidence: Int = 255,
+    /** 카메라 깊이가 이보다 먼 이 요소의 화소는 원시 없음(M54 SL-5: 먼 바닥). */
+    val rawMissingBeyondM: Float = Float.POSITIVE_INFINITY,
 ) {
     /** 합성 의미 영상의 화소 값. */
     val semanticPixel: Int
@@ -298,6 +302,8 @@ data class Noise(
      * 경사가 아니다). 실측(M13): 경계에서 약 25픽셀 안의 배경이 0.15~0.5 m 앞으로, 화소당 1~3%. 옆 번짐 뒤, 가장자리 평활 전에 한다.
      */
     val edgePullPx: Int = 0,
+    /** 원시가 없는 화소(신뢰도 0)의 평활 깊이를 이만큼 멀게(M54 SL-5: 원시 없는 먼 바닥의 평활이 바닥 아래로 치우침, 실측 +0.3~+0.8 m). */
+    val noRawSmoothedBiasM: Float = 0f,
 )
 
 /** 가장자리 평활 모드에서 깊이 불연속으로 보는 창 안 깊이 차 비율. */
@@ -465,6 +471,9 @@ object SyntheticGenerator {
         val luma = ByteArray(k.width * k.height)
         val obstacle = BooleanArray(k.width * k.height)
         val semantic = ByteArray(k.width * k.height) // 맞은 요소의 라벨(M49, 선명: 평활은 깊이에만)
+        // M54 원시 깊이: 번짐·당김·평활 전 깊이와 요소별 신뢰도(신뢰도 0·먼 화소는 원시 없음)
+        val rawMm = ShortArray(k.width * k.height)
+        val rawConf = ByteArray(k.width * k.height)
         for (v in 0 until k.height) for (u in 0 until k.width) {
             // C_cv 광선 (Z = 1) → 월드. 교차 t가 곧 C_cv 깊이 Z다.
             val dCv = Vec3((u - k.cx) / k.fx, (v - k.cy) / k.fy, 1f)
@@ -478,13 +487,22 @@ object SyntheticGenerator {
             if (noise.invalidRatio > 0f && rnd.nextFloat() < noise.invalidRatio) continue
             if (garbage) z *= 10f else if (z > MAX_DEPTH_M) continue
             if (z <= 0f) continue
-            mm[v * k.width + u] = min((z * 1000f).roundToInt(), 65535).toShort()
+            val i = v * k.width + u
+            val rawOk = hit.second.rawConfidence > 0 && z <= hit.second.rawMissingBeyondM
+            if (rawOk) {
+                rawMm[i] = min((z * 1000f).roundToInt(), 65535).toShort()
+                rawConf[i] = hit.second.rawConfidence.toByte()
+            } else if (noise.noRawSmoothedBiasM > 0f) {
+                z += noise.noRawSmoothedBiasM
+            }
+            mm[i] = min((z * 1000f).roundToInt(), 65535).toShort()
         }
         val spilled = (if (noise.edgeSpillPx > 0) edgeSpill(mm, obstacle, k, noise.edgeSpillPx) else mm)
             .let { if (noise.edgePullPx > 0) edgePull(it, obstacle, k, noise.edgePullPx) else it }
         return DepthFrame(
             tNs, if (noise.edgeSmoothPx > 0) edgeSmooth(spilled, k, noise.edgeSmoothPx) else spilled, null, k, reported, "synthetic", GuideImage(tNs, luma, k),
             labels = hearspace.core.types.LabelImage(tNs, semantic, k, reported),
+            raw = DepthFrame(tNs, rawMm, rawConf, k, reported, "synthetic"),
         )
     }
 
