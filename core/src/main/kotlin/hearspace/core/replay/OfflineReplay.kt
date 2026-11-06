@@ -141,11 +141,12 @@ class OfflineReplay(
         val vision = if (config.vision.label == hearspace.core.types.VisionLabelSource.SEMANTICS || config.vision.movableDepth == hearspace.core.types.MovableDepth.RAW ||
             config.frontend.labelBandPx > 0 || config.map.hitWeighting == hearspace.core.types.HitWeighting.CONFIDENCE ||
             config.floor.weighting == hearspace.core.types.FloorWeighting.CONFIDENCE || config.vision.voxelLabels ||
-            config.track.measureFrom == hearspace.core.types.MeasureFrom.RAW_MASK
+            config.track.measureFrom == hearspace.core.types.MeasureFrom.RAW_MASK || cellTraceOut != null
         ) VisionFrames(session, reader) else null
         val fast = FastPath(config, substitution?.headingSnap())
         val slow = SlowPath(config, substitution?.fixedMap(config.map.voxelSizeM), floorOverrideY = substitution?.floorY(), movingOracle = movingOracle)
         slow.map.collectInserted = mapInserts
+        if (cellTraceOut != null) slow.map.cellTrace = hearspace.core.mapping.CellTrace(config.map)
         var pose: PoseFrame? = null
         var snapshot: ObstacleSnapshot? = null
         var heading: Vec3? = null
@@ -163,6 +164,7 @@ class OfflineReplay(
             if (job != null) return
             if (minIntervalNs > 0 && lastStartNs != Long.MIN_VALUE && atNs - lastStartNs < minIntervalNs) return // 깊이는 최신 값으로 기다림
             if (mapAction != MapAction.NONE) {
+                if (mapAction == MapAction.SCALE) slow.map.cellTrace?.noteScale(config.state.recoverScoreScale)
                 slow.apply(mapAction)
                 mapAction = MapAction.NONE
             }
@@ -173,6 +175,7 @@ class OfflineReplay(
             lastStartNs = atNs
             val stepIndex = startedSteps++
             val s = slow.process(d, h)
+            slow.map.cellTrace?.let { cellTraceOut!!.write(it.drain()) }
             // M54 평가: 칸 역할 기록(map_roles.csv)은 mapInserts이고 칸 라벨 표를 켰을 때 0.5 s(15장)마다
             val roleDump = mapInserts && config.vision.voxelLabels && stepIndex % 15 == 0
             val voxels = if (listener.captureVoxels || roleDump) slow.map.voxels.occupied() else null
@@ -267,6 +270,9 @@ class OfflineReplay(
 
     /** true면 장마다 지도에 넣은 칸을 [SlowStep.insertedVoxels]·`map_inserts.csv`로 낸다(M54 평가 전용, `-PmapInserts=true`). */
     var mapInserts = false
+
+    /** 있으면 칸 관측 기록([hearspace.core.mapping.CellTrace])을 여기에 쓴다(M55 평가 전용, `-PcellTrace=true`). 닫는 것은 부르는 쪽. */
+    var cellTraceOut: java.io.OutputStream? = null
 
     private class Job(
         val depth: DepthFrame,

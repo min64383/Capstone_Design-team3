@@ -123,7 +123,7 @@ class LocalMap(private val config: Config) {
         val planes = if (config.frontend.planes == PlaneMode.RANSAC) PlaneDetector.detect(pts, camW, config.frontend, config.map.radiusM) else null
         // M54: 라벨·원시 장(과거 값, 나이 한도 안)과 점마다 원시 신뢰도(지도·바닥 무게), 움직이는 라벨 여부(사람 원천)
         val labels54 = if (m54MovableRaw) freshLabels(depth) else null
-        val raw54 = if (m54ConfWeights || m54FloorWeights || config.vision.voxelLabels || collectInserted) freshRaw(depth) else null
+        val raw54 = if (m54ConfWeights || m54FloorWeights || config.vision.voxelLabels || collectInserted || cellTrace != null) freshRaw(depth) else null
         val rawCamFromWorld = raw54?.worldFromCam?.rigidInverse()
         val confOf = if (raw54 == null) null else IntArray(n) { i -> rawConfidenceAt(raw54, rawCamFromWorld, Vec3(pts[3 * i], pts[3 * i + 1], pts[3 * i + 2])) }
         val floorWeights = if (m54FloorWeights) FloatArray(n) { i -> config.depth.floorConfidenceWeights[config.depth.confidenceClass(confOf?.get(i) ?: 0)] } else null
@@ -151,6 +151,7 @@ class LocalMap(private val config: Config) {
             null
         }
         voxels.beginFrame()
+        cellTrace?.beginFrame()
         frameObstaclePoints.clear()
         insertedVoxels.clear()
         // 칸 라벨 표: 나이 한도 안의 새 라벨 영상일 때만 이번 장 칸들이 한 표씩(16 Hz 라벨, 30 Hz 깊이)
@@ -185,6 +186,7 @@ class LocalMap(private val config: Config) {
                         p, depth.tCaptureNs, w, wallLabels?.get(i) == PlaneResult.WALL,
                         camW, floorY + config.floor.toleranceM,
                     )
+                    cellTrace?.insert(p, depth.tCaptureNs, w, config.depth.confidenceClass(confOf?.get(i) ?: 0))
                     noteInserted(p)
                     nInserted++
                     if (instOf != null) instOf.first[i].let { s -> if (s > 0) voxels.voteInstance(p, instOf.second.getValue(s)) }
@@ -200,7 +202,7 @@ class LocalMap(private val config: Config) {
             lastVotedLabelTNs = labelsForVotes!!.tCaptureNs
         }
         // 감쇠 무게(M54 결과 검토): 그 칸을 비었다고 본 화소의 원시 신뢰도 구간 = 표와 같은 규칙(원시 없음·나이 초과면 원시 없음 구간)
-        val pixCls = if (m54DecayWeights || collectInserted) IntArray(depthMm.size) { -1 } else null
+        val pixCls = if (m54DecayWeights || collectInserted || cellTrace != null) IntArray(depthMm.size) { -1 } else null
         fun clsAt(px: Int): Int {
             val c = pixCls!![px]
             if (c >= 0) return c
@@ -210,8 +212,10 @@ class LocalMap(private val config: Config) {
             return config.depth.confidenceClass(rawConfidenceAt(raw54, rawCamFromWorld, pW)).also { pixCls[px] = it }
         }
         voxels.collectDecays = collectInserted
+        val decayDepth = if (labels54 != null) withoutMovable(depthMm, depth, labels54) else depthMm
+        val camFromWorld = depth.worldFromCam.rigidInverse()
         val nDecayed = voxels.decayFree(
-            if (labels54 != null) withoutMovable(depthMm, depth, labels54) else depthMm, depth.K, depth.worldFromCam.rigidInverse(),
+            decayDepth, depth.K, camFromWorld,
             if (m54DecayWeights) { px -> config.depth.mapConfidenceWeights[clsAt(px)] } else null,
         )
         decayTrace.clear()
@@ -222,6 +226,7 @@ class LocalMap(private val config: Config) {
             }
         }
         val pruned = voxels.prune(userPosW, headingW, depth.tCaptureNs)
+        cellTrace?.endFrame(depth.tCaptureNs, camW, decayDepth, depth.K, camFromWorld, ::clsAt, userPosW, headingW, voxels)
         return MapUpdate(
             depth.tCaptureNs, n, nFloor, nBelow, nInserted, nDecayed, pruned, voxels.size, floor.floorY, MapHealth.OK, planes, segments, null,
             lastRgbEdgeCounts,
@@ -424,6 +429,9 @@ class LocalMap(private val config: Config) {
     var lastMovableRawInserted = 0
         private set
 
+    /** 칸 관측 기록(M55, 평가 전용 `-PcellTrace=true`). null이면 끔. */
+    var cellTrace: CellTrace? = null
+
     /** true면 [update]가 이번 장에 지도에 넣은 칸 번호(ix, iy, iz 교차)를 [insertedVoxels]에 모은다(M54 평가 `-PmapInserts=true`). */
     var collectInserted = false
     val insertedVoxels = ArrayList<Int>()
@@ -556,6 +564,7 @@ class LocalMap(private val config: Config) {
                         // 그 구간이 기준(무게 1). 물체·벽 표(30~127 → 0.57)를 주면 10 Hz 원시만으로 사람 칸이 6표를 못 채워 사람이 지도에서 사라졌다(T 150159, 구현 결함)
                         val w = if (m54ConfWeights) 1f else voxels.weight((p - rawCam).norm())
                         voxels.insert(p, raw.tCaptureNs, w, false, rawCam, floorY + config.floor.toleranceM)
+                        cellTrace?.insert(p, raw.tCaptureNs, w, config.depth.confidenceClass(conf))
                         noteInserted(p)
                         n++
                     }
@@ -582,6 +591,7 @@ class LocalMap(private val config: Config) {
     /** 맵·바닥을 모두 잊는다(자세 불연속, §7.5). */
     fun reset() {
         voxels.clear()
+        cellTrace?.noteReset()
         floor.reset()
     }
 

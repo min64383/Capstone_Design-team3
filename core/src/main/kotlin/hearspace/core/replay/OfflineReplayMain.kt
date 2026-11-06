@@ -60,7 +60,12 @@ fun main(args: Array<String>) {
     }
     val replay = OfflineReplay(config, slow, sub?.second, sub?.first?.path ?: "", rgbSource, depthFrom, delayNs, oracle, movingFrom)
     replay.mapInserts = opts["mapInserts"] == "true" // M54 평가: 장마다 지도에 넣은 칸(map_inserts.csv)
-    replay.run(session, out, overrides, note)
+    // M55 평가: 칸 관측 기록(cell_obs.bin.gz, 형식은 CellTrace)
+    val trace = if (opts["cellTrace"] == "true") {
+        out.mkdirs()
+        java.util.zip.GZIPOutputStream(File(out, "cell_obs.bin.gz").outputStream().buffered(1 shl 16)).also { replay.cellTraceOut = it }
+    } else null
+    trace.use { replay.run(session, out, overrides, note) }
     // 끊긴 녹화(잘린 줄·손상된 PNG)는 건너뛰고 끝까지 돈다: 건너뛴 것을 알린다
     if (replay.warnings.isNotEmpty()) System.err.println("session warnings ${replay.warnings.size}: ${replay.warnings.take(3).joinToString("; ")}")
     println("replay log: ${out.absolutePath}")

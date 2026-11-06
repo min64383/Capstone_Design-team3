@@ -554,7 +554,7 @@ class VoxelMap(private val cfg: MapConfig) {
      * 시야와 무관한 삭제 조건(§7.3): 사용자 뒤로 `passedMarginM` 이상 지나감(진행 방향 기준, 수평),
      * 마지막 관측 후 `maxUnseenS` 경과, 사용자에서 수평 `radiusM` 밖.
      */
-    fun prune(userPosW: Vec3, headingW: Vec3, nowNs: Long): PruneCounts {
+    fun prune(userPosW: Vec3, headingW: Vec3, nowNs: Long, onRemoved: ((Int, Int, Int) -> Unit)? = null): PruneCounts {
         val h = headingW.horizontal()
         val hn = h.norm()
         val dir = if (hn > 0f) h * (1f / hn) else null
@@ -572,9 +572,23 @@ class VoxelMap(private val cfg: MapConfig) {
                 d.norm() > cfg.radiusM -> far++
                 else -> continue
             }
+            onRemoved?.invoke(ix(key), iy(key), iz(key))
             it.remove()
         }
         return PruneCounts(passed, unseen, far)
+    }
+
+    /**
+     * 칸 관측 기록(M55 설계 3.5절): 모든 칸의 이번 장 관측을 [visit]에 준다 — 칸 번호, 관측([decayFree]와 같은 판정, 이번 장에 맞았으면 HIT),
+     * 칸 중심이 투영된 깊이 화소 번호(카메라 뒤·영상 밖이면 −1), 이번 장 표 무게(맞은 칸만 뜻이 있음). 지도는 바꾸지 않는다.
+     */
+    fun observe(depthMm: ShortArray, k: Intrinsics, camFromWorld: Mat4, visit: (Int, Int, Int, CellView, Int, Float) -> Unit) {
+        for ((key, v) in voxels) {
+            val pCv = camFromWorld.transformPoint(center(key))
+            val seen = sight(pCv, depthMm, k)
+            val px = if (seen == CellView.OUT_OF_VIEW) -1 else pixelIndex(pCv, k)
+            visit(ix(key), iy(key), iz(key), if (v.lastHitFrame == frame) CellView.HIT else seen, px, v.lastVote)
+        }
     }
 
     /**
