@@ -112,6 +112,10 @@ internal object Palette {
     val erased = Color(255, 0, 255)
     /** 칸 분류 장면에서 평가 영역 밖(높이 상한 위 등) 칸. */
     val outside = Color(90, 90, 100)
+    /** M54 칸 역할 색. */
+    val roleBuilding = Color(235, 140, 40)
+    val roleFloorish = Color(225, 205, 60)
+
     fun heightOf(yM: Float): Color = Color.getHSBColor(0.66f * (1f - (yM / 2f).coerceIn(0f, 1f)), 0.9f, 1f)
     fun band(b: Band?): Color = when (b) {
         Band.STOP -> Color(255, 70, 70)
@@ -447,7 +451,14 @@ class TopView(private val model: ViewerModel, private val compare: Boolean = fal
                 if (!model.voxelHeight.contains(p.y, r.config.corridor.heightM)) continue
                 val c = if (model.showVoxels) r.classify(w)?.let(Palette::voxelClass) else null
                 val b = (80 + 120 * (p.y / 2f).coerceIn(0f, 1f)).toInt()
-                g.color = c ?: Color(b, b, b)
+                // M54 칸 역할(칸 라벨 표를 켠 변형): 건물 주황, 바닥류 노랑, 장애물·표 모자람은 높이 회색
+                val role = slow.roles?.get(i)?.toInt()
+                val rc = when (role) {
+                    hearspace.core.mapping.VoxelRole.BUILDING.ordinal -> Palette.roleBuilding
+                    hearspace.core.mapping.VoxelRole.FLOORISH.ordinal -> Palette.roleFloorish
+                    else -> null
+                }
+                g.color = c ?: rc ?: Color(b, b, b)
                 g.fillRect(sx(p.x).toInt() - 1, sy(p.z).toInt() - 1, 3, 3)
             }
             if (model.showVoxels) {
