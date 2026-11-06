@@ -126,7 +126,8 @@ def _kbin(k: np.ndarray) -> np.ndarray:
     return np.where(far, N_KBIN - 1, np.clip(np.rint(np.where(far, 0, k)).astype(int) + K_WIN, 0, 2 * K_WIN))
 
 
-def measure(session: Path, cfg: dict) -> Acc:
+def measure(session: Path, cfg: dict, ref_conf: int | None = None, static_only: bool = False) -> Acc:
+    """[ref_conf]: 기준 원시의 신뢰도 하한(없으면 `track.rawMinConfidence`). [static_only]: 움직일 수 있는 라벨 화소를 뺀다(설계 재승인 3.1절의 b 측정)."""
     meta = json.loads((session / "meta.json").read_text(encoding="utf-8"))
     fr = load_frames(session).reset_index(drop=True)
     sem = pd.read_csv(session / "semantic" / "index.csv").sort_values("frameTNs").reset_index(drop=True)
@@ -134,6 +135,8 @@ def measure(session: Path, cfg: dict) -> Acc:
     s0, s2 = cfg["depth"]["rawSigma0M"], cfg["depth"]["rawSigmaPerM2"]
     sm, vox = cfg["map"]["sigmaMultiple"], cfg["map"]["voxelSizeM"]
     min_conf, min_n = cfg["track"]["rawMinConfidence"], cfg["cluster"]["minSamples"]
+    ref = min_conf if ref_conf is None else ref_conf
+    movable = [l for l in (9, 10)]  # 차량·사람(vision.movingLabels)
     radius = cfg["map"]["radiusM"]
     ft = fr.tNs.to_numpy()
     acc = Acc()
@@ -191,11 +194,13 @@ def measure(session: Path, cfg: dict) -> Acc:
             rr, cr = pose_at(raw_file[0], i)
             ur, vr, zc, okr = _project(p, rr, cr, kr)
             zr = np.where(okr, raw[vr, ur], 0)
-            has = okr & (zr > 0) & (np.where(okr, conf[vr, ur], 0) >= min_conf)
+            has = okr & (zr > 0) & (np.where(okr, conf[vr, ur], 0) >= ref)
             tol = np.maximum(sm * (s0 + s2 * zc * zc), vox)
             bad = has & (np.abs(zr - zc) > tol)
             pr_w = np.stack([(ur - kr["cx"]) / kr["fx"] * zr, (vr - kr["cy"]) / kr["fy"] * zr, zr], axis=1) @ rr.T + cr
         lab_ok = okl & (db >= 0) & (db < nd)
+        if static_only:
+            lab_ok &= ~np.isin(labv, movable)
         kb = _kbin(kk)
         for arr, m in ((acc.total, lab_ok), (acc.has, lab_ok & has), (acc.bad, lab_ok & bad)):
             np.add.at(arr, (role[m], kb[m], db[m]), 1)
@@ -534,7 +539,56 @@ def main_truth(args: list[str]) -> None:
         out.write_text(json.dumps(res, ensure_ascii=False, indent=1), encoding="utf-8")
 
 
+def _offset(df: pd.DataFrame) -> float:
+    """정답의 상수 오차(줄자 기준점·바닥 높이) 추정: 그 세션에서 원시 신뢰도 ≥ 128인 자리 평활 오차의 중앙값(없으면 0)."""
+    hi = df[(df.conf >= 128) & df.eSm.notna()].eSm
+    return float(hi.median()) if len(hi) >= 50 else 0.0
+
+
+def sigma_table(vertical: list[tuple[Path, bool]], floor: list[Path], person: list[Path], cfg: dict) -> dict:
+    """신뢰도 무게의 σ 표(설계 재승인 3.1절): 면 종류(바닥 / 그 밖의 정지 면) × 그 자리 원시 신뢰도 구간 × 1 m 거리마다 평활 오차의
+    강건 크기 1.4826 × 중앙값 |e − 세션 상수 오차|(치우침과 흩어짐을 함께 담는다). 움직이는 라벨은 사람 다리 원시(≥ 30) 오차의 강건 σ
+    (몸 앞면 차는 오차가 아니므로 거리별 중앙값을 뺀다). σ기준 = 1~2 m 정답 비교 표본 전체(두 면 종류)의 같은 값."""
+    def collect(items):
+        out = []
+        for s, face in items:
+            df = truth_pairs(s, cfg, face)
+            if df is not None and len(df):
+                out.append(df.assign(r=(df.eSm - _offset(df)).abs()))
+        return pd.concat(out, ignore_index=True)
+    kinds = {"vertical": collect(vertical), "floor": collect([(s, False) for s in floor])}
+    nd = len(DIST_EDGES) - 1
+    classes = [("none", lambda c: c == 0), ("1-29", lambda c: (c >= 1) & (c < 30)), ("30-127", lambda c: (c >= 30) & (c < 128)), ("128-255", lambda c: c >= 128)]
+    table = {}
+    for kname, df in kinds.items():
+        db = np.digitize(df.dist, DIST_EDGES) - 1
+        table[kname] = {}
+        for cname, f in classes:
+            row = []
+            for j in range(nd):
+                r = df.r[(db == j) & f(df.conf) & df.r.notna()]
+                row.append(round(float(1.4826 * r.median()), 3) if len(r) >= 200 else None)
+            table[kname][cname] = row
+    pooled = pd.concat([d.r[(np.digitize(d.dist, DIST_EDGES) - 1 == 0) & d.r.notna()] for d in kinds.values()])
+    sigma_ref = round(float(1.4826 * pooled.median()), 3)
+    pdf = pd.concat([person_truth(s, "RAW") for s in person], ignore_index=True)
+    pdf = pdf[(pdf.conf >= 30) & pdf.e.notna()]
+    pdb = np.digitize(pdf.hd, DIST_EDGES) - 1
+    mov = []
+    for j in range(nd):
+        e = pdf.e[pdb == j]
+        mov.append(round(float(1.4826 * (e - e.median()).abs().median()), 3) if len(e) >= 200 else None)
+    return {"distEdgesM": DIST_EDGES, "confClasses": [c for c, _ in classes], "sigmaRefM": sigma_ref, "table": table, "movableRawMinConf30": mov}
+
+
 def main(args: list[str]) -> None:
+    if args and args[0] == "--sigma":  # --sigma vertical=<s>,... face=<s>,... floor=<s>,... person=<s>,...
+        kv = dict(a.split("=", 1) for a in args[1:])
+        sp = lambda k: [Path(x) for x in kv.get(k, "").split(",") if x]
+        res = sigma_table([(s, False) for s in sp("vertical")] + [(s, True) for s in sp("face")], sp("floor"), sp("person"), load_config(Path(".")))
+        print(json.dumps(res, ensure_ascii=False, indent=1))
+        Path("../../data/sweeps/m54/sigma_table.json").write_text(json.dumps(res, ensure_ascii=False, indent=1), encoding="utf-8")
+        return
     if args and args[0] == "--truth":
         return main_truth(args[1:])
     if args and args[0] == "--person":
@@ -544,11 +598,17 @@ def main(args: list[str]) -> None:
         i = args.index("--out")
         out = Path(args[i + 1])
         args = args[:i] + args[i + 2:]
+    ref_conf, static_only = None, "--static" in args
+    if "--ref-conf" in args:
+        i = args.index("--ref-conf")
+        ref_conf = int(args[i + 1])
+        args = args[:i] + args[i + 2:]
+    args = [a for a in args if a != "--static"]
     cfg = load_config(Path("."))
     total = Acc()
-    res = {"sessions": {}}
+    res = {"sessions": {}, "refConf": ref_conf, "staticOnly": static_only}
     for s in args:
-        a = measure(Path(s), cfg)
+        a = measure(Path(s), cfg, ref_conf, static_only)
         total.add(a)
         res["sessions"][Path(s).name] = summarize(a)
         d = res["sessions"][Path(s).name]["decision"]
