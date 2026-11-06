@@ -31,6 +31,8 @@ object SyntheticSessionWriter {
         version: String = SessionFormat.VERSION,
         /** 원시 깊이는 새 깊이 [rawEveryN]장에 한 장만 새로 쓴다(M32: 원시 깊이 약 10 Hz 흉내, 나머지 프레임은 마지막 원시 시각을 유지). */
         rawEveryN: Int = 1,
+        /** 깊이 장마다 같은 시각의 합성 의미 영상을 `semantic/`에 쓴다(M49, 그 프레임이 전달, 화소 = 맞은 요소의 라벨). */
+        semantics: Boolean = false,
     ): File {
         dir.mkdirs()
         listOf(SessionFormat.DEPTH_DIR, SessionFormat.RAW_DEPTH_DIR, SessionFormat.DEPTH_CONF_DIR).forEach { File(dir, it).mkdirs() }
@@ -39,6 +41,12 @@ object SyntheticSessionWriter {
         var lastDepthT = Long.MIN_VALUE
         var lastRawT: Long? = null
         var saved = 0L
+        val semIndex = if (semantics) {
+            File(dir, SessionFormat.SEMANTIC_DIR).mkdirs()
+            StringBuilder("frameTNs,imageTNs,width,height,file,confFile\n")
+        } else {
+            null
+        }
         File(dir, SessionFormat.FRAMES_FILE).bufferedWriter().use { w ->
             w.write(FramesCsv.headerLine(version)); w.newLine()
             for (f in rec.frames) {
@@ -57,6 +65,12 @@ object SyntheticSessionWriter {
                     }
                     lastDepthT = depthT
                     saved++
+                    val lab = d.labels
+                    if (semIndex != null && lab != null) {
+                        val file = SessionFormat.semanticFile(depthT!!)
+                        File(dir, file).writeBytes(Png16.encode(GrayImage.of8(lab.K.width, lab.K.height, lab.labels)))
+                        semIndex.append("${f.pose.tCaptureNs},$depthT,${lab.K.width},${lab.K.height},$file,\n")
+                    }
                 }
                 val row = FrameRow(
                     frameIndex = f.index.toLong(),
@@ -76,6 +90,7 @@ object SyntheticSessionWriter {
                 w.write(FramesCsv.format(row, version)); w.newLine()
             }
         }
+        semIndex?.let { File(dir, SessionFormat.SEMANTIC_INDEX).writeText(it.toString()) }
         val meta = SessionMeta(
             formatVersion = version,
             sessionId = dir.name,

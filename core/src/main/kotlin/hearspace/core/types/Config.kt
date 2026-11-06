@@ -26,6 +26,7 @@ data class Config(
     val align: AlignConfig,
     val sonify: SonifyConfig,
     val slowPath: SlowPathConfig,
+    val vision: VisionConfig,
 )
 
 /** 머리 좌표계 설정. */
@@ -526,7 +527,18 @@ data class TrackConfig(
     val initMaxSpeedMps: Float = 0f,
     /** 시작 게이트의 측정 잡음 배수(관례: 2차원 99%에 가까운 3). */
     val initGateSigmas: Float = 3f,
+    /**
+     * 움직이는 track·후보의 칼만 측정(M49 설계 3.4절). CELLS = 이번 장 평활 칸(기준선). RAW_MASK = 새 원시 깊이 장에서 신뢰도 ≥
+     * [rawMinConfidence]이고 의미 영상 라벨이 `vision.movingLabels`이며 창 안인 점의 가까운 면 점, 원시 장의 촬영 시각으로(평활과 섞지 않음).
+     * 표·점수(물체가 있는지)는 그대로 평활 칸으로 센다(출력 시점이 원시 10 Hz에 묶이지 않게).
+     */
+    val measureFrom: MeasureFrom = MeasureFrom.CELLS,
+    /** RAW_MASK 원시 점의 신뢰도 하한(M39 원시 규칙: 0인 화소 버림). */
+    val rawMinConfidence: Int = 1,
 )
+
+/** 움직이는 track 칼만 측정의 원천(M49). */
+enum class MeasureFrom { CELLS, RAW_MASK }
 
 /** 움직이는 장애물 처리(M48). */
 enum class MotionMode { NONE, KALMAN }
@@ -643,6 +655,41 @@ data class RecordConfig(
  * 깊이를 꺼낸다(그동안 온 깊이는 최신 값으로 교체). 0 = 제한 없음(기준선). 선행 시스템은 융합을 카메라보다 낮은 주기로 돌린다.
  */
 data class SlowPathConfig(val maxRateHz: Float)
+
+/**
+ * ARCore Scene Semantics 의미 영상(M49, IMPROVE_SPEC §13). 화소 값은 [SemanticLabel] 번호다.
+ * [semantics]: 앱이 의미 모드를 켠다(지원할 때만). 재생 모드에서는 받은 의미 영상을 세션 `semantic/`에 저장한다.
+ * [label]: 움직임 판정 출처. NONE = 지금(깊이 기하 또는 평가 전용 정답). SEMANTICS = track마다 라벨 표를 지도 HITS로 쌓는다.
+ * [movingLabels]: 스스로 움직일 수 있는 라벨. 종류마다 규칙을 나누지 않는다.
+ * [maxLabelAgeMs]: 깊이 장 시각과 의미 영상 촬영 시각의 차가 이보다 크면 라벨을 "모름"으로 본다(속도 보정 뒤 남는 어긋남에서 유도).
+ */
+data class VisionConfig(
+    val semantics: Boolean,
+    val label: VisionLabelSource,
+    val movingLabels: Set<SemanticLabel>,
+    val maxLabelAgeMs: Int,
+    /**
+     * 종류별 최대 속도(m/s): RAW_MASK 시작 게이트가 마스크 점의 다수 라벨로 고른다(M49 측정 단계 결과 뒤 사용자 승인). 사람 2.5(Bohannon 1997
+     * 최대 보행), 차량 6.9(도로교통법 개인형 이동장치 25 km/h). 하나로 6.9를 쓰면 사람이 원시 깊이에 막 들어오는 첫 부분 측정의 뜀이 통과했다.
+     */
+    val maxSpeedMps: Map<SemanticLabel, Float>,
+)
+
+enum class VisionLabelSource { NONE, SEMANTICS }
+
+/**
+ * ARCore `SemanticLabel`과 같은 이름. [pixel]은 의미 영상의 화소 값이다.
+ * VERIFY: 화소 값 = NDK `ArSemanticLabel` 번호(UNLABELED 0 … WATER 11)로 보았다. 0단계 재생 저장의 `semantic/fractions.csv`
+ * (ARCore `getSemanticLabelFraction`)와 PNG 화소 비율을 맞춰 확인한다.
+ */
+enum class SemanticLabel(val pixel: Int) {
+    UNLABELED(0), SKY(1), BUILDING(2), TREE(3), ROAD(4), SIDEWALK(5), TERRAIN(6), STRUCTURE(7), OBJECT(8), VEHICLE(9), PERSON(10), WATER(11);
+
+    companion object {
+        private val byPixel = entries.associateBy { it.pixel }
+        fun ofPixel(v: Int): SemanticLabel? = byPixel[v]
+    }
+}
 
 /**
  * 분석 도구용 정답 정렬 설정. 카메라가 [minTravelM]보다 적게 움직인 세션(정지 녹화)은 궤적 방향이 잡음이라

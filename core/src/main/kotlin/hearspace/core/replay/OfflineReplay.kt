@@ -127,6 +127,10 @@ class OfflineReplay(
             null
         }
 
+        // M49: 라벨 판정이나 RAW_MASK 측정을 켜면 깊이 장마다 그 프레임까지 받은 의미 영상·원시 깊이를 붙인다
+        val vision = if (config.vision.label == hearspace.core.types.VisionLabelSource.SEMANTICS ||
+            config.track.measureFrom == hearspace.core.types.MeasureFrom.RAW_MASK
+        ) VisionFrames(session, reader) else null
         val fast = FastPath(config, substitution?.headingSnap())
         val slow = SlowPath(config, substitution?.fixedMap(config.map.voxelSizeM), floorOverrideY = substitution?.floorY(), movingOracle = movingOracle)
         var pose: PoseFrame? = null
@@ -205,7 +209,7 @@ class OfflineReplay(
                         is PoseEvent -> pose = e.pose
                         is DepthEvent -> {
                             val d = substitution?.depthOf(e.depth) ?: e.depth
-                            pending = rgb?.attach(d, e.frameIndex) ?: d
+                            pending = (rgb?.attach(d, e.frameIndex) ?: d).let { vision?.attach(it, e.frameIndex) ?: it }
                             startIfIdle(arrival)
                         }
                     }

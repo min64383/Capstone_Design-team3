@@ -10,7 +10,7 @@
 | Kotlin (Gradle 플러그인·표준 라이브러리) | 2.4.20 | core·app | Apache-2.0 | 2026-09-26 (M0) |
 | Gradle (래퍼) | 9.8.0 | 빌드 | Apache-2.0 | 2026-09-26 (M0) |
 | JUnit Jupiter / Platform | 6.1.3 | core·app 테스트 전용(앱에 들어가지 않음) | EPL-2.0 | 2026-09-26 (M0), app 2026-10-30 (M45) |
-| ARCore SDK (`com.google.ar:core`) | 1.56.0 | app: 자세·깊이·녹화 | SDK 바이너리(AAR): **ARCore Additional Terms of Service** (https://developers.google.com/ar/develop/terms) + Google APIs ToS. 오픈소스 아님 | 2026-09-26 (M1) |
+| ARCore SDK (`com.google.ar:core`) | 1.56.0 | app: 자세·깊이·녹화 | SDK 바이너리(AAR): **ARCore Additional Terms of Service** (https://developers.google.com/ar/develop/terms) + Google APIs ToS. 오픈소스 아님. M49부터 Scene Semantics(의미 모드, `vision.semantics`)도 쓴다: 같은 SDK의 기능이라 새 의존성·가중치 없음 | 2026-09-26 (M1), Scene Semantics 2026-11-06 (M49) |
 | numpy | 2.4.6 (requirements.txt 고정, M41) | tools/analysis | BSD-3-Clause | 2026-09-26 (M0) |
 | pandas | 3.0.6 (requirements.txt 고정, M41) | tools/analysis | BSD-3-Clause | 2026-09-26 (M0) |
 | matplotlib | 3.11.2 (requirements.txt 고정, M41) | tools/analysis | Matplotlib License (PSF 계열) | 2026-09-26 (M0) |

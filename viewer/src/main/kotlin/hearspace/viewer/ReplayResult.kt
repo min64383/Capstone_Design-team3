@@ -278,7 +278,9 @@ object ReplayRunner {
      */
     fun run(session: File, overridesJson: String, hrtf: Hrtf, exportDir: File? = null, substitution: Substitution? = null, label: String = "", objectCueSettings: ObjectCueSettings? = null): ReplayResult {
         val start = System.nanoTime()
-        val config = Repo.loadConfig(overridesJson)
+        // 변형의 viewer 전용 값(M49): "viewer": {"movingFrom": "clicks"} = 움직임 판정을 세션 클릭 정답으로(평가 전용, -PmovingFrom=clicks와 같음)
+        val (configJson, movingFrom) = ViewerOptions.split(overridesJson)
+        val config = Repo.loadConfig(configJson)
         val reader = SessionReader(session)
         val cueRenderer = objectCueSettings?.let { ObjectCueRenderer(it, config.audio.sampleRate, config.policy.maxInfoAgeMs) }
         val cueEvents = ArrayList<ObjectCueEvent>()
@@ -312,7 +314,12 @@ object ReplayRunner {
         try {
             // RGB 안내 보정(M19·M23)은 MP4에서 꺼낸 매 프레임 밝기가 있으면 그것을 쓴다(재생 비교 -PrgbFrom=mp4와 같게). 녹화 JPEG는 3장마다라 거의 안 붙는다
             val rgb = if (File(session, "${RgbFrames.MP4_DIR}/index.csv").isFile) RgbSource.MP4 else RgbSource.RECORDED
-            OfflineReplay(config, OfflineReplay.fixed(SLOW_PATH_MS), substitution, rgbSource = rgb).run(session, listener)
+            val oracle = if (movingFrom == "clicks") {
+                File(session, hearspace.core.truth.ClickTruth.FILE).takeIf { it.isFile }
+                    ?.let { hearspace.core.truth.ClickTruth.movingOracle(hearspace.core.truth.ClickTruth.load(it)) }
+                    ?: { _: Long, _: List<Vec3> -> null as Boolean? } // 클릭 정답이 없으면 움직이는 물체도 없다
+            } else null
+            OfflineReplay(config, OfflineReplay.fixed(SLOW_PATH_MS), substitution, rgbSource = rgb, movingOracle = oracle, movingFrom = movingFrom).run(session, listener)
             if (exportDir != null && objectCueSettings != null) {
                 File(exportDir, "object-cues.csv").bufferedWriter().use { writer ->
                     writer.appendLine("elapsedS,tNs,obstacleId,event,disposition")
@@ -332,4 +339,17 @@ object ReplayRunner {
     }
 
     fun loadHrtf(): Hrtf = Hrtf.parse(Repo.hrtf.readBytes())
+}
+
+/** 변형 JSON의 viewer 전용 값(M49). 설정 파일에는 없는 키라 core에 넘기기 전에 떼어 낸다. */
+object ViewerOptions {
+    /** [overridesJson]에서 맨 위 `viewer` 객체를 떼어 (설정 JSON, movingFrom)으로. movingFrom은 clicks만 받는다. */
+    fun split(overridesJson: String): Pair<String, String?> {
+        val root = hearspace.core.types.MiniJson.parse(overridesJson.ifBlank { "{}" }) as? hearspace.core.types.JsonObject ?: return overridesJson to null
+        val viewer = root.fields["viewer"] as? hearspace.core.types.JsonObject ?: return overridesJson to null
+        val mf = (viewer.fields["movingFrom"] as? hearspace.core.types.JsonString)?.value
+        require(mf == null || mf == "clicks") { "viewer.movingFrom must be clicks: $mf" }
+        val rest = hearspace.core.types.JsonObject(LinkedHashMap(root.fields).apply { remove("viewer") })
+        return hearspace.core.types.MiniJson.write(rest, pretty = false) to mf
+    }
 }

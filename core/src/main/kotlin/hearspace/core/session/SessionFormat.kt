@@ -25,6 +25,21 @@ object SessionFormat {
     const val DEPTH_CONF_DIR = "depth_conf"
     const val RGB_DIR = "rgb"
 
+    /** ARCore 의미 영상(M49): 라벨·신뢰도 PNG(8비트)와 목록. 녹화 모드와 재생 모드("의미 영상 저장")가 같은 형식으로 쓴다. */
+    const val SEMANTIC_DIR = "semantic"
+
+    /** 의미 영상 목록 `frameTNs,imageTNs,width,height,file,confFile`(받은 프레임 시각, 영상 촬영 시각). */
+    const val SEMANTIC_INDEX = "$SEMANTIC_DIR/index.csv"
+
+    /** 처음 몇 장의 ARCore 라벨별 화소 비율 `imageTNs,label,fraction`: 화소 값 ↔ 라벨 대응 확인용(VERIFY, `SemanticLabel`). */
+    const val SEMANTIC_FRACTIONS = "$SEMANTIC_DIR/fractions.csv"
+
+    /** 의미 영상 파일 상대 경로(영상 촬영 시각으로 이름을 짓는다: 재생 저장은 녹화의 프레임 번호와 맞지 않는다). */
+    fun semanticFile(imageTNs: Long) = "$SEMANTIC_DIR/$imageTNs.png"
+
+    /** 의미 신뢰도 파일 상대 경로. */
+    fun semanticConfFile(imageTNs: Long) = "$SEMANTIC_DIR/${imageTNs}_conf.png"
+
     /** 세션 폴더 기준 상대 경로. 예: `depth/000123.png`. */
     fun depthFile(frameIndex: Long) = "$DEPTH_DIR/${indexName(frameIndex)}.png"
 

@@ -97,13 +97,14 @@ class RunLogWriter(
 
     private fun motionLine(m: hearspace.core.tracking.MotionDebug): String = listOf(
         m.tCaptureNs, m.id, m.candidate, m.moving, m.measW?.x, m.measW?.z, m.posW?.x, m.posW?.z, m.velW?.x, m.velW?.z,
-        m.posSigmaM, m.velSigmaMps, m.chi2, m.nMeasCells, m.votes, m.score,
+        m.posSigmaM, m.velSigmaMps, m.chi2, m.nMeasCells, m.votes, m.score, m.measTNs, m.labelVotes, m.labelScore, m.nRawPoints,
     ).joinToString(",") { it?.toString() ?: "" }
 
     companion object {
         /** 움직임 기록(M48): track마다 칼만·판정·물체 좌표 칸 수. */
         const val MOTION_FILE = "motion.csv"
-        const val MOTION_HEADER = "tCaptureNs,id,candidate,moving,measX,measZ,posX,posZ,velX,velZ,posSigmaM,velSigmaMps,chi2,nMeasCells,votes,score"
+        const val MOTION_HEADER = "tCaptureNs,id,candidate,moving,measX,measZ,posX,posZ,velX,velZ,posSigmaM,velSigmaMps,chi2,nMeasCells,votes,score," +
+            "measTNs,labelVotes,labelScore,nRawPoints"
     }
 
     private fun Writer.line(s: String) {
