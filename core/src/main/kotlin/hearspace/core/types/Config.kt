@@ -419,7 +419,26 @@ data class FloorConfig(
     val mode: FloorMode = FloorMode.SINGLE,
     /** 바닥 높이 히스토그램의 점 무게(M54). NONE = 기준선. 최소 점 수 검사는 무게와 상관없이 점 수로 한다. */
     val weighting: FloorWeighting = FloorWeighting.NONE,
+    /** 바닥 모형(M55). LEVEL = 수평 바닥 하나(기준선), PLANE_RAW = 원시 깊이 바닥 점으로 맞춘 기울 수 있는 평면(점을 지도에 넣을지 가를 때만). */
+    val model: FloorModel = FloorModel.LEVEL,
+    /** PLANE_RAW 후보 원시 점의 신뢰도 하한(M54 정답 비교: 1~29는 틀리고 30 이상은 맞음, `vision.movableRawMinConfidence`와 같은 값). */
+    val planeMinConfidence: Int = 30,
+    /** PLANE_RAW 평면 기울기 상한(도). 150159 약 10°를 받고 벽·경사로를 바닥으로 잡지 않게(자체 선택). */
+    val planeMaxTiltDeg: Float = 15f,
+    /** PLANE_RAW RANSAC 반복 수(`frontend.planeIterations`와 같은 값). */
+    val planeIterations: Int = 120,
+    /**
+     * 바닥 높이 히스토그램 후보의 카메라 수평 거리 범위(m, M55). 0·0 = 하한 없음·`map.radiusM`(기준선). 150159처럼 월드가 기울면 먼 바닥이 많아
+     * 바닥이 낮게 잡히고 가까운 바닥 점이 띠 위로 올라온다. 가까운 점으로 재면 사용자 앞 바닥에 맞춰진다. 후보 값 1~2 m는 M32 정렬 바닥과 같은 거리.
+     */
+    val histogramMinDistM: Float = 0f,
+    val histogramMaxDistM: Float = 0f,
+    /** PLANE_RAW 평면을 맞출 원시 바닥 점을 모으는 시간(s). 월드 기울기는 천천히 변하는 성질이고 물체는 바닥보다 좁아, 모을수록 바닥이 이긴다(자체 선택). */
+    val planeWindowS: Float = 3f,
 )
+
+/** 바닥 모형(M55). */
+enum class FloorModel { LEVEL, PLANE_RAW }
 
 /** 군집·높이 분류 설정. */
 data class ClusterConfig(

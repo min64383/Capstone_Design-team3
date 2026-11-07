@@ -485,6 +485,30 @@ class FloorTest {
         ys.flatMap { (y, n) -> List(n) { listOf(0f, y, 0f) }.flatten() }.toFloatArray()
 
     @Test
+    fun `a tilted floor plane keeps near and far floor points on the floor`() {
+        // M55 150159: 월드가 약 10° 기울어 가까운 바닥은 높고 먼 바닥은 낮게 찍힘. 수평 바닥 하나면 1.9 m 바닥 점이 띠 위로 올라온다
+        val slope = 0.176f // tan 10°
+        val rnd = java.util.Random(7)
+        val xyz = ArrayList<Float>()
+        for (i in 0 until 600) {
+            val x = rnd.nextFloat() * 2f - 1f
+            val z = 1f + rnd.nextFloat() * 4f
+            xyz += x; xyz += -1.3f + slope * (3f - z) + (rnd.nextFloat() - 0.5f) * 0.02f; xyz += z
+        }
+        for (i in 0 until 60) { xyz += rnd.nextFloat() - 0.5f; xyz += -1.0f; xyz += 2f + rnd.nextFloat() } // 바닥 위 물건 점
+        val cam = Vec3(0f, 0f, 0f)
+        val f = Floor(baseFloor.copy(model = hearspace.core.types.FloorModel.PLANE_RAW), config.map.radiusM)
+        f.update(xyz.toFloatArray(), cam)
+        assertTrue(f.updatePlane(xyz.toFloatArray(), cam))
+        assertEquals(-1.3f + slope * 1.1f, f.heightAt(0f, 1.9f)!!, 0.01f)
+        assertTrue(f.isFloor(Vec3(0f, -1.3f + slope * 1.1f + 0.05f, 1.9f), 1.9f)) // 1.9 m의 높게 찍힌 바닥
+        assertTrue(f.isFloor(Vec3(0f, -1.3f + slope * (3f - 4.5f), 4.5f), 4.5f)) // 4.5 m의 낮게 찍힌 바닥
+        assertTrue(!f.isFloor(Vec3(0f, -1.3f + slope * 1.1f + 0.3f, 1.9f), 1.9f)) // 바닥 위 0.3 m(누운 캐리어 높이)는 바닥이 아님
+        f.alignToCamera(cam)
+        assertEquals(-1.3f + slope * 3f, f.floorY!!, 0.01f)
+    }
+
+    @Test
     fun `a nearby box top with more points is not the floor when candidates must be well below the camera`() {
         // M13 실측: 캐리어에 다가가면 보이는 바닥보다 캐리어 윗면(카메라 아래 0.5 m) 점이 많아 바닥이 그리로 올라갔다
         val cam = Vec3(0f, 1.1f, 0f)

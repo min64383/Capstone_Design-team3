@@ -203,6 +203,13 @@ object ConfigLoader {
                     regionM = positive("regionM"),
                     mode = enumValue<FloorMode>("mode"),
                     weighting = enumValue<FloorWeighting>("weighting"),
+                    model = enumValue<FloorModel>("model"),
+                    planeMinConfidence = intIn("planeMinConfidence", 0, 255),
+                    planeMaxTiltDeg = positive("planeMaxTiltDeg"),
+                    planeIterations = atLeast1("planeIterations"),
+                    planeWindowS = positive("planeWindowS"),
+                    histogramMinDistM = nonNegative("histogramMinDistM"),
+                    histogramMaxDistM = nonNegative("histogramMaxDistM"),
                 )
             },
             cluster = root.section("cluster") {

@@ -78,7 +78,7 @@ class LocalMap(private val config: Config) {
      * [update]와 같은 바닥·반경 규칙으로 고른다. 바닥을 아직 모르면 빈 목록.
      */
     fun obstaclePointsOf(raw: DepthFrame, minConfidence: Int, userPosW: Vec3): List<Vec3> {
-        val floorY = floor.floorY ?: return emptyList()
+        if (floor.floorY == null) return emptyList()
         val mm = raw.depthMm.copyOf()
         raw.confidence?.let { c -> for (i in mm.indices) if ((c[i].toInt() and 0xFF) < minConfidence) mm[i] = 0 }
         val pts = Projection.backprojectToWorld(mm, raw.K, raw.worldFromCam, config.depth.subsample)
@@ -87,7 +87,7 @@ class LocalMap(private val config: Config) {
         for (i in 0 until pts.size / 3) {
             val p = Vec3(pts[3 * i], pts[3 * i + 1], pts[3 * i + 2])
             val camDist = (p - camW).horizontal().norm()
-            if (floor.isFloor(p.y, camDist) || floor.isBelowFloor(p.y, camDist) || p.y < floorY) continue
+            if (floor.isFloor(p, camDist) || floor.isBelowFloor(p, camDist) || floor.isUnder(p)) continue
             if ((p - userPosW).horizontal().norm() > config.map.radiusM) continue
             out += p
         }
@@ -123,10 +123,15 @@ class LocalMap(private val config: Config) {
         val planes = if (config.frontend.planes == PlaneMode.RANSAC) PlaneDetector.detect(pts, camW, config.frontend, config.map.radiusM) else null
         // M54: 라벨·원시 장(과거 값, 나이 한도 안)과 점마다 원시 신뢰도(지도·바닥 무게), 움직이는 라벨 여부(사람 원천)
         val labels54 = if (m54MovableRaw) freshLabels(depth) else null
-        val raw54 = if (m54ConfWeights || m54FloorWeights || config.vision.voxelLabels || collectInserted || cellTrace != null) freshRaw(depth) else null
+        val raw54 = if (m54ConfWeights || m54FloorWeights || config.vision.voxelLabels || collectInserted || cellTrace != null || floorPlane) freshRaw(depth) else null
         val rawCamFromWorld = raw54?.worldFromCam?.rigidInverse()
         val confOf = if (raw54 == null) null else IntArray(n) { i -> rawConfidenceAt(raw54, rawCamFromWorld, Vec3(pts[3 * i], pts[3 * i + 1], pts[3 * i + 2])) }
-        val floorWeights = if (m54FloorWeights) FloatArray(n) { i -> config.depth.floorConfidenceWeights[config.depth.confidenceClass(confOf?.get(i) ?: 0)] } else null
+        val floorWeights = when {
+            m54FloorWeights -> FloatArray(n) { i -> config.depth.floorConfidenceWeights[config.depth.confidenceClass(confOf?.get(i) ?: 0)] }
+            config.floor.weighting == hearspace.core.types.FloorWeighting.DISTANCE ->
+                FloatArray(n) { i -> voxels.weight(Vec3(pts[3 * i] - camW.x, pts[3 * i + 1] - camW.y, pts[3 * i + 2] - camW.z).norm()) }
+            else -> null
+        }
         val f = if (config.floor.source == FloorSource.PLANE) {
             val pf = planes?.floor
             // 바닥을 한 번도 못 잡았으면(시작·자세 불연속 뒤) 평면 바닥이 보일 때까지 히스토그램으로 시작한다. 안 그러면 맵이 안 갱신된다
@@ -135,17 +140,34 @@ class LocalMap(private val config: Config) {
         } else {
             floor.update(pts, camW, floorWeights)
         }
+        // M55 바닥 평면: 새 원시 장마다 원시 바닥 점으로 평면을 맞추고, 하류가 쓰는 바닥 높이 하나는 카메라 자리 평면 높이로
+        if (floorPlane && f.floorY != null) {
+            if (raw54 != null && raw54.tCaptureNs != lastPlaneRawTNs) {
+                lastPlaneRawTNs = raw54.tCaptureNs
+                // 최근 `floor.planeWindowS` 동안의 원시 바닥 후보를 모아 맞춘다(장 하나는 바닥 점이 수십~수백 개라 평평한 세션에서도 2~11° 기울었음)
+                planeWindow.addLast(raw54.tCaptureNs to rawFloorCandidates(raw54))
+                val keepNs = (config.floor.planeWindowS * 1e9).toLong()
+                while (planeWindow.isNotEmpty() && raw54.tCaptureNs - planeWindow.first().first > keepNs) planeWindow.removeFirst()
+                val cand = FloatArray(planeWindow.sumOf { it.second.size }).also { a ->
+                    var o = 0
+                    for ((_, c) in planeWindow) { c.copyInto(a, o); o += c.size }
+                }
+                val fitted = floor.updatePlane(cand, camW)
+                floor.plane?.let { lastFramePlane = FramePlane(it[0], it[1], it[2], cand.size / 3, fitted) }
+            }
+            floor.alignToCamera(camW)
+        }
         if (f.floorY == null) {
             return MapUpdate(depth.tCaptureNs, n, 0, 0, 0, 0, PruneCounts(0, 0, 0), voxels.size, null, MapHealth.DEGRADED, planes)
         }
 
-        val floorY = f.floorY
+        val floorY = floor.floorY!!
         val wallLabels = if (config.cluster.separateWalls) planes?.labels else null
         val segments = if (config.frontend.segment == SegmentMode.REGION) {
             Segmenter.segment(depthMm, depth.K, depth.worldFromCam, config.depth.subsample, config.frontend.edgeMinStepRatio, config.frontend.edgeFitTolRatio, config.cluster.minSamples,
             ) { i, p ->
                 val camDist = (p - camW).horizontal().norm()
-                p.y < floorY || floor.isFloor(p.y, camDist) || planes?.labels?.get(i) == PlaneResult.WALL
+                floor.isUnder(p) || floor.isFloor(p, camDist) || planes?.labels?.get(i) == PlaneResult.WALL
             }
         } else {
             null
@@ -166,9 +188,9 @@ class LocalMap(private val config: Config) {
             val p = Vec3(pts[3 * i], pts[3 * i + 1], pts[3 * i + 2])
             val camDist = (p - camW).horizontal().norm()
             when {
-                floor.isFloor(p.y, camDist) -> nFloor++
-                floor.isBelowFloor(p.y, camDist) -> nBelow++
-                p.y < floorY -> Unit // 바닥보다 낮은데 단차로도 확실하지 않은 점: 장애물일 수 없으므로 버린다
+                floor.isFloor(p, camDist) -> nFloor++
+                floor.isBelowFloor(p, camDist) -> nBelow++
+                floor.isUnder(p) -> Unit // 바닥보다 낮은데 단차로도 확실하지 않은 점: 장애물일 수 없으므로 버린다
                 (p - userPosW).horizontal().norm() > radius -> Unit
                 else -> {
                     val wDist = voxels.weight((p - camW).norm())
@@ -357,7 +379,7 @@ class LocalMap(private val config: Config) {
     /** 지도에 넣을 점인지(삽입 반복문과 같은 조건). */
     private fun insertable(p: Vec3, camW: Vec3, userPosW: Vec3, floorY: Float): Boolean {
         val camDist = (p - camW).horizontal().norm()
-        return !floor.isFloor(p.y, camDist) && !floor.isBelowFloor(p.y, camDist) && p.y >= floorY &&
+        return !floor.isFloor(p, camDist) && !floor.isBelowFloor(p, camDist) && !floor.isUnder(p) &&
             (p - userPosW).horizontal().norm() <= config.map.radiusM
     }
 
@@ -428,6 +450,38 @@ class LocalMap(private val config: Config) {
         private set
     var lastMovableRawInserted = 0
         private set
+
+    // ---- M55 바닥 평면(`floor.model` PLANE_RAW) ----
+    private val floorPlane = config.floor.model == hearspace.core.types.FloorModel.PLANE_RAW
+    private var lastPlaneRawTNs = Long.MIN_VALUE
+    private val planeWindow = ArrayDeque<Pair<Long, FloatArray>>()
+
+    /** 바닥 평면 후보: 원시 점 중 신뢰도 ≥ `floor.planeMinConfidence`, 원시 카메라보다 `floor.minBelowCameraM` 넘게 낮고 수평 `map.radiusM` 안, 지금 바닥 ± `floor.searchBandM` 안. */
+    private fun rawFloorCandidates(raw: DepthFrame): FloatArray {
+        val k = raw.K
+        val s = config.depth.subsample
+        val cam = raw.worldFromCam.translation()
+        val out = ArrayList<Float>()
+        var v = 0
+        while (v < k.height) {
+            var u = 0
+            while (u < k.width) {
+                val i = v * k.width + u
+                val mm = raw.depthMm[i].toInt() and 0xFFFF
+                val conf = raw.confidence?.get(i)?.toInt()?.and(0xFF) ?: 255
+                if (mm != 0 && conf >= config.floor.planeMinConfidence) {
+                    val p = raw.worldFromCam.transformPoint(Projection.backproject(u.toFloat(), v.toFloat(), mm / 1000f, k))
+                    val h = floor.heightAt(p.x, p.z)
+                    if (p.y < cam.y - config.floor.minBelowCameraM && (p - cam).horizontal().norm() <= config.map.radiusM &&
+                        (h == null || kotlin.math.abs(p.y - h) <= config.floor.searchBandM)
+                    ) { out += p.x; out += p.y; out += p.z }
+                }
+                u += s
+            }
+            v += s
+        }
+        return out.toFloatArray()
+    }
 
     /** 칸 관측 기록(M55, 평가 전용 `-PcellTrace=true`). null이면 끔. */
     var cellTrace: CellTrace? = null
@@ -591,6 +645,7 @@ class LocalMap(private val config: Config) {
     /** 맵·바닥을 모두 잊는다(자세 불연속, §7.5). */
     fun reset() {
         voxels.clear()
+        planeWindow.clear()
         cellTrace?.noteReset()
         floor.reset()
     }

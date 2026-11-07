@@ -141,7 +141,8 @@ class OfflineReplay(
         val vision = if (config.vision.label == hearspace.core.types.VisionLabelSource.SEMANTICS || config.vision.movableDepth == hearspace.core.types.MovableDepth.RAW ||
             config.frontend.labelBandPx > 0 || config.map.hitWeighting == hearspace.core.types.HitWeighting.CONFIDENCE ||
             config.floor.weighting == hearspace.core.types.FloorWeighting.CONFIDENCE || config.vision.voxelLabels ||
-            config.track.measureFrom == hearspace.core.types.MeasureFrom.RAW_MASK || cellTraceOut != null
+            config.track.measureFrom == hearspace.core.types.MeasureFrom.RAW_MASK || cellTraceOut != null ||
+            config.floor.model == hearspace.core.types.FloorModel.PLANE_RAW
         ) VisionFrames(session, reader, labelRemap) else null
         val fast = FastPath(config, substitution?.headingSnap())
         val slow = SlowPath(config, substitution?.fixedMap(config.map.voxelSizeM), floorOverrideY = substitution?.floorY(), movingOracle = movingOracle)
@@ -186,7 +187,7 @@ class OfflineReplay(
                 if (slow.map.m54On) intArrayOf(slow.map.lastBandRemoved, slow.map.lastMovableExcluded, slow.map.lastMovableRawInserted) else null,
                 if (mapInserts) slow.map.insertedVoxels.toIntArray() else null,
                 if (mapInserts) slow.map.decayTrace.toIntArray() else null,
-                if (config.vision.voxelLabels) slow.map.lastFramePlane else null,
+                if (config.vision.voxelLabels || config.floor.model == hearspace.core.types.FloorModel.PLANE_RAW) slow.map.lastFramePlane else null,
                 if (roleDump && voxels != null) hearspace.core.mapping.FrameRecords.clusters(
                     voxels, d.worldFromCam.translation(), config.map.radiusM, config.cluster.epsM, config.cluster.minSamples,
                 ) else null,
