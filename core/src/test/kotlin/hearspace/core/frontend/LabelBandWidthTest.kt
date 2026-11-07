@@ -56,4 +56,19 @@ class LabelBandWidthTest {
         assertTrue(removed(plain, 24, 45) && removed(byDepth, 24, 45), "1 m 상자 가장자리에서 4화소: 둘 다 지운다(6화소)")
         assertEquals(depthMm[45 * w + 40], byDepth[45 * w + 40]) // 1 m 상자 가운데는 그대로
     }
+
+    /** 먼 가는 물체: 2.5 m 기둥 9화소(18 cm, 볼라드 굵기). 영역 안쪽 반지름 한도가 먼저 걸려 고정 6화소 띠도 기둥을 다 지우지 못하고, 계단 띠와 같다. */
+    @Test
+    fun thinFarPoleKeepsItsCenterUnderBothBands() {
+        fun pole(u: Int, v: Int) = u in 76..84 && v in 20..69
+        val dm = ShortArray(w * h) { i -> (if (pole(i % w, i / w)) 2500 else 5000).toShort() }
+        val lb = ByteArray(w * h) { i -> (if (pole(i % w, i / w)) SemanticLabel.OBJECT.pixel else SemanticLabel.BUILDING.pixel).toByte() }
+        val d = DepthFrame(0L, dm, null, kd, Mat4.IDENTITY, "synthetic")
+        val f = LabelBand.field(LabelImage(0L, lb, kl, Mat4.IDENTITY), kd.fx, 6)
+        val (fixed, _) = LabelBand.apply(dm, d, f)
+        val (step, _) = LabelBand.apply(dm, d, f, pxLimit = LabelBand.stepByDepth(dm, w, h, 1.5f, 3, 6))
+        fun kept(o: ShortArray) = (76..84).filter { o[45 * w + it].toInt() != 0 }
+        assertEquals(listOf(79, 80, 81), kept(fixed)) // 안쪽 반지름 4 → 한도 min(6, 2) = 2: 가장자리 3화소씩 빼고 가운데 3화소 남김
+        assertEquals(kept(fixed), kept(step))
+    }
 }
