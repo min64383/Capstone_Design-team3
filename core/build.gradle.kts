@@ -104,3 +104,39 @@ tasks.register<JavaExec>("sceneEval") {
         (project.findProperty(k) as String?)?.let { v -> "$k=${if (k in paths) rootProject.file(v).absolutePath else v}" }
     } + (if (project.findProperty("out") == null) listOf("out=${layout.buildDirectory.dir("scene-eval").get().asFile.absolutePath}") else emptyList())
 }
+
+// Evaluation-only rotation bench; production configuration is unchanged.
+tasks.register<JavaExec>("rotationExperiment") {
+    group = "hearspace"
+    description = "Run synthetic rotation cause experiments with known geometry"
+    dependsOn("testClasses")
+    classpath = sourceSets["test"].runtimeClasspath
+    mainClass.set("hearspace.core.synth.RotationExperiment")
+    maxHeapSize = "2g"
+    systemProperty("hearspace.defaultConfig", rootProject.file("app/src/main/assets/config/default.json").absolutePath)
+    args(rootProject.file((project.findProperty("out") as String?) ?: "core/build/rotation-experiment").absolutePath)
+}
+
+// Rigid chest mount evaluation; production configuration is unchanged.
+tasks.register<JavaExec>("chestMountExperiment") {
+    group = "hearspace"
+    description = "Run isolated chest mount rotation, calibration and offset experiments"
+    dependsOn("testClasses")
+    classpath = sourceSets["test"].runtimeClasspath
+    mainClass.set("hearspace.core.synth.ChestMountExperiment")
+    systemProperty("hearspace.defaultConfig", rootProject.file("app/src/main/assets/config/default.json").absolutePath)
+    args(rootProject.file((project.findProperty("out") as String?) ?: "core/build/chest-mount-experiment").absolutePath)
+}
+
+// End-to-end core command evaluation with chest calibration; no audio/device scheduling.
+tasks.register<JavaExec>("chestGuidanceExperiment") {
+    group = "hearspace"
+    description = "Compare chest calibration through synthetic Depth, mapping, tracking and guidance"
+    dependsOn("testClasses")
+    classpath = sourceSets["test"].runtimeClasspath
+    mainClass.set("hearspace.core.synth.ChestGuidanceExperiment")
+    maxHeapSize = "2g"
+    systemProperty("hearspace.defaultConfig", rootProject.file("app/src/main/assets/config/default.json").absolutePath)
+    systemProperty("hearspace.runtimeOverride", rootProject.file("app/src/main/assets/config/risk-continuous.override.json").absolutePath)
+    args(rootProject.file((project.findProperty("out") as String?) ?: "core/build/chest-guidance-experiment").absolutePath)
+}
