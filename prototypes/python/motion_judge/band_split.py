@@ -29,7 +29,9 @@ BAND_PX = 6
 MOVABLE = (9, 10)
 ROT_EDGES = [0.0, 5.0, 15.0, 30.0, 1e9]  # 깊이 장 회전 속도(°/s) 구간
 AGE_EDGES = [0.0, 50.0, 100.0, 1e9]  # 라벨 나이(깊이 촬영 − 라벨 촬영, ms) 구간
-Z_BANDS = [0.5, 1.5, 2.5, 3.5, 5.0]  # 막 폭을 잴 화소 평활 깊이 구간(m)
+Z_BANDS = [0.5, 1.5, 2.5, 3.5, 5.0]  # 막 폭을 잴 깊이 구간(m)
+Z_BIN_BY = "self"  # "self" = 화소 자신의 평활 깊이, "near" = 둘레 6화소 안 가장 가까운 깊이(-—near)
+OBSTACLE_ROLE_RUNTIME = None  # B+W5 띠의 장애물 역할(하늘·물 뺌)으로 k를 잴 때(—runtime-roles)
 NK = 2 * K_WIN + 2  # −K_WIN..K_WIN + 먼 곳
 
 
@@ -133,7 +135,12 @@ def measure(run: Path):
         g = nearp.astype(int)
         np.add.at(tot, (g[has], kb[has]), 1)
         np.add.at(bad, (g[isbad], kb[isbad]), 1)
-        zsm = ((p - cs) @ rs)[:, 2]  # 화소의 평활 카메라 깊이(C_cv z)
+        # 구간 깊이: Z_BIN_BY = "near"면 둘레 6화소 창의 가장 가까운 평활 깊이(core LabelBand.nearestDepthMm, 계단 규칙과 같은 정의), 아니면 화소 자신
+        if Z_BIN_BY == "near":
+            from band_own import nearest
+            zsm = nearest(zs, BAND_PX)[v[keep], u[keep]]
+        else:
+            zsm = ((p - cs) @ rs)[:, 2]  # 화소의 평활 카메라 깊이(C_cv z)
         zb_ = np.digitize(zsm, Z_BANDS) - 1
         okz = (zb_ >= 0) & (zb_ < nz)
         np.add.at(tot_z, (zb_[has & okz], kb[has & okz]), 1)
@@ -274,7 +281,13 @@ def full_extent(res: list) -> None:
 
 
 if __name__ == "__main__":
-    runs = [Path(a) for a in sys.argv[1:]]
+    args = [a for a in sys.argv[1:] if not a.startswith("--")]
+    if "--near" in sys.argv:
+        Z_BIN_BY = "near"
+    if "--runtime-roles" in sys.argv:
+        import label_band
+        label_band.OBSTACLE_ROLE = np.array([0, 3, 7, 8, 9, 10])  # B+W5 frontend.bandLabels: 하늘(1)·물(11) 뺌
+    runs = [Path(a) for a in args]
     res = [measure(r) for r in runs]
     by_distance(res)
     full_extent(res)
