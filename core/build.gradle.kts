@@ -116,3 +116,14 @@ tasks.register<JavaExec>("rotationExperiment") {
     systemProperty("hearspace.defaultConfig", rootProject.file("app/src/main/assets/config/default.json").absolutePath)
     args(rootProject.file((project.findProperty("out") as String?) ?: "core/build/rotation-experiment").absolutePath)
 }
+
+// Rigid chest mount evaluation; production configuration is unchanged.
+tasks.register<JavaExec>("chestMountExperiment") {
+    group = "hearspace"
+    description = "Run isolated chest mount rotation, calibration and offset experiments"
+    dependsOn("testClasses")
+    classpath = sourceSets["test"].runtimeClasspath
+    mainClass.set("hearspace.core.synth.ChestMountExperiment")
+    systemProperty("hearspace.defaultConfig", rootProject.file("app/src/main/assets/config/default.json").absolutePath)
+    args(rootProject.file((project.findProperty("out") as String?) ?: "core/build/chest-mount-experiment").absolutePath)
+}
