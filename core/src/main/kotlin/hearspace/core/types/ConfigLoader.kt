@@ -299,6 +299,7 @@ object ConfigLoader {
                     initGateSigmas = positive("initGateSigmas"),
                     measureFrom = enumValue<MeasureFrom>("measureFrom"),
                     rawMinConfidence = intIn("rawMinConfidence", 0, 255),
+                    holdLabelPending = boolean("holdLabelPending"),
                 )
             },
             repPoint = root.section("repPoint") {

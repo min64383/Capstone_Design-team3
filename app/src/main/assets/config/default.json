@@ -212,7 +212,8 @@
     "initMaxSpeedMps": 0,
     "initGateSigmas": 3,
     "measureFrom": "CELLS",
-    "rawMinConfidence": 1
+    "rawMinConfidence": 1,
+    "holdLabelPending": false
   },
   "repPoint": { "strategy": "CORRIDOR_BAND", "bandM": 0.20, "stableTies": false },
   "policy": {

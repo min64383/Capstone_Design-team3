@@ -594,6 +594,14 @@ data class TrackConfig(
     val measureFrom: MeasureFrom = MeasureFrom.CELLS,
     /** RAW_MASK 원시 점의 신뢰도 하한(M39 원시 규칙: 0인 화소 버림). */
     val rawMinConfidence: Int = 1,
+    /**
+     * 라벨 판정 중인 후보를 정지 지도로 넘기지 않는다(M55 ②). 후보는 표 6(거리 무게, 평활 30 Hz)이 모였는데 움직임 판정이 안 났으면 "정지 지도가
+     * 맡는다"며 지워진다. 라벨 판정은 라벨 영상 6장(16 Hz에서 0.31 s 이상)이 필요한데 가까운 후보의 표 6은 약 0.17 s에 모여, 라벨 모드의 후보는
+     * 늘 판정 전에 넘겨진다. 사람 원천(`vision.movableDepth` RAW)은 움직일 수 있는 라벨 평활 점을 정지 지도에 넣지 않아 넘겨받을 곳이 없다
+     * (T 150159 P+B+W5: 사람 2 m 안 장의 48%가 빔, 후보가 100~300 ms마다 새로 생겼다 사라짐). true면 라벨 표 점수 > 0이거나 창 안 움직일 수
+     * 있는 라벨 원시 점이 `cluster.minSamples` 이상인 후보는 넘기지 않고 라벨 판정을 기다린다(놓침·점수 규칙은 그대로).
+     */
+    val holdLabelPending: Boolean = false,
 )
 
 /** 움직이는 track 칼만 측정의 원천(M49). */
