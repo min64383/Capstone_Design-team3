@@ -1,0 +1,166 @@
+"""M56 0-5 경계 띠: 라벨 경계 거리별 원시(≥ 128)–평활 어긋남을 깊이 경계 근처·아님으로 나눔(설계 3.6절, 재생 없음).
+
+    python band_split.py <재생 폴더>...
+
+평활 장마다(label_band.measure와 같은 짝짓기: 그때까지 받은 가장 최근 원시 장·라벨 영상, 나이 ≤ vision.maxLabelAgeMs)
+- k: 장애물 역할 라벨 경계까지 부호 있는 거리(깊이 화소, label_band.signed_k).
+- 어긋남: 원시(신뢰도 ≥ 128)가 있고 |원시 − 점의 원시 카메라 깊이| > max(2σ_원시(Z), 복셀)(label_band와 같은 정의). 사람·차량 라벨 화소는 뺌.
+- 깊이 경계 화소: 평활 깊이 영상에서 4이웃과의 깊이 차 > 2σ_평활(Z)(map.sigmaMultiple). 근처 = 그 화소에서 띠 폭(6) 화소 안.
+- 바탕: 라벨 경계에서 K_WIN 넘게 멀고 깊이 경계 근처도 아닌 화소. 구간은 세션 단위 부트스트랩 95%.
+규칙(설계 3.6절): b = 깊이 경계 근처 쪽 초과 어긋남이 바탕 구간 안으로 드는 첫 |k|. 깊이 경계 아닌 쪽이 모든 k에서 바탕 구간 안이면 띠를
+깊이 경계에서만 둔다. 실내 정답 물체: 상자 안 평활 점 중 지금 띠(|k| ≤ 6)가 지우는 몫과, 깊이 경계 조건을 쓰면 지우는 몫.
+"""
+from __future__ import annotations
+
+import json
+import sys
+from pathlib import Path
+
+import numpy as np
+import pandas as pd
+from PIL import Image
+
+import stage0 as S
+from align import to_truth
+from label_band import K_WIN, _project, signed_k
+from motion_stats import _sem_k
+
+BAND_PX = 6
+MOVABLE = (9, 10)
+NK = 2 * K_WIN + 2  # −K_WIN..K_WIN + 먼 곳
+
+
+def depth_edge_near(z: np.ndarray, s0: float, k2: float, mult: float) -> np.ndarray:
+    """평활 깊이 영상(H×W, 0 = 없음)에서 깊이 경계 화소(4이웃 차 > mult·σ(Z))로부터 띠 폭(BAND_PX) 화소 안인지."""
+    h, w = z.shape
+    sig = mult * np.maximum(s0 + k2 * z * z, 1e-3)
+    edge = np.zeros((h, w), dtype=bool)
+    for dy, dx in ((0, 1), (1, 0)):
+        a = z[: h - dy, : w - dx]
+        b = z[dy:, dx:]
+        e = (a > 0) & (b > 0) & (np.abs(a - b) > np.minimum(sig[: h - dy, : w - dx], sig[dy:, dx:]))
+        edge[: h - dy, : w - dx] |= e
+        edge[dy:, dx:] |= e
+    near = edge.copy()
+    for _ in range(BAND_PX):  # 4이웃 팽창 BAND_PX번(맨해튼 거리 띠 폭 안: 그 띠 화소 옆에 깊이 경계가 있는가)
+        n2 = near.copy()
+        n2[1:, :] |= near[:-1, :]
+        n2[:-1, :] |= near[1:, :]
+        n2[:, 1:] |= near[:, :-1]
+        n2[:, :-1] |= near[:, 1:]
+        near = n2
+    return near
+
+
+def measure(run: Path):
+    session, cfg = S.session_of(run), S.load_config(run)
+    meta = json.loads((session / "meta.json").read_text(encoding="utf-8"))
+    fr = S.load_frames(session).reset_index(drop=True)
+    sem = pd.read_csv(session / "semantic" / "index.csv").sort_values("frameTNs").reset_index(drop=True)
+    max_age = cfg["vision"]["maxLabelAgeMs"] * 1_000_000
+    rs0, rs2 = cfg["depth"]["rawSigma0M"], cfg["depth"]["rawSigmaPerM2"]
+    ss0, ss2 = cfg["depth"]["smoothedSigma0M"], cfg["depth"]["smoothedSigmaPerM2"]
+    mult, vox, radius = cfg["map"]["sigmaMultiple"], cfg["map"]["voxelSizeM"], cfg["map"]["radiusM"]
+    al = json.loads((run / "align.json").read_text(encoding="utf-8")) if (run / "align.json").is_file() else None
+    obs = (json.loads((session / "annotations" / "obstacles.json").read_text(encoding="utf-8")).get("obstacles", [])
+           if (session / "annotations" / "obstacles.json").is_file() and al else [])
+    ft = fr.tNs.to_numpy()
+    tot = np.zeros((2, NK), np.int64)  # [깊이 경계 근처?, k 구간] 원시 있는 화소
+    bad = np.zeros((2, NK), np.int64)
+    box = np.zeros(3, np.int64)  # 정답 상자 안 평활 점: 전체, 지금 띠가 지움, 깊이 경계 조건이면 지움
+    raw_file, seen, cache = None, set(), {}
+
+    def pose_at(t_ns, upto):
+        j = int(np.argmin(np.abs(ft[: upto + 1] - t_ns)))
+        r = fr.iloc[j]
+        return S.quat_to_rot(np.array([[r.qx, r.qy, r.qz, r.qw]]))[0] @ S.FLIP, np.array([r.tx, r.ty, r.tz])
+
+    for i, row in fr.iterrows():
+        if isinstance(row.rawDepthFile, str):
+            raw_file = (int(row.rawDepthTNs), row.rawDepthFile, row.confFile)
+        if not isinstance(row.depthFile, str) or row.depthTNs in seen or row.tracking != "TRACKING":
+            continue
+        seen.add(row.depthTNs)
+        t_d = int(row.depthTNs)
+        li = int(np.searchsorted(sem.frameTNs.to_numpy(), int(row.tNs), side="right")) - 1
+        if li < 0 or t_d - int(sem.imageTNs.iloc[li]) > max_age or raw_file is None or t_d - raw_file[0] > max_age:
+            continue
+        zs = S.load_depth_m(session / row.depthFile)
+        kd = S.depth_k(meta, zs.shape[1], zs.shape[0])
+        rs, cs = pose_at(t_d, i)
+        near_img = depth_edge_near(zs, ss0, ss2, mult)
+        v, u = np.nonzero(zs > 0)
+        z = zs[v, u]
+        p = np.stack([(u - kd["cx"]) / kd["fx"] * z, (v - kd["cy"]) / kd["fy"] * z, z], axis=1) @ rs.T + cs
+        keep = np.hypot(p[:, 0] - cs[0], p[:, 2] - cs[2]) <= radius
+        p, nearp = p[keep], near_img[v[keep], u[keep]]
+        e = sem.iloc[li]
+        key = int(e.imageTNs)
+        if key not in cache:
+            lab = np.array(Image.open(session / e.file))
+            kl = _sem_k(meta, lab.shape[1], lab.shape[0])
+            cache = {key: (lab, kl, signed_k(lab, kd["fx"] / kl["fx"]), pose_at(key, i))}
+        lab, kl, kimg, (rl, cl) = cache[key]
+        ul, vl, _, okl = _project(p, rl, cl, kl)
+        labv = np.where(okl, lab[vl, ul].astype(int), -1)
+        kk = np.where(okl, kimg[vl, ul], np.inf)
+        raw = S.load_depth_m(session / raw_file[1])
+        conf = np.array(Image.open(session / raw_file[2])) if isinstance(raw_file[2], str) else np.full(raw.shape, 255)
+        kr = S.depth_k(meta, raw.shape[1], raw.shape[0])
+        rr, cr = pose_at(raw_file[0], i)
+        ur, vr, zc, okr = _project(p, rr, cr, kr)
+        zr = np.where(okr, raw[vr, ur], 0)
+        has = okr & (zr > 0) & (np.where(okr, conf[vr, ur], 0) >= 128) & okl & ~np.isin(labv, MOVABLE)
+        isbad = has & (np.abs(zr - zc) > np.maximum(mult * (rs0 + rs2 * zc * zc), vox))
+        far = ~np.isfinite(kk) | (np.abs(kk) > K_WIN)
+        kb = np.where(far, NK - 1, np.clip(np.rint(np.where(far, 0, kk)).astype(int) + K_WIN, 0, 2 * K_WIN))
+        g = nearp.astype(int)
+        np.add.at(tot, (g[has], kb[has]), 1)
+        np.add.at(bad, (g[isbad], kb[isbad]), 1)
+        for o in obs:
+            x, y, zt = to_truth(al, p[:, 0], p[:, 1], p[:, 2])
+            lo, hi = np.array(o["min"]), np.array(o["max"])
+            inb = (x >= lo[0]) & (x <= hi[0]) & (y >= max(lo[1], 0.05)) & (y <= hi[1]) & (zt >= lo[2]) & (zt <= hi[2]) & okl
+            band = inb & np.isfinite(kk) & (np.abs(kk) <= BAND_PX)
+            box += (int(inb.sum()), int(band.sum()), int((band & nearp).sum()))
+    return dict(session=session.name, group=S.group_of(run), tot=tot, bad=bad, box=box)
+
+
+def main(runs: list[Path]) -> None:
+    res = [measure(r) for r in runs]
+    for r in res:
+        print(r["session"], file=sys.stderr)
+    rng = np.random.default_rng(0)
+    for grp in ("t", "indoor", "all"):
+        rr = [r for r in res if grp == "all" or r["group"] == grp]
+        if not rr:
+            continue
+        tot = sum(r["tot"] for r in rr)
+        bad = sum(r["bad"] for r in rr)
+        bg = bad[0, -1] / max(tot[0, -1], 1)
+        boots = []
+        for _ in range(2000):
+            pick = [rr[j] for j in rng.integers(0, len(rr), len(rr))]
+            t_ = sum(x["tot"][0, -1] for x in pick)
+            boots.append(sum(x["bad"][0, -1] for x in pick) / max(t_, 1))
+        lo, hi = np.percentile(boots, [2.5, 97.5])
+        print(f"== {grp}: 바탕(라벨 경계 먼 곳, 깊이 경계 아님) 어긋남 {bg:.3f} [{lo:.3f}, {hi:.3f}], n {tot[0, -1]}")
+        for gi, gname in ((1, "깊이 경계 근처"), (0, "깊이 경계 아님")):
+            row = []
+            for kb in range(NK - 1):
+                k = kb - K_WIN
+                if tot[gi, kb] == 0:
+                    continue
+                m = bad[gi, kb] / tot[gi, kb]
+                row.append(f"{k:+d}:{m:.2f}{'*' if m > hi else ''}")
+            print(f"  {gname}: " + " ".join(row) + f" | 먼 곳 {bad[gi, -1] / max(tot[gi, -1], 1):.2f}")
+    print("(* = 바탕 구간 위)")
+    print("실내 정답 상자 안 평활 점: 세션, 전체, 지금 띠가 지움, 깊이 경계 조건이면 지움")
+    for r in res:
+        if r["box"][0]:
+            b = r["box"]
+            print(f"  {r['session']}: {b[0]} 점, 지금 띠 {b[1] / b[0]:.1%}, 깊이 경계 조건 {b[2] / b[0]:.1%}")
+
+
+if __name__ == "__main__":
+    main([Path(a) for a in sys.argv[1:]])
