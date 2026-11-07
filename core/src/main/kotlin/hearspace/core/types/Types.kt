@@ -106,7 +106,8 @@ enum class DecayWeighting { NONE, CONFIDENCE }
 enum class MovableDepth { SMOOTHED, RAW }
 
 /** 바닥 높이 히스토그램의 점 무게(M54): NONE = 한 점 하나(기준선), CONFIDENCE = 그 자리 원시 신뢰도 구간의 바닥 무게(`depth.floorConfidenceWeights`). */
-enum class FloorWeighting { NONE, CONFIDENCE }
+/** DISTANCE(M55): 지도와 같은 거리 무게 min(1, (`map.weightRefM`/거리)²) — 깊이 오차가 거리에 따라 커져 가까운 바닥을 더 믿는다. */
+enum class FloorWeighting { NONE, CONFIDENCE, DISTANCE }
 
 /** TRISTATE 관측 가중 곡선(M33). */
 enum class TriWeight { SIGMA, SIGMA_INCIDENCE, DISTANCE }

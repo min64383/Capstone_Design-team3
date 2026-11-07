@@ -253,6 +253,11 @@ data class FrontendConfig(
      * 상관없이 무효로 한다. 영역 안쪽은 영역 안쪽 반지름의 절반까지만. 프레임 라벨끼리의 경계는 보지 않는다. 0 = 끔(기준선). 값은 0단계 측정(b = 6).
      */
     val labelBandPx: Int = 0,
+    /** 경계 띠의 장애물 역할 라벨(M54 기본: 라벨 없음·하늘·나무·구조물·물체·차량·사람·물). M55 O 조합은 하늘·물을 뺀다(사용자 결정). */
+    val bandLabels: Set<SemanticLabel> = setOf(
+        SemanticLabel.UNLABELED, SemanticLabel.SKY, SemanticLabel.TREE, SemanticLabel.STRUCTURE, SemanticLabel.OBJECT,
+        SemanticLabel.VEHICLE, SemanticLabel.PERSON, SemanticLabel.WATER,
+    ),
 )
 
 /** 로컬 복셀 맵 설정. */
@@ -361,7 +366,20 @@ data class MapConfig(
     val triViewAngleDeg: Float,
     /** 빈 곳 감쇠 세기([DecayWeighting], M54). */
     val decayWeighting: DecayWeighting = DecayWeighting.NONE,
-)
+    /**
+     * 신뢰도 지도 무게(`hitWeighting` CONFIDENCE)일 때 칸 점유 문턱(가중 표 합, M55). 무게가 구간마다 1 이하라 무게 없는 표로 정한 `minHits`를 그대로 쓰면
+     * 신뢰도 중간 화소의 낮은 물체를 놓친다(M54 131039). 값은 낮은 물체 STOP이 `policy.stopM` 전에 나오는 가장 큰 정수에서 정한다(M55 결과).
+     * 움직이는 track의 물체 표·칸 라벨 표는 `minHits` 그대로다.
+     */
+    val weightedMinHits: Float = 6f,
+    /** 신뢰도 지도 무게에서 칸 라벨 표가 프레임 역할(건물·`vision.floorishLabels`)인 칸의 점유 문턱(M55 라벨 역할별 문턱). 기본 6. */
+    val weightedFrameMinHits: Float = 6f,
+    /** true면 라벨 표로 장애물 역할이 정해지지 않은 칸(라벨 표 없음·표 모자람)도 [weightedFrameMinHits]를 쓴다(M55 라벨 시험). false = 장애물 문턱. */
+    val weightedUndecidedAsFrame: Boolean = false,
+) {
+    /** 칸 점유에 쓰는 표 문턱: 신뢰도 지도 무게면 [weightedMinHits], 아니면 [minHits]. */
+    val occupiedEvidence: Float get() = if (hitWeighting == HitWeighting.CONFIDENCE) weightedMinHits else minHits.toFloat()
+}
 
 /** 바닥 추정 설정. */
 data class FloorConfig(
@@ -406,7 +424,26 @@ data class FloorConfig(
     val mode: FloorMode = FloorMode.SINGLE,
     /** 바닥 높이 히스토그램의 점 무게(M54). NONE = 기준선. 최소 점 수 검사는 무게와 상관없이 점 수로 한다. */
     val weighting: FloorWeighting = FloorWeighting.NONE,
+    /** 바닥 모형(M55). LEVEL = 수평 바닥 하나(기준선), PLANE_RAW = 원시 깊이 바닥 점으로 맞춘 기울 수 있는 평면(점을 지도에 넣을지 가를 때만). */
+    val model: FloorModel = FloorModel.LEVEL,
+    /** PLANE_RAW 후보 원시 점의 신뢰도 하한(M54 정답 비교: 1~29는 틀리고 30 이상은 맞음, `vision.movableRawMinConfidence`와 같은 값). */
+    val planeMinConfidence: Int = 30,
+    /** PLANE_RAW 평면 기울기 상한(도). 150159 약 10°를 받고 벽·경사로를 바닥으로 잡지 않게(자체 선택). */
+    val planeMaxTiltDeg: Float = 15f,
+    /** PLANE_RAW RANSAC 반복 수(`frontend.planeIterations`와 같은 값). */
+    val planeIterations: Int = 120,
+    /**
+     * 바닥 높이 히스토그램 후보의 카메라 수평 거리 범위(m, M55). 0·0 = 하한 없음·`map.radiusM`(기준선). 150159처럼 월드가 기울면 먼 바닥이 많아
+     * 바닥이 낮게 잡히고 가까운 바닥 점이 띠 위로 올라온다. 가까운 점으로 재면 사용자 앞 바닥에 맞춰진다. 후보 값 1~2 m는 M32 정렬 바닥과 같은 거리.
+     */
+    val histogramMinDistM: Float = 0f,
+    val histogramMaxDistM: Float = 0f,
+    /** PLANE_RAW 평면을 맞출 원시 바닥 점을 모으는 시간(s). 월드 기울기는 천천히 변하는 성질이고 물체는 바닥보다 좁아, 모을수록 바닥이 이긴다(자체 선택). */
+    val planeWindowS: Float = 3f,
 )
+
+/** 바닥 모형(M55). */
+enum class FloorModel { LEVEL, PLANE_RAW }
 
 /** 군집·높이 분류 설정. */
 data class ClusterConfig(
@@ -562,6 +599,14 @@ data class TrackConfig(
     val measureFrom: MeasureFrom = MeasureFrom.CELLS,
     /** RAW_MASK 원시 점의 신뢰도 하한(M39 원시 규칙: 0인 화소 버림). */
     val rawMinConfidence: Int = 1,
+    /**
+     * 라벨 판정 중인 후보를 정지 지도로 넘기지 않는다(M55 ②). 후보는 표 6(거리 무게, 평활 30 Hz)이 모였는데 움직임 판정이 안 났으면 "정지 지도가
+     * 맡는다"며 지워진다. 라벨 판정은 라벨 영상 6장(16 Hz에서 0.31 s 이상)이 필요한데 가까운 후보의 표 6은 약 0.17 s에 모여, 라벨 모드의 후보는
+     * 늘 판정 전에 넘겨진다. 사람 원천(`vision.movableDepth` RAW)은 움직일 수 있는 라벨 평활 점을 정지 지도에 넣지 않아 넘겨받을 곳이 없다
+     * (T 150159 P+B+W5: 사람 2 m 안 장의 48%가 빔, 후보가 100~300 ms마다 새로 생겼다 사라짐). true면 라벨 표 점수 > 0이거나 창 안 움직일 수
+     * 있는 라벨 원시 점이 `cluster.minSamples` 이상인 후보는 넘기지 않고 라벨 판정을 기다린다(놓침·점수 규칙은 그대로).
+     */
+    val holdLabelPending: Boolean = false,
 )
 
 /** 움직이는 track 칼만 측정의 원천(M49). */
@@ -702,10 +747,24 @@ data class VisionConfig(
     val maxSpeedMps: Map<SemanticLabel, Float>,
     /** 지도에 넣는 움직일 수 있는 라벨 화소의 깊이 원천(M54, [MovableDepth]). SMOOTHED = 기준선. */
     val movableDepth: MovableDepth = MovableDepth.SMOOTHED,
+    /**
+     * 장애물 원천 O(M55 ②-A, 설계 3.6절). RAW면 [obstacleLabels] 화소는 새 원시 장마다 신뢰도 ≥ [movableRawMinConfidence]인 원시 점으로 지도에 넣고,
+     * 그 자리에 원시가 없는(신뢰도 미만) 평활 화소는 평활 점으로 채운다(W 무게). 빈 곳 감쇠와 track에 넘기는 점도 같은 깊이를 쓴다.
+     * [movableDepth]보다 앞선다. 사람·차량만 따로 다루지 않는다(사용자 결정).
+     */
+    val obstacleDepth: MovableDepth = MovableDepth.SMOOTHED,
+    /** O의 장애물 묶음(사용자 결정: 나무·구조물·물체·차량·사람·라벨 없음). 프레임(건물·도로·보도·지면)과 하늘·물은 평활. */
+    val obstacleLabels: Set<SemanticLabel> = setOf(
+        SemanticLabel.UNLABELED, SemanticLabel.TREE, SemanticLabel.STRUCTURE, SemanticLabel.OBJECT, SemanticLabel.VEHICLE, SemanticLabel.PERSON,
+    ),
+    /** O 원시 점의 표 무게(`map.hitWeighting` CONFIDENCE일 때). M54 P는 1. 낮은 물체 STOP 요구에서 유도한다(설계 표 8). */
+    val obstacleRawWeight: Float = 1f,
     /** [movableDepth] RAW에서 쓰는 원시 점의 신뢰도 하한(M54 정답 비교: 사람 다리 1~29 틀림, 30~127 맞음). */
     val movableRawMinConfidence: Int = 30,
     /** 칸마다 라벨 표와 역할(M54). false = 기준선. */
     val voxelLabels: Boolean = false,
+    /** 칸 역할에서 바닥류로 세는 라벨(M54 도로·보도·지형). M55 시험: 실내 누운 캐리어가 보도 87~100%라 보도를 빼면 장애물 역할이 된다. */
+    val floorishLabels: Set<SemanticLabel> = setOf(SemanticLabel.ROAD, SemanticLabel.SIDEWALK, SemanticLabel.TERRAIN),
 )
 
 enum class VisionLabelSource { NONE, SEMANTICS }

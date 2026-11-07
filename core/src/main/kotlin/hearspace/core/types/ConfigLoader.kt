@@ -133,6 +133,7 @@ object ConfigLoader {
                     rgbMarginMaxPx = atLeast1("rgbMarginMaxPx"),
                     segment = enumValue<SegmentMode>("segment"),
                     labelBandPx = intIn("labelBandPx", 0, 64),
+                    bandLabels = enumList<SemanticLabel>("bandLabels").toSet(),
                 )
             },
             map = root.section("map") {
@@ -156,6 +157,9 @@ object ConfigLoader {
                     freeMarginRatio = nonNegative("freeMarginRatio"),
                     hitWeighting = enumValue<HitWeighting>("hitWeighting"),
                     decayWeighting = enumValue<DecayWeighting>("decayWeighting"),
+                    weightedMinHits = positive("weightedMinHits"),
+                    weightedFrameMinHits = positive("weightedFrameMinHits"),
+                    weightedUndecidedAsFrame = boolean("weightedUndecidedAsFrame"),
                     tsdfTruncMinM = positive("tsdfTruncMinM"),
                     tsdfTruncPerM = nonNegative("tsdfTruncPerM"),
                     tsdfMaxWeight = positive("tsdfMaxWeight"),
@@ -200,6 +204,13 @@ object ConfigLoader {
                     regionM = positive("regionM"),
                     mode = enumValue<FloorMode>("mode"),
                     weighting = enumValue<FloorWeighting>("weighting"),
+                    model = enumValue<FloorModel>("model"),
+                    planeMinConfidence = intIn("planeMinConfidence", 0, 255),
+                    planeMaxTiltDeg = positive("planeMaxTiltDeg"),
+                    planeIterations = atLeast1("planeIterations"),
+                    planeWindowS = positive("planeWindowS"),
+                    histogramMinDistM = nonNegative("histogramMinDistM"),
+                    histogramMaxDistM = nonNegative("histogramMaxDistM"),
                 )
             },
             cluster = root.section("cluster") {
@@ -289,6 +300,7 @@ object ConfigLoader {
                     initGateSigmas = positive("initGateSigmas"),
                     measureFrom = enumValue<MeasureFrom>("measureFrom"),
                     rawMinConfidence = intIn("rawMinConfidence", 0, 255),
+                    holdLabelPending = boolean("holdLabelPending"),
                 )
             },
             repPoint = root.section("repPoint") {
@@ -372,7 +384,11 @@ object ConfigLoader {
                     }.toMap(),
                     movableDepth = enumValue<MovableDepth>("movableDepth"),
                     movableRawMinConfidence = intIn("movableRawMinConfidence", 1, 255),
+                    obstacleDepth = enumValue<MovableDepth>("obstacleDepth"),
+                    obstacleLabels = enumList<SemanticLabel>("obstacleLabels").toSet(),
+                    obstacleRawWeight = positive("obstacleRawWeight"),
                     voxelLabels = boolean("voxelLabels"),
+                    floorishLabels = enumList<SemanticLabel>("floorishLabels").toSet(),
                 )
             },
             sonify = root.section("sonify") {

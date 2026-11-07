@@ -288,6 +288,8 @@ data class Noise(
      * 실측의 뒤 배경 끌림(경계에서 약 25픽셀 안 0.15~0.5 m)은 흉내 내지 않는다(M13.1의 짧은 경사 판정 대상이 아님).
      */
     val edgeSmoothPx: Int = 0,
+    /** 깊이 최대 거리(m, M55): 넘는 화소는 평활·원시 모두 없음. 실외 T에서 사람은 약 3 m 안에서야 깊이에 나타났다. 기본은 [MAX_DEPTH_M]만. */
+    val maxDepthM: Float = Float.MAX_VALUE,
     /**
      * 옆 번짐(M19): 평활 깊이가 앞 물체의 깊이를 옆·위 배경 화소로 퍼뜨리는 것을 흉내 낸다. 반경 이 픽셀 정사각형 안에 자기보다
      * [EDGE_JUMP_RATIO] 넘게 가까운 **장애물** 화소가 있으면 그중 가장 가까운 깊이로 바꾼다(물체가 이만큼 굵어진다). 원천을 장애물로
@@ -485,7 +487,7 @@ object SyntheticGenerator {
             if (noise.depthMulStd > 0f) z *= 1f + noise.depthMulStd * gauss(rnd)
             if (noise.depthQuadK > 0f) z += noise.depthQuadK * z * z * gauss(rnd)
             if (noise.invalidRatio > 0f && rnd.nextFloat() < noise.invalidRatio) continue
-            if (garbage) z *= 10f else if (z > MAX_DEPTH_M) continue
+            if (garbage) z *= 10f else if (z > MAX_DEPTH_M || z > noise.maxDepthM) continue
             if (z <= 0f) continue
             val i = v * k.width + u
             val rawOk = hit.second.rawConfidence > 0 && z <= hit.second.rawMissingBeyondM

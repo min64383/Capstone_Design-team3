@@ -92,7 +92,8 @@ data class PruneCounts(val passed: Int, val unseen: Int, val outOfRadius: Int)
  * 기록이 있고 점유가 아니면 빈 곳, 기록이 없으면 모름. 투영 감쇠([decayFree])는 하지 않는다: 광선이 닿지 않는 시야 밖·깊이 무효 칸은
  * 그대로다(§2.2-6). 삭제(지나감·오래 안 보임·반경 밖)된 칸은 모름이 된다.
  */
-class VoxelMap(private val cfg: MapConfig) {
+/** [floorishPixels]: 칸 역할에서 바닥류로 세는 라벨 화소 값(`vision.floorishLabels`, M54 기본 도로·보도·지형). */
+class VoxelMap(private val cfg: MapConfig, private val floorishPixels: IntArray = intArrayOf(4, 5, 6)) {
 
     private class Voxel(
         var hits: Int, var score: Float, var lastSeenNs: Long, var lastHitFrame: Long, var logOdds: Float, var weightedHits: Float,
@@ -432,7 +433,7 @@ class VoxelMap(private val cfg: MapConfig) {
     private fun roleOf(v: Voxel): VoxelRole {
         val c = v.labelCounts ?: return VoxelRole.NONE
         val building = c[2]
-        val floorish = c[4] + c[5] + c[6]
+        val floorish = floorishPixels.sumOf { c[it] }
         val frame = building + floorish
         val other = c.sum() - frame
         return if (frame >= cfg.minHits && frame > other) (if (building >= floorish) VoxelRole.BUILDING else VoxelRole.FLOORISH) else VoxelRole.OBSTACLE
@@ -554,7 +555,7 @@ class VoxelMap(private val cfg: MapConfig) {
      * 시야와 무관한 삭제 조건(§7.3): 사용자 뒤로 `passedMarginM` 이상 지나감(진행 방향 기준, 수평),
      * 마지막 관측 후 `maxUnseenS` 경과, 사용자에서 수평 `radiusM` 밖.
      */
-    fun prune(userPosW: Vec3, headingW: Vec3, nowNs: Long): PruneCounts {
+    fun prune(userPosW: Vec3, headingW: Vec3, nowNs: Long, onRemoved: ((Int, Int, Int) -> Unit)? = null): PruneCounts {
         val h = headingW.horizontal()
         val hn = h.norm()
         val dir = if (hn > 0f) h * (1f / hn) else null
@@ -572,9 +573,23 @@ class VoxelMap(private val cfg: MapConfig) {
                 d.norm() > cfg.radiusM -> far++
                 else -> continue
             }
+            onRemoved?.invoke(ix(key), iy(key), iz(key))
             it.remove()
         }
         return PruneCounts(passed, unseen, far)
+    }
+
+    /**
+     * 칸 관측 기록(M55 설계 3.5절): 모든 칸의 이번 장 관측을 [visit]에 준다 — 칸 번호, 관측([decayFree]와 같은 판정, 이번 장에 맞았으면 HIT),
+     * 칸 중심이 투영된 깊이 화소 번호(카메라 뒤·영상 밖이면 −1), 이번 장 표 무게(맞은 칸만 뜻이 있음). 지도는 바꾸지 않는다.
+     */
+    fun observe(depthMm: ShortArray, k: Intrinsics, camFromWorld: Mat4, visit: (Int, Int, Int, CellView, Int, Float) -> Unit) {
+        for ((key, v) in voxels) {
+            val pCv = camFromWorld.transformPoint(center(key))
+            val seen = sight(pCv, depthMm, k)
+            val px = if (seen == CellView.OUT_OF_VIEW) -1 else pixelIndex(pCv, k)
+            visit(ix(key), iy(key), iz(key), if (v.lastHitFrame == frame) CellView.HIT else seen, px, v.lastVote)
+        }
     }
 
     /**
@@ -589,8 +604,27 @@ class VoxelMap(private val cfg: MapConfig) {
         else -> {
             val historical = if (weighted) v.weightedHits else v.hits.toFloat()
             val evidence = if (cfg.freeEvidenceDecay > 0f) v.currentEvidence else historical
-            evidence >= cfg.minHits && v.score >= cfg.minScore
+            evidence >= occupiedEvidenceOf(v) && v.score >= cfg.minScore
         }
+    }
+
+    /**
+     * HITS 점유 문턱. 신뢰도 지도 무게에서 칸 라벨 표가 프레임 역할(건물·바닥류)이면 `map.weightedFrameMinHits`(M55 라벨 역할별 문턱, 기본 6 =
+     * `weightedMinHits` 기본값과 같아 끄면 그대로), 아니면 [MapConfig.occupiedEvidence].
+     */
+    private fun occupiedEvidenceOf(v: Voxel): Float {
+        if (!maxVotePerFrame) return cfg.occupiedEvidence
+        val c = v.labelCounts
+        if (c != null) {
+            val r = roleOf(v)
+            if (r == VoxelRole.BUILDING || r == VoxelRole.FLOORISH) return cfg.weightedFrameMinHits
+        }
+        if (!cfg.weightedUndecidedAsFrame) return cfg.occupiedEvidence
+        // 라벨 표로 장애물 역할이 정해진 칸(장애물 표 ≥ minHits이고 프레임 표보다 많음)만 장애물 문턱, 아직 정해지지 않은 칸은 프레임 문턱
+        if (c == null) return cfg.weightedFrameMinHits
+        val frame = c[2] + floorishPixels.sumOf { c[it] }
+        val obstacle = c.sum() - frame
+        return if (obstacle >= cfg.minHits && obstacle > frame) cfg.occupiedEvidence else cfg.weightedFrameMinHits
     }
 
     /**

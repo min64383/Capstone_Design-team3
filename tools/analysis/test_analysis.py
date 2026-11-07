@@ -725,6 +725,8 @@ def main():
     check_event_eval()
     check_tof()
     check_label_band()
+    import occupancy
+    occupancy.selftest()  # M55 칸 관측 기록 분석: 상자 거리, 증거 합 창, 지금 규칙 창, 띠 합침, λ
     print("analysis self-check ok")
 
 

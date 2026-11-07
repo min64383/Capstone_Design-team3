@@ -27,6 +27,9 @@ data class FloorUpdate(
  */
 class Floor(private val cfg: FloorConfig, private val maxDistM: Float) {
 
+    /** 바닥 히스토그램 후보의 카메라 수평 거리 상한: `floor.histogramMaxDistM`(0이면 [maxDistM] = `map.radiusM`, 기준선). */
+    private val histMax = if (cfg.histogramMaxDistM > 0f) cfg.histogramMaxDistM else maxDistM
+
     private var lostFrames = 0
 
     /** 바닥을 유지한 채 탐색 폭 없이 다시 찾는 중(`floor.holdWhenLost`). */
@@ -42,6 +45,7 @@ class Floor(private val cfg: FloorConfig, private val maxDistM: Float) {
      */
     fun update(pointsW: FloatArray, cameraW: Vec3, weights: FloatArray? = null): FloorUpdate {
         val prev = floorY
+        val minD = cfg.histogramMinDistM
         val n = pointsW.size / 3
         // 후보 높이 모으기
         val ys = FloatArray(n)
@@ -52,7 +56,8 @@ class Floor(private val cfg: FloorConfig, private val maxDistM: Float) {
             if (y >= cameraW.y - cfg.minBelowCameraM) continue
             val dx = pointsW[3 * i] - cameraW.x
             val dz = pointsW[3 * i + 2] - cameraW.z
-            if (dx * dx + dz * dz > maxDistM * maxDistM) continue
+            val d2 = dx * dx + dz * dz
+            if (d2 > histMax * histMax || d2 < minD * minD) continue
             if (prev != null && !searching && abs(y - prev) > cfg.searchBandM) continue
             if (ws != null) ws[m] = weights!![i]
             ys[m++] = y
@@ -145,6 +150,77 @@ class Floor(private val cfg: FloorConfig, private val maxDistM: Float) {
         return FloorUpdate(true, floorY, nCandidates)
     }
 
+    /** M55 바닥 평면(`floor.model` PLANE_RAW): y = a·x + b·z + c(월드). null이면 수평 바닥([floorY]). */
+    var plane: FloatArray? = null
+        private set
+    private val rng = java.util.Random(1)
+
+    /** 자리 (x, z)의 바닥 높이: 평면이 있으면 평면, 아니면 [floorY]. */
+    fun heightAt(x: Float, z: Float): Float? = plane?.let { it[0] * x + it[1] * z + it[2] } ?: floorY
+
+    /**
+     * 원시 깊이 바닥 후보 점 [pts](x, y, z 교차)로 바닥 평면을 맞춘다(M55 설계 보완: 150159에서 원시·평활 바닥이 함께 약 10° 기울어 수평 바닥 하나로는
+     * 가까운 바닥 점이 띠 위로 올라옴). 기울기 ≤ `planeMaxTiltDeg`인 RANSAC(`planeIterations`번, 안쪽 = 평면에서 수직으로 `toleranceM` 안, 안쪽이 같으면
+     * 카메라 자리에서 낮은 평면), 안쪽 점 최소제곱, 직전 평면과 `emaAlpha`로 평활. 후보가 `minPoints` 미만이면 그대로 둔다. 돌려주는 값은 맞췄는지.
+     */
+    fun updatePlane(pts: FloatArray, cameraW: Vec3): Boolean {
+        val n = pts.size / 3
+        if (n < cfg.minPoints) return false
+        val maxSlope = kotlin.math.tan(Math.toRadians(cfg.planeMaxTiltDeg.toDouble())).toFloat()
+        var best: FloatArray? = null
+        var bestIn = -1
+        var bestH = Float.POSITIVE_INFINITY
+        repeat(cfg.planeIterations) {
+            val i = rng.nextInt(n); val j = rng.nextInt(n); val k = rng.nextInt(n)
+            if (i == j || j == k || i == k) return@repeat
+            val c = solvePlane(pts, intArrayOf(i, j, k)) ?: return@repeat
+            if (kotlin.math.hypot(c[0], c[1]) > maxSlope) return@repeat
+            var inl = 0
+            for (q in 0 until n) if (abs(pts[3 * q + 1] - (c[0] * pts[3 * q] + c[1] * pts[3 * q + 2] + c[2])) < cfg.toleranceM) inl++
+            val h = c[0] * cameraW.x + c[1] * cameraW.z + c[2]
+            if (inl > bestIn || (inl == bestIn && h < bestH)) { best = c; bestIn = inl; bestH = h }
+        }
+        val r = best ?: return false
+        val idx = (0 until n).filter { q -> abs(pts[3 * q + 1] - (r[0] * pts[3 * q] + r[1] * pts[3 * q + 2] + r[2])) < cfg.toleranceM }.toIntArray()
+        val fit = solvePlane(pts, idx)?.takeIf { kotlin.math.hypot(it[0], it[1]) <= maxSlope } ?: r
+        val prev = plane
+        plane = if (prev == null) fit else FloatArray(3) { q -> prev[q] + cfg.emaAlpha * (fit[q] - prev[q]) }
+        return true
+    }
+
+    /** [heightAt]으로 [floorY]를 카메라 자리 평면 높이로 맞춘다(하류가 쓰는 바닥 높이 하나). 평면이 없으면 그대로. */
+    fun alignToCamera(cameraW: Vec3) {
+        plane?.let { floorY = it[0] * cameraW.x + it[1] * cameraW.z + it[2] }
+    }
+
+    /** 점들 [idx]의 y = a·x + b·z + c 최소제곱(3점이면 정확히 지나는 면). 퇴화하면 null. */
+    private fun solvePlane(pts: FloatArray, idx: IntArray): FloatArray? {
+        var mx = 0.0; var mz = 0.0; var my = 0.0
+        for (q in idx) { mx += pts[3 * q]; my += pts[3 * q + 1]; mz += pts[3 * q + 2] }
+        mx /= idx.size; my /= idx.size; mz /= idx.size
+        var sxx = 0.0; var sxz = 0.0; var szz = 0.0; var sxy = 0.0; var szy = 0.0
+        for (q in idx) {
+            val x = pts[3 * q] - mx; val z = pts[3 * q + 2] - mz; val y = pts[3 * q + 1] - my
+            sxx += x * x; sxz += x * z; szz += z * z; sxy += x * y; szy += z * y
+        }
+        val det = sxx * szz - sxz * sxz
+        if (abs(det) < 1e-9) return null
+        val a = (sxy * szz - szy * sxz) / det
+        val b = (szy * sxx - sxy * sxz) / det
+        return floatArrayOf(a.toFloat(), b.toFloat(), (my - a * mx - b * mz).toFloat())
+    }
+
+    /** 점 [p]가 바닥인지(자리의 바닥 높이 [heightAt] 기준, 평면이 없으면 [isFloor]와 같음). */
+    fun isFloor(p: Vec3, horizontalDistM: Float): Boolean =
+        heightAt(p.x, p.z)?.let { abs(p.y - it) < cfg.toleranceM + cfg.tolerancePerM * horizontalDistM } ?: false
+
+    /** 점 [p]가 바닥보다 확실히 낮은지([heightAt] 기준). */
+    fun isBelowFloor(p: Vec3, horizontalDistM: Float): Boolean =
+        heightAt(p.x, p.z)?.let { p.y < it - (cfg.belowMarginM + cfg.tolerancePerM * horizontalDistM) } ?: false
+
+    /** 점 [p]가 그 자리 바닥보다 낮은지([heightAt] 기준). */
+    fun isUnder(p: Vec3): Boolean = heightAt(p.x, p.z)?.let { p.y < it } ?: false
+
     /** 바닥 점인지: |y − floorY| < toleranceM + tolerancePerM × [horizontalDistM](카메라에서 수평거리). 바닥을 모르면 false. */
     fun isFloor(y: Float, horizontalDistM: Float): Boolean =
         floorY?.let { abs(y - it) < cfg.toleranceM + cfg.tolerancePerM * horizontalDistM } ?: false
@@ -156,6 +232,7 @@ class Floor(private val cfg: FloorConfig, private val maxDistM: Float) {
     /** 바닥 추정을 잊는다(자세 불연속 등으로 월드 좌표가 바뀌었을 때). */
     fun reset() {
         floorY = null
+        plane = null
         lostFrames = 0
         searching = false
         outOfBandFrames = 0

@@ -55,7 +55,7 @@ class LocalMap(private val config: Config) {
     val floor = Floor(config.floor, config.map.radiusM)
 
     /** 복셀 맵. */
-    val voxels = VoxelMap(config.map)
+    val voxels = VoxelMap(config.map, config.vision.floorishLabels.map { it.pixel }.toIntArray())
 
     /** 마지막 [update]가 지도에 쓴 깊이(신뢰도·앞단 필터 뒤). 대표점 칸 상태 진단(M20)이 같은 장으로 판정한다. */
     var lastDepthMm: ShortArray? = null
@@ -78,7 +78,7 @@ class LocalMap(private val config: Config) {
      * [update]와 같은 바닥·반경 규칙으로 고른다. 바닥을 아직 모르면 빈 목록.
      */
     fun obstaclePointsOf(raw: DepthFrame, minConfidence: Int, userPosW: Vec3): List<Vec3> {
-        val floorY = floor.floorY ?: return emptyList()
+        if (floor.floorY == null) return emptyList()
         val mm = raw.depthMm.copyOf()
         raw.confidence?.let { c -> for (i in mm.indices) if ((c[i].toInt() and 0xFF) < minConfidence) mm[i] = 0 }
         val pts = Projection.backprojectToWorld(mm, raw.K, raw.worldFromCam, config.depth.subsample)
@@ -87,7 +87,7 @@ class LocalMap(private val config: Config) {
         for (i in 0 until pts.size / 3) {
             val p = Vec3(pts[3 * i], pts[3 * i + 1], pts[3 * i + 2])
             val camDist = (p - camW).horizontal().norm()
-            if (floor.isFloor(p.y, camDist) || floor.isBelowFloor(p.y, camDist) || p.y < floorY) continue
+            if (floor.isFloor(p, camDist) || floor.isBelowFloor(p, camDist) || floor.isUnder(p)) continue
             if ((p - userPosW).horizontal().norm() > config.map.radiusM) continue
             out += p
         }
@@ -122,11 +122,16 @@ class LocalMap(private val config: Config) {
         }
         val planes = if (config.frontend.planes == PlaneMode.RANSAC) PlaneDetector.detect(pts, camW, config.frontend, config.map.radiusM) else null
         // M54: 라벨·원시 장(과거 값, 나이 한도 안)과 점마다 원시 신뢰도(지도·바닥 무게), 움직이는 라벨 여부(사람 원천)
-        val labels54 = if (m54MovableRaw) freshLabels(depth) else null
-        val raw54 = if (m54ConfWeights || m54FloorWeights || config.vision.voxelLabels || collectInserted) freshRaw(depth) else null
+        val labels54 = if (m54MovableRaw || obstacleRaw) freshLabels(depth) else null
+        val raw54 = if (m54ConfWeights || m54FloorWeights || config.vision.voxelLabels || collectInserted || cellTrace != null || floorPlane || obstacleRaw) freshRaw(depth) else null
         val rawCamFromWorld = raw54?.worldFromCam?.rigidInverse()
         val confOf = if (raw54 == null) null else IntArray(n) { i -> rawConfidenceAt(raw54, rawCamFromWorld, Vec3(pts[3 * i], pts[3 * i + 1], pts[3 * i + 2])) }
-        val floorWeights = if (m54FloorWeights) FloatArray(n) { i -> config.depth.floorConfidenceWeights[config.depth.confidenceClass(confOf?.get(i) ?: 0)] } else null
+        val floorWeights = when {
+            m54FloorWeights -> FloatArray(n) { i -> config.depth.floorConfidenceWeights[config.depth.confidenceClass(confOf?.get(i) ?: 0)] }
+            config.floor.weighting == hearspace.core.types.FloorWeighting.DISTANCE ->
+                FloatArray(n) { i -> voxels.weight(Vec3(pts[3 * i] - camW.x, pts[3 * i + 1] - camW.y, pts[3 * i + 2] - camW.z).norm()) }
+            else -> null
+        }
         val f = if (config.floor.source == FloorSource.PLANE) {
             val pf = planes?.floor
             // 바닥을 한 번도 못 잡았으면(시작·자세 불연속 뒤) 평면 바닥이 보일 때까지 히스토그램으로 시작한다. 안 그러면 맵이 안 갱신된다
@@ -135,22 +140,40 @@ class LocalMap(private val config: Config) {
         } else {
             floor.update(pts, camW, floorWeights)
         }
+        // M55 바닥 평면: 새 원시 장마다 원시 바닥 점으로 평면을 맞추고, 하류가 쓰는 바닥 높이 하나는 카메라 자리 평면 높이로
+        if (floorPlane && f.floorY != null) {
+            if (raw54 != null && raw54.tCaptureNs != lastPlaneRawTNs) {
+                lastPlaneRawTNs = raw54.tCaptureNs
+                // 최근 `floor.planeWindowS` 동안의 원시 바닥 후보를 모아 맞춘다(장 하나는 바닥 점이 수십~수백 개라 평평한 세션에서도 2~11° 기울었음)
+                planeWindow.addLast(raw54.tCaptureNs to rawFloorCandidates(raw54))
+                val keepNs = (config.floor.planeWindowS * 1e9).toLong()
+                while (planeWindow.isNotEmpty() && raw54.tCaptureNs - planeWindow.first().first > keepNs) planeWindow.removeFirst()
+                val cand = FloatArray(planeWindow.sumOf { it.second.size }).also { a ->
+                    var o = 0
+                    for ((_, c) in planeWindow) { c.copyInto(a, o); o += c.size }
+                }
+                val fitted = floor.updatePlane(cand, camW)
+                floor.plane?.let { lastFramePlane = FramePlane(it[0], it[1], it[2], cand.size / 3, fitted) }
+            }
+            floor.alignToCamera(camW)
+        }
         if (f.floorY == null) {
             return MapUpdate(depth.tCaptureNs, n, 0, 0, 0, 0, PruneCounts(0, 0, 0), voxels.size, null, MapHealth.DEGRADED, planes)
         }
 
-        val floorY = f.floorY
+        val floorY = floor.floorY!!
         val wallLabels = if (config.cluster.separateWalls) planes?.labels else null
         val segments = if (config.frontend.segment == SegmentMode.REGION) {
             Segmenter.segment(depthMm, depth.K, depth.worldFromCam, config.depth.subsample, config.frontend.edgeMinStepRatio, config.frontend.edgeFitTolRatio, config.cluster.minSamples,
             ) { i, p ->
                 val camDist = (p - camW).horizontal().norm()
-                p.y < floorY || floor.isFloor(p.y, camDist) || planes?.labels?.get(i) == PlaneResult.WALL
+                floor.isUnder(p) || floor.isFloor(p, camDist) || planes?.labels?.get(i) == PlaneResult.WALL
             }
         } else {
             null
         }
         voxels.beginFrame()
+        cellTrace?.beginFrame()
         frameObstaclePoints.clear()
         insertedVoxels.clear()
         // 칸 라벨 표: 나이 한도 안의 새 라벨 영상일 때만 이번 장 칸들이 한 표씩(16 Hz 라벨, 30 Hz 깊이)
@@ -165,19 +188,23 @@ class LocalMap(private val config: Config) {
             val p = Vec3(pts[3 * i], pts[3 * i + 1], pts[3 * i + 2])
             val camDist = (p - camW).horizontal().norm()
             when {
-                floor.isFloor(p.y, camDist) -> nFloor++
-                floor.isBelowFloor(p.y, camDist) -> nBelow++
-                p.y < floorY -> Unit // 바닥보다 낮은데 단차로도 확실하지 않은 점: 장애물일 수 없으므로 버린다
+                floor.isFloor(p, camDist) -> nFloor++
+                floor.isBelowFloor(p, camDist) -> nBelow++
+                floor.isUnder(p) -> Unit // 바닥보다 낮은데 단차로도 확실하지 않은 점: 장애물일 수 없으므로 버린다
                 (p - userPosW).horizontal().norm() > radius -> Unit
                 else -> {
                     val wDist = voxels.weight((p - camW).norm())
                     // 후보 track 세기용 이번 장 점은 M49 그대로 거리 무게(설계 3.2절). 신뢰도 무게는 지도에만: 다가오는 사람 화소는 원시와 시각이 어긋나
                     // 낮은 구간으로 읽혀, 후보에도 주면 표가 모이지 않아 사람이 움직이는 track이 되지 못했다(T 150159 STOP 사라짐, 구현 결함)
                     val w = if (m54ConfWeights) config.depth.mapConfidenceWeights[config.depth.confidenceClass(confOf?.get(i) ?: 0)] else wDist
-                    if (collectFramePoints) frameObstaclePoints += p to wDist
+                    // 사람 원천(M54 P): 움직일 수 있는 라벨 평활 점은 후보 세기용으로만 남기고 지도에는 원시 점으로 넣는다.
+                    // 장애물 원천(M55 O): 장애물 묶음 평활 점 중 그 자리 원시(신뢰도 ≥ movableRawMinConfidence)가 있는 것만 원시가 대신하고(지도·track 모두),
+                    // 원시가 없는 것은 평활 점으로 채운다
+                    val rawCovered = labels54 != null && labels54.pixelAt(p) in rawPixels &&
+                        (!obstacleRaw || (confOf?.get(i) ?: 0) >= config.vision.movableRawMinConfidence)
+                    if (collectFramePoints && !(obstacleRaw && rawCovered)) frameObstaclePoints += p to wDist
                     if (excludeBoxes.isNotEmpty() && excludeBoxes.any { (lo, hi) -> p.x in lo.x..hi.x && p.y in lo.y..hi.y && p.z in lo.z..hi.z }) continue
-                    // 사람 원천(M54): 움직일 수 있는 라벨 평활 점은 후보 세기용으로만 남기고 지도에는 원시 점으로 넣는다
-                    if (labels54 != null && labels54.pixelAt(p) in movingPixels) {
+                    if (rawCovered) {
                         nMovable++
                         continue
                     }
@@ -185,6 +212,7 @@ class LocalMap(private val config: Config) {
                         p, depth.tCaptureNs, w, wallLabels?.get(i) == PlaneResult.WALL,
                         camW, floorY + config.floor.toleranceM,
                     )
+                    cellTrace?.insert(p, depth.tCaptureNs, w, config.depth.confidenceClass(confOf?.get(i) ?: 0))
                     noteInserted(p)
                     nInserted++
                     if (instOf != null) instOf.first[i].let { s -> if (s > 0) voxels.voteInstance(p, instOf.second.getValue(s)) }
@@ -194,13 +222,15 @@ class LocalMap(private val config: Config) {
         lastMovableExcluded = nMovable
         val rawMov = if (labels54 != null) freshRaw(depth) else null
         lastMovableRawInserted = if (rawMov != null) insertMovableRaw(rawMov, labels54!!, camW, userPosW, floorY) else 0
+        // O: track에 넘기는 이번 장 점에도 같은 깊이 — 원시가 대신한 장애물 점은 가장 최근 원시 장(나이 한도 안)의 원시 점으로(원시 약 10 Hz, 평활 30 Hz)
+        if (obstacleRaw && collectFramePoints && rawMov != null) frameObstaclePoints += lastRawFramePts
         if (config.vision.voxelLabels) freshLabels(depth)?.let { fitFramePlane(pts, n, confOf, it, camW) }
         if (labelsForVotes != null) {
             commitLabels()
             lastVotedLabelTNs = labelsForVotes!!.tCaptureNs
         }
         // 감쇠 무게(M54 결과 검토): 그 칸을 비었다고 본 화소의 원시 신뢰도 구간 = 표와 같은 규칙(원시 없음·나이 초과면 원시 없음 구간)
-        val pixCls = if (m54DecayWeights || collectInserted) IntArray(depthMm.size) { -1 } else null
+        val pixCls = if (m54DecayWeights || collectInserted || cellTrace != null) IntArray(depthMm.size) { -1 } else null
         fun clsAt(px: Int): Int {
             val c = pixCls!![px]
             if (c >= 0) return c
@@ -210,8 +240,10 @@ class LocalMap(private val config: Config) {
             return config.depth.confidenceClass(rawConfidenceAt(raw54, rawCamFromWorld, pW)).also { pixCls[px] = it }
         }
         voxels.collectDecays = collectInserted
-        val nDecayed = voxels.decayFree(
-            if (labels54 != null) withoutMovable(depthMm, depth, labels54) else depthMm, depth.K, depth.worldFromCam.rigidInverse(),
+        val decayDepth = if (labels54 != null) withoutMovable(depthMm, depth, labels54, raw54, rawCamFromWorld) else depthMm
+        val camFromWorld = depth.worldFromCam.rigidInverse()
+        var nDecayed = voxels.decayFree(
+            decayDepth, depth.K, camFromWorld,
             if (m54DecayWeights) { px -> config.depth.mapConfidenceWeights[clsAt(px)] } else null,
         )
         decayTrace.clear()
@@ -221,7 +253,15 @@ class LocalMap(private val config: Config) {
                 decayTrace += d[4 * j]; decayTrace += d[4 * j + 1]; decayTrace += d[4 * j + 2]; decayTrace += clsAt(d[4 * j + 3])
             }
         }
+        // O: 원시가 대신한 장애물 화소의 빈 곳 감쇠는 새 원시 장마다 그 원시 깊이로(평활 감쇠에서는 뺐다). 빼기만 하면 물체 앞 헛 복셀이 지워지지 않는다.
+        // ponytail: 감쇠 무게(`map.decayWeighting`)는 이 원시 감쇠에 주지 않음 — 그 옵션과 O를 함께 켤 때 다시 본다
+        val rawDecay = if (obstacleRaw && rawMov != null && rawMov.tCaptureNs != lastRawDecayTNs) rawMov else null
+        if (rawDecay != null) {
+            lastRawDecayTNs = rawDecay.tCaptureNs
+            nDecayed += voxels.decayFree(rawObstacleDepth(rawDecay, labels54!!), rawDecay.K, rawDecay.worldFromCam.rigidInverse(), null)
+        }
         val pruned = voxels.prune(userPosW, headingW, depth.tCaptureNs)
+        cellTrace?.endFrame(depth.tCaptureNs, camW, decayDepth, depth.K, camFromWorld, ::clsAt, userPosW, headingW, voxels)
         return MapUpdate(
             depth.tCaptureNs, n, nFloor, nBelow, nInserted, nDecayed, pruned, voxels.size, floor.floorY, MapHealth.OK, planes, segments, null,
             lastRgbEdgeCounts,
@@ -352,7 +392,7 @@ class LocalMap(private val config: Config) {
     /** 지도에 넣을 점인지(삽입 반복문과 같은 조건). */
     private fun insertable(p: Vec3, camW: Vec3, userPosW: Vec3, floorY: Float): Boolean {
         val camDist = (p - camW).horizontal().norm()
-        return !floor.isFloor(p.y, camDist) && !floor.isBelowFloor(p.y, camDist) && p.y >= floorY &&
+        return !floor.isFloor(p, camDist) && !floor.isBelowFloor(p, camDist) && !floor.isUnder(p) &&
             (p - userPosW).horizontal().norm() <= config.map.radiusM
     }
 
@@ -414,6 +454,42 @@ class LocalMap(private val config: Config) {
     private val m54DecayWeights = config.map.decayWeighting == hearspace.core.types.DecayWeighting.CONFIDENCE
     private val m54FloorWeights = config.floor.weighting == hearspace.core.types.FloorWeighting.CONFIDENCE
     private val movingPixels = config.vision.movingLabels.map { it.pixel }.toSet()
+
+    // ---- M55 ②-A 장애물 원천 O(`vision.obstacleDepth` RAW): M54 P를 장애물 묶음 전체로 넓히고, 원시가 없는 화소는 평활로 채운다 ----
+    private val obstacleRaw = config.vision.obstacleDepth == hearspace.core.types.MovableDepth.RAW
+
+    /** 원시 점으로 지도에 넣는 라벨: O면 `vision.obstacleLabels`, 아니면 P의 움직일 수 있는 라벨. */
+    private val rawPixels: Set<Int> = if (obstacleRaw) config.vision.obstacleLabels.map { it.pixel }.toSet() else movingPixels
+
+    /** 경계 띠의 장애물 역할 표(`frontend.bandLabels`, 기본은 M54 묶음). */
+    private val bandObstacle = BooleanArray(hearspace.core.frontend.LabelBand.OBSTACLE.size) { v -> config.frontend.bandLabels.any { it.pixel == v } }
+
+    /** O: 가장 최근 원시 장의 장애물 원시 점(track 이번 장 점용, 무게 = 원시 카메라 거리 무게). */
+    private var lastRawFramePts: List<Pair<Vec3, Float>> = emptyList()
+    private var lastRawDecayTNs = Long.MIN_VALUE
+
+    /** O 감쇠용: 원시 장에서 장애물 묶음이고 신뢰도 ≥ `vision.movableRawMinConfidence`인 화소만 남긴 깊이. */
+    private fun rawObstacleDepth(raw: DepthFrame, labels: hearspace.core.types.LabelImage): ShortArray {
+        val k = raw.K
+        val src = bandedRaw(raw, labels)
+        val out = ShortArray(raw.depthMm.size)
+        for (v in 0 until k.height) for (u in 0 until k.width) {
+            val i = v * k.width + u
+            val mm = src[i].toInt() and 0xFFFF
+            val conf = raw.confidence?.get(i)?.toInt()?.and(0xFF) ?: 255
+            if (mm == 0 || conf < config.vision.movableRawMinConfidence) continue
+            if (labels.pixelAt(raw.worldFromCam.transformPoint(Projection.backproject(u.toFloat(), v.toFloat(), mm / 1000f, k))) in rawPixels) out[i] = src[i]
+        }
+        return out
+    }
+
+    /** O: 원시 장에 평활과 같은 경계 띠(`frontend.labelBandPx`, 같은 라벨 영상의 거리 마당)를 깎은 깊이. 띠를 끄면 그대로. */
+    private fun bandedRaw(raw: DepthFrame, labels: hearspace.core.types.LabelImage): ShortArray {
+        val b = config.frontend.labelBandPx
+        if (b <= 0) return raw.depthMm
+        val field = bandField?.takeIf { it.image === labels } ?: hearspace.core.frontend.LabelBand.field(labels, raw.K.fx, b, bandObstacle).also { bandField = it }
+        return hearspace.core.frontend.LabelBand.apply(raw.depthMm, raw, field).first
+    }
     private val maxAgeNs = config.vision.maxLabelAgeMs * 1_000_000L
 
     /** 마지막 [update]에서 경계 띠가 뺀 화소 수, 지도에서 뺀 움직이는 라벨 점 수, 넣은 움직이는 라벨 원시 점 수(평가 기록용). */
@@ -423,6 +499,41 @@ class LocalMap(private val config: Config) {
         private set
     var lastMovableRawInserted = 0
         private set
+
+    // ---- M55 바닥 평면(`floor.model` PLANE_RAW) ----
+    private val floorPlane = config.floor.model == hearspace.core.types.FloorModel.PLANE_RAW
+    private var lastPlaneRawTNs = Long.MIN_VALUE
+    private val planeWindow = ArrayDeque<Pair<Long, FloatArray>>()
+
+    /** 바닥 평면 후보: 원시 점 중 신뢰도 ≥ `floor.planeMinConfidence`, 원시 카메라보다 `floor.minBelowCameraM` 넘게 낮고 수평 `map.radiusM` 안, 지금 바닥 ± `floor.searchBandM` 안. */
+    private fun rawFloorCandidates(raw: DepthFrame): FloatArray {
+        val k = raw.K
+        val s = config.depth.subsample
+        val cam = raw.worldFromCam.translation()
+        val out = ArrayList<Float>()
+        var v = 0
+        while (v < k.height) {
+            var u = 0
+            while (u < k.width) {
+                val i = v * k.width + u
+                val mm = raw.depthMm[i].toInt() and 0xFFFF
+                val conf = raw.confidence?.get(i)?.toInt()?.and(0xFF) ?: 255
+                if (mm != 0 && conf >= config.floor.planeMinConfidence) {
+                    val p = raw.worldFromCam.transformPoint(Projection.backproject(u.toFloat(), v.toFloat(), mm / 1000f, k))
+                    val h = floor.heightAt(p.x, p.z)
+                    if (p.y < cam.y - config.floor.minBelowCameraM && (p - cam).horizontal().norm() <= config.map.radiusM &&
+                        (h == null || kotlin.math.abs(p.y - h) <= config.floor.searchBandM)
+                    ) { out += p.x; out += p.y; out += p.z }
+                }
+                u += s
+            }
+            v += s
+        }
+        return out.toFloatArray()
+    }
+
+    /** 칸 관측 기록(M55, 평가 전용 `-PcellTrace=true`). null이면 끔. */
+    var cellTrace: CellTrace? = null
 
     /** true면 [update]가 이번 장에 지도에 넣은 칸 번호(ix, iy, iz 교차)를 [insertedVoxels]에 모은다(M54 평가 `-PmapInserts=true`). */
     var collectInserted = false
@@ -491,7 +602,7 @@ class LocalMap(private val config: Config) {
     }
 
     /** M54 옵션 중 하나라도 켰는지(기록 파일 `m54.csv`). */
-    val m54On = m54MovableRaw || m54ConfWeights || m54FloorWeights || config.frontend.labelBandPx > 0 || config.vision.voxelLabels || m54DecayWeights
+    val m54On = m54MovableRaw || m54ConfWeights || m54FloorWeights || config.frontend.labelBandPx > 0 || config.vision.voxelLabels || m54DecayWeights || obstacleRaw
 
     private var bandField: hearspace.core.frontend.LabelBand.Field? = null
     private var lastMovableRawTNs = Long.MIN_VALUE
@@ -517,14 +628,18 @@ class LocalMap(private val config: Config) {
     }
 
     /** 움직일 수 있는 라벨 화소를 0으로 만든 깊이(빈 곳 감쇠용, M54 사람 원천): 평활의 사람 깊이는 뒤처져 원시로 넣은 칸을 지운다. */
-    private fun withoutMovable(depthMm: ShortArray, depth: DepthFrame, labels: hearspace.core.types.LabelImage): ShortArray {
+    /** 원시가 대신하는 화소를 뺀 감쇠 깊이: P면 움직일 수 있는 라벨 화소 모두, O면 장애물 묶음 화소 중 그 자리 원시가 있는 것. */
+    private fun withoutMovable(
+        depthMm: ShortArray, depth: DepthFrame, labels: hearspace.core.types.LabelImage, raw: DepthFrame?, rawCamFromWorld: hearspace.core.geometry.Mat4?,
+    ): ShortArray {
         val k = depth.K
         val out = depthMm.copyOf()
         for (v in 0 until k.height) for (u in 0 until k.width) {
             val i = v * k.width + u
             val mm = depthMm[i].toInt() and 0xFFFF
             if (mm == 0) continue
-            if (labels.pixelAt(depth.worldFromCam.transformPoint(Projection.backproject(u.toFloat(), v.toFloat(), mm / 1000f, k))) in movingPixels) out[i] = 0
+            val p = depth.worldFromCam.transformPoint(Projection.backproject(u.toFloat(), v.toFloat(), mm / 1000f, k))
+            if (labels.pixelAt(p) in rawPixels && (!obstacleRaw || rawConfidenceAt(raw, rawCamFromWorld, p) >= config.vision.movableRawMinConfidence)) out[i] = 0
         }
         return out
     }
@@ -539,23 +654,28 @@ class LocalMap(private val config: Config) {
         val k = raw.K
         val s = config.depth.subsample
         val rawCam = raw.worldFromCam.translation()
+        val framePts = if (obstacleRaw) ArrayList<Pair<Vec3, Float>>() else null
+        // O: 원시도 같은 경계 띠를 깎고 띠 안쪽만 쓴다(설계 3.6절 "띠를 깎고 안쪽은 원시"). 띠 안 원시는 평활과 30~50% 어긋났다(T 150439·150457)
+        val rawMm = if (obstacleRaw) bandedRaw(raw, labels) else raw.depthMm
         var n = 0
         var v = 0
         while (v < k.height) {
             var u = 0
             while (u < k.width) {
                 val i = v * k.width + u
-                val mm = raw.depthMm[i].toInt() and 0xFFFF
+                val mm = rawMm[i].toInt() and 0xFFFF
                 val conf = raw.confidence?.get(i)?.toInt()?.and(0xFF) ?: 255
                 if (mm != 0 && conf >= config.vision.movableRawMinConfidence) {
                     val p = raw.worldFromCam.transformPoint(Projection.backproject(u.toFloat(), v.toFloat(), mm / 1000f, k))
-                    if (labels.pixelAt(p) in movingPixels && insertable(p, camW, userPosW, floorY) &&
-                        (excludeBoxes.isEmpty() || excludeBoxes.none { (lo, hi) -> p.x in lo.x..hi.x && p.y in lo.y..hi.y && p.z in lo.z..hi.z })
-                    ) {
+                    val take = labels.pixelAt(p) in rawPixels && insertable(p, camW, userPosW, floorY)
+                    if (take && framePts != null) framePts += p to voxels.weight((p - rawCam).norm())
+                    if (take && (excludeBoxes.isEmpty() || excludeBoxes.none { (lo, hi) -> p.x in lo.x..hi.x && p.y in lo.y..hi.y && p.z in lo.z..hi.z })) {
                         // CONFIDENCE: 움직이는 라벨 원시 점은 물체·벽 표가 아니라 따로 잰 표(설계 3.1절) — 쓰는 구간이 신뢰도 ≥ movableRawMinConfidence 하나뿐이라
-                        // 그 구간이 기준(무게 1). 물체·벽 표(30~127 → 0.57)를 주면 10 Hz 원시만으로 사람 칸이 6표를 못 채워 사람이 지도에서 사라졌다(T 150159, 구현 결함)
-                        val w = if (m54ConfWeights) 1f else voxels.weight((p - rawCam).norm())
+                        // 그 구간이 기준(무게 1). 물체·벽 표(30~127 → 0.57)를 주면 10 Hz 원시만으로 사람 칸이 6표를 못 채워 사람이 지도에서 사라졌다(T 150159, 구현 결함).
+                        // O는 `vision.obstacleRawWeight`(낮은 물체 STOP 요구에서 유도)
+                        val w = if (m54ConfWeights) (if (obstacleRaw) config.vision.obstacleRawWeight else 1f) else voxels.weight((p - rawCam).norm())
                         voxels.insert(p, raw.tCaptureNs, w, false, rawCam, floorY + config.floor.toleranceM)
+                        cellTrace?.insert(p, raw.tCaptureNs, w, config.depth.confidenceClass(conf))
                         noteInserted(p)
                         n++
                     }
@@ -564,6 +684,7 @@ class LocalMap(private val config: Config) {
             }
             v += s
         }
+        if (framePts != null) lastRawFramePts = framePts
         return n
     }
 
@@ -582,6 +703,9 @@ class LocalMap(private val config: Config) {
     /** 맵·바닥을 모두 잊는다(자세 불연속, §7.5). */
     fun reset() {
         voxels.clear()
+        planeWindow.clear()
+        lastRawFramePts = emptyList()
+        cellTrace?.noteReset()
         floor.reset()
     }
 
@@ -625,7 +749,7 @@ class LocalMap(private val config: Config) {
         val b = config.frontend.labelBandPx
         val labels = if (b > 0) freshLabels(depth) else null
         if (labels != null) {
-            val field = bandField?.takeIf { it.image === labels } ?: hearspace.core.frontend.LabelBand.field(labels, depth.K.fx, b).also { bandField = it }
+            val field = bandField?.takeIf { it.image === labels } ?: hearspace.core.frontend.LabelBand.field(labels, depth.K.fx, b, bandObstacle).also { bandField = it }
             val (banded, removed) = hearspace.core.frontend.LabelBand.apply(out, depth, field)
             out = banded
             lastBandRemoved = removed
