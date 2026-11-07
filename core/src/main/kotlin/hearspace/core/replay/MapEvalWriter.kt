@@ -74,9 +74,9 @@ class MapEvalWriter(
 
     override fun onEnd() {
         inner.onEnd()
-        val truth = GroundTruth.read(session, config.head.offsetFromCameraM) ?: return
+        val truth = GroundTruth.read(session, config.headOffsetFromCameraM) ?: return
         val al = align ?: Alignment.medianFloorY(floors)?.let {
-            Alignment.fit(SessionReader(session).rows, config.align, config.head.offsetFromCameraM, it)
+            Alignment.fit(SessionReader(session).rows, config.align, config.headOffsetFromCameraM, it)
         } ?: return
         writeScene(truth, al)
         val steps = (samples + listOfNotNull(last)).distinctBy { it.first }
@@ -160,7 +160,7 @@ class MapEvalWriter(
         File(outDir, CHECK_FILE).writeText(
             MapCheck.run(
                 inputs.map { MapCheck.Snapshot(it.depth.tCaptureNs, it.occupiedW, it.lastSeenNs) }, poses, tests, config.depth, al, scene,
-                config.map.voxelSizeM, config.map.radiusM, config.head.offsetFromCameraM, config.map.tsdfMinCosIncidence,
+                config.map.voxelSizeM, config.map.radiusM, config.headOffsetFromCameraM, config.map.tsdfMinCosIncidence,
             ),
         )
     }

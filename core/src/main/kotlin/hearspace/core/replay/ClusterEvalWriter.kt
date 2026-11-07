@@ -65,8 +65,8 @@ class ClusterEvalWriter(
         if (rgbEdges[0] > 0) {
             File(outDir, RGB_EDGE_FILE).writeText("{ \"edges\": ${rgbEdges[0]}, \"floorSkipped\": ${rgbEdges[1]}, \"rgbEdge\": ${rgbEdges[2]} }\n")
         }
-        val truth = GroundTruth.read(session, config.head.offsetFromCameraM) ?: return
-        val al = align ?: Alignment.medianFloorY(floors)?.let { Alignment.fit(SessionReader(session).rows, config.align, config.head.offsetFromCameraM, it) } ?: return
+        val truth = GroundTruth.read(session, config.headOffsetFromCameraM) ?: return
+        val al = align ?: Alignment.medianFloorY(floors)?.let { Alignment.fit(SessionReader(session).rows, config.align, config.headOffsetFromCameraM, it) } ?: return
         File(outDir, FILE).bufferedWriter().use { w ->
             w.write(ClusterEval.CSV_HEADER + "\n")
             for (s in steps) {

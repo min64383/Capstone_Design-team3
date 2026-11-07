@@ -127,7 +127,7 @@ class RecordScreen : Activity(), GLSurfaceView.Renderer {
             setSelection(SCENE_IDS.indexOf("S01"))
             contentDescription = "장면 ID"
         }
-        val defaultOffset = config.head.offsetFromCameraM
+        val defaultOffset = config.headOffsetFromCameraM
         offsetInputs = listOf("x" to defaultOffset.x, "y" to defaultOffset.y, "z" to defaultOffset.z).map { (axis, v) ->
             EditText(this).apply {
                 hint = "offset $axis (m)"
