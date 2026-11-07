@@ -74,10 +74,21 @@ def points_of(f: RawFrame, min_conf: int, with_conf: bool = False):
     return (pc @ f.rot_w_from_c.T + f.cam_w, z) + ((f.conf[vv, uu],) if with_conf else ())
 
 
-def margin_table(path: Path, v_min: float, dt_s: float, group: str = "all"):
+def margin_table(path: Path, v_min: float, dt_s: float, group: str = "max"):
     """0-1 결과로 Z 구간마다 (되돌아볼 장 수 L, 여유 m = 정지 깊이 차 97.7% 분위수, v_min 조건 충족 여부).
     L = L·Δ ≥ q97.7(Z, L)/v_min 인 가장 작은 장 수, 없으면 잰 가장 큰 장 수."""
-    r = [x for x in json.loads(path.read_text(encoding="utf-8")) if x["group"] == group]
+    allr = json.loads(path.read_text(encoding="utf-8"))
+    if group == "max":  # 묶음(실내·O01·T)마다 97.7% 분위수를 내고 그 최댓값: 모든 묶음에서 정지 위반 ≤ 2.3%(O01의 서 있는 카메라 점 수백만 개가 합친 분위수를 끌어내리지 않게)
+        r = []
+        for x in allr:
+            if x["group"] in ("indoor", "o01", "t"):
+                y = next((z for z in r if z["lag"] == x["lag"] and abs(z["zC"] - x["zC"]) < 1e-6), None)
+                if y is None:
+                    r.append(dict(x))
+                else:
+                    y["q977"] = max(y["q977"], x["q977"])
+    else:
+        r = [x for x in allr if x["group"] == group]
     nb = len(Z_EDGES) - 1
     lag_b, m_b, ok_b = np.zeros(nb, int), np.zeros(nb), np.zeros(nb, bool)
     for b in range(nb):
