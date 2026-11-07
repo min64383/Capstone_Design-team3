@@ -134,6 +134,8 @@ object ConfigLoader {
                     segment = enumValue<SegmentMode>("segment"),
                     labelBandPx = intIn("labelBandPx", 0, 64),
                     bandDepthEdgeSigmas = nonNegative("bandDepthEdgeSigmas"),
+                    bandWidthM = nonNegative("bandWidthM"),
+                    bandMinPx = intIn("bandMinPx", 0, 64),
                     bandLabels = enumList<SemanticLabel>("bandLabels").toSet(),
                 )
             },

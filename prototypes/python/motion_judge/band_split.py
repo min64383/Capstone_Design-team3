@@ -29,6 +29,7 @@ BAND_PX = 6
 MOVABLE = (9, 10)
 ROT_EDGES = [0.0, 5.0, 15.0, 30.0, 1e9]  # 깊이 장 회전 속도(°/s) 구간
 AGE_EDGES = [0.0, 50.0, 100.0, 1e9]  # 라벨 나이(깊이 촬영 − 라벨 촬영, ms) 구간
+Z_BANDS = [0.5, 1.5, 2.5, 3.5, 5.0]  # 막 폭을 잴 화소 평활 깊이 구간(m)
 NK = 2 * K_WIN + 2  # −K_WIN..K_WIN + 먼 곳
 
 
@@ -72,6 +73,9 @@ def measure(run: Path):
     box = np.zeros(3, np.int64)  # 정답 상자 안 평활 점: 전체, 지금 띠가 지움, 깊이 경계 조건이면 지움
     nr, na = len(ROT_EDGES) - 1, len(AGE_EDGES) - 1
     tot_ra = np.zeros((2, nr, na, NK), np.int64)  # [깊이 경계 근처?, 회전 구간, 라벨 나이 구간, k]
+    nz = len(Z_BANDS) - 1
+    tot_z = np.zeros((nz, NK), np.int64)  # [화소 평활 깊이 구간, k] (깊이 경계 구분 없이)
+    bad_z = np.zeros_like(tot_z)
     bad_ra = np.zeros_like(tot_ra)
     raw_file, seen, cache = None, set(), {}
     prev_pose = None
@@ -129,6 +133,11 @@ def measure(run: Path):
         g = nearp.astype(int)
         np.add.at(tot, (g[has], kb[has]), 1)
         np.add.at(bad, (g[isbad], kb[isbad]), 1)
+        zsm = ((p - cs) @ rs)[:, 2]  # 화소의 평활 카메라 깊이(C_cv z)
+        zb_ = np.digitize(zsm, Z_BANDS) - 1
+        okz = (zb_ >= 0) & (zb_ < nz)
+        np.add.at(tot_z, (zb_[has & okz], kb[has & okz]), 1)
+        np.add.at(bad_z, (zb_[isbad & okz], kb[isbad & okz]), 1)
         if np.isfinite(rot):
             rb = int(np.digitize(rot, ROT_EDGES) - 1)
             ab = int(np.digitize((t_d - key) / 1e6, AGE_EDGES) - 1)
@@ -141,7 +150,7 @@ def measure(run: Path):
             inb = (x >= lo[0]) & (x <= hi[0]) & (y >= max(lo[1], 0.05)) & (y <= hi[1]) & (zt >= lo[2]) & (zt <= hi[2]) & okl
             band = inb & np.isfinite(kk) & (np.abs(kk) <= BAND_PX)
             box += (int(inb.sum()), int(band.sum()), int((band & nearp).sum()))
-    return dict(session=session.name, group=S.group_of(run), tot=tot, bad=bad, box=box, tot_ra=tot_ra, bad_ra=bad_ra)
+    return dict(session=session.name, group=S.group_of(run), tot=tot, bad=bad, box=box, tot_ra=tot_ra, bad_ra=bad_ra, tot_z=tot_z, bad_z=bad_z, fx=float(kd["fx"]))
 
 
 def half_width(tot: np.ndarray, bad: np.ndarray):
@@ -217,7 +226,26 @@ def main(runs: list[Path]) -> None:
             print(f"  {r['session']}: {b[0]} 점, 지금 띠 {b[1] / b[0]:.1%}, 깊이 경계 조건 {b[2] / b[0]:.1%}")
 
 
+def by_distance(res: list) -> None:
+    """화소 평활 깊이 구간별: 장애물 쪽 라벨 경계 거리 k(0~−6)의 초과 어긋남(그 구간 라벨 경계 먼 곳 대비)과 반폭(화소·cm)."""
+    fx = float(np.median([r["fx"] for r in res]))
+    for grp in ("t", "indoor", "all"):
+        rr = [r for r in res if grp == "all" or r["group"] == grp]
+        tz = sum(r["tot_z"] for r in rr)
+        bz = sum(r["bad_z"] for r in rr)
+        print(f"== {grp} (깊이 fx {fx:.1f} 화소)")
+        for zi in range(len(Z_BANDS) - 1):
+            m = bz[zi] / np.maximum(tz[zi], 1)
+            base = m[-1]
+            ex = [m[K_WIN - d] - base for d in range(0, 7)]
+            hw = next((d for d in range(0, K_WIN + 1) if m[K_WIN - d] - base < ex[0] / 2), None) if ex[0] > 0 and tz[zi, K_WIN] >= 200 else None
+            zc = (Z_BANDS[zi] + Z_BANDS[zi + 1]) / 2
+            cm = None if hw is None else round(hw * zc / fx * 100, 1)
+            print(f"  {Z_BANDS[zi]:g}~{Z_BANDS[zi + 1]:g} m: 바탕 {base:.3f}, 초과 k=0..−6 " + " ".join(f"{e:+.2f}" for e in ex)
+                  + f" | 반폭 {hw} 화소 ≈ {cm} cm (k=0 표본 {int(tz[zi, K_WIN])})")
+
+
 if __name__ == "__main__":
     runs = [Path(a) for a in sys.argv[1:]]
     res = [measure(r) for r in runs]
-    by_condition(res)
+    by_distance(res)

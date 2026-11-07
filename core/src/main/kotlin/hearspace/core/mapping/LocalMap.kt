@@ -755,7 +755,12 @@ class LocalMap(private val config: Config) {
             val near = if (ns > 0f) hearspace.core.frontend.LabelBand.depthEdgeNear(
                 depth.depthMm, depth.K.width, depth.K.height, ns, config.depth.smoothedSigma0M, config.depth.smoothedSigmaPerM2, b,
             ) else null
-            val (banded, removed) = hearspace.core.frontend.LabelBand.apply(out, depth, field, near)
+            // M56 거리 비례 띠: 화소마다 폭 = 실제 폭을 경계 옆 가장 가까운 깊이에서 화소로(0 = 끔)
+            val bw = config.frontend.bandWidthM
+            val pxLim = if (bw > 0f) hearspace.core.frontend.LabelBand.widthByDepth(
+                depth.depthMm, depth.K.width, depth.K.height, depth.K.fx, bw, config.frontend.bandMinPx, b,
+            ) else null
+            val (banded, removed) = hearspace.core.frontend.LabelBand.apply(out, depth, field, near, pxLimit = pxLim)
             out = banded
             lastBandRemoved = removed
         }

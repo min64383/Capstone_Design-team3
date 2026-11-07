@@ -221,7 +221,7 @@ class CameraView(
             val fe = r.config.frontend
             val b = if (fe.labelBandPx > 0) fe.labelBandPx else 6
             val ns = if (fe.bandDepthEdgeSigmas > 0f) fe.bandDepthEdgeSigmas else 2f
-            bandCache.getOrPut("${d.tCaptureNs}|$b|$ns|${fe.bandLabels}") { bandOverlay(d, b, ns, r.config) }.let { img ->
+            bandCache.getOrPut("${d.tCaptureNs}|$b|$ns|${fe.bandWidthM}|${fe.bandMinPx}|${fe.bandLabels}") { bandOverlay(d, b, ns, r.config) }.let { img ->
                 val ch = sw * img.height / img.width
                 s.drawImage(img, 0, (sh - ch) / 2, sw, ch, null)
             }
@@ -330,7 +330,9 @@ class CameraView(
             (if (model.showVoxels) (if (r.classColors) "  ·  칸: 초록 맞음, 회색 속, 빨강 헛, 흰 테 놓친 표면(바닥 제외), 어두운 회색 영역 밖" else "  ·  칸: 높이 색(정답 장면 없음)") else "") +
             (if (model.showDepth && r.config.frontend.enabled) "  ·  자홍 = 경계(막) 판정" else "") +
             (if (model.showLabels) (if (labelImg != null) "  ·  라벨: 자홍 사람, 하늘색 차량(%.0f ms 전 영상)".format((t - labelImg.tCaptureNs) / 1e6) else "  ·  라벨 없음(라벨을 쓰는 변형만)") else "") +
-            (if (model.showBands) (if (bandRec != null) "  ·  띠: 빨강 두 띠 모두 지움, 노랑 라벨 띠만 지움(깊이 경계 띠는 남김), 하늘색 깊이 경계" else "  ·  띠: 라벨 없음(라벨을 쓰는 변형만)") else "") +
+            (if (model.showBands) (if (bandRec == null) "  ·  띠: 라벨 없음(라벨을 쓰는 변형만)"
+                else if (r.config.frontend.bandWidthM > 0f) "  ·  띠: 빨강 두 띠 모두 지움, 노랑 고정 띠만 지움(거리 비례 띠 %.0f cm는 남김), 하늘색 깊이 경계".format(r.config.frontend.bandWidthM * 100)
+                else "  ·  띠: 빨강 두 띠 모두 지움, 노랑 라벨 띠만 지움(깊이 경계 띠는 남김), 하늘색 깊이 경계") else "") +
             (if (model.showDepth && r.config.frontend.planes == PlaneMode.RANSAC) "  ·  초록 = 바닥 평면, 주황 = 벽 평면" else "") +
             (if (model.showDepth && r.config.frontend.segment == SegmentMode.REGION) "  ·  색 = 영역(C3a, 직전 처리한 깊이)" else "")
         g.drawString(src, 8, height - 8)
@@ -338,7 +340,10 @@ class CameraView(
 
     private fun readImage(f: File): BufferedImage? = runCatching { ImageIO.read(f) }.getOrNull()
 
-    /** 깊이 장 [d](라벨 붙음)의 경계 띠 겹침(깊이 영상 크기): 빨강 = 두 띠 모두 지움, 노랑 = 라벨 띠만 지움, 하늘색 = 깊이 경계 화소. */
+    /**
+     * 깊이 장 [d](라벨 붙음)의 경계 띠 겹침(깊이 영상 크기): 고정 폭 라벨 띠([b]화소)와 비교 띠를 견준다. 비교 띠 = 설정에 `frontend.bandWidthM`이
+     * 있으면 거리 비례 띠, 없으면 깊이 경계 띠([sigmas]). 빨강 = 둘 다 지움, 노랑 = 고정 띠만 지움, 하늘색 = 깊이 경계 화소.
+     */
     private fun bandOverlay(d: hearspace.core.types.DepthFrame, b: Int, sigmas: Float, cfg: hearspace.core.types.Config): BufferedImage {
         val w = d.K.width
         val h = d.K.height
@@ -349,7 +354,10 @@ class CameraView(
         val near = hearspace.core.frontend.LabelBand.depthEdgeNear(d.depthMm, w, h, sigmas, s0, s2, b)
         val jump = hearspace.core.frontend.LabelBand.depthEdgeNear(d.depthMm, w, h, sigmas, s0, s2, 0)
         val (plain, _) = hearspace.core.frontend.LabelBand.apply(d.depthMm, d, field)
-        val (cond, _) = hearspace.core.frontend.LabelBand.apply(d.depthMm, d, field, near)
+        val bw = cfg.frontend.bandWidthM
+        val (cond, _) = if (bw > 0f) hearspace.core.frontend.LabelBand.apply(
+            d.depthMm, d, field, pxLimit = hearspace.core.frontend.LabelBand.widthByDepth(d.depthMm, w, h, d.K.fx, bw, cfg.frontend.bandMinPx, b),
+        ) else hearspace.core.frontend.LabelBand.apply(d.depthMm, d, field, near)
         val out = BufferedImage(w, h, BufferedImage.TYPE_INT_ARGB)
         for (i in 0 until w * h) {
             if (d.depthMm[i].toInt() == 0) continue

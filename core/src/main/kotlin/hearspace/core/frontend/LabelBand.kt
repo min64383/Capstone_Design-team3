@@ -122,10 +122,44 @@ object LabelBand {
     }
 
     /**
+     * 거리 비례 띠 폭(M56, `frontend.bandWidthM`): 화소마다 띠 폭(깊이 화소) = [widthM]를 그 자리 깊이에서 화소로 바꾼 값([fx]·[widthM]/Z)을
+     * [minPx]~[maxPx]로 자른 값. Z = 그 화소 둘레 [maxPx]화소 창 안의 가장 가까운 깊이(경계 옆 장애물 쪽 거리). 근거: M56 0-5 측정에서 막 반폭이
+     * 3.5 m 안에서는 실제 폭 3~5 cm, 밖에서는 2~3화소로 일정했다. 깊이 없는 창은 [maxPx].
+     */
+    fun widthByDepth(depthMm: ShortArray, width: Int, height: Int, fx: Float, widthM: Float, minPx: Int, maxPx: Int): FloatArray {
+        val inf = Int.MAX_VALUE
+        // 가장 가까운 깊이: 가로 → 세로 분리 최소 필터(창 2·maxPx + 1, 0 = 없음)
+        val row = IntArray(width * height) { inf }
+        for (y in 0 until height) for (x in 0 until width) {
+            var m = inf
+            for (dx in -maxPx..maxPx) {
+                val xx = x + dx
+                if (xx < 0 || xx >= width) continue
+                val v = depthMm[y * width + xx].toInt() and 0xFFFF
+                if (v in 1 until m) m = v
+            }
+            row[y * width + x] = m
+        }
+        val out = FloatArray(width * height)
+        for (y in 0 until height) for (x in 0 until width) {
+            var m = inf
+            for (dy in -maxPx..maxPx) {
+                val yy = y + dy
+                if (yy < 0 || yy >= height) continue
+                val v = row[yy * width + x]
+                if (v < m) m = v
+            }
+            out[y * width + x] = if (m == inf) maxPx.toFloat() else (fx * widthM / (m / 1000f)).coerceIn(minPx.toFloat(), maxPx.toFloat())
+        }
+        return out
+    }
+
+    /**
      * [depthMm]에서 띠 안 화소를 0으로 만든 복사본과 뺀 화소 수. 깊이 화소의 월드 점을 라벨 영상 촬영 시각의 자세로 투영해 그 라벨 화소의 거리를 본다
      * (과거 값만, `vision.maxLabelAgeMs` 검사는 부르는 쪽이 한다). 영상 밖 화소는 그대로 둔다. [edgeNear]가 있으면 그 화소가 true일 때만 뺀다(M56 깊이 경계 띠).
+     * [pxLimit]가 있으면 화소마다 띠 폭을 그 값 이하로 줄인다(M56 거리 비례 띠, [widthByDepth]).
      */
-    fun apply(depthMm: ShortArray, depth: DepthFrame, f: Field, edgeNear: BooleanArray? = null): Pair<ShortArray, Int> {
+    fun apply(depthMm: ShortArray, depth: DepthFrame, f: Field, edgeNear: BooleanArray? = null, pxLimit: FloatArray? = null): Pair<ShortArray, Int> {
         val k = depth.K
         val out = depthMm.copyOf()
         var removed = 0
@@ -140,7 +174,8 @@ object LabelBand {
             val d = f.distPx[j]
             if (d.isInfinite()) continue
             val inside = f.obstacle.obstacle(f.image.labels[j].toInt() and 0xFF)
-            if (d <= (if (inside) f.limitPx[j] else f.bandPx)) {
+            val lim = if (inside) f.limitPx[j] else f.bandPx
+            if (d <= (if (pxLimit != null) minOf(lim, pxLimit[i]) else lim)) {
                 out[i] = 0
                 removed++
             }
