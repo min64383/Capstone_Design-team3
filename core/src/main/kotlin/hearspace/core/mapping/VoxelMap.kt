@@ -40,6 +40,8 @@ data class VoxelView(
     val free: Float = 0f,
     /** 칸의 라벨 역할(M54 `vision.voxelLabels`). 끄면 NONE. */
     val role: VoxelRole = VoxelRole.NONE,
+    /** 칸의 라벨(M56 3.2절): 칸 라벨 표의 과반을 차지한 라벨 화소 값, 과반이 없거나 표가 없으면 -1. */
+    val label: Int = -1,
 )
 
 /**
@@ -430,6 +432,17 @@ class VoxelMap(private val cfg: MapConfig, private val floorishPixels: IntArray 
         c[label]++
     }
 
+    /** 칸 라벨 표의 과반 라벨(M56 3.2절). 과반이 없거나 표가 없으면 -1. */
+    private fun labelOf(v: Voxel): Int {
+        val c = v.labelCounts ?: return -1
+        val n = c.sum()
+        for (l in c.indices) if (2 * c[l] > n) return l
+        return -1
+    }
+
+    /** 자리 [pW] 칸의 라벨([labelOf]), 칸이 없으면 -1. */
+    fun labelAt(pW: Vec3): Int = voxels[key(index(pW.x), index(pW.y), index(pW.z))]?.let { labelOf(it) } ?: -1
+
     private fun roleOf(v: Voxel): VoxelRole {
         val c = v.labelCounts ?: return VoxelRole.NONE
         val building = c[2]
@@ -695,7 +708,7 @@ class VoxelMap(private val cfg: MapConfig, private val floorishPixels: IntArray 
             cfg.freeEvidenceDecay > 0f -> v.currentEvidence
             else -> historical
         }
-        return VoxelView(ix(key), iy(key), iz(key), center(key), v.hits, v.score, v.lastSeenNs, v.logOdds, v.wallHits, v.instId, evidence, v.free, roleOf(v))
+        return VoxelView(ix(key), iy(key), iz(key), center(key), v.hits, v.score, v.lastSeenNs, v.logOdds, v.wallHits, v.instId, evidence, v.free, roleOf(v), labelOf(v))
     }
 
     /** 모든 score에 [factor]를 곱한다(추적 복귀 시 `state.recoverScoreScale`, §7.5). LOG_ODDS는 로그 오즈를 0(모름) 쪽으로 같은 비율만큼. */
