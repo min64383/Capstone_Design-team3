@@ -245,7 +245,36 @@ def by_distance(res: list) -> None:
                   + f" | 반폭 {hw} 화소 ≈ {cm} cm (k=0 표본 {int(tz[zi, K_WIN])})")
 
 
+def full_extent(res: list) -> None:
+    """거리 구간마다 막 전체 폭: 장애물 쪽 |k| = d의 어긋남이 그 구간 바탕(라벨 경계 먼 곳)의 세션 부트스트랩 95% 구간 위끝 이하로 처음 드는 d.
+    세션을 단위로 다시 뽑는다(장면마다 달라서). 그 d 화소를 구간 가운데 깊이에서 cm로도 낸다."""
+    fx = float(np.median([r["fx"] for r in res]))
+    rng = np.random.default_rng(0)
+    for grp in ("t", "indoor", "all"):
+        rr = [r for r in res if grp == "all" or r["group"] == grp]
+        print(f"== {grp}: 막 전체 폭(장애물 쪽)")
+        for zi in range(len(Z_BANDS) - 1):
+            tz = sum(r["tot_z"][zi] for r in rr)
+            bz = sum(r["bad_z"][zi] for r in rr)
+            if tz[-1] < 200 or tz[K_WIN] < 200:
+                print(f"  {Z_BANDS[zi]:g}~{Z_BANDS[zi + 1]:g} m: 표본 부족")
+                continue
+            m = bz / np.maximum(tz, 1)
+            boots = []
+            for _ in range(2000):
+                pick = [rr[j] for j in rng.integers(0, len(rr), len(rr))]
+                t_ = sum(x["tot_z"][zi][-1] for x in pick)
+                boots.append(sum(x["bad_z"][zi][-1] for x in pick) / max(t_, 1))
+            lo, hi = np.percentile(boots, [2.5, 97.5])
+            ext = next((d for d in range(0, K_WIN + 1) if m[K_WIN - d] <= hi), None)
+            zc = (Z_BANDS[zi] + Z_BANDS[zi + 1]) / 2
+            prof = " ".join(f"{m[K_WIN - d]:.3f}" for d in range(0, K_WIN + 1))
+            print(f"  {Z_BANDS[zi]:g}~{Z_BANDS[zi + 1]:g} m: 바탕 {m[-1]:.3f} [{lo:.3f}, {hi:.3f}], 어긋남 |k|=0..8 {prof} | 전체 폭 {ext} 화소"
+                  + (f" ≈ {ext * zc / fx * 100:.1f} cm" if ext is not None else " (8화소 안에서 안 듦)"))
+
+
 if __name__ == "__main__":
     runs = [Path(a) for a in sys.argv[1:]]
     res = [measure(r) for r in runs]
     by_distance(res)
+    full_extent(res)

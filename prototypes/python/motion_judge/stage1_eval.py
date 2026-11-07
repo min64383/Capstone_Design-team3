@@ -14,6 +14,8 @@ from pathlib import Path
 
 import pandas as pd
 
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+
 ROOT = Path(__file__).resolve().parents[3]
 BASE_IN = ROOT / "data/sweeps/m55/in_B_L"
 PB_O01 = ROOT / "data/sweeps/m54/o01s_PB"
@@ -34,7 +36,19 @@ def indoor(d: Path) -> None:
             w = (m.get("firstStopDistanceM") or {}).get(o)
             if v is not None and (w is None or w < v - 0.05):
                 late.append(f"{s.name[9:15]} {o} {w if w is None else round(w, 3)} (기준 {round(v, 3)})")
-    print(f"  실내: STOP 놓침 {miss}, 오경보 시작 {fa}, 첫 STOP 한도 넘음 {late if late else '없음'}")
+    print(f"  실내: STOP 놓침 {miss}, 오경보 시작 {fa}, 첫 STOP 한도 넘음(지표 거리) {late if late else '없음'}")
+    # 자세 튐에 흔들리지 않는 늦음(robust_stop): 시각 차 × 카메라 속도 중앙값, 한도 0.05 m
+    from robust_stop import lateness
+    rl = []
+    for s in sorted(p for p in d.iterdir() if p.is_dir()):
+        if not (BASE_IN / s.name / "metrics.json").is_file():
+            continue
+        for o, v in lateness(ROOT / "data" / "sessions" / s.name, s, BASE_IN / s.name).items():
+            if v is None:
+                rl.append(f"{s.name[9:15]} {o} 놓침")
+            elif v[2] > 0.05:
+                rl.append(f"{s.name[9:15]} {o} {v[2]} m({v[0]} s × {v[1]} m/s)")
+    print(f"  실내 늦음(시각 차 × 속도) 0.05 m 넘음: {rl if rl else '없음'}")
 
 
 def outdoor(d: Path) -> None:

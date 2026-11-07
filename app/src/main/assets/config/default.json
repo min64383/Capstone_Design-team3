@@ -76,6 +76,8 @@
     "bandDepthEdgeSigmas": 0,
     "bandWidthM": 0,
     "bandMinPx": 0,
+    "bandNearM": 0,
+    "bandFarPx": 0,
     "bandLabels": ["UNLABELED", "SKY", "TREE", "STRUCTURE", "OBJECT", "VEHICLE", "PERSON", "WATER"]
   },
   "map": {

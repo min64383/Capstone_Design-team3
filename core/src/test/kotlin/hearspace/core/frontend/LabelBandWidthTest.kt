@@ -36,6 +36,16 @@ class LabelBandWidthTest {
     }
 
     @Test
+    fun stepRuleNearMaxFarThree() {
+        val lim = LabelBand.stepByDepth(depthMm, w, h, 1.5f, 3, 6)
+        assertEquals(6f, lim[45 * w + 24], 1e-4f) // 1 m 상자: 1.5 m 안 → 6
+        assertEquals(3f, lim[45 * w + 104], 1e-4f) // 3 m 상자: 1.5 m 밖 → 3
+        val (byStep, _) = LabelBand.apply(depthMm, depth, field, pxLimit = lim)
+        assertTrue(byStep[45 * w + 104].toInt() != 0 && byStep[45 * w + 102].toInt() == 0, "3 m 상자: 가장자리 4화소는 남기고 2화소는 지움")
+        assertTrue(byStep[45 * w + 24].toInt() == 0, "1 m 상자: 가장자리 4화소도 지움")
+    }
+
+    @Test
     fun farObjectKeepsMoreOfItsEdgeNearObjectLosesTheSame() {
         val (plain, _) = LabelBand.apply(depthMm, depth, field)
         val lim = LabelBand.widthByDepth(depthMm, w, h, kd.fx, 0.05f, 3, 6)

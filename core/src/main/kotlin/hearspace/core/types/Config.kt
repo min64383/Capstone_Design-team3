@@ -265,6 +265,13 @@ data class FrontendConfig(
     val bandWidthM: Float = 0f,
     /** 거리 비례 띠의 가장 얇은 폭(화소). M56 0-5 먼 곳(3.5~5 m) 막 반폭 2~3화소. */
     val bandMinPx: Int = 0,
+    /**
+     * 계단 띠(M56, 사용자 "거리 비례 화소를 적게 세는 라벨 띠 규칙을 똑바로"): 0보다 크면 경계 옆 가장 가까운 깊이가 이 거리(m)보다 가까우면
+     * `labelBandPx`, 아니면 [bandFarPx]. 0 = 끔. 근거: M56 0-5 막 전체 폭(1.5 m 안 6화소 넘음, 밖 2~3화소). [bandWidthM]보다 먼저 본다.
+     */
+    val bandNearM: Float = 0f,
+    /** 계단 띠의 먼 쪽 폭(화소). */
+    val bandFarPx: Int = 0,
     /** 경계 띠의 장애물 역할 라벨(M54 기본: 라벨 없음·하늘·나무·구조물·물체·차량·사람·물). M55 O 조합은 하늘·물을 뺀다(사용자 결정). */
     val bandLabels: Set<SemanticLabel> = setOf(
         SemanticLabel.UNLABELED, SemanticLabel.SKY, SemanticLabel.TREE, SemanticLabel.STRUCTURE, SemanticLabel.OBJECT,

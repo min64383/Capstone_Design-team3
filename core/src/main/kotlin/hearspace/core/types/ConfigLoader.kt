@@ -136,6 +136,8 @@ object ConfigLoader {
                     bandDepthEdgeSigmas = nonNegative("bandDepthEdgeSigmas"),
                     bandWidthM = nonNegative("bandWidthM"),
                     bandMinPx = intIn("bandMinPx", 0, 64),
+                    bandNearM = nonNegative("bandNearM"),
+                    bandFarPx = intIn("bandFarPx", 0, 64),
                     bandLabels = enumList<SemanticLabel>("bandLabels").toSet(),
                 )
             },

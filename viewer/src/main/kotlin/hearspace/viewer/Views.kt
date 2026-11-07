@@ -221,7 +221,7 @@ class CameraView(
             val fe = r.config.frontend
             val b = if (fe.labelBandPx > 0) fe.labelBandPx else 6
             val ns = if (fe.bandDepthEdgeSigmas > 0f) fe.bandDepthEdgeSigmas else 2f
-            bandCache.getOrPut("${d.tCaptureNs}|$b|$ns|${fe.bandWidthM}|${fe.bandMinPx}|${fe.bandLabels}") { bandOverlay(d, b, ns, r.config) }.let { img ->
+            bandCache.getOrPut("${d.tCaptureNs}|$b|$ns|${fe.bandWidthM}|${fe.bandMinPx}|${fe.bandNearM}|${fe.bandFarPx}|${fe.bandLabels}") { bandOverlay(d, b, ns, r.config) }.let { img ->
                 val ch = sw * img.height / img.width
                 s.drawImage(img, 0, (sh - ch) / 2, sw, ch, null)
             }
@@ -331,6 +331,7 @@ class CameraView(
             (if (model.showDepth && r.config.frontend.enabled) "  ·  자홍 = 경계(막) 판정" else "") +
             (if (model.showLabels) (if (labelImg != null) "  ·  라벨: 자홍 사람, 하늘색 차량(%.0f ms 전 영상)".format((t - labelImg.tCaptureNs) / 1e6) else "  ·  라벨 없음(라벨을 쓰는 변형만)") else "") +
             (if (model.showBands) (if (bandRec == null) "  ·  띠: 라벨 없음(라벨을 쓰는 변형만)"
+                else if (r.config.frontend.bandNearM > 0f) "  ·  띠: 빨강 두 띠 모두 지움, 노랑 고정 띠만 지움(계단 띠: %.1f m 밖 %d화소는 남김), 하늘색 깊이 경계".format(r.config.frontend.bandNearM, r.config.frontend.bandFarPx)
                 else if (r.config.frontend.bandWidthM > 0f) "  ·  띠: 빨강 두 띠 모두 지움, 노랑 고정 띠만 지움(거리 비례 띠 %.0f cm는 남김), 하늘색 깊이 경계".format(r.config.frontend.bandWidthM * 100)
                 else "  ·  띠: 빨강 두 띠 모두 지움, 노랑 라벨 띠만 지움(깊이 경계 띠는 남김), 하늘색 깊이 경계") else "") +
             (if (model.showDepth && r.config.frontend.planes == PlaneMode.RANSAC) "  ·  초록 = 바닥 평면, 주황 = 벽 평면" else "") +
@@ -355,9 +356,15 @@ class CameraView(
         val jump = hearspace.core.frontend.LabelBand.depthEdgeNear(d.depthMm, w, h, sigmas, s0, s2, 0)
         val (plain, _) = hearspace.core.frontend.LabelBand.apply(d.depthMm, d, field)
         val bw = cfg.frontend.bandWidthM
-        val (cond, _) = if (bw > 0f) hearspace.core.frontend.LabelBand.apply(
-            d.depthMm, d, field, pxLimit = hearspace.core.frontend.LabelBand.widthByDepth(d.depthMm, w, h, d.K.fx, bw, cfg.frontend.bandMinPx, b),
-        ) else hearspace.core.frontend.LabelBand.apply(d.depthMm, d, field, near)
+        val (cond, _) = when {
+            cfg.frontend.bandNearM > 0f -> hearspace.core.frontend.LabelBand.apply(
+                d.depthMm, d, field, pxLimit = hearspace.core.frontend.LabelBand.stepByDepth(d.depthMm, w, h, cfg.frontend.bandNearM, cfg.frontend.bandFarPx, b),
+            )
+            bw > 0f -> hearspace.core.frontend.LabelBand.apply(
+                d.depthMm, d, field, pxLimit = hearspace.core.frontend.LabelBand.widthByDepth(d.depthMm, w, h, d.K.fx, bw, cfg.frontend.bandMinPx, b),
+            )
+            else -> hearspace.core.frontend.LabelBand.apply(d.depthMm, d, field, near)
+        }
         val out = BufferedImage(w, h, BufferedImage.TYPE_INT_ARGB)
         for (i in 0 until w * h) {
             if (d.depthMm[i].toInt() == 0) continue

@@ -127,12 +127,31 @@ object LabelBand {
      * 3.5 m 안에서는 실제 폭 3~5 cm, 밖에서는 2~3화소로 일정했다. 깊이 없는 창은 [maxPx].
      */
     fun widthByDepth(depthMm: ShortArray, width: Int, height: Int, fx: Float, widthM: Float, minPx: Int, maxPx: Int): FloatArray {
+        val near = nearestDepthMm(depthMm, width, height, maxPx)
+        return FloatArray(width * height) { i ->
+            val m = near[i]
+            if (m == Int.MAX_VALUE) maxPx.toFloat() else (fx * widthM / (m / 1000f)).coerceIn(minPx.toFloat(), maxPx.toFloat())
+        }
+    }
+
+    /**
+     * 계단 띠 폭(M56, `frontend.bandNearM`·`bandFarPx`): 그 화소 둘레 [maxPx]화소 창 안의 가장 가까운 깊이가 [nearM]보다 가까우면 [maxPx], 아니면
+     * [farPx]. 근거: M56 0-5 막 전체 폭(라벨 경계 몫이 그 구간 바탕의 세션 부트스트랩 95% 구간에 드는 거리) — 0.5~1.5 m는 8화소 넘음(최대로 묶음),
+     * 1.5~5 m는 2~3화소. 깊이 없는 창은 [maxPx].
+     */
+    fun stepByDepth(depthMm: ShortArray, width: Int, height: Int, nearM: Float, farPx: Int, maxPx: Int): FloatArray {
+        val near = nearestDepthMm(depthMm, width, height, maxPx)
+        val nearMm = nearM * 1000f
+        return FloatArray(width * height) { i -> if (near[i] == Int.MAX_VALUE || near[i] < nearMm) maxPx.toFloat() else farPx.toFloat() }
+    }
+
+    /** 화소마다 둘레 (2·[radiusPx] + 1)² 창 안의 가장 가까운 깊이(mm, 0 = 없음은 건너뜀, 없으면 Int.MAX_VALUE). 가로 → 세로 분리 최소 필터. */
+    private fun nearestDepthMm(depthMm: ShortArray, width: Int, height: Int, radiusPx: Int): IntArray {
         val inf = Int.MAX_VALUE
-        // 가장 가까운 깊이: 가로 → 세로 분리 최소 필터(창 2·maxPx + 1, 0 = 없음)
         val row = IntArray(width * height) { inf }
         for (y in 0 until height) for (x in 0 until width) {
             var m = inf
-            for (dx in -maxPx..maxPx) {
+            for (dx in -radiusPx..radiusPx) {
                 val xx = x + dx
                 if (xx < 0 || xx >= width) continue
                 val v = depthMm[y * width + xx].toInt() and 0xFFFF
@@ -140,16 +159,16 @@ object LabelBand {
             }
             row[y * width + x] = m
         }
-        val out = FloatArray(width * height)
+        val out = IntArray(width * height)
         for (y in 0 until height) for (x in 0 until width) {
             var m = inf
-            for (dy in -maxPx..maxPx) {
+            for (dy in -radiusPx..radiusPx) {
                 val yy = y + dy
                 if (yy < 0 || yy >= height) continue
                 val v = row[yy * width + x]
                 if (v < m) m = v
             }
-            out[y * width + x] = if (m == inf) maxPx.toFloat() else (fx * widthM / (m / 1000f)).coerceIn(minPx.toFloat(), maxPx.toFloat())
+            out[y * width + x] = m
         }
         return out
     }
