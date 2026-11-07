@@ -54,6 +54,8 @@ class ViewerModel {
      * 하늘색 = 깊이 경계 화소(평활 4이웃 차 > n·σ). 그 시각 직전에 느린 경로가 처리한 깊이 장과 그 라벨 영상으로 계산한다(라벨을 쓰는 변형만).
      */
     var showBands = false
+    /** M56 칸 과반 라벨 색(칸 라벨 표를 켠 변형만). */
+    var showVoxelLabels = false
     /** 카메라 화면의 정답 상자를 RGB·포즈로 잰 바닥(`ReplayResult.rgbFloorAt`) 위에 놓는다. 꺼짐 = 재생의 깊이 바닥(정렬 바닥) 위(M26). */
     var truthOnRgbFloor = false
     /** 지금 쓰고 있는 평가의 시점 메모(타임라인에 표시). */
@@ -120,6 +122,12 @@ internal object Palette {
     /** M54 칸 역할 색. */
     val roleBuilding = Color(235, 140, 40)
     val roleFloorish = Color(225, 205, 60)
+    /** M56 칸 과반 라벨 색(라벨 화소 값 순: 라벨 없음·하늘·건물·나무·도로·보도·지면·구조물·물체·차량·사람·물). 과반 없음은 어두운 회색. */
+    val labels = arrayOf(
+        Color(200, 200, 200), Color(120, 180, 240), Color(235, 140, 40), Color(60, 170, 60), Color(150, 120, 90), Color(225, 205, 60),
+        Color(170, 150, 80), Color(160, 80, 200), Color(50, 110, 230), Color(0, 190, 190), Color(230, 40, 40), Color(40, 60, 160),
+    )
+    val noMajority = Color(90, 90, 90)
 
     fun heightOf(yM: Float): Color = Color.getHSBColor(0.66f * (1f - (yM / 2f).coerceIn(0f, 1f)), 0.9f, 1f)
     fun band(b: Band?): Color = when (b) {
@@ -519,7 +527,8 @@ class TopView(private val model: ViewerModel, private val compare: Boolean = fal
                     hearspace.core.mapping.VoxelRole.FLOORISH.ordinal -> Palette.roleFloorish
                     else -> null
                 }
-                g.color = c ?: rc ?: Color(b, b, b)
+                val lc = if (model.showVoxelLabels) slow.labels?.get(i)?.toInt()?.let { l -> Palette.labels.getOrNull(l) ?: Palette.noMajority } else null
+                g.color = lc ?: c ?: rc ?: Color(b, b, b)
                 g.fillRect(sx(p.x).toInt() - 1, sy(p.z).toInt() - 1, 3, 3)
             }
             if (model.showVoxels) {

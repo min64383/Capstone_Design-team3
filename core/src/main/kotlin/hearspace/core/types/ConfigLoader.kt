@@ -227,6 +227,7 @@ object ConfigLoader {
                     separateWalls = boolean("separateWalls"),
                     wallFraction = unit("wallFraction"),
                     coreEvidenceMultiplier = positive("coreEvidenceMultiplier"),
+                    sameLabelEpsM = nonNegative("sameLabelEpsM"),
                 )
             },
             geometry = root.section("geometry") {

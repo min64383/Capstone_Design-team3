@@ -145,7 +145,9 @@ class SlowPath(
                 val minCoreEvidence = config.map.occupiedEvidence * multiplier
                 BooleanArray(g.size) { i -> g[i].evidence >= minCoreEvidence }
             }
-            return Cluster.dbscanXZ(g.map { it.centerW }, config.cluster.epsM, config.cluster.minSamples, coreMask)
+            // M56 라벨 가중: 칸의 과반 라벨(칸 라벨 표를 끄면 모두 -1이라 지금과 같음)
+            val labels = if (config.cluster.sameLabelEpsM > config.cluster.epsM) IntArray(g.size) { g[it].label } else null
+            return Cluster.dbscanXZ(g.map { it.centerW }, config.cluster.epsM, config.cluster.minSamples, coreMask, labels, config.cluster.sameLabelEpsM)
                 .map { idx -> idx.map { g[it] } }
         }
         // C3b: 같은 물체 번호끼리(번호 없는 칸은 한 묶음) 묶고 그 안에서 떨어진 조각은 DBSCAN으로 나눈 뒤, 위에서 본 면적이 겹치는
@@ -270,7 +272,11 @@ class SlowPath(
             heightClass = { c -> HeightClassifier.classify(c.map { it.y - floorY }, config.cluster) },
             take = { lo, hi, since -> map.voxels.takeCells(lo, hi, since) },
             seed = { e -> map.voxels.seed(e.centerW, depth.tCaptureNs, e.weightedHits, e.score) },
-            clusterXZ = { c -> Cluster.dbscanXZ(c, config.cluster.epsM, config.cluster.minSamples, null).map { idx -> idx.map { c[it] } } },
+            clusterXZ = { c ->
+                // M56 라벨 가중: 이번 장 칸의 라벨은 같은 격자의 복셀 지도 칸에서 읽는다(움직이는 track 창 안은 지도에 없어 -1, M57)
+                val labels = if (config.cluster.sameLabelEpsM > config.cluster.epsM) IntArray(c.size) { map.voxels.labelAt(c[it]) } else null
+                Cluster.dbscanXZ(c, config.cluster.epsM, config.cluster.minSamples, null, labels, config.cluster.sameLabelEpsM).map { idx -> idx.map { c[it] } }
+            },
             voxelM = vs,
             inCorridor = corridor::contains,
             movingOracle = movingOracle,

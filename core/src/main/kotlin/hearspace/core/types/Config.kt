@@ -479,6 +479,11 @@ data class ClusterConfig(
     val wallFraction: Float,
     /** 1보다 크면 점유 문턱보다 이 배 이상 강한 복셀만 DBSCAN core로 확장하고 약한 복셀은 border로만 붙인다. */
     val coreEvidenceMultiplier: Float,
+    /**
+     * 같은 라벨 이웃 반경(M56 3.3절, m). [epsM]보다 크면 두 칸의 과반 라벨(`vision.voxelLabels`)이 같을 때(라벨 없음·과반 없음 제외) 이 거리까지
+     * 이웃으로 본다. 0 = 끔. 0.30 = 다른 두 물체 사이 같은 라벨 틈(실내 캐리어–종이 상자 0.32 m)보다 작은 가장 큰 5 cm 격자값(사용자 결정).
+     */
+    val sameLabelEpsM: Float = 0f,
 )
 
 /** Depth/복셀 기하만으로 실내 보행 형태를 분기하는 실험 모듈 설정. */

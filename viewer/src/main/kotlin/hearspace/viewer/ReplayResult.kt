@@ -84,6 +84,8 @@ class SlowRec(
     val geometry: hearspace.core.types.IndoorGeometryResult? = null,
     /** 점유 칸마다 라벨 역할([hearspace.core.mapping.VoxelRole] 순번, M54 `vision.voxelLabels`). 끄면 null. */
     val roles: ByteArray? = null,
+    /** 점유 칸마다 과반 라벨(라벨 화소 값, -1 = 과반 없음, M56). 칸 라벨 표를 끄면 null. */
+    val labels: ByteArray? = null,
 )
 
 /** [times](오름차순)에서 [t] 이하인 마지막 위치. 없으면 −1. 화면은 이것으로만 찾아 미래 값을 쓰지 않는다. */
@@ -301,7 +303,8 @@ object ReplayRunner {
                 v.forEachIndexed { i, vox -> xyz[3 * i] = vox.centerW.x; xyz[3 * i + 1] = vox.centerW.y; xyz[3 * i + 2] = vox.centerW.z }
                 val free = step.freeCentersW?.let { f -> FloatArray(f.size * 3).also { a -> f.forEachIndexed { i, c -> a[3 * i] = c.x; a[3 * i + 1] = c.y; a[3 * i + 2] = c.z } } }
                 val roles = if (v.any { it.role != hearspace.core.mapping.VoxelRole.NONE }) ByteArray(v.size) { v[it].role.ordinal.toByte() } else null
-                slow += SlowRec(step.doneNs, step.snapshot, xyz, step.applied, step.stageNs, step.mapUpdate.planes, step.mapUpdate.segments, step.depth, step.mapDepthMm, free, step.mapUpdate.geometry, roles)
+                val labels = if (roles != null) ByteArray(v.size) { v[it].label.toByte() } else null
+                slow += SlowRec(step.doneNs, step.snapshot, xyz, step.applied, step.stageNs, step.mapUpdate.planes, step.mapUpdate.segments, step.depth, step.mapDepthMm, free, step.mapUpdate.geometry, roles, labels)
             }
 
             override fun onBlock(tNs: Long, pose: PoseFrame, snapshot: ObstacleSnapshot?, g: GuidanceOutput) {
