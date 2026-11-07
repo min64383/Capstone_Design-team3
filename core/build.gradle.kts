@@ -127,3 +127,16 @@ tasks.register<JavaExec>("chestMountExperiment") {
     systemProperty("hearspace.defaultConfig", rootProject.file("app/src/main/assets/config/default.json").absolutePath)
     args(rootProject.file((project.findProperty("out") as String?) ?: "core/build/chest-mount-experiment").absolutePath)
 }
+
+// End-to-end core command evaluation with chest calibration; no audio/device scheduling.
+tasks.register<JavaExec>("chestGuidanceExperiment") {
+    group = "hearspace"
+    description = "Compare chest calibration through synthetic Depth, mapping, tracking and guidance"
+    dependsOn("testClasses")
+    classpath = sourceSets["test"].runtimeClasspath
+    mainClass.set("hearspace.core.synth.ChestGuidanceExperiment")
+    maxHeapSize = "2g"
+    systemProperty("hearspace.defaultConfig", rootProject.file("app/src/main/assets/config/default.json").absolutePath)
+    systemProperty("hearspace.runtimeOverride", rootProject.file("app/src/main/assets/config/risk-continuous.override.json").absolutePath)
+    args(rootProject.file((project.findProperty("out") as String?) ?: "core/build/chest-guidance-experiment").absolutePath)
+}
