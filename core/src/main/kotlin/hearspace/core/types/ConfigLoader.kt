@@ -3,7 +3,7 @@ package hearspace.core.types
 import hearspace.core.geometry.Vec3
 
 /**
- * JSON 텍스트 → [Config]. 모든 키가 반드시 있어야 하고, 모르는 키·타입 불일치·범위 위반은 [ConfigException].
+ * JSON 텍스트 → [Config]. 기본 키가 반드시 있어야 하고(chestMount 미지정은 이전 세션 호환을 위해 OFF), 모르는 키·타입 불일치·범위 위반은 [ConfigException].
  * 실험 패널의 덮어쓰기는 부분 JSON을 기본 JSON에 깊게 병합한 뒤 같은 규칙으로 다시 검증한다.
  */
 object ConfigLoader {
@@ -47,7 +47,10 @@ object ConfigLoader {
         val config = Config(
             head = root.section("head") { HeadConfig(offsetFromCameraM = vec3("offsetFromCameraM")) },
             heading = root.section("heading") {
-                HeadingConfig(windowS = positive("windowS"), minTravelM = nonNegative("minTravelM"), swayM = nonNegative("swayM"), cameraSigmaDeg = nonNegative("cameraSigmaDeg"))
+                HeadingConfig(windowS = positive("windowS"), minTravelM = nonNegative("minTravelM"), swayM = nonNegative("swayM"), cameraSigmaDeg = nonNegative("cameraSigmaDeg"),
+                    chestMount = nullableSection("chestMount") {
+                        ChestMountConfig(float("yawOffsetDeg"), vec3("headOffsetBodyM"), positive("minHorizontalNorm"))
+                    })
             },
             corridor = root.section("corridor") {
                 CorridorConfig(
@@ -382,6 +385,17 @@ object ConfigLoader {
 
     /** 여러 키에 걸친 일관성 검사. */
     private fun crossCheck(c: Config) {
+        c.heading.chestMount?.let { m ->
+            if (!m.yawOffsetDeg.isFinite() || kotlin.math.abs(m.yawOffsetDeg) > 180f)
+                throw ConfigException("heading.chestMount.yawOffsetDeg", "must be finite and in [-180, 180]")
+            if (!m.minHorizontalNorm.isFinite() || m.minHorizontalNorm > 1f)
+                throw ConfigException("heading.chestMount.minHorizontalNorm", "must be finite and in (0, 1]")
+            val p = m.headOffsetBodyM
+            if (!p.x.isFinite() || !p.y.isFinite() || !p.z.isFinite() || p.y <= 0f)
+                throw ConfigException("heading.chestMount.headOffsetBodyM", "must be finite; head must be above chest camera (y > 0)")
+            if (c.heading.cameraSigmaDeg > 0f)
+                throw ConfigException("heading.cameraSigmaDeg", "must be 0 with chestMount; choose one heading method")
+        }
         val p = c.policy
         val s = c.sonify
         if (s.minHistoryS > s.historyS) throw ConfigException("sonify", "minHistoryS must be <= historyS")
@@ -476,6 +490,12 @@ object ConfigLoader {
             val result = s.block()
             s.rejectUnknown()
             return result
+        }
+
+        /** Missing is also off, so old session base configurations remain readable. */
+        fun <T> nullableSection(key: String, block: Section.() -> T): T? {
+            if (key !in obj.fields || raw(key) == JsonNull) return null
+            return section(key, block)
         }
 
         fun rejectUnknown() {

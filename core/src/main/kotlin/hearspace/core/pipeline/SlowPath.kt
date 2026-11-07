@@ -93,7 +93,7 @@ class SlowPath(
     /** 깊이 한 장을 처리해 스냅샷을 만든다. */
     fun process(depth: DepthFrame, headingW: Vec3): ObstacleSnapshot {
         val t0 = nanoTime()
-        val userPosW = HeadPose.fromCamera(depth.worldFromCam.translation(), headingW, config.head.offsetFromCameraM).positionW
+        val userPosW = HeadPose.fromCamera(depth.worldFromCam.translation(), headingW, config.headOffsetFromCameraM).positionW
         val fm = fixedMap
         if (motion) map.excludeBoxes = tracker.movingGates(depth.tCaptureNs) // 움직이는 track의 창 안 점은 정지 지도에 넣지 않는다(지난 장 상태로)
         frameNo++

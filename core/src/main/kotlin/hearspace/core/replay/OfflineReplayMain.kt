@@ -36,7 +36,7 @@ fun main(args: Array<String>) {
     val sub = subArg?.split(',')?.map { it.trim() }?.filter { it.isNotEmpty() }?.toSet()?.let { on ->
         require(on.all { it in setOf("depth", "depthMasked", "map", "heading", "floor") }) { "substitute must be depth, depthMasked, map, heading, floor: $on" }
         val alignFrom = File(opts["alignFrom"]?.takeIf { it.isNotBlank() } ?: error("substitute needs alignFrom=<align.json>"))
-        val truth = GroundTruth.read(session, config.head.offsetFromCameraM) ?: error("substitute needs ${GroundTruth.FILE}")
+        val truth = GroundTruth.read(session, config.headOffsetFromCameraM) ?: error("substitute needs ${GroundTruth.FILE}")
         alignFrom to Substitution(
             truth, Alignment.read(alignFrom), depth = "depth" in on, map = "map" in on, heading = "heading" in on, floor = "floor" in on,
             depthMasked = "depthMasked" in on,

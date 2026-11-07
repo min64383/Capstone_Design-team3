@@ -728,3 +728,9 @@ New geometry configuration defaults (experimental heuristics, not validated oper
 | narrowConfidenceMin, openingConfidence | 0.55, 0.6 |
 
 Full semantics, log format, test scope and remaining recording requirements: `docs/INDOOR_GEOMETRY_EXPERIMENT.md`. ELEVATION here denotes the prototype geometry diagnostics, not a validated elevation-map solution. Existing SINGLE mapping, source, decompose and obstacle policy retain their meanings. Geometry's near-range limit does not truncate ordinary obstacle detection.
+
+### 가슴 고정 방향·위치 공동 보정 (2026-11-07, 실험 옵션)
+
+사용자가 승인한 가슴 하네스 회전 개선. `heading.chestMount=null`은 OFF(기존 이동/M42 규칙), 객체이면 `yawOffsetDeg`·`headOffsetBodyM`·`minHorizontalNorm`을 모두 요구한다. 장착 yaw는 카메라 수평 시선이 몸 정면보다 오른쪽이면 양수, 머리 오프셋은 카메라→머리의 몸 기준 오른쪽/월드 위/앞(m)이다. 기존 `head.offsetFromCameraM`은 OFF 기준선이며 가슴 모드의 모든 위치 계산·평가·표시에는 공통 실측 오프셋을 쓴다. M42 결합과 동시 선택하지 않는다. 옛 base 설정에 새 키가 없으면 OFF로 읽는다.
+
+똑바로 선 첫 유효 TRACKING 자세와 실측 상대 yaw로 카메라 로컬 몸 정면 벡터를 보정하고 이후 현재 자세로 옮긴다. 기준 수평 길이 미달 시 UNKNOWN과 기존 확인 불가 알림을 사용한다. 월드 RESET에서도 상대 장착 관계는 유지하되, 재장착은 새 실측/세션이 필요하다. 고개 독립 회전·몸 숙임·앵커 기준 지도 재정렬은 해결하지 않는다. 기본값은 OFF, 실측값은 자동 추정하지 않는다. 세부 입력·생성 도구·적용·검증 범위: [CHEST_MOUNT_CALIBRATION.md](CHEST_MOUNT_CALIBRATION.md).
