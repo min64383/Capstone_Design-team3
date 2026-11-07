@@ -778,6 +778,11 @@ data class VisionConfig(
     ),
     /** O 원시 점의 표 무게(`map.hitWeighting` CONFIDENCE일 때). M54 P는 1. 낮은 물체 STOP 요구에서 유도한다(설계 표 8). */
     val obstacleRawWeight: Float = 1f,
+    /**
+     * O에서 원시가 없는 장애물 라벨 화소(M56 설계 3.7절). NONE이면 장애물 라벨 평활 점을 모두 버린다(지도·빈 곳 감쇠·track 점, 맞음과 빈 곳이 같은
+     * 센서 모형에서 나오게). SMOOTHED = M55 O.
+     */
+    val obstacleFill: ObstacleFill = ObstacleFill.SMOOTHED,
     /** [movableDepth] RAW에서 쓰는 원시 점의 신뢰도 하한(M54 정답 비교: 사람 다리 1~29 틀림, 30~127 맞음). */
     val movableRawMinConfidence: Int = 30,
     /** 칸마다 라벨 표와 역할(M54). false = 기준선. */

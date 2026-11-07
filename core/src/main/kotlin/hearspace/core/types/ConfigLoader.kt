@@ -392,6 +392,7 @@ object ConfigLoader {
                     obstacleDepth = enumValue<MovableDepth>("obstacleDepth"),
                     obstacleLabels = enumList<SemanticLabel>("obstacleLabels").toSet(),
                     obstacleRawWeight = positive("obstacleRawWeight"),
+                    obstacleFill = enumValue<ObstacleFill>("obstacleFill"),
                     voxelLabels = boolean("voxelLabels"),
                     floorishLabels = enumList<SemanticLabel>("floorishLabels").toSet(),
                 )

@@ -173,9 +173,10 @@ class LabelMapTest {
      * SL-O(M55 ②-A 장애물 원천 O): 장애물 라벨(물체) 상자 3 m. 원시가 없는 상자(신뢰도 0)는 평활로 채우므로 O를 켜도 첫 STOP이 그대로다.
      * 원시가 있는 상자는 원시 점(10 Hz)으로 들어가 STOP이 나야 한다. 원시 점 표 무게가 정해지기 전이라 늦음은 보고만 한다(설계 표 8에서 유도).
      */
+    private val bandO = """ "frontend": { "labelBandPx": 6, "bandLabels": ["UNLABELED", "TREE", "STRUCTURE", "OBJECT", "VEHICLE", "PERSON"] }, "map": { "hitWeighting": "CONFIDENCE", "weightedMinHits": 5 } """
+
     @Test
     fun slObstacleRawFillsWithSmoothed() {
-        val bandO = """ "frontend": { "labelBandPx": 6, "bandLabels": ["UNLABELED", "TREE", "STRUCTURE", "OBJECT", "VEHICLE", "PERSON"] }, "map": { "hitWeighting": "CONFIDENCE", "weightedMinHits": 5 } """
         val withO = """$bandO, "vision": { "obstacleDepth": "RAW" } """
         val box = Box(Vec3(-0.225f, 0f, -3.45f), Vec3(0.225f, 0.8f, -3.0f))
         for (conf in listOf(0, 200)) {
@@ -186,6 +187,23 @@ class LabelMapTest {
             println("SL-O raw confidence $conf: first STOP B+W5 $s0, +O $s1")
             assertTrue(s0 != null && s1 != null, "STOP이 나야 한다")
             if (conf == 0) assertEquals(s0!!, s1!!, 0.01f, "원시가 없으면 평활로 채워 그대로")
+        }
+    }
+
+    /**
+     * SL-P(M56 설계 3.7절 P처럼 판, O + `vision.obstacleFill` NONE): 장애물 라벨 평활은 채우지 않는다. 원시가 없는 상자(신뢰도 0)는 지도에 들어가지 않아
+     * STOP이 없고(이 판의 위험 — 실제 물체는 0-6 사전 점검으로 확인), 원시가 있는 상자(신뢰도 200)는 원시 점만으로 STOP이 난다.
+     */
+    @Test
+    fun slObstacleNoFillDropsSmoothed() {
+        val noFill = """$bandO, "vision": { "obstacleDepth": "RAW", "obstacleFill": "NONE" } """
+        val box = Box(Vec3(-0.225f, 0f, -3.45f), Vec3(0.225f, 0.8f, -3.0f))
+        for (conf in listOf(0, 200)) {
+            val spec = SceneSpec("SL-P-$conf", Scene(listOf(floor, SceneItem("box", box, obstacle = true, expectedClass = HeightClass.FLOOR, semantic = SemanticLabel.OBJECT, rawConfidence = conf))),
+                walkTo(3f))
+            val s = firstAlong(spec, box, replay(spec, noFill), Band.STOP)
+            println("SL-P raw confidence $conf: first STOP $s")
+            if (conf == 0) assertTrue(s == null, "원시가 없으면 평활로 채우지 않아 STOP이 없다") else assertTrue(s != null, "원시 점만으로 STOP이 나야 한다")
         }
     }
 
