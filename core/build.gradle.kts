@@ -124,6 +124,7 @@ tasks.register<JavaExec>("chestGuidanceExperiment") {
     dependsOn("testClasses")
     classpath = sourceSets["test"].runtimeClasspath
     mainClass.set("hearspace.core.synth.ChestGuidanceExperiment")
+    systemProperty("hearspace.nearStopOverride", rootProject.file("app/src/main/assets/config/near-stop.experimental.override.json").absolutePath)
     maxHeapSize = "2g"
     systemProperty("hearspace.defaultConfig", rootProject.file("app/src/main/assets/config/default.json").absolutePath)
     systemProperty("hearspace.runtimeOverride", rootProject.file("app/src/main/assets/config/risk-continuous.override.json").absolutePath)

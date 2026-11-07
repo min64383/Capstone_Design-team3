@@ -230,6 +230,8 @@ data class Obstacle(
     /** 위치·속도 표준편차(공분산 대각 평균의 제곱근). 칼만이 없으면 NaN. */
     val positionSigmaM: Float = Float.NaN,
     val velocitySigmaMps: Float = Float.NaN,
+    /** Current-depth near STOP candidate; independent of persistent map occupancy/track identity. */
+    val earlyStop: Boolean = false,
 )
 
 /** 느린 경로의 출력. */
