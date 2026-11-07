@@ -29,7 +29,7 @@ class FastPath(
 
     private val heading = Heading(config.heading)
     private val stateMachine = StateMachine(config.state, config.policy.maxInfoAgeMs)
-    private val policy = Policy(config.policy, config.corridor.behindM)
+    private val policy = Policy(config.policy, config.corridor.behindM, config.corridor.widthM)
     private var lastTracked: PoseFrame? = null
     private var pendingMapAction = MapAction.NONE
     private var lastPoseTNs = Long.MIN_VALUE

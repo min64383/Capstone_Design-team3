@@ -571,6 +571,18 @@ data class PolicyConfig(
     val ttcStopS: Float = 1f,
     /** 움직이는 물체를 가깝게 보는 표준편차 배수(M48): 2 = 한쪽 97.7%. */
     val motionSigmaMultiple: Float = 2f,
+    /** null = OFF. Fresh near-field support can warn before accumulated map occupancy. */
+    val nearStop: NearStopConfig? = null,
+)
+
+data class NearStopConfig(
+    val minVoxels: Int,
+    val minHeightSpanM: Float,
+    val minLateralSpanM: Float,
+    val minAboveFloorM: Float,
+    val confirmFrames: Int,
+    val maxGapMs: Float,
+    val maxAgeMs: Float,
 )
 
 /** 안내 상태 기계 설정. */

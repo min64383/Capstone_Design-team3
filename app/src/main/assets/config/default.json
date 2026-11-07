@@ -206,7 +206,8 @@
     "maxInfoAgeMs": 500,
     "prioritizeStop": false,
     "ttcStopS": 1.0,
-    "motionSigmaMultiple": 2.0
+    "motionSigmaMultiple": 2.0,
+    "nearStop": null
   },
   "state": {
     "recoverFrames": 10,
