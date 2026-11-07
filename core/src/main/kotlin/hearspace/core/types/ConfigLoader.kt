@@ -228,6 +228,7 @@ object ConfigLoader {
                     wallFraction = unit("wallFraction"),
                     coreEvidenceMultiplier = positive("coreEvidenceMultiplier"),
                     sameLabelEpsM = nonNegative("sameLabelEpsM"),
+                    sameLabels = enumList<SemanticLabel>("sameLabels").toSet(),
                 )
             },
             geometry = root.section("geometry") {

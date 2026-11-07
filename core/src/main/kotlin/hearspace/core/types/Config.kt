@@ -484,6 +484,11 @@ data class ClusterConfig(
      * 이웃으로 본다. 0 = 끔. 0.30 = 다른 두 물체 사이 같은 라벨 틈(실내 캐리어–종이 상자 0.32 m)보다 작은 가장 큰 5 cm 격자값(사용자 결정).
      */
     val sameLabelEpsM: Float = 0f,
+    /**
+     * 같은 라벨 연결을 주는 라벨(M56, 사용자 결정): 셀 수 있는 물체 라벨(장애물 묶음에서 라벨 없음을 뺌). 보도·도로·지면·건물·하늘·물은 펼쳐진 면이라
+     * 같은 라벨이어도 한 물체라는 근거가 없다(모든 라벨에 주었더니 150159 바닥 결함의 보도 칸이 군집이 되어 실외 경고 6.66 s).
+     */
+    val sameLabels: Set<SemanticLabel> = setOf(SemanticLabel.TREE, SemanticLabel.STRUCTURE, SemanticLabel.OBJECT, SemanticLabel.VEHICLE, SemanticLabel.PERSON),
 )
 
 /** Depth/복셀 기하만으로 실내 보행 형태를 분기하는 실험 모듈 설정. */

@@ -146,7 +146,7 @@ class SlowPath(
                 BooleanArray(g.size) { i -> g[i].evidence >= minCoreEvidence }
             }
             // M56 라벨 가중: 칸의 과반 라벨(칸 라벨 표를 끄면 모두 -1이라 지금과 같음)
-            val labels = if (config.cluster.sameLabelEpsM > config.cluster.epsM) IntArray(g.size) { g[it].label } else null
+            val labels = if (config.cluster.sameLabelEpsM > config.cluster.epsM) IntArray(g.size) { linkLabel(g[it].label) } else null
             return Cluster.dbscanXZ(g.map { it.centerW }, config.cluster.epsM, config.cluster.minSamples, coreMask, labels, config.cluster.sameLabelEpsM)
                 .map { idx -> idx.map { g[it] } }
         }
@@ -232,6 +232,10 @@ class SlowPath(
         return ObstacleSnapshot(depth.tCaptureNs, obstacles, floorY, u.mapHealth)
     }
 
+    /** 같은 라벨 연결을 주는 라벨 화소 값(`cluster.sameLabels`). 나머지는 -1(연결 없음). */
+    private val linkPixels = config.cluster.sameLabels.map { it.pixel }.toSet()
+    private fun linkLabel(l: Int) = if (l in linkPixels) l else -1
+
     /** 이번 장의 정보를 추적에 넘길 꼴로(M48 정지·움직임 분해). */
     private fun motionFrame(depth: DepthFrame, corridor: Corridor, floorY: Float, camFromWorld: hearspace.core.geometry.Mat4): MotionFrame {
         val vs = config.map.voxelSizeM
@@ -274,7 +278,7 @@ class SlowPath(
             seed = { e -> map.voxels.seed(e.centerW, depth.tCaptureNs, e.weightedHits, e.score) },
             clusterXZ = { c ->
                 // M56 라벨 가중: 이번 장 칸의 라벨은 같은 격자의 복셀 지도 칸에서 읽는다(움직이는 track 창 안은 지도에 없어 -1, M57)
-                val labels = if (config.cluster.sameLabelEpsM > config.cluster.epsM) IntArray(c.size) { map.voxels.labelAt(c[it]) } else null
+                val labels = if (config.cluster.sameLabelEpsM > config.cluster.epsM) IntArray(c.size) { linkLabel(map.voxels.labelAt(c[it])) } else null
                 Cluster.dbscanXZ(c, config.cluster.epsM, config.cluster.minSamples, null, labels, config.cluster.sameLabelEpsM).map { idx -> idx.map { c[it] } }
             },
             voxelM = vs,

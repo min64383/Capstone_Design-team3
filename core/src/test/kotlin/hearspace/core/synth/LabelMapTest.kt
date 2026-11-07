@@ -225,7 +225,8 @@ class LabelMapTest {
     /**
      * SL-C(M56 3.3절 라벨 가중 군집): 2.8 m 앞 낮은 상자(0.6 m, 물체 라벨) 뒤에 높은 상자(1.2 m, 앞면 3.08 m). 앞 상자는 앞면 칸만 점유되어
      * 두 상자의 점유 칸 사이 수평 틈이 0.25 m(> ε)라
-     * 지금은 두 군집. 뒤 상자도 물체 라벨이면 칸 라벨 + ε같은 0.30 m로 한 군집, 구조물 라벨이면 켜도 두 군집. 서서 본 2 s 끝 장의 군집으로 본다.
+     * 지금은 두 군집. 뒤 상자도 물체 라벨이면 칸 라벨 + ε같은 0.30 m로 한 군집, 구조물 라벨이면 켜도 두 군집, 둘 다 보도 라벨이면(펼쳐진 면) 켜도
+     * 두 군집. 서서 본 2 s 끝 장의 군집으로 본다.
      */
     @Test
     fun slSameLabelLinksFragments() {
@@ -233,9 +234,9 @@ class LabelMapTest {
         val far = Box(Vec3(-0.2f, 0f, -3.35f), Vec3(0.2f, 1.2f, -3.08f))
         val lab = """ "frontend": { "labelBandPx": 6, "bandLabels": ["UNLABELED", "TREE", "STRUCTURE", "OBJECT", "VEHICLE", "PERSON"] }, "map": { "hitWeighting": "CONFIDENCE", "weightedMinHits": 5, "weightedFrameMinHits": 5 }, "vision": { "voxelLabels": true } """
         fun inBox(v: VoxelView, b: Box) = v.centerW.x in (b.min.x - 0.05f)..(b.max.x + 0.05f) && v.centerW.z in (b.min.z - 0.05f)..(b.max.z + 0.05f)
-        fun clusters(farLabel: SemanticLabel, extra: String): Int {
-            val spec = SceneSpec("SL-C-$farLabel", Scene(listOf(floor,
-                SceneItem("near", near, obstacle = true, expectedClass = HeightClass.FLOOR, semantic = SemanticLabel.OBJECT, rawConfidence = 200),
+        fun clusters(farLabel: SemanticLabel, extra: String, nearLabel: SemanticLabel = SemanticLabel.OBJECT): Int {
+            val spec = SceneSpec("SL-C-$nearLabel-$farLabel", Scene(listOf(floor,
+                SceneItem("near", near, obstacle = true, expectedClass = HeightClass.FLOOR, semantic = nearLabel, rawConfidence = 200),
                 SceneItem("far", far, obstacle = true, expectedClass = HeightClass.BODY, semantic = farLabel, rawConfidence = 200))), walkTo(2.8f))
             val step = replay(spec, extra).steps.last { tS(it.depth.tCaptureNs) <= 2.0f }
             return step.clusters.count { c -> c.any { inBox(it, near) } || c.any { inBox(it, far) } }
@@ -244,10 +245,12 @@ class LabelMapTest {
         val off = listOf(SemanticLabel.OBJECT, SemanticLabel.STRUCTURE).map { clusters(it, lab) }
         val sameOn = clusters(SemanticLabel.OBJECT, on)
         val diffOn = clusters(SemanticLabel.STRUCTURE, on)
-        println("SL-C clusters off $off, same label on $sameOn, different label on $diffOn")
+        val frameOn = clusters(SemanticLabel.SIDEWALK, on, SemanticLabel.SIDEWALK)
+        println("SL-C clusters off $off, same label on $sameOn, different label on $diffOn, both sidewalk on $frameOn")
         assertEquals(listOf(2, 2), off, "끄면 두 군집")
         assertEquals(1, sameOn, "같은 라벨은 한 군집")
         assertEquals(2, diffOn, "다른 라벨은 그대로 두 군집")
+        assertEquals(2, frameOn, "보도처럼 펼쳐진 면 라벨(cluster.sameLabels 밖)은 같은 라벨이어도 잇지 않음")
     }
 
     private val roles = """ "vision": { "voxelLabels": true }, "corridor": { "judge": "LABEL" } """
