@@ -9,6 +9,7 @@
      정답 정지 물체 0.8 m 밖이고, 사람이 오기 전(그 자리를 지나기 0.5 s 전까지)에는 그 자리에 출력이 없던 것 = 흔적.
      원인: (1) 평활 뒤처짐 = 가장 가까운 지나간 시각이 지금 − τ − 0.2 s 안, (2) 판정 전 쌓임 = 그 사람이 움직이는 track으로 판정되기 전에
      지나간 자리, 그 밖은 (3) 그 밖. 가려짐 = 지금 카메라에서 보아 그 자리가 사람 몸(반지름 radiusM) 뒤에 있음(지도가 깎지 못함).
+사람 표현(설계 표 7 ②): 정답 사람이 카메라 3 m 안인 장 중 사람 자리(0.8 m 안)에 출력이 둘 이상인 장.
 """
 from __future__ import annotations
 
@@ -23,6 +24,7 @@ import stage0 as S
 
 PERSON_ZONE_M = 0.8
 NEAR_M = 2.0
+MULTI_M = 3.0
 TAU_S = 0.345  # M52 평활 뒤처짐
 LOST_WINDOW_S = 0.5
 BEFORE_S = 0.5
@@ -34,7 +36,7 @@ def box_dist(x: float, z: float, b) -> float:
     return float(np.hypot(dx, dz))
 
 
-def analyze(run: Path) -> tuple[dict, list]:
+def analyze(run: Path) -> tuple[dict, list, list]:
     session, cfg = S.session_of(run), S.load_config(run)
     min_hits = cfg["map"]["minHits"]
     fr = S.load_frames(session)
@@ -51,6 +53,7 @@ def analyze(run: Path) -> tuple[dict, list]:
     times = np.sort(mo.tCaptureNs.unique()) if len(mo) else np.sort(ob.tCaptureNs.unique())
     gap = {}
     trails = []
+    multi = [0, 0]  # [3 m 안 장, 그중 출력 둘 이상]
     for oid, tr, rad in movers:
         # 그 사람이 움직이는 track으로 처음 판정된 시각(움직이는 track 위치가 정답 0.8 m 안)
         dec = None
@@ -71,6 +74,9 @@ def analyze(run: Path) -> tuple[dict, list]:
             hd = float(np.hypot(pos[0] - c.tx, pos[1] - c.tz))
             o_now = ob[ob.tCaptureNs == t_ns]
             m_now = mo[mo.tCaptureNs == t_ns]
+            if hd <= MULTI_M:
+                multi[0] += 1
+                multi[1] += sum(box_dist(pos[0], pos[1], b) <= PERSON_ZONE_M for b in o_now.itertuples()) >= 2
             # 0-4
             if hd <= NEAR_M:
                 hit = any(box_dist(pos[0], pos[1], b) <= PERSON_ZONE_M for b in o_now.itertuples())
@@ -114,14 +120,15 @@ def analyze(run: Path) -> tuple[dict, list]:
                 occl = db > hd and ang <= np.arctan2(rad, hd)
                 trails.append(dict(session=session.name, person=oid, t=t, gate=b.id, cause=cause, occluded=bool(occl),
                                    afterDecision=dec is not None and t >= dec, ageS=t - s_last))
-    return gap, trails
+    return gap, trails, multi
 
 
 def main(runs: list[Path]) -> None:
     allgap, alltr = {}, []
     for run in runs:
-        gap, tr = analyze(run)
+        gap, tr, multi = analyze(run)
         n = sum(gap.values())
+        print(f"{run.name}: 3 m 안 장 {multi[0]}, 출력 둘 이상 {multi[1]} ({multi[1] / max(multi[0], 1):.0%})")
         print(f"{run.name}: 2 m 안 장 {n}, " + ", ".join(f"{k} {v} ({v / n:.0%})" for k, v in sorted(gap.items())) if n else f"{run.name}: 2 m 안 장 없음")
         for k, v in gap.items():
             allgap[k] = allgap.get(k, 0) + v
