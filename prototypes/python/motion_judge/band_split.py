@@ -27,6 +27,8 @@ from motion_stats import _sem_k
 
 BAND_PX = 6
 MOVABLE = (9, 10)
+ROT_EDGES = [0.0, 5.0, 15.0, 30.0, 1e9]  # 깊이 장 회전 속도(°/s) 구간
+AGE_EDGES = [0.0, 50.0, 100.0, 1e9]  # 라벨 나이(깊이 촬영 − 라벨 촬영, ms) 구간
 NK = 2 * K_WIN + 2  # −K_WIN..K_WIN + 먼 곳
 
 
@@ -68,7 +70,11 @@ def measure(run: Path):
     tot = np.zeros((2, NK), np.int64)  # [깊이 경계 근처?, k 구간] 원시 있는 화소
     bad = np.zeros((2, NK), np.int64)
     box = np.zeros(3, np.int64)  # 정답 상자 안 평활 점: 전체, 지금 띠가 지움, 깊이 경계 조건이면 지움
+    nr, na = len(ROT_EDGES) - 1, len(AGE_EDGES) - 1
+    tot_ra = np.zeros((2, nr, na, NK), np.int64)  # [깊이 경계 근처?, 회전 구간, 라벨 나이 구간, k]
+    bad_ra = np.zeros_like(tot_ra)
     raw_file, seen, cache = None, set(), {}
+    prev_pose = None
 
     def pose_at(t_ns, upto):
         j = int(np.argmin(np.abs(ft[: upto + 1] - t_ns)))
@@ -88,6 +94,12 @@ def measure(run: Path):
         zs = S.load_depth_m(session / row.depthFile)
         kd = S.depth_k(meta, zs.shape[1], zs.shape[0])
         rs, cs = pose_at(t_d, i)
+        rot = np.nan
+        if prev_pose is not None:
+            rr_ = prev_pose[0].T @ rs
+            dt_ = (t_d - prev_pose[1]) / 1e9
+            rot = float(np.degrees(np.arccos(np.clip((np.trace(rr_) - 1) / 2, -1, 1))) / dt_) if dt_ > 0 else np.nan
+        prev_pose = (rs, t_d)
         near_img = depth_edge_near(zs, ss0, ss2, mult)
         v, u = np.nonzero(zs > 0)
         z = zs[v, u]
@@ -117,13 +129,56 @@ def measure(run: Path):
         g = nearp.astype(int)
         np.add.at(tot, (g[has], kb[has]), 1)
         np.add.at(bad, (g[isbad], kb[isbad]), 1)
+        if np.isfinite(rot):
+            rb = int(np.digitize(rot, ROT_EDGES) - 1)
+            ab = int(np.digitize((t_d - key) / 1e6, AGE_EDGES) - 1)
+            if 0 <= ab < na:
+                np.add.at(tot_ra[:, rb, ab], (g[has], kb[has]), 1)
+                np.add.at(bad_ra[:, rb, ab], (g[isbad], kb[isbad]), 1)
         for o in obs:
             x, y, zt = to_truth(al, p[:, 0], p[:, 1], p[:, 2])
             lo, hi = np.array(o["min"]), np.array(o["max"])
             inb = (x >= lo[0]) & (x <= hi[0]) & (y >= max(lo[1], 0.05)) & (y <= hi[1]) & (zt >= lo[2]) & (zt <= hi[2]) & okl
             band = inb & np.isfinite(kk) & (np.abs(kk) <= BAND_PX)
             box += (int(inb.sum()), int(band.sum()), int((band & nearp).sum()))
-    return dict(session=session.name, group=S.group_of(run), tot=tot, bad=bad, box=box)
+    return dict(session=session.name, group=S.group_of(run), tot=tot, bad=bad, box=box, tot_ra=tot_ra, bad_ra=bad_ra)
+
+
+def half_width(tot: np.ndarray, bad: np.ndarray):
+    """깊이 경계 근처 쪽(장애물 쪽 k ≤ 0)에서 초과 어긋남(그 묶음의 라벨 경계 먼 곳 대비)이 k = 0 값의 절반 아래로 처음 드는 |k|, 그리고 k = 0 초과."""
+    m = bad[1] / np.maximum(tot[1], 1)
+    base = m[-1]
+    ex0 = m[K_WIN] - base
+    if tot[1, K_WIN] < 200 or ex0 <= 0:
+        return None, None
+    for d in range(0, K_WIN + 1):
+        if m[K_WIN - d] - base < ex0 / 2:
+            return d, ex0
+    return K_WIN + 1, ex0
+
+
+def by_condition(res: list) -> None:
+    print("깊이 경계 근처의 라벨 경계 몫 반폭(화소, 장애물 쪽) — 세션별:")
+    for r in res:
+        w, ex = half_width(r["tot"], r["bad"])
+        print(f"  {r['session']} ({r['group']}): 반폭 {w}, k=0 초과 {ex if ex is None else round(float(ex), 2)}, k=0 표본 {int(r['tot'][1, K_WIN])}")
+    print("깊이 경계 아닌 라벨 경계(|k| ≤ 6)의 어긋남 대 그 세션 바탕(라벨 경계 먼 곳·깊이 경계 아님) — 세션별:")
+    for r in res:
+        t0, b0 = r["tot"][0], r["bad"][0]
+        sel = slice(K_WIN - BAND_PX, K_WIN + BAND_PX + 1)
+        if t0[sel].sum() < 200 or t0[-1] < 200:
+            print(f"  {r['session']} ({r['group']}): 표본 부족({int(t0[sel].sum())})")
+            continue
+        print(f"  {r['session']} ({r['group']}): 경계 띠 안 {b0[sel].sum() / t0[sel].sum():.3f} (n{int(t0[sel].sum())}) 대 바탕 {b0[-1] / t0[-1]:.3f}")
+    tr = sum(r["tot_ra"] for r in res)
+    br = sum(r["bad_ra"] for r in res)
+    print("회전 속도(°/s) × 라벨 나이(ms) 구간별 반폭(표본):")
+    for ri in range(len(ROT_EDGES) - 1):
+        cells = []
+        for ai in range(len(AGE_EDGES) - 1):
+            w, ex = half_width(tr[:, ri, ai], br[:, ri, ai])
+            cells.append(f"나이 {AGE_EDGES[ai]:g}~{AGE_EDGES[ai + 1]:g}: {w}(n{int(tr[1, ri, ai, K_WIN])})")
+        print(f"  회전 {ROT_EDGES[ri]:g}~{ROT_EDGES[ri + 1]:g}: " + ", ".join(cells))
 
 
 def main(runs: list[Path]) -> None:
@@ -163,4 +218,6 @@ def main(runs: list[Path]) -> None:
 
 
 if __name__ == "__main__":
-    main([Path(a) for a in sys.argv[1:]])
+    runs = [Path(a) for a in sys.argv[1:]]
+    res = [measure(r) for r in runs]
+    by_condition(res)

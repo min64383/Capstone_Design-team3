@@ -85,10 +85,47 @@ object LabelBand {
     }
 
     /**
-     * [depthMm]에서 띠 안 화소를 0으로 만든 복사본과 뺀 화소 수. 깊이 화소의 월드 점을 라벨 영상 촬영 시각의 자세로 투영해 그 라벨 화소의 거리를 본다
-     * (과거 값만, `vision.maxLabelAgeMs` 검사는 부르는 쪽이 한다). 영상 밖 화소는 그대로 둔다.
+     * 깊이 경계 근처(M56 설계 3.6절, `frontend.bandDepthEdgeSigmas`): 깊이 경계 화소 = 4이웃과의 깊이 차가 [sigmas]·σ(Z)(두 화소 중 작은 쪽,
+     * σ(Z) = [sigma0M] + [perM2]·Z², 하한 1 mm)를 넘는 화소. 그 화소에서 맨해튼 거리 [radiusPx] 안이면 true. 막(깊이 경계의 앞·뒤 사이 값 화소)은
+     * 깊이가 튀는 경계에만 생기므로(Sabov·Krüger 2008, M56 0-5: 깊이가 이어지는 라벨 경계의 어긋남은 바탕 수준) 띠를 이곳에만 둔다.
      */
-    fun apply(depthMm: ShortArray, depth: DepthFrame, f: Field): Pair<ShortArray, Int> {
+    fun depthEdgeNear(depthMm: ShortArray, width: Int, height: Int, sigmas: Float, sigma0M: Float, perM2: Float, radiusPx: Int): BooleanArray {
+        fun sig(mm: Int): Float {
+            val z = mm / 1000f
+            return sigmas * maxOf(sigma0M + perM2 * z * z, 0.001f)
+        }
+        var near = BooleanArray(width * height)
+        for (y in 0 until height) for (x in 0 until width) {
+            val i = y * width + x
+            val a = depthMm[i].toInt() and 0xFFFF
+            if (a == 0) continue
+            for (j in intArrayOf(if (x + 1 < width) i + 1 else -1, if (y + 1 < height) i + width else -1)) {
+                if (j < 0) continue
+                val b = depthMm[j].toInt() and 0xFFFF
+                if (b == 0) continue
+                if (kotlin.math.abs(a - b) / 1000f > minOf(sig(a), sig(b))) { near[i] = true; near[j] = true }
+            }
+        }
+        repeat(radiusPx) { // 4이웃 팽창
+            val n2 = near.copyOf()
+            for (y in 0 until height) for (x in 0 until width) {
+                val i = y * width + x
+                if (!near[i]) continue
+                if (x > 0) n2[i - 1] = true
+                if (x + 1 < width) n2[i + 1] = true
+                if (y > 0) n2[i - width] = true
+                if (y + 1 < height) n2[i + width] = true
+            }
+            near = n2
+        }
+        return near
+    }
+
+    /**
+     * [depthMm]에서 띠 안 화소를 0으로 만든 복사본과 뺀 화소 수. 깊이 화소의 월드 점을 라벨 영상 촬영 시각의 자세로 투영해 그 라벨 화소의 거리를 본다
+     * (과거 값만, `vision.maxLabelAgeMs` 검사는 부르는 쪽이 한다). 영상 밖 화소는 그대로 둔다. [edgeNear]가 있으면 그 화소가 true일 때만 뺀다(M56 깊이 경계 띠).
+     */
+    fun apply(depthMm: ShortArray, depth: DepthFrame, f: Field, edgeNear: BooleanArray? = null): Pair<ShortArray, Int> {
         val k = depth.K
         val out = depthMm.copyOf()
         var removed = 0
@@ -96,6 +133,7 @@ object LabelBand {
             val i = v * k.width + u
             val mm = depthMm[i].toInt() and 0xFFFF
             if (mm == 0) continue
+            if (edgeNear != null && !edgeNear[i]) continue
             val p = depth.worldFromCam.transformPoint(Projection.backproject(u.toFloat(), v.toFloat(), mm / 1000f, k))
             val j = f.image.indexAt(p)
             if (j < 0) continue

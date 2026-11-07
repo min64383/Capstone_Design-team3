@@ -133,6 +133,7 @@ object ConfigLoader {
                     rgbMarginMaxPx = atLeast1("rgbMarginMaxPx"),
                     segment = enumValue<SegmentMode>("segment"),
                     labelBandPx = intIn("labelBandPx", 0, 64),
+                    bandDepthEdgeSigmas = nonNegative("bandDepthEdgeSigmas"),
                     bandLabels = enumList<SemanticLabel>("bandLabels").toSet(),
                 )
             },

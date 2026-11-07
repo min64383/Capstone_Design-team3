@@ -750,7 +750,12 @@ class LocalMap(private val config: Config) {
         val labels = if (b > 0) freshLabels(depth) else null
         if (labels != null) {
             val field = bandField?.takeIf { it.image === labels } ?: hearspace.core.frontend.LabelBand.field(labels, depth.K.fx, b, bandObstacle).also { bandField = it }
-            val (banded, removed) = hearspace.core.frontend.LabelBand.apply(out, depth, field)
+            // M56 깊이 경계 띠: 이 평활 장의 깊이 경계 근처에서만 뺀다(0 = 끔)
+            val ns = config.frontend.bandDepthEdgeSigmas
+            val near = if (ns > 0f) hearspace.core.frontend.LabelBand.depthEdgeNear(
+                depth.depthMm, depth.K.width, depth.K.height, ns, config.depth.smoothedSigma0M, config.depth.smoothedSigmaPerM2, b,
+            ) else null
+            val (banded, removed) = hearspace.core.frontend.LabelBand.apply(out, depth, field, near)
             out = banded
             lastBandRemoved = removed
         }

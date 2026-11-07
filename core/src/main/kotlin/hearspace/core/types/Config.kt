@@ -253,6 +253,11 @@ data class FrontendConfig(
      * 상관없이 무효로 한다. 영역 안쪽은 영역 안쪽 반지름의 절반까지만. 프레임 라벨끼리의 경계는 보지 않는다. 0 = 끔(기준선). 값은 0단계 측정(b = 6).
      */
     val labelBandPx: Int = 0,
+    /**
+     * 깊이 경계 띠(M56): 0보다 크면 라벨 경계 띠를 깊이 경계 근처(평활 4이웃 차 > 이 배수 × σ_평활(Z) 화소에서 `labelBandPx` 안)에서만 둔다.
+     * 0 = 끔(라벨 경계 어디서나, M54). 2 = 프로젝트의 2σ 배수(M32·M33·M54).
+     */
+    val bandDepthEdgeSigmas: Float = 0f,
     /** 경계 띠의 장애물 역할 라벨(M54 기본: 라벨 없음·하늘·나무·구조물·물체·차량·사람·물). M55 O 조합은 하늘·물을 뺀다(사용자 결정). */
     val bandLabels: Set<SemanticLabel> = setOf(
         SemanticLabel.UNLABELED, SemanticLabel.SKY, SemanticLabel.TREE, SemanticLabel.STRUCTURE, SemanticLabel.OBJECT,
