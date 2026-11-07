@@ -253,6 +253,11 @@ data class FrontendConfig(
      * 상관없이 무효로 한다. 영역 안쪽은 영역 안쪽 반지름의 절반까지만. 프레임 라벨끼리의 경계는 보지 않는다. 0 = 끔(기준선). 값은 0단계 측정(b = 6).
      */
     val labelBandPx: Int = 0,
+    /** 경계 띠의 장애물 역할 라벨(M54 기본: 라벨 없음·하늘·나무·구조물·물체·차량·사람·물). M55 O 조합은 하늘·물을 뺀다(사용자 결정). */
+    val bandLabels: Set<SemanticLabel> = setOf(
+        SemanticLabel.UNLABELED, SemanticLabel.SKY, SemanticLabel.TREE, SemanticLabel.STRUCTURE, SemanticLabel.OBJECT,
+        SemanticLabel.VEHICLE, SemanticLabel.PERSON, SemanticLabel.WATER,
+    ),
 )
 
 /** 로컬 복셀 맵 설정. */
@@ -742,6 +747,18 @@ data class VisionConfig(
     val maxSpeedMps: Map<SemanticLabel, Float>,
     /** 지도에 넣는 움직일 수 있는 라벨 화소의 깊이 원천(M54, [MovableDepth]). SMOOTHED = 기준선. */
     val movableDepth: MovableDepth = MovableDepth.SMOOTHED,
+    /**
+     * 장애물 원천 O(M55 ②-A, 설계 3.6절). RAW면 [obstacleLabels] 화소는 새 원시 장마다 신뢰도 ≥ [movableRawMinConfidence]인 원시 점으로 지도에 넣고,
+     * 그 자리에 원시가 없는(신뢰도 미만) 평활 화소는 평활 점으로 채운다(W 무게). 빈 곳 감쇠와 track에 넘기는 점도 같은 깊이를 쓴다.
+     * [movableDepth]보다 앞선다. 사람·차량만 따로 다루지 않는다(사용자 결정).
+     */
+    val obstacleDepth: MovableDepth = MovableDepth.SMOOTHED,
+    /** O의 장애물 묶음(사용자 결정: 나무·구조물·물체·차량·사람·라벨 없음). 프레임(건물·도로·보도·지면)과 하늘·물은 평활. */
+    val obstacleLabels: Set<SemanticLabel> = setOf(
+        SemanticLabel.UNLABELED, SemanticLabel.TREE, SemanticLabel.STRUCTURE, SemanticLabel.OBJECT, SemanticLabel.VEHICLE, SemanticLabel.PERSON,
+    ),
+    /** O 원시 점의 표 무게(`map.hitWeighting` CONFIDENCE일 때). M54 P는 1. 낮은 물체 STOP 요구에서 유도한다(설계 표 8). */
+    val obstacleRawWeight: Float = 1f,
     /** [movableDepth] RAW에서 쓰는 원시 점의 신뢰도 하한(M54 정답 비교: 사람 다리 1~29 틀림, 30~127 맞음). */
     val movableRawMinConfidence: Int = 30,
     /** 칸마다 라벨 표와 역할(M54). false = 기준선. */

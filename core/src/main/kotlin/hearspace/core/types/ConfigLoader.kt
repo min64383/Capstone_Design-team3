@@ -133,6 +133,7 @@ object ConfigLoader {
                     rgbMarginMaxPx = atLeast1("rgbMarginMaxPx"),
                     segment = enumValue<SegmentMode>("segment"),
                     labelBandPx = intIn("labelBandPx", 0, 64),
+                    bandLabels = enumList<SemanticLabel>("bandLabels").toSet(),
                 )
             },
             map = root.section("map") {
@@ -383,6 +384,9 @@ object ConfigLoader {
                     }.toMap(),
                     movableDepth = enumValue<MovableDepth>("movableDepth"),
                     movableRawMinConfidence = intIn("movableRawMinConfidence", 1, 255),
+                    obstacleDepth = enumValue<MovableDepth>("obstacleDepth"),
+                    obstacleLabels = enumList<SemanticLabel>("obstacleLabels").toSet(),
+                    obstacleRawWeight = positive("obstacleRawWeight"),
                     voxelLabels = boolean("voxelLabels"),
                     floorishLabels = enumList<SemanticLabel>("floorishLabels").toSet(),
                 )

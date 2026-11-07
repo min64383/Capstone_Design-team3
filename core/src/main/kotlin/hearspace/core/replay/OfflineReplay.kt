@@ -139,6 +139,7 @@ class OfflineReplay(
 
         // M49: 라벨 판정이나 RAW_MASK 측정을 켜면 깊이 장마다 그 프레임까지 받은 의미 영상·원시 깊이를 붙인다
         val vision = if (config.vision.label == hearspace.core.types.VisionLabelSource.SEMANTICS || config.vision.movableDepth == hearspace.core.types.MovableDepth.RAW ||
+            config.vision.obstacleDepth == hearspace.core.types.MovableDepth.RAW ||
             config.frontend.labelBandPx > 0 || config.map.hitWeighting == hearspace.core.types.HitWeighting.CONFIDENCE ||
             config.floor.weighting == hearspace.core.types.FloorWeighting.CONFIDENCE || config.vision.voxelLabels ||
             config.track.measureFrom == hearspace.core.types.MeasureFrom.RAW_MASK || cellTraceOut != null ||
