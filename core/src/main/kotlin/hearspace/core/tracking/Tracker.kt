@@ -80,9 +80,38 @@ class Tracker(
     var lastMotionDebug: List<MotionDebug> = emptyList()
         private set
 
+    /** 마지막 [update]의 빈 곳 위반 기록(M57 `track.freeSpaceRecord`, `motion_evidence.csv`). 새 원시 장이 없던 장은 빈 목록. */
+    var lastEvidenceDebug: List<EvidenceDebug> = emptyList()
+        private set
+
     /** 시각 [tNs]의 움직이는 track 추적 창(정지 지도에 넣지 않을 점의 상자, M48). 지난 장의 상태로 정한다. */
     fun movingGates(tNs: Long): List<Pair<Vec3, Vec3>> =
-        tracks.mapNotNull { t -> t.motion?.takeIf { it.moving }?.let { gateOf(it, tNs) } }
+        tracks.mapNotNull { t -> t.motion?.takeIf { it.moving }?.let { lagGate(it, tNs) } }
+
+    /**
+     * 시각 [tNs]의 소유 창(M57 `track.motionMap` OWNED): 모든 track. 움직이는 track·후보는 추적 창(뒤쪽 [TrackConfig.gateLagS]·|v| 늘림), 지도 track은
+     * 짝지은 군집 상자 ± `track.matchRadiusM`. 지난 장의 상태로 정한다.
+     */
+    fun ownerGates(tNs: Long): List<hearspace.core.mapping.OwnerGate> = tracks.map { t ->
+        val m = t.motion
+        if (m != null && (m.moving || m.candidate)) {
+            val (lo, hi) = lagGate(m, tNs)
+            hearspace.core.mapping.OwnerGate(lo, hi, t.id, m.moving, m.origin() ?: ((lo + hi) * 0.5f))
+        } else {
+            val r = Vec3(cfg.matchRadiusM, cfg.matchRadiusM, cfg.matchRadiusM)
+            hearspace.core.mapping.OwnerGate(t.aabbMin - r, t.aabbMax + r, t.id, false, (t.aabbMin + t.aabbMax) * 0.5f)
+        }
+    }
+
+    /** 추적 창을 속도 반대쪽으로 [TrackConfig.gateLagS]·|v|만큼 늘린 상자(M57 규칙 2, 평활 깊이 뒤처짐). 0이면 [gateOf]와 같다. */
+    private fun lagGate(m: MotionState, tNs: Long): Pair<Vec3, Vec3> {
+        val (lo, hi) = gateOf(m, tNs)
+        val v = m.filter.velocityW
+        if (cfg.gateLagS <= 0f || v == null) return lo to hi
+        val d = v * (-cfg.gateLagS)
+        return Vec3(minOf(lo.x, lo.x + d.x), minOf(lo.y, lo.y + d.y), minOf(lo.z, lo.z + d.z)) to
+            Vec3(maxOf(hi.x, hi.x + d.x), maxOf(hi.y, hi.y + d.y), maxOf(hi.z, hi.z + d.z))
+    }
 
     /** 지워진 track(M22 R): id, 마지막 상자, 지워진 시각. */
     private class Lost(val id: Int, val aabbMin: Vec3, val aabbMax: Vec3, val tNs: Long)
@@ -138,6 +167,7 @@ class Tracker(
 
         val next = ArrayList<Track>()
         val out = ArrayList<Obstacle>()
+        val idOfDetection = IntArray(detections.size)
 
         // 현재 detection과 매칭된 track은 갱신하고, 새 detection은 tentative track으로 만든다.
         for ((di, d) in detections.withIndex()) {
@@ -181,6 +211,7 @@ class Tracker(
             }
 
             next += track
+            idOfDetection[di] = track.id
 
             // 연속 관측 횟수가 기준을 넘은(또는 이미 확인된) track만 실제 장애물로 출력한다.
             val required = if (track.suspicious) cfg.suspiciousConfirmObservations else cfg.minConfirmObservations
@@ -208,7 +239,18 @@ class Tracker(
             old.missedUpdates++
             old.consecutiveObservations = 0
             if (old.missedUpdates <= cfg.maxMissedUpdates) next += old
-            else if (cfg.reidLost && old.confirmed) lost += Lost(old.id, old.aabbMin, old.aabbMax, tNs)
+            else {
+                if (cfg.reidLost && old.confirmed) lost += Lost(old.id, old.aabbMin, old.aabbMax, tNs)
+                frame?.owned?.releaseOwner(old.id, tNs, null, null) // M57: 지워진 지도 track의 소유를 푼다
+            }
+        }
+        // M57: 지도가 넘겨받은 후보의 소유는 창 안 군집과 짝지은 track으로
+        frame?.owned?.let { owned ->
+            for (c in candidatesTaken) {
+                val (lo, hi) = gateOf(c.motion!!, tNs)
+                val di = detections.indices.firstOrNull { d -> inBox(detections[d].repCandidatesW.getValue(RepStrategy.CENTROID), lo, hi) }
+                if (di != null) owned.transferOwner(c.id, idOfDetection[di]) else owned.releaseOwner(c.id, tNs, null, null)
+            }
         }
 
         for (t in next) if (t.instanceId != 0) idOfInstance[t.instanceId] = t.id
@@ -224,6 +266,10 @@ class Tracker(
     private fun motionStep(f: MotionFrame, out: List<Obstacle>): List<Obstacle> {
         val mc = mapCfg ?: error("track.motion KALMAN needs MapConfig")
         val tNs = f.tNs
+        val owned = f.owned
+        val fsJudge = cfg.motionEvidence == hearspace.core.types.MotionEvidence.FREE_SPACE
+        // 물체 단위 점유 문턱(M57: 지도의 신뢰도 표 문턱과 같게)
+        val objMinHits = if (cfg.objectMinHits > 0f) cfg.objectMinHits else mc.minHits.toFloat()
         // 필터 시각(M52): 평활 깊이 뒤처짐만큼 앞당긴 측정 시각. 필터의 갱신·예측·창은 이 시각으로, 지도·출력·기록은 촬영 시각으로 한다
         val tf = tNs - f.measLagNs
         // 측정점 가중(M52 POINTS): 칸마다 이번 장 점 수
@@ -237,6 +283,7 @@ class Tracker(
         // 움직이는 track·후보의 측정 = 창에 걸린 군집 전체(창은 군집을 고르는 데만 쓴다). 창 안 칸만 쓰면 측정점이 창 쪽(예측 쪽)으로 끌려
         // 속도가 작게 나오고 창이 물체보다 점점 뒤처졌다(합성 SM-3: 1.0 m/s를 0.55~0.7 m/s로)
         val clustersAll by lazy { f.clusterXZ(f.allCells) }
+        val evidence = ArrayList<EvidenceDebug>()
         for (t in tracks) {
             val m = t.motion!!
             // 추적 창: 움직이는 track·후보는 측정 상자를 예측만큼 옮긴 것, 지도 track은 이번 지도 군집 상자(지도 앞면이 뒤처지므로 여유로 덮음)
@@ -247,6 +294,22 @@ class Tracker(
             val meas = if (m.moving || m.candidate) clustersAll.filter { cl -> cl.count { inBox(it, lo, hi) } >= minSamples }.flatten()
             else f.allCells.filter { inBox(it, lo, hi) }
             m.nMeasCells = meas.size
+            // M57 2단계: 창 안 원시 점의 빈 곳 위반을 센다(기록만, 판정은 그대로)
+            m.fsDecision = null
+            f.freeSpace?.let { fs ->
+                val pts = fs.points.filter { inBox(it, lo, hi) }
+                val c = fs.count(pts)
+                val lab = IntArray(12)
+                for (p in pts) fs.labelAt(p).let { if (it in 0..11) lab[it]++ }
+                if (fsJudge) m.fsDecision = freeSpaceStep(m, c, lab, fs.rotDegS, (tNs - m.birthNs) / 1e9f, f.movingPixels)
+                val own = IntArray(12)
+                if (m.moving) f.owned?.movingCells(t.id)?.forEach { p -> fs.labelAt(p).let { if (it in 0..11) own[it]++ } }
+                val zs = pts.map { (it - f.cameraW).norm() }.sorted()
+                evidence += EvidenceDebug(
+                    fs.tRawNs, tNs, t.id, m.candidate, m.moving, (tNs - m.birthNs) / 1e9f, pts.size, c[0], c[1],
+                    if (zs.isEmpty()) Float.NaN else zs[zs.size / 2], fs.rotDegS, lo, hi, lab, own,
+                )
+            }
             // 라벨 표(M49): 칼만 갱신 전 속도로 창 안 칸을 라벨 영상 시각까지 되돌려 센다
             if (f.labelVotes) labelEvidence(m, f, lo, hi, tNs, mc)
             // 칼만 측정 = 이번 장 창 안 칸의 중심점(가장 앞 칸 기준 대표점은 장마다 칸이 바뀌어 크게 뛴다, M48 값 재기). 예측에서 벗어난 측정은 버린다
@@ -254,7 +317,7 @@ class Tracker(
             val restarts = m.filter.restarts
             // RAW_MASK(M49): 움직이는 track·후보의 칼만은 새 원시 장의 마스크 점으로만, 원시 장 촬영 시각으로 갱신한다. 원시 장이 없는 장에는
             // 필터를 건드리지 않는다(평활 시각으로 예측해 두면 더 이른 원시 시각의 측정이 버려진다). 표·점수·창은 아래처럼 평활 칸으로 센다
-            if (rawMode) f.rawPoints?.let { rawMeasure(m, f, it, lo, hi) }
+            if (rawMode) f.rawPoints?.let { rawMeasure(m, f, it, lo, hi, t.id) }
             if (rep != null && !rawMode && !m.filter.update(tf, rep, f.sigmaAt(rep), cfg.validationChi2)) {
                 m.missed++
                 m.nMeasCells = -meas.size // 버린 측정(기록용 음수)
@@ -292,6 +355,8 @@ class Tracker(
             m.lastChi2 = m.filter.velocityChi2
             val isMoving = m.filter.ready && v != null && when {
                 f.movingOracle != null -> (if (meas.isEmpty()) null else f.movingOracle.invoke(tNs, meas)) ?: m.moving // 정답(라벨처럼): 모르면 지금 상태 유지
+                // M57 빈 곳 위반(라벨 길·기하 길): 새 원시 장이 없거나 보류면 지금 상태
+                fsJudge -> m.fsDecision ?: m.moving
                 // 라벨 표(M49): 지도의 점유 조건과 같이 표 ≥ minHits·점수 ≥ minScore면 참, 표가 있는데 점수가 0이면 거짓, 그 사이는 지금 상태
                 f.labelVotes -> when {
                     m.labelVotes >= mc.minHits && m.labelScore >= mc.minScore -> true
@@ -301,26 +366,32 @@ class Tracker(
                 else -> v.norm() > cfg.minMovingMps && m.lastChi2 > cfg.movingChi2
             }
             val origin = m.origin()
-            val occupied = m.occupied(mc.minHits, mc.minScore)
+            val occupied = m.occupied(objMinHits, mc.minScore)
             when {
                 !m.moving && isMoving && m.candidate -> if (occupied) {
                     // 후보 → 움직이는 track: 판정 전에 같은 점이 정지 지도에도 들어갔으므로 이 후보가 생긴 뒤 생긴 창 안 칸을 지도에서 뺀다
-                    f.take(lo, hi, m.birthNs)
+                    // (M57 OWNED: 칸을 빼지 않고 후보 번호의 소유를 새 번호로 넘겨 움직이는 칸으로 바꾼다)
+                    if (owned == null) f.take(lo, hi, m.birthNs)
                     m.moving = true
                     m.candidate = false
                     t.confirmed = true
+                    val old = t.id
                     t.id = nextId++
+                    owned?.transferOwner(old, t.id)
+                    owned?.claimOwned(t.id)
                 }
                 !m.moving && isMoving && origin != null -> {
                     // 지도 track → 움직이는 track: track이 생긴 뒤 생긴 창 안 칸(뒤처진 흔적)을 지도에서 뺀다(그 앞의 칸은 정지 물체일 수 있어 둔다).
                     // 표는 넘겨받지 않는다: 이번 장 측정으로 6표를 모아야 출력한다(그 사이 칼만 속도가 수렴한다. 넘겨받으면 막 시작한 필터의
                     // 큰 속도 불확실성 때문에 TTC 하한이 작아져 가로지르는 사람에게 STOP을 냈다, 합성 SM-3)
-                    f.take(lo, hi, m.birthNs)
+                    if (owned == null) f.take(lo, hi, m.birthNs) else owned.claimOwned(t.id)
                     m.moving = true
                 }
                 m.moving && !isMoving && m.filter.ready && origin != null -> {
                     // 섰다: 물체 모양(마지막 측정 칸)을 점유로 정지 지도에 넣는다. 다음 장부터 창 안 점도 지도로 간다
-                    if (m.occupied(mc.minHits, mc.minScore)) m.cellsAt(tNs).forEach { f.seed(hearspace.core.mapping.VoxelMap.CellEvidence(it, m.votes, m.score)) }
+                    val occ = m.occupied(objMinHits, mc.minScore)
+                    if (owned != null) owned.releaseOwner(t.id, tNs, m.votes.takeIf { occ }, m.score.takeIf { occ })
+                    else if (occ) m.cellsAt(tNs).forEach { f.seed(hearspace.core.mapping.VoxelMap.CellEvidence(it, m.votes, m.score)) }
                     t.motion = newMotion(m.birthNs, candidate = false).also { n ->
                         n.boxMin = m.boxMin
                         n.boxMax = m.boxMax
@@ -332,6 +403,11 @@ class Tracker(
                 }
             }
             val mm = t.motion!!
+            // M57 OWNED: 이번 장에 측정한 움직이는 track은 시선 그늘의 같은 라벨 칸을 가져오고(규칙 7), 맞지 않은 움직이는 칸을 지운다(규칙 3)
+            if (owned != null && mm.moving && mm.lastCellsNs == tNs) {
+                if (cfg.shadowDepthM > 0f) owned.claimShadow(t.id, f.cameraW, cfg.shadowDepthM)
+                owned.dropUnhitMoving(t.id)
+            }
             when {
                 mm.moving && mm.lastMeasNs != Long.MIN_VALUE && tNs - mm.lastMeasNs > (mc.maxUnseenS * 1e9).toLong() -> removed += t
                 // 시야 밖으로 나감: 물체는 시야 밖이라 점수를 깎지 않고(시야 밖 보존) 움직임 가설대로 예측해 옮긴다. 지도의 시야 밖 칸처럼
@@ -340,7 +416,8 @@ class Tracker(
                 mm.moving && mm.score <= 0f -> removed += t // 시야 안에서 빈 곳으로 보여 지워짐
                 mm.candidate && mm.missed > cfg.maxMissedUpdates -> removed += t
                 // 6표가 모였는데 정지: 정지 지도가 맡음. RAW_MASK는 칼만이 원시 장(10 Hz)으로만 차므로 준비 전에는 판정하지 않는다
-                mm.candidate && !isMoving && mm.occupied(mc.minHits, mc.minScore) &&
+                // M57 FREE_SPACE: 판정 전에 넘기지 않는다(새 판정은 창이 차야 함, M55 판정 전 넘김 빈틈). 정지 후보는 지도 군집이 창을 차지하면 넘겨받는다
+                !fsJudge && mm.candidate && !isMoving && mm.occupied(objMinHits, mc.minScore) &&
                     (cfg.measureFrom != MeasureFrom.RAW_MASK || mm.filter.ready) &&
                     // M55 ②: 라벨 판정 중(움직일 수 있는 라벨 증거가 있음)이면 넘기지 않고 기다린다(`track.holdLabelPending`)
                     !(cfg.holdLabelPending && f.labelVotes && (mm.labelScore > 0f || mm.nRawPoints >= minSamples)) -> removed += t
@@ -350,13 +427,26 @@ class Tracker(
         // 그다음 먼저 생긴 쪽을 남긴다. 번호로 나이를 재면 안 된다: 후보는 음수 번호라 오래된 움직이는 track을 지웠다(T 150159 track이 0.3~1 s마다 끊김)
         val live = tracks.filter { it !in removed && (it.motion!!.moving || it.motion!!.candidate) }
             .sortedWith(compareBy({ it.motion!!.candidate }, { it.motion!!.birthNs }))
+        val mergedInto = HashMap<Track, Track>()
         for ((i, a) in live.withIndex()) {
             if (a in removed) continue
             val pa = a.motion!!.origin() ?: continue
             for (b in live.subList(i + 1, live.size)) {
                 if (b in removed) continue
                 val pb = b.motion!!.origin() ?: continue
-                if ((pa - pb).horizontal().norm() <= cfg.matchRadiusM) removed += b
+                if ((pa - pb).horizontal().norm() <= cfg.matchRadiusM) {
+                    removed += b
+                    mergedInto[b] = a
+                }
+            }
+        }
+        // M57 OWNED: 합쳐진 track의 소유는 남는 쪽으로, 지워진 움직이는 track의 움직이는 칸은 지우고 후보의 소유는 푼다(규칙 6)
+        if (owned != null) for (r in removed) {
+            val into = mergedInto[r]
+            when {
+                into != null -> owned.transferOwner(r.id, into.id)
+                r.motion!!.moving -> owned.dropOwner(r.id)
+                else -> owned.releaseOwner(r.id, tNs, null, null)
             }
         }
         if (removed.isNotEmpty()) tracks = tracks.filter { it !in removed }
@@ -405,8 +495,14 @@ class Tracker(
         for (t in tracks) {
             val m = t.motion!!
             if (!m.moving) continue
-            if (!m.occupied(mc.minHits, mc.minScore)) continue
-            val occ = m.cellsAt(tNs).filter(f.inCorridor)
+            if (!m.occupied(objMinHits, mc.minScore)) continue
+            // M57 OWNED: 모양 = 복셀 지도의 그 track 움직이는 칸(마지막 측정)을 속도 × 경과만큼 옮긴 것(cellsAt과 같은 계산)
+            val shape = if (owned == null) m.cellsAt(tNs) else {
+                val v = m.filter.velocityW
+                val dt = ((tNs - m.lastCellsNs) / 1e9f).coerceAtLeast(0f)
+                owned.movingCells(t.id).let { c -> if (v == null || dt == 0f) c else c.map { it + v * dt } }
+            }
+            val occ = shape.filter(f.inCorridor)
             if (occ.isEmpty()) continue
             // 안내 대표점 = 칼만 위치(이번 장 가까운 면 점을 시간에 걸쳐 거른 값), 높이는 칸 중앙값. 한 장 칸의 가장 앞 칸은 잡음 한 칸에 당겨져
             // 가로지르는 사람에게 STOP을 냈다(합성 SM-3). 이번 장 칸은 통로 안인지·높이 분류·상자에만 쓴다
@@ -433,6 +529,27 @@ class Tracker(
                 velocitySigmaMps = m.filter.velocitySigmaMps,
             )
         }
+        // M57 판정 전 출력: 점유한 후보를 이번 측정 칸(통로 안)으로 속도 없이 낸다(거리 STOP만)
+        if (cfg.candidateOutput) for (t in tracks) {
+            val m = t.motion!!
+            if (!m.candidate || !m.occupied(objMinHits, mc.minScore) || m.lastCellsNs != tNs) continue
+            val occ = m.lastCells.filter(f.inCorridor)
+            if (occ.isEmpty()) continue
+            val reps = f.reps(occ) ?: continue
+            result += Obstacle(
+                id = t.id,
+                repPointW = reps.getValue(strategy),
+                repCandidatesW = reps,
+                aabbMinW = Vec3(occ.minOf { it.x }, occ.minOf { it.y }, occ.minOf { it.z }),
+                aabbMaxW = Vec3(occ.maxOf { it.x }, occ.maxOf { it.y }, occ.maxOf { it.z }),
+                heightClass = f.heightClass(occ) ?: HeightClass.BODY,
+                inCorridor = true,
+                confidence = 1f,
+                lastSeenNs = m.lastMeasNs,
+                nObservations = m.filter.nUpdates,
+            )
+        }
+        lastEvidenceDebug = evidence
         lastMotionDebug = tracks.map { t ->
             val m = t.motion!!
             // RAW_MASK의 움직이는 track·후보는 이번 장에 원시 측정을 넣었을 때만 측정점을 적고, 그 시각은 원시 장 촬영 시각이다
@@ -489,14 +606,19 @@ class Tracker(
      * RAW_MASK 측정(M49 설계 3.4절): 새 원시 장의 장애물 점 중 창 안이고 라벨이 움직일 수 있는 라벨인 점(원시 장 시각에서 라벨 영상 시각까지
      * 칼만 속도로 되돌려 투영)의 가까운 면 점으로 칼만을 원시 장 촬영 시각에 갱신한다. 점 하나 = 관측 하나. 라벨이 없거나 점이 적으면 측정 없음.
      */
-    private fun rawMeasure(m: MotionState, f: MotionFrame, points: List<Vec3>, lo: Vec3, hi: Vec3) {
+    private fun rawMeasure(m: MotionState, f: MotionFrame, points: List<Vec3>, lo: Vec3, hi: Vec3, id: Int) {
         val label = f.labels
-        if (label == null) {
+        if (label == null && cfg.measureLabels) {
             m.nRawPoints = 0
             return
         }
-        val shift = (m.filter.velocityW ?: Vec3.ZERO) * ((label.tCaptureNs - f.rawTNs) / 1e9f)
-        val labelled = points.mapNotNull { p -> if (inBox(p, lo, hi)) label.pixelAt(p + shift).takeIf { it in f.movingPixels }?.let { p to it } else null }
+        val shift = (m.filter.velocityW ?: Vec3.ZERO) * (((label?.tCaptureNs ?: f.rawTNs) - f.rawTNs) / 1e9f)
+        // M57 `track.measureLabels` false: 라벨로 거르지 않고, 그 track 소유가 아닌 정지 점유 칸(track보다 먼저 있던 배경)의 점만 뺀다
+        val labelled = if (cfg.measureLabels) {
+            points.mapNotNull { p -> if (inBox(p, lo, hi)) label!!.pixelAt(p + shift).takeIf { it in f.movingPixels }?.let { p to it } else null }
+        } else {
+            points.filter { p -> inBox(p, lo, hi) && f.owned?.staticOther(p, id) != true }.map { p -> p to (label?.pixelAt(p + shift) ?: -1) }
+        }
         val pts = labelled.map { it.first }
         m.nRawPoints = pts.size
         if (pts.size < minSamples) return
@@ -507,7 +629,7 @@ class Tracker(
             m.filterRaw = true
         }
         // 시작 게이트의 최대 속도 = 마스크 점의 다수 라벨 종류의 최대 속도(사람 2.5·차량 6.9 m/s, M49 측정 단계 결과 뒤 사용자 승인)
-        val major = labelled.groupingBy { it.second }.eachCount().maxByOrNull { it.value }!!.key
+        val major = labelled.groupingBy { it.second }.eachCount().maxByOrNull { it.value }!!.key // 라벨 없으면 −1 → initMaxSpeedMps
         val vmax = f.maxSpeedOfPixel[major] ?: cfg.initMaxSpeedMps
         if (m.filter.update(f.rawTNs, r, f.sigmaAt(r), cfg.validationChi2, maxSpeedMps = vmax)) {
             m.lastMeasW = r
@@ -517,6 +639,31 @@ class Tracker(
             m.boxMin = Vec3(pts.minOf { it.x }, pts.minOf { it.y }, pts.minOf { it.z })
             m.boxMax = Vec3(pts.maxOf { it.x }, pts.maxOf { it.y }, pts.maxOf { it.z })
             m.boxNs = f.rawTNs
+        }
+    }
+
+    /**
+     * 빈 곳 위반 판정 한 원시 장(M57 설계 3.4절, prototypes/python/motion_judge/judge2.py와 같은 규칙): 창(최근 [TrackConfig.freeSpaceWindow]장까지)에
+     * 넣고, 보류면 null. 라벨 길 = 창 칸 다수 라벨이 움직일 수 있는 라벨이고 S > 문턱, 기하 길 = 나이 ≥ T_수렴에서 S > 문턱이 이어진 장 수 ≥
+     * [TrackConfig.freeSpacePersistFrames], 정지 복귀 = S ≤ 문턱이 W장 이어짐. 그 밖은 지금 상태.
+     */
+    private fun freeSpaceStep(m: MotionState, c: IntArray, lab: IntArray, rotDegS: Float, ageS: Float, movingPixels: Set<Int>): Boolean? {
+        m.fsWin.addLast(FsRow(c[0], c[1], if (rotDegS.isNaN()) 0f else kotlin.math.abs(rotDegS), lab))
+        while (m.fsWin.size > cfg.freeSpaceWindow) m.fsWin.removeFirst()
+        val n = m.fsWin.sumOf { it.nCmp }
+        val held = n < cfg.freeSpaceMinCompared || m.fsWin.maxOf { it.rotDegS } > cfg.freeSpaceMaxRotDegS
+        val exceed = !held && m.fsWin.sumOf { it.nViol }.toFloat() / n > cfg.freeSpaceThreshold
+        m.fsRun = if (exceed && ageS >= cfg.freeSpaceConvergeS) m.fsRun + 1 else 0
+        if (held) return null
+        m.fsBelow = if (!exceed) m.fsBelow + 1 else 0
+        val labs = IntArray(12)
+        for (r in m.fsWin) for (i in 0 until 12) labs[i] += r.labels[i]
+        val major = labs.indices.maxBy { labs[it] }.takeIf { labs[it] > 0 } ?: -1
+        return when {
+            !m.moving && exceed && major in movingPixels -> true
+            !m.moving && m.fsRun >= cfg.freeSpacePersistFrames -> true
+            m.moving && m.fsBelow >= cfg.freeSpaceWindow -> false
+            else -> m.moving
         }
     }
 
@@ -534,6 +681,7 @@ class Tracker(
     fun reset() {
         tracks = emptyList()
         lastMotionDebug = emptyList()
+        lastEvidenceDebug = emptyList()
         idOfInstance.clear()
         lost.clear()
     }

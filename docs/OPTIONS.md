@@ -92,3 +92,7 @@
 - 2026-11-07 · M56 · `frontend.bandDepthEdgeSigmas`·`bandWidthM`·`bandNearM`(경계 띠 변형 셋) · B+W5 위, 계단 띠는 W 문턱을 같은 규칙으로 다시 유도, 늦음 = 첫 STOP 시각 차 × 걷는 속도(자세 튐 뺌) · 위 표 · 꺼진 옵션, 앞단은 고정 6 px + W5(사용자 결정)
 - 2026-11-08 · M56 · `vision.obstacleFill` NONE · B+W5 위, 원시 무게 1 · T 8.05 s·거짓 시작 6, 흔적 47 → 50 · 꺼진 옵션
 - 2026-11-08 · M56 · `vision.voxelLabels` + `cluster.sameLabelEpsM` 0.30 + `cluster.sameLabels` · B+W5 위(`map.weightedFrameMinHits` 5) · 위 표, 새 옵션을 끈 출력 바이트 같음 · M56 조합(뷰어 변형 39), M57 바탕
+- 2026-11-08 · M57 · `track.motionMap` OWNED + `gateLagS` 0.345 + `shadowDepthM` 2.93(복셀 지도 하나) · M56 조합 위, M49 라벨 판정·정답 판정 따로 · 150300 한 사람 갈림 8 → 0, 흔적 45 → 16(정답 판정 9), T 6.32 → 5.78 s·3, 안전·실내·O01 같음 · M57 조합에 넣음
+- 2026-11-08 · M57 · `track.motionEvidence` FREE_SPACE(빈 곳 위반 라벨 길·기하 길, 값 data/sweeps/m57/s2/judge2.json) · 한 지도 위(변형 j1) · 정지 거짓 판정 0(라벨 판정 1), 접근 150300 0.63 / 마감 0.54 s(라벨 판정 0.80)·150439 0.13 s(라벨 판정 판정 안 됨), 흔적 11, 2 m 안 빈 장 15 → 7%, T 5.81 s·3, 150338 1.79 m·TTC 2.04 s · M57 조합(뷰어 변형 41)
+- 2026-11-08 · M57 · `track.objectMinHits` 5 + `track.candidateOutput`(후보 문턱 지도와 같게·판정 전 출력) · j1 위(j2) · 실내 오경보 시작 26 → 34, T 5.81 → 6.55 s·거짓 시작 3 → 5, 150159 한 사람 갈림 1 → 22장, 2 m 안 빈 장 7 → 6% · 꺼진 옵션(채택 안 함)
+- 2026-11-08 · M57 · `track.measureLabels` false(측정 점 라벨 거름 대신 정지 칸 점 빼기) · j2 위(j3) · 정지 거짓 판정 0 → 1(150457), 150338 STOP 1.94 → 1.06 m, T 6.60 s·6 · 꺼진 옵션(채택 안 함)

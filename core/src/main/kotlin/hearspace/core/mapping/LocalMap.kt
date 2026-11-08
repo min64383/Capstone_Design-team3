@@ -67,6 +67,16 @@ class LocalMap(private val config: Config) {
      */
     var excludeBoxes: List<Pair<Vec3, Vec3>> = emptyList()
 
+    /**
+     * 복셀 지도 하나(M57 `track.motionMap` OWNED): 지난 장 track 창들. 이번 장에 새로 생긴 칸이 창 안이면 그 track 번호를 적는다(창이 겹치면 원점이
+     * 가까운 쪽). 움직이는 track 창이면 움직이는 칸. 빈 목록 = 소유 안 적음.
+     */
+    var ownerGates: List<OwnerGate> = emptyList()
+
+    /** 점 [p]를 담는 [ownerGates] 중 원점(수평)이 가장 가까운 창. */
+    private fun ownerOf(p: Vec3): OwnerGate? = ownerGates.filter { g -> p.x in g.lo.x..g.hi.x && p.y in g.lo.y..g.hi.y && p.z in g.lo.z..g.hi.z }
+        .minByOrNull { (it.originW - p).horizontal().norm() }
+
     /** true면 [update]가 이번 장의 장애물 점(바닥 위·반경 안, 지도에 넣었든 뺐든)과 관측 가중치를 [frameObstaclePoints]에 모은다(M48). */
     var collectFramePoints = false
 
@@ -208,10 +218,12 @@ class LocalMap(private val config: Config) {
                         nMovable++
                         continue
                     }
+                    val isNew = ownerGates.isNotEmpty() && !voxels.has(p)
                     voxels.insert(
                         p, depth.tCaptureNs, w, wallLabels?.get(i) == PlaneResult.WALL,
                         camW, floorY + config.floor.toleranceM,
                     )
+                    if (isNew) ownerOf(p)?.let { g -> voxels.own(p, g.id, g.moving) }
                     cellTrace?.insert(p, depth.tCaptureNs, w, config.depth.confidenceClass(confOf?.get(i) ?: 0))
                     noteInserted(p)
                     nInserted++
@@ -781,3 +793,6 @@ class LocalMap(private val config: Config) {
         val FLOORISH_PIXELS = setOf(4, 5, 6)
     }
 }
+
+/** 소유를 적는 track 창(M57): 월드 상자, track 번호, 움직이는 track인지, 원점(창이 겹칠 때 가까운 쪽). */
+class OwnerGate(val lo: Vec3, val hi: Vec3, val id: Int, val moving: Boolean, val originW: Vec3)

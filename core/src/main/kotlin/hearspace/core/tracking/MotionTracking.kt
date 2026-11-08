@@ -75,6 +75,10 @@ class MotionFrame(
     val rawVisible: ((Vec3) -> Boolean?)? = null,
     /** [rawVisible]이 쓰는 원시 장의 촬영 시각(속도 있는 track은 칸을 이 시각으로 옮겨 검사한다). */
     val rawLatestTNs: Long = Long.MIN_VALUE,
+    /** 복셀 지도 하나(M57 `track.motionMap` OWNED)의 지도. 있으면 take·seed·lastCells 대신 칸 소유로 움직이는 물체를 다룬다. null = 두 지도. */
+    val owned: VoxelMap? = null,
+    /** 이번 장에 새 원시 장이 있으면 빈 곳 위반 재료(M57 `track.freeSpaceRecord`). */
+    val freeSpace: FreeSpaceFrame? = null,
 )
 
 /**
@@ -162,7 +166,16 @@ class MotionState(
     /** 칼만이 원시 점만으로 쌓였는지(RAW_MASK). 아니면 첫 원시 측정 때 다시 시작한다. */
     var filterRaw = false
 
-    fun occupied(minHits: Int, minScore: Float) = votes >= minHits && score >= minScore
+    fun occupied(minHits: Float, minScore: Float) = votes >= minHits && score >= minScore
+
+    /** 빈 곳 위반 창(M57 FREE_SPACE): 최근 원시 장들의 (비교 수, 위반 수, |회전| °/s, 칸 라벨 수). */
+    val fsWin = ArrayDeque<FsRow>()
+    /** 나이 ≥ T_수렴에서 S > 문턱인 연속 원시 장 수(기하 길). */
+    var fsRun = 0
+    /** 보류 아닌 창에서 S ≤ 문턱인 연속 원시 장 수(정지 복귀). */
+    var fsBelow = 0
+    /** 이번 장의 판정(새 원시 장이 없거나 보류면 null = 지금 상태 유지). */
+    var fsDecision: Boolean? = null
 
     /** 시각 [tNs]의 물체 모양: 마지막 측정 칸을 속도 × 경과만큼 옮긴 것(측정한 장이면 그대로). */
     fun cellsAt(tNs: Long): List<Vec3> {
@@ -213,5 +226,8 @@ data class MotionDebug(
     /** 이번 장 원시 측정에서 고른 마스크 점 수(RAW_MASK, −1 = 원시 측정 없음). */
     val nRawPoints: Int = -1,
 )
+
+/** 빈 곳 위반 창의 한 원시 장(M57). */
+class FsRow(val nCmp: Int, val nViol: Int, val rotDegS: Float, val labels: IntArray)
 
 internal fun inBox(p: Vec3, lo: Vec3, hi: Vec3) = p.x in lo.x..hi.x && p.y in lo.y..hi.y && p.z in lo.z..hi.z

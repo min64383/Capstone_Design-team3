@@ -636,7 +636,67 @@ data class TrackConfig(
      * 있는 라벨 원시 점이 `cluster.minSamples` 이상인 후보는 넘기지 않고 라벨 판정을 기다린다(놓침·점수 규칙은 그대로).
      */
     val holdLabelPending: Boolean = false,
+    /**
+     * 움직이는 물체를 어디에 두는가(M57 설계 3.2절). EXCLUDE = 움직이는 track 창 안 점을 복셀 지도에 넣지 않고 track이 모양 칸을 따로 가짐(기준선,
+     * 두 지도). OWNED = 모든 점을 복셀 지도에 넣고, 지난 장 track 창 안에 새로 생긴 칸에 그 track 번호(소유)를 적는다. 움직이는 track이 소유한 칸은
+     * 움직이는 칸(칸 군집에서 빠짐, 그 track이 측정한 장에 맞지 않으면 지움)이고, 판정 순간 소유 칸 중 track 다수 라벨과 같거나 라벨 없는 칸이
+     * 움직이는 칸이 되며(take 대신), 멈추면 움직이는 칸이 물체 표로 보통 칸이 된다(seed 대신).
+     */
+    val motionMap: MotionMap = MotionMap.EXCLUDE,
+    /**
+     * 움직이는 track·후보 창을 속도 반대쪽으로 [gateLagS]·|v|만큼 늘린다(M57 설계 3.2절 규칙 2, 평활 깊이 뒤처짐 M52 0.345 s: 사람 뒤에 남는 평활 점이
+     * 창 밖에 떨어져 정지 칸이 됐다). 0 = 끔.
+     */
+    val gateLagS: Float = 0f,
+    /**
+     * 시선 그늘(M57 A-1, OWNED만): 움직이는 track마다 매 장 지금 카메라에서 본 그 track 뒤(움직이는 칸의 방위·높이 범위 안, 가까운 면(움직이는 칸 거리의 아래 사분위)에서
+     * 뒤로 [shadowDepthM]까지)의 칸 중 칸 라벨이 track 다수 라벨과 같은 칸을 그 track의 움직이는 칸으로 가져온다(깊이 수렴 전 시선 뒤 메아리). 0 = 끔.
+     */
+    val shadowDepthM: Float = 0f,
+    /** 빈 곳 위반을 track마다 새 원시 장마다 세어 `motion_evidence.csv`로 기록만 한다(M57 2단계 값 유도, 판정은 바꾸지 않음). */
+    val freeSpaceRecord: Boolean = false,
+    /** 빈 곳 위반에 쓰는 원시 화소 신뢰도 하한(지금 점·지난 화소 모두, M56 0-1). */
+    val freeSpaceMinConfidence: Int = 30,
+    /** 거리 구간 경계(m, 지금 원시 카메라 깊이): 구간 밖 점은 첫·끝 구간으로(M56 0-1 표). */
+    val freeSpaceZEdgesM: List<Float> = listOf(0.5f, 1.0f, 1.5f, 2.0f, 2.5f, 3.0f, 3.5f, 4.0f, 4.5f, 5.0f),
+    /** 구간마다 되돌아볼 장 수(× [freeSpaceFrameS]): L·Δ ≥ 여유 / v_min인 가장 작은 장 수, 위 끝 12(M57 표 4). */
+    val freeSpaceLagFrames: List<Int> = emptyList(),
+    /** 구간마다 위반 여유(m): 정지 원시끼리 깊이 차의 묶음별 97.7% 분위수 최댓값(M56 0-2 규칙). */
+    val freeSpaceMarginM: List<Float> = emptyList(),
+    /** 되돌아보기 한 장의 시간(s): 원시 깊이 간격(M56 0-1, 중앙값 0.1 s). */
+    val freeSpaceFrameS: Float = 0.1f,
+    /**
+     * 움직임 판정의 증거(M57 설계 3.4절). LABEL = track 라벨 표(M49, `vision.label` SEMANTICS일 때, 기준선). FREE_SPACE = 빈 곳 위반 창 S로:
+     * 라벨 길(창 칸 다수 라벨이 `vision.movingLabels`이고 S > [freeSpaceThreshold]) 또는 기하 길(나이 ≥ [freeSpaceConvergeS]이고 S > 문턱이
+     * [freeSpacePersistFrames] 원시 장 연속), 정지 복귀는 보류 아닌 창에서 S ≤ 문턱이 [freeSpaceWindow]장 연속. 창 비교 합 < [freeSpaceMinCompared]
+     * 이거나 창 안 회전 > [freeSpaceMaxRotDegS]면 판정을 미룬다.
+     */
+    val motionEvidence: MotionEvidence = MotionEvidence.LABEL,
+    /** 빈 곳 위반 창의 최대 원시 장 수 W(가장 빠듯한 접근 마감 안의 장 수, M57 2단계 5). */
+    val freeSpaceWindow: Int = 5,
+    /** 위반 비율 문턱 q_ref(나이 ≥ T_수렴 보류 아닌 정지 창 S의 99% 분위수, M57 2단계 0.112). */
+    val freeSpaceThreshold: Float = 1f,
+    /** 판정 보류 창 비교 합 하한 N_min(M57 2단계 50). */
+    val freeSpaceMinCompared: Int = 50,
+    /** 판정 보류 창 안 회전 상한 ω_max(°/s, M57 2단계 100). */
+    val freeSpaceMaxRotDegS: Float = 100f,
+    /** 새 면 수렴 시간 T_수렴(s): 기하 길은 track 나이가 이만큼 지난 뒤(M57 A-0·2단계 1.5). */
+    val freeSpaceConvergeS: Float = 1.5f,
+    /** 기하 길 이어짐 원시 장 수 K·W(정지 거짓 판정 ≤ 1/시간 요구, M57 2단계 30). */
+    val freeSpacePersistFrames: Int = 30,
+    /** 후보·움직이는 track의 물체 단위 점유 문턱(표). 0 = `map.minHits`(기준선). M57: `map.weightedMinHits`와 같게(0-4 문턱 불일치). */
+    val objectMinHits: Float = 0f,
+    /** 점유한 후보를 판정 전에도 속도 없이 낸다(M57 설계 3.5절). */
+    val candidateOutput: Boolean = false,
+    /** RAW_MASK 칼만 측정을 움직일 수 있는 라벨 원시 점으로만(기준선 true). false = 창 안 원시 점 중 그 track 소유가 아닌 정지 점유 칸의 점만 뺌(M57). */
+    val measureLabels: Boolean = true,
 )
+
+/** 움직임 판정의 증거(M57). */
+enum class MotionEvidence { LABEL, FREE_SPACE }
+
+/** 움직이는 물체를 두는 곳(M57). */
+enum class MotionMap { EXCLUDE, OWNED }
 
 /** 움직이는 track 칼만 측정의 원천(M49). */
 enum class MeasureFrom { CELLS, RAW_MASK }
