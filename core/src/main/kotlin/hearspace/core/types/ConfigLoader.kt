@@ -308,6 +308,9 @@ object ConfigLoader {
                     measureFrom = enumValue<MeasureFrom>("measureFrom"),
                     rawMinConfidence = intIn("rawMinConfidence", 0, 255),
                     holdLabelPending = boolean("holdLabelPending"),
+                    motionMap = enumValue<MotionMap>("motionMap"),
+                    gateLagS = nonNegative("gateLagS"),
+                    shadowDepthM = nonNegative("shadowDepthM"),
                 )
             },
             repPoint = root.section("repPoint") {

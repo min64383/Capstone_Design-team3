@@ -75,6 +75,8 @@ class MotionFrame(
     val rawVisible: ((Vec3) -> Boolean?)? = null,
     /** [rawVisible]이 쓰는 원시 장의 촬영 시각(속도 있는 track은 칸을 이 시각으로 옮겨 검사한다). */
     val rawLatestTNs: Long = Long.MIN_VALUE,
+    /** 복셀 지도 하나(M57 `track.motionMap` OWNED)의 지도. 있으면 take·seed·lastCells 대신 칸 소유로 움직이는 물체를 다룬다. null = 두 지도. */
+    val owned: VoxelMap? = null,
 )
 
 /**

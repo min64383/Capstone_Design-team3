@@ -445,4 +445,56 @@ class MovingObstacleTest {
     @Test fun `ORACLE SM-3`() { useOracle = true; `SM-3 KALMAN - a person crossing 2 m ahead is not a STOP and leaves no lingering warning`() }
     @Test fun `ORACLE SM-5`() { useOracle = true; `SM-5 KALMAN - a person crossing just in front of a box does not take the box cells`() }
     @Test fun `ORACLE SM-6`() { useOracle = true; `SM-6 KALMAN - a person who comes close and steps aside is stopped in time and leaves less lingering warning`() }
+
+    /** M57 복셀 지도 하나(OWNED) + 칸 라벨 + 창 뒤쪽 늘림(평활 뒤처짐 0.345 s) + 시선 그늘(2.93 m), 판정은 M49 라벨 표 그대로(1단계). */
+    private val m57 = """ "track": { "motion": "KALMAN", "measureWeight": "POINTS", "initMaxSpeedMps": 6.9, "measureFrom": "RAW_MASK",
+        "motionMap": "OWNED", "gateLagS": 0.345, "shadowDepthM": 2.93 }, "vision": { "label": "SEMANTICS", "voxelLabels": true } """
+
+    @Test fun `M57 OWNED SM-1`() { useLabels = true; kalman = m57; `SM-1 KALMAN - an oncoming person is stopped before 1 m with TTC at least 1 s`() }
+    @Test fun `M57 OWNED SM-2`() { useLabels = true; kalman = m57; `SM-2 KALMAN - user and person walk toward each other`() }
+    @Test fun `M57 OWNED SM-3`() { useLabels = true; kalman = m57; `SM-3 KALMAN - a person crossing 2 m ahead is not a STOP and leaves no lingering warning`() }
+    @Test fun `M57 OWNED SM-4`() { useLabels = true; kalman = m57; `SM-4 KALMAN - a static box is never judged moving and its first STOP is unchanged`() }
+    @Test fun `M57 OWNED SM-5`() { useLabels = true; kalman = m57; `SM-5 KALMAN - a person crossing just in front of a box does not take the box cells`() }
+    @Test fun `M57 OWNED SM-6`() { useLabels = true; kalman = m57; `SM-6 KALMAN - a person who comes close and steps aside is stopped in time and leaves less lingering warning`() }
+
+    /**
+     * SM-11(M57): 사람이 머리 앞 3.5 m에 2.5 s 서 있다가 1.0 m/s로 다가와 0.6 m에서 선다. 서 있던 자리의 칸은 다가오는 사람 몸에 가려 빈 곳 감쇠로
+     * 지워지지 않는다(T 150300 흔적과 같은 꼴). 통과(OWNED): 사람이 그 자리를 1.0 m 넘게 떠난 뒤 그 자리(상자까지 수평 0.5 m) 정지 출력 0 s, 접근 STOP·TTC 기준.
+     * 두 지도(M49 라벨)의 흔적 시간은 보고만 한다.
+     */
+    @Test
+    fun `M57 OWNED SM-11 - a person who stood then walks toward the user leaves no trail`() {
+        useLabels = true
+        val fails = ArrayList<String>()
+        for (n in listOf(Noise(), noisy)) {
+            val p = oncoming(1.0f, startAlongM = 3.5f, stopAlongM = 0.6f, startS = 2.5f)
+            val spec = SceneSpec("SM-11", Scene(listOf(floor, p)), Walk(standS = 1000f, durationS = 2.5f + 2.9f + 1.5f), n)
+            val c = p.shape as VerticalCylinder
+            val start = Vec3(c.cx, 0f, c.cz)
+            fun boxDist(o: hearspace.core.types.Obstacle): Float {
+                val dx = maxOf(o.aabbMinW.x - start.x, 0f, start.x - o.aabbMaxW.x)
+                val dz = maxOf(o.aabbMinW.z - start.z, 0f, start.z - o.aabbMaxW.z)
+                return kotlin.math.hypot(dx, dz)
+            }
+            fun trailS(bs: List<Block>): Float {
+                var s = 0f
+                for ((a, b) in bs.zipWithNext()) {
+                    if (p.offsetAt(tS(a.tNs)).horizontal().norm() <= 1.0f) continue
+                    val tr = a.snapshot?.obstacles?.filter { !it.moving && boxDist(it) <= 0.5f }.orEmpty()
+                    if (tr.isNotEmpty()) {
+                        s += (b.tNs - a.tNs) / 1e9f
+                        if (System.getenv("M57_DEBUG") != null) println("  trail t=${"%.2f".format(tS(a.tNs))} person=${p.offsetAt(tS(a.tNs)).z} " + tr.joinToString { "id${it.id} z ${"%.2f".format(it.aabbMinW.z)}..${"%.2f".format(it.aabbMaxW.z)} y ${"%.2f".format(it.aabbMinW.y)}..${"%.2f".format(it.aabbMaxW.y)} n${it.nObservations}" })
+                    }
+                }
+                return s
+            }
+            val off = replay(spec, m49)
+            val on = replay(spec, m57)
+            val a = approach(spec, p, on)
+            println("M57 SM-11 noise=${n.depthQuadK}: trail two maps ${trailS(off)} s, one map ${trailS(on)} s; one map stop ${a.stopAlongM} ttc ${a.ttcS}")
+            if (trailS(on) > 0f) fails += "s=${n.depthQuadK}: trail ${trailS(on)} s"
+            if (!approachOk(a)) fails += "s=${n.depthQuadK}: $a"
+        }
+        assertTrue(fails.isEmpty(), fails.joinToString("; "))
+    }
 }

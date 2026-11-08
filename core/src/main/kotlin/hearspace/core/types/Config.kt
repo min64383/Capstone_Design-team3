@@ -636,7 +636,27 @@ data class TrackConfig(
      * 있는 라벨 원시 점이 `cluster.minSamples` 이상인 후보는 넘기지 않고 라벨 판정을 기다린다(놓침·점수 규칙은 그대로).
      */
     val holdLabelPending: Boolean = false,
+    /**
+     * 움직이는 물체를 어디에 두는가(M57 설계 3.2절). EXCLUDE = 움직이는 track 창 안 점을 복셀 지도에 넣지 않고 track이 모양 칸을 따로 가짐(기준선,
+     * 두 지도). OWNED = 모든 점을 복셀 지도에 넣고, 지난 장 track 창 안에 새로 생긴 칸에 그 track 번호(소유)를 적는다. 움직이는 track이 소유한 칸은
+     * 움직이는 칸(칸 군집에서 빠짐, 그 track이 측정한 장에 맞지 않으면 지움)이고, 판정 순간 소유 칸 중 track 다수 라벨과 같거나 라벨 없는 칸이
+     * 움직이는 칸이 되며(take 대신), 멈추면 움직이는 칸이 물체 표로 보통 칸이 된다(seed 대신).
+     */
+    val motionMap: MotionMap = MotionMap.EXCLUDE,
+    /**
+     * 움직이는 track·후보 창을 속도 반대쪽으로 [gateLagS]·|v|만큼 늘린다(M57 설계 3.2절 규칙 2, 평활 깊이 뒤처짐 M52 0.345 s: 사람 뒤에 남는 평활 점이
+     * 창 밖에 떨어져 정지 칸이 됐다). 0 = 끔.
+     */
+    val gateLagS: Float = 0f,
+    /**
+     * 시선 그늘(M57 A-1, OWNED만): 움직이는 track마다 매 장 지금 카메라에서 본 그 track 뒤(움직이는 칸의 방위·높이 범위 안, 가까운 면(움직이는 칸 거리의 아래 사분위)에서
+     * 뒤로 [shadowDepthM]까지)의 칸 중 칸 라벨이 track 다수 라벨과 같은 칸을 그 track의 움직이는 칸으로 가져온다(깊이 수렴 전 시선 뒤 메아리). 0 = 끔.
+     */
+    val shadowDepthM: Float = 0f,
 )
+
+/** 움직이는 물체를 두는 곳(M57). */
+enum class MotionMap { EXCLUDE, OWNED }
 
 /** 움직이는 track 칼만 측정의 원천(M49). */
 enum class MeasureFrom { CELLS, RAW_MASK }

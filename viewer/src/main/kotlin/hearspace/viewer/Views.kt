@@ -128,6 +128,8 @@ internal object Palette {
         Color(170, 150, 80), Color(160, 80, 200), Color(50, 110, 230), Color(0, 190, 190), Color(230, 40, 40), Color(40, 60, 160),
     )
     val noMajority = Color(90, 90, 90)
+    /** M57 움직이는 칸. */
+    val movingCell = Color(230, 60, 230)
 
     fun heightOf(yM: Float): Color = Color.getHSBColor(0.66f * (1f - (yM / 2f).coerceIn(0f, 1f)), 0.9f, 1f)
     fun band(b: Band?): Color = when (b) {
@@ -530,6 +532,15 @@ class TopView(private val model: ViewerModel, private val compare: Boolean = fal
                 val lc = if (model.showVoxelLabels) slow.labels?.get(i)?.toInt()?.let { l -> Palette.labels.getOrNull(l) ?: Palette.noMajority } else null
                 g.color = lc ?: c ?: rc ?: Color(b, b, b)
                 g.fillRect(sx(p.x).toInt() - 1, sy(p.z).toInt() - 1, 3, 3)
+            }
+            // M57 복셀 지도 하나: 움직이는 칸(움직이는 track 소유)은 자홍
+            slow.movingW?.let { m ->
+                g.color = Palette.movingCell
+                for (i in 0 until m.size / 3) {
+                    val p = al.toTruth(Vec3(m[3 * i], m[3 * i + 1], m[3 * i + 2]))
+                    if (!model.voxelHeight.contains(p.y, r.config.corridor.heightM)) continue
+                    g.fillRect(sx(p.x).toInt() - 1, sy(p.z).toInt() - 1, 3, 3)
+                }
             }
             if (model.showVoxels) {
                 for ((p, erased) in r.missedAt(slow)) {

@@ -219,7 +219,10 @@
     "initGateSigmas": 3,
     "measureFrom": "CELLS",
     "rawMinConfidence": 1,
-    "holdLabelPending": false
+    "holdLabelPending": false,
+    "motionMap": "EXCLUDE",
+    "gateLagS": 0,
+    "shadowDepthM": 0
   },
   "repPoint": { "strategy": "CORRIDOR_BAND", "bandM": 0.20, "stableTies": false },
   "policy": {

@@ -62,6 +62,9 @@ class SlowPath(
     /** 움직이는 장애물(M48 정지·움직임 분해)을 켰는지. 고정 지도(정답 대입)에서는 쓰지 않는다. */
     private val motion = config.track.motion == MotionMode.KALMAN && fixedMap == null
 
+    /** 복셀 지도 하나(M57)를 켰는지. */
+    private val owned = motion && config.track.motionMap == hearspace.core.types.MotionMap.OWNED
+
     /** 처리한 깊이 장 수(물체 좌표 HITS의 "한 장에 한 번", M48). */
     private var frameNo = 0L
 
@@ -95,7 +98,10 @@ class SlowPath(
         val t0 = nanoTime()
         val userPosW = HeadPose.fromCamera(depth.worldFromCam.translation(), headingW, config.head.offsetFromCameraM).positionW
         val fm = fixedMap
-        if (motion) map.excludeBoxes = tracker.movingGates(depth.tCaptureNs) // 움직이는 track의 창 안 점은 정지 지도에 넣지 않는다(지난 장 상태로)
+        // 움직이는 track의 창 안 점은 정지 지도에 넣지 않는다(지난 장 상태로). M57 OWNED: 넣고 새 칸에 track 소유를 적는다
+        if (motion) {
+            if (owned) map.ownerGates = tracker.ownerGates(depth.tCaptureNs) else map.excludeBoxes = tracker.movingGates(depth.tCaptureNs)
+        }
         frameNo++
         val u = if (fm == null) map.update(depth, userPosW, headingW) else {
             MapUpdate(depth.tCaptureNs, 0, 0, 0, 0, 0, PruneCounts(0, 0, 0), fm.voxels.size, fm.floorY, MapHealth.OK)
@@ -299,6 +305,7 @@ class SlowPath(
             maxSpeedOfPixel = config.vision.maxSpeedMps.mapKeys { it.key.pixel },
             rawVisible = depth.raw?.takeIf { useLabels }?.let { r -> rawVisibility(r, tr.rawMinConfidence) },
             rawLatestTNs = depth.raw?.tCaptureNs ?: Long.MIN_VALUE,
+            owned = if (owned) map.voxels else null,
         )
     }
 
