@@ -50,6 +50,9 @@ class MovingObstacleTest {
     /** M49: 판정 단계를 합성 의미 영상의 라벨 표로(정답 대신). 세션에 의미 영상을 쓰고 원시 깊이를 10 Hz로 흉내 낸다. */
     private var useLabels = false
 
+    /** 원시 깊이에 평활 전 깊이를 따로 쓴다(M58 SM-14·15: 평활에서만 빠지는 사람). 끄면 원시 파일 = 평활 영상. */
+    private var realRaw = false
+
     /** 합성 의미 영상 간격(새 깊이 장 수). M55 시험은 기기 라벨 빈도(약 16 Hz)에 맞춰 2. */
     private var semEveryN = 1
     /** 모든 경우를 관문으로 판정한다(M48 결과 기준. 깊이 기하 판정 시험은 따로 `useOracle`로 보고만). */
@@ -60,8 +63,8 @@ class MovingObstacleTest {
         val g = spec.walk.gripOffsetM
         val sep = if (extra.isBlank()) "" else ", $extra"
         val overrides = """{ "head": { "offsetFromCameraM": [${g.x}, ${g.y}, ${g.z}] }$sep }"""
-        val dir = File(tmp, "${spec.id}_${extra.hashCode()}_${spec.noise.depthQuadK}_${useOracle}_$useLabels")
-        SyntheticSessionWriter.write(spec.generate(), File(dir, "session"), "SYN", rawEveryN = if (useLabels) 3 else 1, semantics = useLabels, semanticEveryN = semEveryN)
+        val dir = File(tmp, "${spec.id}_${extra.hashCode()}_${spec.noise.depthQuadK}_${useOracle}_${useLabels}_$realRaw")
+        SyntheticSessionWriter.write(spec.generate(), File(dir, "session"), "SYN", rawEveryN = if (useLabels) 3 else 1, semantics = useLabels, semanticEveryN = semEveryN, realRaw = realRaw)
         val out = ArrayList<Block>()
         val listener = object : ReplayListener {
             override fun onSlowStep(step: SlowStep) {
@@ -71,7 +74,7 @@ class MovingObstacleTest {
                 if (System.getenv("M48_TRACE") != null && spec.id == System.getenv("M48_TRACE") && extra.contains("KALMAN")) {
                     val t = tS(step.depth.tCaptureNs)
                     if (t in (System.getenv("M48_T0")?.toFloat() ?: 4.6f)..(System.getenv("M48_T1")?.toFloat() ?: 6.4f)) println("  trace t=${"%.2f".format(t)} " + step.motion.joinToString(" | ") { m ->
-                        "id${m.id}${if (m.candidate) "C" else ""}${if (m.moving) "M" else ""} sv=${"%.2f".format(m.velSigmaMps)} pos=${m.posW?.let { "%.2f,%.2f".format(it.x, it.z) }} v=${m.velW?.let { "%.2f,%.2f".format(it.x, it.z) }} meas=${m.nMeasCells} votes=${"%.1f".format(m.votes)}"
+                        "id${m.id}${if (m.candidate) "C" else ""}${if (m.moving) "M" else ""} sv=${"%.2f".format(m.velSigmaMps)} pos=${m.posW?.let { "%.2f,%.2f".format(it.x, it.z) }} v=${m.velW?.let { "%.2f,%.2f".format(it.x, it.z) }} meas=${m.nMeasCells} votes=${"%.2f".format(m.votes)} sc=${"%.2f".format(m.score)}"
                     } + " obs=" + step.snapshot.obstacles.joinToString { "${it.id}${if (it.moving) "M" else ""}@%.2f,%.2f".format(it.repPointW.x, it.repPointW.z) })
                 }
             }
@@ -453,6 +456,9 @@ class MovingObstacleTest {
     private val m57 = """ "track": { "motion": "KALMAN", "measureWeight": "POINTS", "initMaxSpeedMps": 6.9, "measureFrom": "RAW_MASK",
         "motionMap": "OWNED", "gateLagS": 0.345, "shadowDepthM": 2.93 }, "vision": { "label": "SEMANTICS", "voxelLabels": true } """
 
+    /** SM-11의 복셀 지도 하나 설정(M58이 바꿔 다시 돌림). */
+    private var oneMap = m57
+
     @Test fun `M57 OWNED SM-1`() { useLabels = true; kalman = m57; `SM-1 KALMAN - an oncoming person is stopped before 1 m with TTC at least 1 s`() }
     @Test fun `M57 OWNED SM-2`() { useLabels = true; kalman = m57; `SM-2 KALMAN - user and person walk toward each other`() }
     @Test fun `M57 OWNED SM-3`() { useLabels = true; kalman = m57; `SM-3 KALMAN - a person crossing 2 m ahead is not a STOP and leaves no lingering warning`() }
@@ -492,7 +498,7 @@ class MovingObstacleTest {
                 return s
             }
             val off = replay(spec, m49)
-            val on = replay(spec, m57)
+            val on = replay(spec, oneMap)
             val a = approach(spec, p, on)
             println("M57 SM-11 noise=${n.depthQuadK}: trail two maps ${trailS(off)} s, one map ${trailS(on)} s; one map stop ${a.stopAlongM} ttc ${a.ttcS}")
             if (trailS(on) > 0f) fails += "s=${n.depthQuadK}: trail ${trailS(on)} s"
@@ -508,6 +514,9 @@ class MovingObstacleTest {
         "freeSpaceWindow": 5, "freeSpaceThreshold": 0.112, "freeSpaceMinCompared": 50, "freeSpaceMaxRotDegS": 100, "freeSpaceConvergeS": 1.5,
         "freeSpacePersistFrames": 30, "objectMinHits": 5, "candidateOutput": true, "measureLabels": false },
         "vision": { "label": "SEMANTICS", "voxelLabels": true } """
+
+    /** SM-12·SM-13의 판정 설정(M58이 바꿔 다시 돌림). */
+    private var fsCfg = m57j
 
     @Test fun `M57 FREE_SPACE SM-1`() { useLabels = true; kalman = m57j; `SM-1 KALMAN - an oncoming person is stopped before 1 m with TTC at least 1 s`() }
     @Test fun `M57 FREE_SPACE SM-2`() { useLabels = true; kalman = m57j; `SM-2 KALMAN - user and person walk toward each other`() }
@@ -530,12 +539,8 @@ class MovingObstacleTest {
         useLabels = true
         val fails = ArrayList<String>()
         for (lab in listOf(hearspace.core.types.SemanticLabel.UNLABELED, hearspace.core.types.SemanticLabel.OBJECT)) {
-            val box = SceneItem(
-                "box", Box(Vec3(-0.25f, 0f, 0.3f - 4.8f - 0.5f), Vec3(0.25f, 1.0f, 0.3f - 4.8f)), obstacle = true, expectedClass = HeightClass.BODY,
-                motion = Motion(Vec3(0f, 0f, 0.5f), 1.0f, 9.0f), semantic = lab,
-            )
-            val spec = SceneSpec("SM-12-$lab", Scene(listOf(floor, backWall, box)), Walk(standS = 1000f, durationS = 10.0f), Noise())
-            val on = replay(spec, m57j)
+            val spec = sm12(lab)
+            val on = replay(spec, fsCfg)
             val off = replay(spec, m49)
             val firstMoving = on.firstOrNull { b -> b.snapshot?.obstacles?.any { it.moving } == true }?.let { tS(it.tNs) }
             val offMoving = off.count { b -> b.snapshot?.obstacles?.any { it.moving } == true }
@@ -543,6 +548,15 @@ class MovingObstacleTest {
             if (firstMoving == null || firstMoving > 9.0f) fails += "$lab: no moving output while moving"
         }
         assertTrue(fails.isEmpty(), fails.joinToString("; "))
+    }
+
+    /** SM-12 장면: 라벨 [lab] 상자(폭 0.5·높이 1.0 m)가 머리 앞 4.8 m에서 0.5 m/s로 8 s 다가온다(뒤 7 m에 벽). */
+    private fun sm12(lab: hearspace.core.types.SemanticLabel): SceneSpec {
+        val box = SceneItem(
+            "box", Box(Vec3(-0.25f, 0f, 0.3f - 4.8f - 0.5f), Vec3(0.25f, 1.0f, 0.3f - 4.8f)), obstacle = true, expectedClass = HeightClass.BODY,
+            motion = Motion(Vec3(0f, 0f, 0.5f), 1.0f, 9.0f), semantic = lab,
+        )
+        return SceneSpec("SM-12-$lab", Scene(listOf(floor, backWall, box)), Walk(standS = 1000f, durationS = 10.0f), Noise())
     }
 
     /** SM-13(M57): 사람 라벨 원기둥이 2.5 m 앞에 6 s 서 있다(뒤 벽). 통과: 움직이는 출력 없음(라벨 길도 S > 문턱이 필요). */
@@ -554,9 +568,131 @@ class MovingObstacleTest {
         val fails = ArrayList<String>()
         for (n in listOf(Noise(), noisy)) {
             val spec = SceneSpec("SM-13", Scene(listOf(floor, backWall, p)), Walk(standS = 1000f, durationS = 6.0f), n)
-            val moving = replay(spec, m57j).count { b -> b.snapshot?.obstacles?.any { it.moving } == true }
+            val moving = replay(spec, fsCfg).count { b -> b.snapshot?.obstacles?.any { it.moving } == true }
             println("M57 SM-13 noise=${n.depthQuadK}: moving blocks $moving")
             if (moving > 0) fails += "s=${n.depthQuadK}: $moving moving blocks"
+        }
+        assertTrue(fails.isEmpty(), fails.joinToString("; "))
+    }
+
+    /** M57 조합(뷰어 변형 41의 track·vision: 한 지도 + 빈 곳 위반 판정, 후보 문턱·판정 전 출력·측정 점 라벨 거름 없앰은 끔). */
+    private val m57c = """ "track": { "motion": "KALMAN", "measureWeight": "POINTS", "initMaxSpeedMps": 6.9, "measureFrom": "RAW_MASK",
+        "motionMap": "OWNED", "gateLagS": 0.345, "shadowDepthM": 2.93, "motionEvidence": "FREE_SPACE",
+        "freeSpaceLagFrames": [6, 6, 12, 12, 10, 12, 12, 12, 12], "freeSpaceMarginM": [0.1017, 0.0966, 0.4026, 0.4584, 0.1673, 0.2616, 0.4972, 0.4231, 0.5157],
+        "freeSpaceWindow": 5, "freeSpaceThreshold": 0.112, "freeSpaceMinCompared": 50, "freeSpaceMaxRotDegS": 100, "freeSpaceConvergeS": 1.5,
+        "freeSpacePersistFrames": 30 }, "vision": { "label": "SEMANTICS", "voxelLabels": true } """
+
+    /** M58: M57 조합 + 움직이는 track 존재 증거를 원시 장으로(`track.existFrom` RAW). */
+    private val m58 = m57c.replace("\"freeSpacePersistFrames\": 30 }", "\"freeSpacePersistFrames\": 30, \"existFrom\": \"RAW\" }")
+
+    @Test fun `M58 SM-1`() { useLabels = true; kalman = m58; `SM-1 KALMAN - an oncoming person is stopped before 1 m with TTC at least 1 s`() }
+    @Test fun `M58 SM-2`() { useLabels = true; kalman = m58; `SM-2 KALMAN - user and person walk toward each other`() }
+    @Test fun `M58 SM-3`() { useLabels = true; kalman = m58; `SM-3 KALMAN - a person crossing 2 m ahead is not a STOP and leaves no lingering warning`() }
+    @Test fun `M58 SM-4`() { useLabels = true; kalman = m58; `SM-4 KALMAN - a static box is never judged moving and its first STOP is unchanged`() }
+    @Test fun `M58 SM-5`() { useLabels = true; kalman = m58; `SM-5 KALMAN - a person crossing just in front of a box does not take the box cells`() }
+    @Test fun `M58 SM-6`() { useLabels = true; kalman = m58; `SM-6 KALMAN - a person who comes close and steps aside is stopped in time and leaves less lingering warning`() }
+    @Test fun `M58 SM-11`() { oneMap = m58; `M57 OWNED SM-11 - a person who stood then walks toward the user leaves no trail`() }
+    @Test fun `M58 SM-13`() { fsCfg = m58; `M57 FREE_SPACE SM-13 - a standing person stays static`() }
+    /**
+     * SM-12 라벨 한계(M58): 실제 M57 조합(꺼진 옵션 없이)으로는 라벨 없음·물체 라벨 상자가 끝까지 움직이는 출력이 되지 않는다(M57 3단계의 SM-12 통과는
+     * 측정 점 라벨 거름 없앰 등 꺼진 옵션을 켠 설정이었다). 통과: M58이 M57 조합과 같은 첫 움직이는 출력 시각(라벨 밖 물체에는 닿지 않음). 값은 보고만.
+     */
+    @Test
+    fun `M58 SM-12 - an unlabelled moving box is handled the same as the M57 combination`() {
+        useLabels = true
+        val fails = ArrayList<String>()
+        for (lab in listOf(hearspace.core.types.SemanticLabel.UNLABELED, hearspace.core.types.SemanticLabel.OBJECT)) {
+            val spec = sm12(lab)
+            val (a, b) = firstMovingS(replay(spec, m57c)) to firstMovingS(replay(spec, m58))
+            println("M58 SM-12 $lab: first moving output M57 combination $a s, M58 $b s (motion 1.0~9.0 s)")
+            if (a != b) fails += "$lab: $a vs $b"
+        }
+        assertTrue(fails.isEmpty(), fails.joinToString("; "))
+    }
+
+    /**
+     * 2 m 앞을 옆으로 0.6 m/s로 가로지르는 사람(SM-3 장면, 속도는 T 150457의 옆 속도 약 0.65 m/s에 맞춤: 1.0 m/s면 통로를 1.2 s 만에 지나 판정 뒤 남는
+     * 시간이 거의 없다). 1.5 s에 x −2.5 m에서 출발해 통로(옆 ±0.6 m)를 4.67~6.67 s에 지난다. [missing]이면 그 구간 평활 깊이에서만 빠지고, [removeAtS]면 그때 사라진다.
+     */
+    private fun crossing(missing: ClosedFloatingPointRange<Float>? = null, removeAtS: Float? = null): SceneItem {
+        val r = 0.2f
+        return SceneItem("person", VerticalCylinder(-2.5f, 0.3f - 2.0f - r, r, 0f, 1.7f), obstacle = true, expectedClass = HeightClass.BODY,
+            motion = Motion(Vec3(0.6f, 0f, 0f), 1.5f, 9.5f), smoothedMissingS = missing, removeAtS = removeAtS)
+    }
+
+    /** 사람 원기둥이 통로 폭(±0.4 m) 안에 걸치는지(머리 기준 옆 거리). */
+    private fun inCorridor(spec: SceneSpec, p: SceneItem, t: Float) = abs(truth(spec, p, t).second) - (p.shape as VerticalCylinder).radiusM <= 0.4f
+
+    /** 움직이는 출력의 대표점이 사람 중심 0.5 m 안인지(수평). */
+    private fun nearPerson(p: SceneItem, o: hearspace.core.types.Obstacle, t: Float): Boolean {
+        val c = p.shape as VerticalCylinder
+        val ctr = Vec3(c.cx, 0f, c.cz) + p.offsetAt(t)
+        return (o.repPointW - ctr).horizontal().norm() <= 0.5f
+    }
+
+    /** 첫 움직이는 출력 시각(s). */
+    private fun firstMovingS(bs: List<Block>) = bs.firstOrNull { b -> b.snapshot?.obstacles?.any { it.moving } == true }?.let { tS(it.tNs) }
+
+    /**
+     * SM-14(M58): 가로지르는 사람(0.6 m/s)이 움직인다고 판정된 뒤 통로를 지나는 동안(5.7~6.7 s) 평활 깊이에서만 빠진다(T 150457: 평활이 옆으로
+     * 걷는 사람을 지움, 원시는 봄; 원시 깊이는 평활 전 깊이를 따로 씀, 뒤 7 m에 벽: 평활이 그 자리를 빈 곳으로 봄). 통과: SM-3 기준(STOP 없음, 정답
+     * 없는 경고가 끈 판보다 0.05 s 넘게 늘지 않음) + 빠진 동안 통로 안 블록의 90% 이상에 사람 0.5 m 안 움직이는 출력. M57 조합은 보고만.
+     */
+    @Test
+    fun `M58 SM-14 - a crossing person lost only by smoothed depth keeps a moving output`() {
+        useLabels = true
+        realRaw = true
+        val miss = 5.7f..6.7f
+        val fails = ArrayList<String>()
+        for (n in listOf(Noise(), noisy)) {
+            val p = crossing(miss)
+            val spec = SceneSpec("SM-14", Scene(listOf(floor, backWall, p)), Walk(standS = 1000f, durationS = 9.0f), n)
+            val off = replay(spec)
+            fun kept(bs: List<Block>): Pair<Int, Int> {
+                val inMiss = bs.filter { val t = tS(it.tNs); t in miss && inCorridor(spec, p, t) }
+                return inMiss.count { b -> b.snapshot?.obstacles?.any { it.moving && nearPerson(p, it, tS(b.tNs)) } == true } to inMiss.size
+            }
+            for ((name, cfg) in listOf("M57" to m57c, "M58" to m58)) {
+                val on = replay(spec, cfg)
+                val (k, all) = kept(on)
+                val anyMoving = on.count { b -> val t = tS(b.tNs); t in miss && inCorridor(spec, p, t) && b.snapshot?.obstacles?.any { it.moving } == true }
+                val stops = on.count(::stopped)
+                val (u1, u0) = unexplainedWarnS(spec, p, on) to unexplainedWarnS(spec, p, off)
+                println("SM-14 $name noise=${n.depthQuadK}: first moving ${firstMovingS(on)} s, moving output near person in miss $k/$all (any moving $anyMoving), STOP blocks $stops, unexplained $u1 vs off $u0 s")
+                if (name == "M58") {
+                    val first = firstMovingS(on)
+                    if (first == null || first >= miss.start) fails += "s=${n.depthQuadK}: judged at $first s, not before ${miss.start} s (test invalid)"
+                    if (all == 0 || k < 0.9f * all) fails += "s=${n.depthQuadK}: moving output $k/$all"
+                    if (stops > 0 || u1 > u0 + 0.05f) fails += "s=${n.depthQuadK}: stops $stops, unexplained $u1 vs $u0"
+                }
+            }
+        }
+        assertTrue(fails.isEmpty(), fails.joinToString("; "))
+    }
+
+    /**
+     * SM-15(M58): 가로지르는 사람(0.6 m/s)이 통로 한가운데를 지난 5.8 s에 사라진다(뒤 7 m에 벽: 그 자리가 빈 곳으로 보임. 벽이 없으면 몸통 높이 화소 뒤
+     * 바닥이 깊이 범위 8 m 밖이라 빈 곳 검사가 걸리지 않는다). 통과: 사라진 뒤 0.5 s 안에 움직이는 출력이 없어짐(점수 1.0에서 원시 장
+     * 4장 × 0.1 s + 원시 간격 0.1 s, 설계 3.1절). M57 조합은 보고만.
+     */
+    @Test
+    fun `M58 SM-15 - a person who vanishes mid-corridor is dropped within half a second`() {
+        useLabels = true
+        realRaw = true
+        val gone = 5.8f
+        val fails = ArrayList<String>()
+        for (n in listOf(Noise(), noisy)) {
+            val p = crossing(removeAtS = gone)
+            val spec = SceneSpec("SM-15", Scene(listOf(floor, backWall, p)), Walk(standS = 1000f, durationS = 8.0f), n)
+            for ((name, cfg) in listOf("M57" to m57c, "M58" to m58)) {
+                val on = replay(spec, cfg)
+                val last = on.lastOrNull { b -> b.snapshot?.obstacles?.any { it.moving } == true }?.let { tS(it.tNs) }
+                println("SM-15 $name noise=${n.depthQuadK}: first moving ${firstMovingS(on)} s, last moving $last s (gone $gone s)")
+                if (name == "M58") {
+                    if (firstMovingS(on)?.let { it < gone } != true) fails += "s=${n.depthQuadK}: not judged moving before $gone s (test invalid)"
+                    if (last != null && last > gone + 0.5f) fails += "s=${n.depthQuadK}: moving output until $last s"
+                }
+            }
         }
         assertTrue(fails.isEmpty(), fails.joinToString("; "))
     }

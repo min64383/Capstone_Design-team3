@@ -161,6 +161,8 @@ data class SceneItem(
     val rawConfidence: Int = 255,
     /** 카메라 깊이가 이보다 먼 이 요소의 화소는 원시 없음(M54 SL-5: 먼 바닥). */
     val rawMissingBeyondM: Float = Float.POSITIVE_INFINITY,
+    /** 이 시각 구간(s)에는 평활 깊이에서만 이 요소를 빼고 뒤 면을 그린다(원시·영상·라벨은 그대로, M58 SM-14: 평활이 옆으로 걷는 사람을 지움). */
+    val smoothedMissingS: ClosedFloatingPointRange<Float>? = null,
 ) {
     /** 합성 의미 영상의 화소 값. */
     val semanticPixel: Int
@@ -195,10 +197,10 @@ data class Motion(val velocityW: Vec3, val startS: Float = 0f, val stopS: Float 
 /** 장면: 도형 목록. */
 data class Scene(val items: List<SceneItem>) {
     /** 시각 [tS]에 광선의 가장 가까운 교차(t, 요소). */
-    fun raycast(o: Vec3, d: Vec3, tS: Float): Pair<Float, SceneItem>? {
+    fun raycast(o: Vec3, d: Vec3, tS: Float, skip: SceneItem? = null): Pair<Float, SceneItem>? {
         var best: Pair<Float, SceneItem>? = null
         for (it in items) {
-            if (!it.presentAt(tS)) continue
+            if (!it.presentAt(tS) || it === skip) continue
             val t = it.shape.intersect(o - it.offsetAt(tS), d) ?: continue
             if (best == null || t < best.first) best = t to it
         }
@@ -496,6 +498,12 @@ object SyntheticGenerator {
                 rawConf[i] = hit.second.rawConfidence.toByte()
             } else if (noise.noRawSmoothedBiasM > 0f) {
                 z += noise.noRawSmoothedBiasM
+            }
+            // M58: 평활에서만 빠지는 구간이면 평활 깊이는 그 요소 뒤의 면(잡음 없이, 뒤 면이 없으면 깊이 없음)
+            val behind = hit.second.smoothedMissingS?.takeIf { tS in it }?.let { scene.raycast(o, truth.transformDir(dCv), tS, skip = hit.second) }
+            if (hit.second.smoothedMissingS?.contains(tS) == true) {
+                mm[i] = if (behind == null || behind.first > MAX_DEPTH_M) 0 else min((behind.first * 1000f).roundToInt(), 65535).toShort()
+                continue
             }
             mm[i] = min((z * 1000f).roundToInt(), 65535).toShort()
         }

@@ -238,7 +238,8 @@
     "freeSpacePersistFrames": 30,
     "objectMinHits": 0,
     "candidateOutput": false,
-    "measureLabels": true
+    "measureLabels": true,
+    "existFrom": "SMOOTHED"
   },
   "repPoint": { "strategy": "CORRIDOR_BAND", "bandM": 0.20, "stableTies": false },
   "policy": {

@@ -690,10 +690,19 @@ data class TrackConfig(
     val candidateOutput: Boolean = false,
     /** RAW_MASK 칼만 측정을 움직일 수 있는 라벨 원시 점으로만(기준선 true). false = 창 안 원시 점 중 그 track 소유가 아닌 정지 점유 칸의 점만 뺌(M57). */
     val measureLabels: Boolean = true,
+    /**
+     * 움직이는 track의 존재 증거(M58 설계 3.1~3.3절). SMOOTHED = 평활 장마다 창 안 평활 칸 군집(기준선). RAW = 칼만이 원시 장으로 갱신되는
+     * 움직이는 track은 새 원시 장에서만 센다: 받아들인 원시 측정 = 표·점수 +, 측정 없고 원시 깊이로 예측 자리가 빈 곳 = 점수 − decay, 원시 장
+     * 없는 평활 장 = 그대로. 출력 모양은 원시 측정과 평활 칸 중 더 최근 측정에서.
+     */
+    val existFrom: ExistFrom = ExistFrom.SMOOTHED,
 )
 
 /** 움직임 판정의 증거(M57). */
 enum class MotionEvidence { LABEL, FREE_SPACE }
+
+/** 움직이는 track의 존재 증거 출처(M58). */
+enum class ExistFrom { SMOOTHED, RAW }
 
 /** 움직이는 물체를 두는 곳(M57). */
 enum class MotionMap { EXCLUDE, OWNED }

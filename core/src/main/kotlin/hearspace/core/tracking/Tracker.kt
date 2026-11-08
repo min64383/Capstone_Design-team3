@@ -54,6 +54,8 @@ class Tracker(
     private val mapCfg: MapConfig? = null,
     /** 칼만 측정·후보 묶음의 최소 칸 수(`cluster.minSamples`). */
     private val minSamples: Int = 5,
+    /** 정보 나이 허용치(ns, `policy.maxInfoAgeMs`): M58 `track.existFrom` RAW면 마지막 측정이 이보다 오래된 움직이는 track은 내지 않는다. */
+    private val maxInfoAgeNs: Long = Long.MAX_VALUE,
 ) {
 
     private class Track(
@@ -289,6 +291,9 @@ class Tracker(
             // 추적 창: 움직이는 track·후보는 측정 상자를 예측만큼 옮긴 것, 지도 track은 이번 지도 군집 상자(지도 앞면이 뒤처지므로 여유로 덮음)
             if (!m.moving && !m.candidate) { m.boxMin = t.aabbMin; m.boxMax = t.aabbMax }
             val rawMode = cfg.measureFrom == MeasureFrom.RAW_MASK && (m.moving || m.candidate)
+            // M58 `track.existFrom` RAW: 칼만이 원시 장으로 갱신되는 움직이는 track은 존재 증거(표·점수·마지막 측정 시각)를 새 원시 장에서만 센다.
+            // 평활 깊이는 움직이는 사람을 늦게 담고 일찍 지워(검출 확률이 낮음) 그 놓침은 없다는 증거가 아니다(설계 3.1절, IPDA)
+            val rawExist = cfg.existFrom == hearspace.core.types.ExistFrom.RAW && rawMode && m.moving && m.filterRaw
             val (lo, hi) = gateOf(m, tf)
             // 측정은 통로 밖 칸도 쓴다: 통로만 보면 옆으로 비켜 간 물체를 놓친 것으로 보고 마지막 자리를 정지 지도에 넘겨 유령 칸이 생겼다(SM-6)
             val meas = if (m.moving || m.candidate) clustersAll.filter { cl -> cl.count { inBox(it, lo, hi) } >= minSamples }.flatten()
@@ -323,7 +328,7 @@ class Tracker(
                 m.nMeasCells = -meas.size // 버린 측정(기록용 음수)
             } else if (rep != null) {
                 if (!rawMode) m.lastMeasW = rep
-                m.lastMeasNs = tNs
+                if (!rawExist) m.lastMeasNs = tNs
                 // 움직이는 track·후보의 창 = 측정한 군집의 상자(+ 여유는 gate가 붙인다). 창 안 칸 전체의 상자로 두면 장마다 여유만큼
                 // 넓어졌다(T 150338 칼만 속도 3 m/s). 군집 상자는 장마다 다시 재므로 쌓여 커지지 않는다
                 m.missed = 0
@@ -335,10 +340,12 @@ class Tracker(
                 // 시작 게이트가 필터를 다시 시작했으면(다른 대상과 짝지은 측정) 표·점수도 처음부터 모은다(M52): 남은 표로 바로 출력되면
                 // 막 시작한 필터의 큰 속도 불확실성으로 TTC STOP이 났다(M48 SM-3과 같은 까닭)
                 if (m.filter.restarts != restarts) { m.votes = 0f; m.score = 0f }
-                // 물체 단위 HITS: 측정된 장마다 표·점수(정지 지도와 같은 거리 가중)
-                val w = f.weightAt(rep)
-                m.votes += w
-                m.score = kotlin.math.min(1f, m.score + mc.hitGain * w)
+                // 물체 단위 HITS: 측정된 장마다 표·점수(정지 지도와 같은 거리 가중). RAW 존재면 평활 칸은 모양만 갱신한다
+                if (!rawExist) {
+                    val w = f.weightAt(rep)
+                    m.votes += w
+                    m.score = kotlin.math.min(1f, m.score + mc.hitGain * w)
+                }
                 m.lastCells = meas
                 m.lastCellsNs = tNs
             } else {
@@ -346,9 +353,30 @@ class Tracker(
                 m.missed++
                 // 예측 자리가 빈 곳으로 보이면 점수를 깎는다(시야 밖·깊이 무효면 그대로: 시야 밖 보존)
                 val p = m.filter.predictedAt(tNs)?.first ?: m.lastMeasW
-                if ((m.moving || m.candidate) && p != null) {
+                if ((m.moving || m.candidate) && !rawExist && p != null) {
                     val probe = Vec3(p.x, (m.boxMin.y + m.boxMax.y) / 2, p.z)
                     if (f.seenFree(probe)) m.score -= mc.decayPerObservation
+                }
+            }
+            // M58 RAW 존재(설계 표 2 규칙 1~3): 받아들인 원시 측정 = 표·점수 +(원시 장마다 한 관측). 측정이 없으면 예측 자리 화소를 원시가 알면 원시로
+            // (새 원시 장마다, 빈 곳이면 감쇠), 원시가 모르면(깊이 없음·신뢰도 미달·영상 밖) 평활로(평활 장마다, M57과 같은 검사). 각 센서를 자기 관측
+            // 빈도로 센다(B-2: 원시 구멍·가까운 곳에서 지울 증거가 없어 떠난 사람의 경고가 남음, 사용자 승인)
+            if (rawExist) {
+                val r = m.lastMeasW
+                val y = (m.boxMin.y + m.boxMax.y) / 2
+                if (f.rawPoints != null && m.rawMeasTNs == f.rawTNs && r != null) {
+                    if (m.filter.restarts != restarts) { m.votes = 0f; m.score = 0f } // 시작 게이트가 다시 시작함: 표·점수도 처음부터(M52 규칙)
+                    val w = f.weightAt(r)
+                    m.votes += w
+                    m.score = kotlin.math.min(1f, m.score + mc.hitGain * w)
+                    m.lastMeasNs = tNs
+                } else if (m.rawMeasTNs != f.rawLatestTNs) { // 가장 최근 원시 장에서 측정된 track은 다음 원시 장까지 있음으로 둔다
+                    val pr = m.filter.predictedAt(f.rawLatestTNs)?.first ?: r
+                    when (pr?.let { f.rawFreeAt?.invoke(Vec3(it.x, y, it.z)) }) {
+                        null -> (m.filter.predictedAt(tNs)?.first ?: r)?.let { if (f.seenFree(Vec3(it.x, y, it.z))) m.score -= mc.decayPerObservation }
+                        true -> if (f.rawPoints != null) m.score -= mc.decayPerObservation
+                        false -> Unit
+                    }
                 }
             }
             val v = m.filter.velocityW
@@ -496,8 +524,19 @@ class Tracker(
             val m = t.motion!!
             if (!m.moving) continue
             if (!m.occupied(objMinHits, mc.minScore)) continue
-            // M57 OWNED: 모양 = 복셀 지도의 그 track 움직이는 칸(마지막 측정)을 속도 × 경과만큼 옮긴 것(cellsAt과 같은 계산)
-            val shape = if (owned == null) m.cellsAt(tNs) else {
+            // M58: 정보 나이 원칙(§2.2-4)을 움직이는 출력에도. 마지막으로 받아들인 측정의 촬영 시각부터 허용치가 지나면 예측만으로 내지 않는다
+            // (B-2: 150338에서 8.03 s 측정으로 STOP이 8.63 s까지 남음. M57은 모양 칸이 지도 감쇠로 우연히 지워져 가려졌을 뿐 track은 살아 있었다)
+            if (cfg.existFrom == hearspace.core.types.ExistFrom.RAW) {
+                val measNs = if (m.filterRaw && m.rawMeasTNs != Long.MIN_VALUE) m.rawMeasTNs else m.lastMeasNs
+                if (measNs == Long.MIN_VALUE || tNs - measNs > maxInfoAgeNs) continue
+            }
+            // M57 OWNED: 모양 =복셀 지도의 그 track 움직이는 칸(마지막 측정)을 속도 × 경과만큼 옮긴 것(cellsAt과 같은 계산).
+            // M58 규칙 5: 받아들인 원시 측정이 마지막 평활 칸 측정보다 새것이면 그 원시 점 칸을 옮긴다(평활 감쇠가 움직이는 칸을 지운 동안)
+            val v58 = m.filter.velocityW
+            val shape = if (cfg.existFrom == hearspace.core.types.ExistFrom.RAW && m.filterRaw && m.rawCells.isNotEmpty() && m.rawMeasTNs > m.lastCellsNs) {
+                val dt = ((tNs - m.rawMeasTNs) / 1e9f).coerceAtLeast(0f)
+                if (v58 == null || dt == 0f) m.rawCells else m.rawCells.map { it + v58 * dt }
+            } else if (owned == null) m.cellsAt(tNs) else {
                 val v = m.filter.velocityW
                 val dt = ((tNs - m.lastCellsNs) / 1e9f).coerceAtLeast(0f)
                 owned.movingCells(t.id).let { c -> if (v == null || dt == 0f) c else c.map { it + v * dt } }
@@ -639,6 +678,12 @@ class Tracker(
             m.boxMin = Vec3(pts.minOf { it.x }, pts.minOf { it.y }, pts.minOf { it.z })
             m.boxMax = Vec3(pts.maxOf { it.x }, pts.maxOf { it.y }, pts.maxOf { it.z })
             m.boxNs = f.rawTNs
+            // M58 규칙 5: 출력 모양 재료(받아들인 원시 측정 점이 든 칸)
+            if (cfg.existFrom == hearspace.core.types.ExistFrom.RAW) {
+                val vs = f.voxelM
+                fun c(x: Float) = (kotlin.math.floor(x / vs) + 0.5f) * vs
+                m.rawCells = pts.map { Vec3(c(it.x), c(it.y), c(it.z)) }.distinct()
+            }
         }
     }
 

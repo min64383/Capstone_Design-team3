@@ -65,6 +65,11 @@ class MotionFrame(
     /** [rawPoints]의 촬영 시각과 카메라 위치. */
     val rawTNs: Long = Long.MIN_VALUE,
     val rawCameraW: Vec3 = Vec3.ZERO,
+    /**
+     * 가장 최근 원시 장([rawLatestTNs])에서 월드 점 자리가 빈 곳인지(M58 `track.existFrom` RAW): [rawVisible]과 같은 투영·여유로, 원시 깊이가 점보다
+     * 여유 넘게 멀면 true, 그 밖(보이는 표면·가림)이면 false, 원시가 모르면(깊이 없음·신뢰도 미달·영상 밖) null.
+     */
+    val rawFreeAt: ((Vec3) -> Boolean?)? = null,
     /** 라벨 화소 값 → 그 종류의 최대 속도(m/s, `vision.maxSpeedMps`): RAW_MASK 시작 게이트가 마스크 점의 다수 라벨로 고른다. */
     val maxSpeedOfPixel: Map<Int, Float> = emptyMap(),
     /**
@@ -165,6 +170,8 @@ class MotionState(
     var rawMeasTNs = Long.MIN_VALUE
     /** 칼만이 원시 점만으로 쌓였는지(RAW_MASK). 아니면 첫 원시 측정 때 다시 시작한다. */
     var filterRaw = false
+    /** 마지막으로 받아들인 원시 측정 점이 든 칸의 중심([rawMeasTNs] 시각, M58 출력 모양). */
+    var rawCells: List<Vec3> = emptyList()
 
     fun occupied(minHits: Float, minScore: Float) = votes >= minHits && score >= minScore
 
