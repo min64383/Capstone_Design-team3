@@ -83,6 +83,14 @@ object ChestGuidanceExperiment {
         val fast = FastPath(effectiveCfg, if (c.mode.startsWith("CALIBRATED")) { _ -> calibrated } else null)
         val slow = SlowPath(effectiveCfg)
         var evidence: hearspace.core.guidance.NearStopDetector.FrameEvidence? = null
+        val groupEvidence = mutableListOf<String>()
+        val compareGroups = c.suite == "TURN_HOLD" && c.mode == "NEAR_CHEST" &&
+            abs(c.turnDeg) == 90f && c.turnS == 1f && c.noiseSeed == 0
+        if (compareGroups) {
+            slow.nearStop?.observeGroup = { cells, height, width, gate ->
+                groupEvidence += "$cells/$height/$width/$gate"
+            }
+        }
         slow.nearStop?.observeFrame = { evidence = it }
         val end = fwd(c.turnDeg); val center = end * .95f + (end cross Vec3.UP) * c.sideM
         val box = Box(Vec3(center.x - .15f, .15f, center.z - .15f), Vec3(center.x + .15f, 1.2f, center.z + .15f))
@@ -97,6 +105,7 @@ object ChestGuidanceExperiment {
             fast.compute(fr.pose, snapshot, fr.pose.tCaptureNs)
             var action = fast.takeMapAction(); if (action == hearspace.core.guidance.MapAction.RESET) resets++; slow.apply(action)
             val depth = render(scene, fr, rnd, c.noiseSeed != 0)
+            groupEvidence.clear()
             evidence = null
             snapshot = slow.process(depth, fast.headingW!!)
             val measured = slow.lastStageNs
@@ -128,7 +137,8 @@ object ChestGuidanceExperiment {
                 targetCommands.size, if (errors.isEmpty()) "" else errors.max(), snapshot.obstacles.size,
                 relativeCenter.azimuthDeg, g.commands.count { cmd -> snapshot.obstacles.any { it.id == cmd.obstacleId && it.earlyStop } }, g.commands.any { it.band == Band.STOP },
                 evidence?.roiPoints ?: "", evidence?.cells ?: "", evidence?.sizeCandidates ?: "",
-                evidence?.maxObservations ?: "", evidence?.published ?: "").joinToString(","))
+                evidence?.maxObservations ?: "", evidence?.published ?: "",
+                if (compareGroups && evidence != null) groupEvidence.joinToString("|").ifEmpty { "no_groups" } else "").joinToString(","))
         }
         return windows.map { (phase, w) -> linkedMapOf<String, Any>(
             "caseId" to id, "suite" to c.suite, "mode" to c.mode, "turnDeg" to c.turnDeg, "turnS" to c.turnS,
@@ -173,7 +183,7 @@ object ChestGuidanceExperiment {
         val rows = File(out, "stage_timing.csv").bufferedWriter().use { timing ->
             timing.appendLine("caseId,frameIndex,tCaptureNs,mapNs,clusterNs,trackAndNearNs")
             File(out, "trace.csv").bufferedWriter().use { trace ->
-            trace.appendLine("caseId,phase,tS,eligible,targetStop,state,headingErrorDeg,headErrorM,targetCommands,azimuthFrameMaxDeg,obstacles,targetCenterAzimuthDeg,earlyCommands,anyStop,nearRoiPoints,nearCells,nearSizeCandidates,nearMaxObservations,nearPublished")
+            trace.appendLine("caseId,phase,tS,eligible,targetStop,state,headingErrorDeg,headErrorM,targetCommands,azimuthFrameMaxDeg,obstacles,targetCenterAzimuthDeg,earlyCommands,anyStop,nearRoiPoints,nearCells,nearSizeCandidates,nearMaxObservations,nearPublished,nearGroups_cells_heightM_widthM_firstGate")
             cases.flatMapIndexed { id, c -> run(id, c, cfg, trace, timing).also { println("case ${id + 1}/${cases.size} ${c.suite} ${c.mode}") } }
         }
         }

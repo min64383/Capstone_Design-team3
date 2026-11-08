@@ -17,6 +17,7 @@ import kotlin.math.floor
 class NearStopDetector(private val config: Config) {
     internal data class FrameEvidence(val roiPoints: Int, val cells: Int, val sizeCandidates: Int,
         val maxObservations: Int, val published: Int)
+    internal var observeGroup: ((cells: Int, heightM: Float, widthM: Float, firstFailedGate: String) -> Unit)? = null
     internal var observeFrame: ((FrameEvidence) -> Unit)? = null
 
     private val cfg = requireNotNull(config.policy.nearStop)
@@ -49,11 +50,20 @@ class NearStopDetector(private val config: Config) {
         val used = HashSet<Int>()
         var sizeCandidates = 0
         for (indices in groups) {
-            if (indices.size < cfg.minVoxels) continue
+            if (indices.size < cfg.minVoxels && observeGroup == null) continue
             val group = indices.map { pts[it] }
-            if (group.maxOf { it.y } - group.minOf { it.y } < cfg.minHeightSpanM) continue
+            val height = group.maxOf { it.y } - group.minOf { it.y }
+            if (height < cfg.minHeightSpanM && observeGroup == null) continue
             val laterals = group.map { corridor.lateralM(it) }
-            if (laterals.max() - laterals.min() < cfg.minLateralSpanM) continue
+            val width = laterals.max() - laterals.min()
+            val gate = when {
+                indices.size < cfg.minVoxels -> "cells"
+                height < cfg.minHeightSpanM -> "height"
+                width < cfg.minLateralSpanM -> "width"
+                else -> "pass"
+            }
+            observeGroup?.invoke(indices.size, height, width, gate)
+            if (gate != "pass") continue
             sizeCandidates++
             val reps = RepPoint.candidates(group, corridor, voxelM, config.repPoint.bandM, config.repPoint.stableTies)
             val rep = reps.getValue(config.repPoint.strategy)
