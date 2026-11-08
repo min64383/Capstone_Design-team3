@@ -71,6 +71,13 @@ class SlowPath(
     /** 마지막 [process]의 움직임 기록(M48 `motion.csv`). 끈 설정에서는 빈 목록. */
     val lastMotionDebug: List<MotionDebug> get() = tracker.lastMotionDebug
 
+    /** 마지막 [process]의 빈 곳 위반 기록(M57 `track.freeSpaceRecord`). */
+    val lastEvidenceDebug: List<hearspace.core.tracking.EvidenceDebug> get() = tracker.lastEvidenceDebug
+
+    /** 빈 곳 위반의 지난 원시 장 기록(M57). */
+    private val freeSpace = if (motion && config.track.freeSpaceRecord) hearspace.core.tracking.FreeSpace(config.track) else null
+    private var lastFreeSpaceRawTNs = Long.MIN_VALUE
+
     init {
         if (motion) map.collectFramePoints = true
     }
@@ -269,6 +276,16 @@ class SlowPath(
         val useLabels = config.vision.label == hearspace.core.types.VisionLabelSource.SEMANTICS || rawMask
         val rawNew = depth.raw?.takeIf { rawMask && it.tCaptureNs > lastRawTNs }
         if (rawNew != null) lastRawTNs = rawNew.tCaptureNs
+        // M57: 새 원시 장마다 빈 곳 위반 재료(지난 원시 장 기록은 이 장을 넣기 전 것으로 센다)
+        val fsFrame = freeSpace?.let { fs ->
+            depth.raw?.takeIf { it.tCaptureNs > lastFreeSpaceRawTNs }?.let { r ->
+                lastFreeSpaceRawTNs = r.tCaptureNs
+                val (count, rot) = fs.advance(r)
+                hearspace.core.tracking.FreeSpaceFrame(
+                    r.tCaptureNs, map.obstaclePointsOf(r, tr.freeSpaceMinConfidence, lastUserPosW), count, rot, map.voxels::labelAt,
+                )
+            }
+        }
         return MotionFrame(
             tNs = depth.tCaptureNs,
             frame = frameNo,
@@ -306,6 +323,7 @@ class SlowPath(
             rawVisible = depth.raw?.takeIf { useLabels }?.let { r -> rawVisibility(r, tr.rawMinConfidence) },
             rawLatestTNs = depth.raw?.tCaptureNs ?: Long.MIN_VALUE,
             owned = if (owned) map.voxels else null,
+            freeSpace = fsFrame,
         )
     }
 
@@ -370,6 +388,7 @@ class SlowPath(
     fun reset() {
         map.reset()
         tracker.reset()
+        freeSpace?.reset()
     }
 }
 

@@ -653,6 +653,18 @@ data class TrackConfig(
      * 뒤로 [shadowDepthM]까지)의 칸 중 칸 라벨이 track 다수 라벨과 같은 칸을 그 track의 움직이는 칸으로 가져온다(깊이 수렴 전 시선 뒤 메아리). 0 = 끔.
      */
     val shadowDepthM: Float = 0f,
+    /** 빈 곳 위반을 track마다 새 원시 장마다 세어 `motion_evidence.csv`로 기록만 한다(M57 2단계 값 유도, 판정은 바꾸지 않음). */
+    val freeSpaceRecord: Boolean = false,
+    /** 빈 곳 위반에 쓰는 원시 화소 신뢰도 하한(지금 점·지난 화소 모두, M56 0-1). */
+    val freeSpaceMinConfidence: Int = 30,
+    /** 거리 구간 경계(m, 지금 원시 카메라 깊이): 구간 밖 점은 첫·끝 구간으로(M56 0-1 표). */
+    val freeSpaceZEdgesM: List<Float> = listOf(0.5f, 1.0f, 1.5f, 2.0f, 2.5f, 3.0f, 3.5f, 4.0f, 4.5f, 5.0f),
+    /** 구간마다 되돌아볼 장 수(× [freeSpaceFrameS]): L·Δ ≥ 여유 / v_min인 가장 작은 장 수, 위 끝 12(M57 표 4). */
+    val freeSpaceLagFrames: List<Int> = emptyList(),
+    /** 구간마다 위반 여유(m): 정지 원시끼리 깊이 차의 묶음별 97.7% 분위수 최댓값(M56 0-2 규칙). */
+    val freeSpaceMarginM: List<Float> = emptyList(),
+    /** 되돌아보기 한 장의 시간(s): 원시 깊이 간격(M56 0-1, 중앙값 0.1 s). */
+    val freeSpaceFrameS: Float = 0.1f,
 )
 
 /** 움직이는 물체를 두는 곳(M57). */

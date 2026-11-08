@@ -77,6 +77,8 @@ class MotionFrame(
     val rawLatestTNs: Long = Long.MIN_VALUE,
     /** 복셀 지도 하나(M57 `track.motionMap` OWNED)의 지도. 있으면 take·seed·lastCells 대신 칸 소유로 움직이는 물체를 다룬다. null = 두 지도. */
     val owned: VoxelMap? = null,
+    /** 이번 장에 새 원시 장이 있으면 빈 곳 위반 재료(M57 `track.freeSpaceRecord`). */
+    val freeSpace: FreeSpaceFrame? = null,
 )
 
 /**

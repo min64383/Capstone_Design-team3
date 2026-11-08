@@ -56,6 +56,8 @@ class SlowStep(
     val decayedVoxels: IntArray? = null,
     /** 움직이는 칸(M57 `track.motionMap` OWNED, 소유 track 번호 포함). [ReplayListener.captureVoxels]가 true일 때만, 아니면 null. */
     val movingVoxels: List<VoxelView>? = null,
+    /** 빈 곳 위반 기록(M57 `track.freeSpaceRecord`). */
+    val evidence: List<hearspace.core.tracking.EvidenceDebug> = emptyList(),
 )
 
 /** [OfflineReplay] 결과를 받는 쪽: 실행 로그 파일([RunLogWriter]) 또는 평가 GUI의 메모리 수집. */
@@ -204,6 +206,7 @@ class OfflineReplay(
                     voxels, d.worldFromCam.translation(), config.map.radiusM, config.cluster.epsM, config.cluster.minSamples,
                 ) else null,
                 if (listener.captureVoxels && config.track.motionMap == hearspace.core.types.MotionMap.OWNED) slow.map.voxels.views().filter { it.moving } else null,
+                slow.lastEvidenceDebug,
             )
         }
 
@@ -215,7 +218,7 @@ class OfflineReplay(
                 val applied = resetAfterNs == j.resetMark
                 if (applied) snapshot = j.snapshot
                 listener.onSlowStep(
-                    SlowStep(j.depth, j.startNs, j.doneNs, j.snapshot, j.mapUpdate, j.clusterDebug, j.stageNs, applied, j.voxels, j.clusters, j.userPosW, j.mapDepthMm, j.free, j.motion, j.m54Counts, j.inserted, j.framePlane, j.frameClusters, j.decayed, j.moving),
+                    SlowStep(j.depth, j.startNs, j.doneNs, j.snapshot, j.mapUpdate, j.clusterDebug, j.stageNs, applied, j.voxels, j.clusters, j.userPosW, j.mapDepthMm, j.free, j.motion, j.m54Counts, j.inserted, j.framePlane, j.frameClusters, j.decayed, j.moving, j.evidence),
                 )
                 startIfIdle(j.doneNs)
             }
@@ -318,6 +321,7 @@ class OfflineReplay(
         val framePlane: hearspace.core.mapping.FramePlane?,
         val frameClusters: List<hearspace.core.mapping.FrameCluster>?,
         val moving: List<VoxelView>? = null,
+        val evidence: List<hearspace.core.tracking.EvidenceDebug> = emptyList(),
     )
 
     companion object {

@@ -311,6 +311,12 @@ object ConfigLoader {
                     motionMap = enumValue<MotionMap>("motionMap"),
                     gateLagS = nonNegative("gateLagS"),
                     shadowDepthM = nonNegative("shadowDepthM"),
+                    freeSpaceRecord = boolean("freeSpaceRecord"),
+                    freeSpaceMinConfidence = intIn("freeSpaceMinConfidence", 0, 255),
+                    freeSpaceZEdgesM = floatList("freeSpaceZEdgesM"),
+                    freeSpaceLagFrames = intList("freeSpaceLagFrames"),
+                    freeSpaceMarginM = floatList("freeSpaceMarginM"),
+                    freeSpaceFrameS = positive("freeSpaceFrameS"),
                 )
             },
             repPoint = root.section("repPoint") {

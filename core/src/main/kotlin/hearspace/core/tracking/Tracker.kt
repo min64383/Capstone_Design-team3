@@ -80,6 +80,10 @@ class Tracker(
     var lastMotionDebug: List<MotionDebug> = emptyList()
         private set
 
+    /** 마지막 [update]의 빈 곳 위반 기록(M57 `track.freeSpaceRecord`, `motion_evidence.csv`). 새 원시 장이 없던 장은 빈 목록. */
+    var lastEvidenceDebug: List<EvidenceDebug> = emptyList()
+        private set
+
     /** 시각 [tNs]의 움직이는 track 추적 창(정지 지도에 넣지 않을 점의 상자, M48). 지난 장의 상태로 정한다. */
     fun movingGates(tNs: Long): List<Pair<Vec3, Vec3>> =
         tracks.mapNotNull { t -> t.motion?.takeIf { it.moving }?.let { lagGate(it, tNs) } }
@@ -276,6 +280,7 @@ class Tracker(
         // 움직이는 track·후보의 측정 = 창에 걸린 군집 전체(창은 군집을 고르는 데만 쓴다). 창 안 칸만 쓰면 측정점이 창 쪽(예측 쪽)으로 끌려
         // 속도가 작게 나오고 창이 물체보다 점점 뒤처졌다(합성 SM-3: 1.0 m/s를 0.55~0.7 m/s로)
         val clustersAll by lazy { f.clusterXZ(f.allCells) }
+        val evidence = ArrayList<EvidenceDebug>()
         for (t in tracks) {
             val m = t.motion!!
             // 추적 창: 움직이는 track·후보는 측정 상자를 예측만큼 옮긴 것, 지도 track은 이번 지도 군집 상자(지도 앞면이 뒤처지므로 여유로 덮음)
@@ -286,6 +291,20 @@ class Tracker(
             val meas = if (m.moving || m.candidate) clustersAll.filter { cl -> cl.count { inBox(it, lo, hi) } >= minSamples }.flatten()
             else f.allCells.filter { inBox(it, lo, hi) }
             m.nMeasCells = meas.size
+            // M57 2단계: 창 안 원시 점의 빈 곳 위반을 센다(기록만, 판정은 그대로)
+            f.freeSpace?.let { fs ->
+                val pts = fs.points.filter { inBox(it, lo, hi) }
+                val c = fs.count(pts)
+                val lab = IntArray(12)
+                for (p in pts) fs.labelAt(p).let { if (it in 0..11) lab[it]++ }
+                val own = IntArray(12)
+                if (m.moving) f.owned?.movingCells(t.id)?.forEach { p -> fs.labelAt(p).let { if (it in 0..11) own[it]++ } }
+                val zs = pts.map { (it - f.cameraW).norm() }.sorted()
+                evidence += EvidenceDebug(
+                    fs.tRawNs, tNs, t.id, m.candidate, m.moving, (tNs - m.birthNs) / 1e9f, pts.size, c[0], c[1],
+                    if (zs.isEmpty()) Float.NaN else zs[zs.size / 2], fs.rotDegS, lo, hi, lab, own,
+                )
+            }
             // 라벨 표(M49): 칼만 갱신 전 속도로 창 안 칸을 라벨 영상 시각까지 되돌려 센다
             if (f.labelVotes) labelEvidence(m, f, lo, hi, tNs, mc)
             // 칼만 측정 = 이번 장 창 안 칸의 중심점(가장 앞 칸 기준 대표점은 장마다 칸이 바뀌어 크게 뛴다, M48 값 재기). 예측에서 벗어난 측정은 버린다
@@ -502,6 +521,7 @@ class Tracker(
                 velocitySigmaMps = m.filter.velocitySigmaMps,
             )
         }
+        lastEvidenceDebug = evidence
         lastMotionDebug = tracks.map { t ->
             val m = t.motion!!
             // RAW_MASK의 움직이는 track·후보는 이번 장에 원시 측정을 넣었을 때만 측정점을 적고, 그 시각은 원시 장 촬영 시각이다
@@ -603,6 +623,7 @@ class Tracker(
     fun reset() {
         tracks = emptyList()
         lastMotionDebug = emptyList()
+        lastEvidenceDebug = emptyList()
         idOfInstance.clear()
         lost.clear()
     }

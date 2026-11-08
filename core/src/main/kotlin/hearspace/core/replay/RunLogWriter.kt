@@ -36,6 +36,7 @@ class RunLogWriter(
     private val stageOut: Writer
     private var planesOut: Writer? = null
     private var motionOut: Writer? = null
+    private var evidenceOut: Writer? = null
     private var geometryOut: Writer? = null
     private var m54Out: Writer? = null
     private var insertsOut: Writer? = null
@@ -77,6 +78,12 @@ class RunLogWriter(
         if (step.motion.isNotEmpty()) { // M48 `track.motion` KALMAN일 때만 생긴다(끈 설정은 파일 목록이 그대로)
             val w = motionOut ?: File(outDir, MOTION_FILE).bufferedWriter().also { it.line(MOTION_HEADER); motionOut = it }
             for (m in step.motion) w.line(motionLine(m))
+        }
+        if (step.evidence.isNotEmpty()) { // M57 `track.freeSpaceRecord`일 때만 생긴다
+            val w = evidenceOut ?: File(outDir, EVIDENCE_FILE).bufferedWriter().also { it.line(EVIDENCE_HEADER); evidenceOut = it }
+            for (e in step.evidence) w.line(listOf(
+                e.tRawNs, e.tNs, e.id, e.candidate, e.moving, e.ageS, e.nPts, e.nCmp, e.nViol, e.zMedM, e.rotDegS, (e.lo.x + e.hi.x) / 2, (e.lo.z + e.hi.z) / 2, e.lo.x, e.lo.z, e.hi.x, e.hi.z,
+            ).joinToString(",") + "," + e.labels.joinToString(",") + "," + (if (e.ownLabels.isEmpty()) IntArray(12) else e.ownLabels).joinToString(","))
         }
         step.mapUpdate.geometry?.let { result ->
             val w = geometryOut ?: File(outDir, RunLog.GEOMETRY_FILE).bufferedWriter().also {
@@ -124,7 +131,7 @@ class RunLogWriter(
 
     /** 기록 파일을 모두 닫는다(여러 번 불러도 된다). */
     override fun close() {
-        listOfNotNull(slowOut, guidOut, obsOut, clusterOut, stageOut, planesOut, motionOut, geometryOut, m54Out, insertsOut, rolesOut, planeOut, frameClustersOut, decaysOut).forEach { it.close() }
+        listOfNotNull(slowOut, guidOut, obsOut, clusterOut, stageOut, planesOut, motionOut, evidenceOut, geometryOut, m54Out, insertsOut, rolesOut, planeOut, frameClustersOut, decaysOut).forEach { it.close() }
     }
 
     private fun motionLine(m: hearspace.core.tracking.MotionDebug): String = listOf(
@@ -135,6 +142,10 @@ class RunLogWriter(
     companion object {
         /** 움직임 기록(M48): track마다 칼만·판정·물체 좌표 칸 수. */
         const val MOTION_FILE = "motion.csv"
+        /** 빈 곳 위반 기록(M57 2단계). */
+        const val EVIDENCE_FILE = "motion_evidence.csv"
+        val EVIDENCE_HEADER = "tRawNs,tNs,id,candidate,moving,ageS,nPts,nCmp,nViol,zMedM,rotDegS,cx,cz,loX,loZ,hiX,hiZ," +
+            (0 until 12).joinToString(",") { "lab$it" } + "," + (0 until 12).joinToString(",") { "own$it" }
         const val M54_FILE = "m54.csv"
         const val INSERTS_FILE = "map_inserts.csv"
         const val ROLES_FILE = "map_roles.csv"

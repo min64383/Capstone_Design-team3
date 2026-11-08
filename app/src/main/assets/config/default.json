@@ -222,7 +222,13 @@
     "holdLabelPending": false,
     "motionMap": "EXCLUDE",
     "gateLagS": 0,
-    "shadowDepthM": 0
+    "shadowDepthM": 0,
+    "freeSpaceRecord": false,
+    "freeSpaceMinConfidence": 30,
+    "freeSpaceZEdgesM": [0.5, 1.0, 1.5, 2.0, 2.5, 3.0, 3.5, 4.0, 4.5, 5.0],
+    "freeSpaceLagFrames": [],
+    "freeSpaceMarginM": [],
+    "freeSpaceFrameS": 0.1
   },
   "repPoint": { "strategy": "CORRIDOR_BAND", "bandM": 0.20, "stableTies": false },
   "policy": {
