@@ -16,6 +16,10 @@ import hearspace.core.types.ConfigException
 /** 개발 모드 홈(§11.3): 실시간 / 녹화 / 재생 / 세션 목록. */
 class DevHomeActivity : Activity() {
 
+    private companion object {
+        const val EXTRA_AUTO_START = "autoStart"
+    }
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         val configOk = try {
@@ -25,6 +29,15 @@ class DevHomeActivity : Activity() {
         } catch (e: ConfigException) {
             Log.e(TAG, "config load failed", e)
             false
+        }
+
+        // 기기 자동화(M49 0단계, 디버그 빌드만): `am start -n hearspace.app/.ui.dev.DevHomeActivity --es autoStart live|<세션ID>`로
+        // 실시간 또는 그 세션의 재생 화면을 바로 연다(화면을 누르지 않고 adb로 돌리기 위해. LiveScreen은 내보내지 않는다)
+        if (configOk && hearspace.app.BuildConfig.DEBUG) intent.getStringExtra(EXTRA_AUTO_START)?.let { target ->
+            val dir = if (target == "live") null else java.io.File(RecordScreen.sessionsRoot(this), target)
+            if (dir == null || dir.isDirectory) startActivity(LiveScreen.intent(this, dir)) else Log.e(TAG, "autoStart: no session $target")
+            finish()
+            return
         }
 
         val root = LinearLayout(this).apply {

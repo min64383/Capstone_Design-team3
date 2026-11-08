@@ -25,6 +25,10 @@ data class DepthSupport(
     val modeUsed: Config.DepthMode,
     /** `CameraConfig.DepthSensorUsage` 이름. */
     val sensorUsed: String,
+    /** 이 카메라 설정에서 ARCore 의미 모드(Scene Semantics)를 지원하는지(M49 0단계 0a). */
+    val semanticSupported: Boolean = false,
+    /** 의미 모드를 켰는지(`vision.semantics`이고 지원할 때). */
+    val semanticEnabled: Boolean = false,
 )
 
 /**
@@ -32,11 +36,13 @@ data class DepthSupport(
  * UI 스레드에서만 호출한다. 흐름은 공식 샘플(hello_ar_kotlin)의 onResume 처리와 같다.
  * [playbackMp4]가 있으면 카메라 대신 녹화 MP4를 재생한다(재생 모드, §9.2).
  * [sensorUsage]가 AUTO가 아니면 그 깊이 센서 사용의 카메라 설정을 고른다(M47 ToF 확인, `depth.sensorUsage`). 재생 모드에서는 고르지 않는다.
+ * [semantics]면 지원할 때 ARCore 의미 모드를 켠다(M49, `vision.semantics`).
  */
 class ArSessionManager(
     private val activity: Activity,
     private val playbackMp4: File? = null,
     private val sensorUsage: DepthSensorUsage = DepthSensorUsage.AUTO,
+    private val semantics: Boolean = false,
 ) {
 
     /** 준비된 세션. [resume]이 성공한 뒤에만 null이 아니다. */
@@ -145,11 +151,18 @@ class ArSessionManager(
             raw -> Config.DepthMode.RAW_DEPTH_ONLY
             else -> Config.DepthMode.DISABLED
         }
-        val config = Config(s).apply { depthMode = mode }
+        // 의미 모드 지원은 고른 카메라 설정에 따라 다르다(ARCore Session.isSemanticModeSupported 문서). 기본은 꺼짐(자원 절약)
+        val semanticSupported = s.isSemanticModeSupported(Config.SemanticMode.ENABLED)
+        val semanticOn = semantics && semanticSupported
+        val config = Config(s).apply {
+            depthMode = mode
+            if (semanticOn) semanticMode = Config.SemanticMode.ENABLED
+        }
         s.configure(config)
         val sensor = s.cameraConfig.depthSensorUsage.name
         Log.i(TAG, "depth support: automatic=$automatic rawDepthOnly=$raw -> $mode, depth sensor $sensor")
-        return DepthSupport(automatic, raw, mode, sensor)
+        Log.i(TAG, "semantic mode: supported=$semanticSupported requested=$semantics -> ${if (semanticOn) "ENABLED" else "DISABLED"}")
+        return DepthSupport(automatic, raw, mode, sensor, semanticSupported, semanticOn)
     }
 
     companion object {

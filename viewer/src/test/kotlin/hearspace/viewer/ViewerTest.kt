@@ -223,4 +223,13 @@ class ViewerTest {
         val t = r.t0Ns + 3_000_000_000L
         assertTrue(abs(r.timeOfFrame(r.frameOfTime(t)) - t) < 1_000_000_000L / r.sampleRate + 1)
     }
+
+    @Test
+    fun `viewer options are split off before the config and only clicks is accepted`() {
+        val (json, mf) = ViewerOptions.split("""{"track": {"motion": "KALMAN"}, "viewer": {"movingFrom": "clicks"}}""")
+        assertEquals("clicks", mf)
+        assertTrue(!json.contains("viewer") && json.contains("KALMAN"), json)
+        assertEquals("{}" to null, ViewerOptions.split("{}"))
+        assertThrows<IllegalArgumentException> { ViewerOptions.split("""{"viewer": {"movingFrom": "labels"}}""") }
+    }
 }

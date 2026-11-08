@@ -97,7 +97,7 @@ class RecordScreen : Activity(), GLSurfaceView.Renderer {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         config = AppConfig.get(this)
-        ar = ArSessionManager(this, sensorUsage = config.depth.sensorUsage)
+        ar = ArSessionManager(this, sensorUsage = config.depth.sensorUsage, semantics = config.vision.semantics)
         thermal = ThermalMonitor(this)
         window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
         buildLayout()
@@ -299,7 +299,7 @@ class RecordScreen : Activity(), GLSurfaceView.Renderer {
             stats = null,
             gitHash = BuildConfig.GIT_HASH,
         )
-        return Recorder(dir, meta, config.record, thermal).also {
+        return Recorder(dir, meta, config.record, thermal, semantics = ar.depthSupport?.semanticEnabled == true).also {
             it.start(s)
             recordStartMs = SystemClock.elapsedRealtime()
             lastRate = null

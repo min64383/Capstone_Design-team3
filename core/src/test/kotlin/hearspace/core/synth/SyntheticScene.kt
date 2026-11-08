@@ -155,7 +155,13 @@ data class SceneItem(
     val luma: Int = 128,
     /** 움직이는 요소(M48): 도형을 시각마다 이만큼 옮긴다. null이면 정지. */
     val motion: Motion? = null,
+    /** 합성 의미 영상(M49)의 라벨. null이면 움직이는 요소는 사람, 나머지는 라벨 없음(UNLABELED). */
+    val semantic: hearspace.core.types.SemanticLabel? = null,
 ) {
+    /** 합성 의미 영상의 화소 값. */
+    val semanticPixel: Int
+        get() = (semantic ?: if (motion != null) hearspace.core.types.SemanticLabel.PERSON else hearspace.core.types.SemanticLabel.UNLABELED).pixel
+
     /** 시각 [tS]에 존재하는지. */
     fun presentAt(tS: Float) = removeAtS == null || tS < removeAtS
 
@@ -458,12 +464,14 @@ object SyntheticGenerator {
         val mm = ShortArray(k.width * k.height)
         val luma = ByteArray(k.width * k.height)
         val obstacle = BooleanArray(k.width * k.height)
+        val semantic = ByteArray(k.width * k.height) // 맞은 요소의 라벨(M49, 선명: 평활은 깊이에만)
         for (v in 0 until k.height) for (u in 0 until k.width) {
             // C_cv 광선 (Z = 1) → 월드. 교차 t가 곧 C_cv 깊이 Z다.
             val dCv = Vec3((u - k.cx) / k.fx, (v - k.cy) / k.fy, 1f)
             val hit = scene.raycast(o, truth.transformDir(dCv), tS) ?: continue
             luma[v * k.width + u] = hit.second.luma.toByte() // RGB는 선명하다(평활은 깊이에만)
             obstacle[v * k.width + u] = hit.second.obstacle
+            semantic[v * k.width + u] = hit.second.semanticPixel.toByte()
             var z = hit.first * (1f + noise.depthScaleBias)
             if (noise.depthMulStd > 0f) z *= 1f + noise.depthMulStd * gauss(rnd)
             if (noise.depthQuadK > 0f) z += noise.depthQuadK * z * z * gauss(rnd)
@@ -476,6 +484,7 @@ object SyntheticGenerator {
             .let { if (noise.edgePullPx > 0) edgePull(it, obstacle, k, noise.edgePullPx) else it }
         return DepthFrame(
             tNs, if (noise.edgeSmoothPx > 0) edgeSmooth(spilled, k, noise.edgeSmoothPx) else spilled, null, k, reported, "synthetic", GuideImage(tNs, luma, k),
+            labels = hearspace.core.types.LabelImage(tNs, semantic, k, reported),
         )
     }
 
