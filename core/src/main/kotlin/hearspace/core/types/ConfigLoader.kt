@@ -81,7 +81,17 @@ object ConfigLoader {
                     learnedSigma0M = float("learnedSigma0M"),
                     learnedSigmaPerM2 = nonNegative("learnedSigmaPerM2"),
                     sensorUsage = enumValue<DepthSensorUsage>("sensorUsage"),
-                )
+                    confidenceEdges = intList("confidenceEdges"),
+                    mapConfidenceWeights = floatList("mapConfidenceWeights"),
+                    floorConfidenceWeights = floatList("floorConfidenceWeights"),
+                ).also { d ->
+                    if (d.confidenceEdges.zipWithNext().any { (a, b) -> a >= b } || d.confidenceEdges.any { it !in 1..255 }) {
+                        throw ConfigException("depth.confidenceEdges", "must be increasing within 1..255")
+                    }
+                    for ((k, w) in listOf("mapConfidenceWeights" to d.mapConfidenceWeights, "floorConfidenceWeights" to d.floorConfidenceWeights)) {
+                        if (w.size != d.confidenceEdges.size + 1 || w.any { it <= 0f || it > 1f }) throw ConfigException("depth.$k", "needs confidenceEdges.size + 1 values in (0, 1]")
+                    }
+                }
             },
             frontend = root.section("frontend") {
                 FrontendConfig(
@@ -122,6 +132,7 @@ object ConfigLoader {
                     rgbMaxAgeMs = nonNegative("rgbMaxAgeMs"),
                     rgbMarginMaxPx = atLeast1("rgbMarginMaxPx"),
                     segment = enumValue<SegmentMode>("segment"),
+                    labelBandPx = intIn("labelBandPx", 0, 64),
                 )
             },
             map = root.section("map") {
@@ -144,6 +155,7 @@ object ConfigLoader {
                     weightRefM = positive("weightRefM"),
                     freeMarginRatio = nonNegative("freeMarginRatio"),
                     hitWeighting = enumValue<HitWeighting>("hitWeighting"),
+                    decayWeighting = enumValue<DecayWeighting>("decayWeighting"),
                     tsdfTruncMinM = positive("tsdfTruncMinM"),
                     tsdfTruncPerM = nonNegative("tsdfTruncPerM"),
                     tsdfMaxWeight = positive("tsdfMaxWeight"),
@@ -187,6 +199,7 @@ object ConfigLoader {
                     decompose = enumValue<FloorDecompose>("decompose"),
                     regionM = positive("regionM"),
                     mode = enumValue<FloorMode>("mode"),
+                    weighting = enumValue<FloorWeighting>("weighting"),
                 )
             },
             cluster = root.section("cluster") {
@@ -357,6 +370,9 @@ object ConfigLoader {
                         val mps = (v as? JsonNumber)?.value?.toFloat()?.takeIf { it > 0f && it.isFinite() } ?: throw ConfigException(path("maxSpeedMps.$k"), "must be > 0")
                         label to mps
                     }.toMap(),
+                    movableDepth = enumValue<MovableDepth>("movableDepth"),
+                    movableRawMinConfidence = intIn("movableRawMinConfidence", 1, 255),
+                    voxelLabels = boolean("voxelLabels"),
                 )
             },
             sonify = root.section("sonify") {
@@ -398,6 +414,10 @@ object ConfigLoader {
     /** 여러 키에 걸친 일관성 검사. */
     private fun crossCheck(c: Config) {
         c.vision.movingLabels.firstOrNull { it !in c.vision.maxSpeedMps }?.let { throw ConfigException("vision.maxSpeedMps", "missing moving label $it") }
+        if (c.corridor.judge == CorridorJudgeMode.LABEL && !c.vision.voxelLabels) throw ConfigException("corridor.judge", "LABEL requires vision.voxelLabels")
+        if (c.map.decayWeighting == DecayWeighting.CONFIDENCE && c.map.hitWeighting != HitWeighting.CONFIDENCE) {
+            throw ConfigException("map.decayWeighting", "CONFIDENCE requires map.hitWeighting CONFIDENCE")
+        }
         val p = c.policy
         val s = c.sonify
         if (s.minHistoryS > s.historyS) throw ConfigException("sonify", "minHistoryS must be <= historyS")
@@ -541,6 +561,15 @@ object ConfigLoader {
             }
             if (xs.size != 3) throw ConfigException(path(key), "must have 3 elements, got ${xs.size}")
             return Vec3(xs[0], xs[1], xs[2])
+        }
+
+        fun floatList(key: String): List<Float> {
+            val arr = raw(key) as? JsonArray ?: throw ConfigException(path(key), "must be an array of numbers")
+            return arr.items.map { (it as? JsonNumber)?.value?.toFloat()?.takeIf { f -> f.isFinite() } ?: throw ConfigException(path(key), "must be an array of numbers") }
+        }
+
+        fun intList(key: String): List<Int> = floatList(key).map { f ->
+            f.toInt().also { if (it.toFloat() != f) throw ConfigException(path(key), "must be integers") }
         }
 
         inline fun <reified E : Enum<E>> enumList(key: String): List<E> {

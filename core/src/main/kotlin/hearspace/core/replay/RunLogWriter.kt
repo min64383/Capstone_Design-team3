@@ -37,6 +37,12 @@ class RunLogWriter(
     private var planesOut: Writer? = null
     private var motionOut: Writer? = null
     private var geometryOut: Writer? = null
+    private var m54Out: Writer? = null
+    private var insertsOut: Writer? = null
+    private var rolesOut: Writer? = null
+    private var planeOut: Writer? = null
+    private var decaysOut: Writer? = null
+    private var frameClustersOut: Writer? = null
     private val outDir = outDir
 
     init {
@@ -78,6 +84,32 @@ class RunLogWriter(
             }
             RunLog.geometryLines(step.depth.tCaptureNs, result).forEach { w.line(it) }
         }
+        step.m54Counts?.let { c -> // M54 옵션을 켰을 때만(끈 설정은 파일 목록이 그대로)
+            val w = m54Out ?: File(outDir, M54_FILE).bufferedWriter().also { it.line("tCaptureNs,bandRemovedPx,movableExcluded,movableRawInserted"); m54Out = it }
+            w.line("${step.depth.tCaptureNs},${c[0]},${c[1]},${c[2]}")
+        }
+        step.occupiedVoxels?.takeIf { vs -> vs.any { it.role != hearspace.core.mapping.VoxelRole.NONE } }?.let { vs -> // M54 칸 역할(mapInserts + 칸 라벨 표)
+            val w = rolesOut ?: File(outDir, ROLES_FILE).bufferedWriter().also { it.line("tCaptureNs,ix,iy,iz,role"); rolesOut = it }
+            for (v in vs) w.line("${step.depth.tCaptureNs},${v.ix},${v.iy},${v.iz},${v.role}")
+        }
+        step.framePlane?.let { p -> // M54 프레임 바닥면(칸 라벨 표를 켰을 때만)
+            val w = planeOut ?: File(outDir, FRAME_FLOOR_FILE).bufferedWriter().also { it.line("tCaptureNs,a,b,c,n,fresh"); planeOut = it }
+            w.line("${step.depth.tCaptureNs},${p.a},${p.b},${p.c},${p.n},${p.fresh}")
+        }
+        step.frameClusters?.let { cs -> // M54 프레임 군집 법선(칸 역할 기록 장에서만)
+            val w = frameClustersOut ?: File(outDir, FRAME_CLUSTERS_FILE).bufferedWriter().also {
+                it.line("tCaptureNs,kind,n,cx,cy,cz,nx,ny,nz,thicknessM,lengthM"); frameClustersOut = it
+            }
+            for (c in cs) w.line("${step.depth.tCaptureNs},${c.kind},${c.n},${c.centerW.x},${c.centerW.y},${c.centerW.z},${c.normalW.x},${c.normalW.y},${c.normalW.z},${c.thicknessM},${c.lengthM}")
+        }
+        step.decayedVoxels?.let { v -> // M54 감쇠한 칸과 그 화소 신뢰도 구간(평가 전용)
+            val w = decaysOut ?: File(outDir, DECAYS_FILE).bufferedWriter().also { it.line("tCaptureNs,ix,iy,iz,cls"); decaysOut = it }
+            for (i in 0 until v.size / 4) w.line("${step.depth.tCaptureNs},${v[4 * i]},${v[4 * i + 1]},${v[4 * i + 2]},${v[4 * i + 3]}")
+        }
+        step.insertedVoxels?.let { v ->
+            val w = insertsOut ?: File(outDir, INSERTS_FILE).bufferedWriter().also { it.line("tCaptureNs,ix,iy,iz"); insertsOut = it }
+            for (i in 0 until v.size / 3) w.line("${step.depth.tCaptureNs},${v[3 * i]},${v[3 * i + 1]},${v[3 * i + 2]}")
+        }
         step.mapUpdate.planes?.let { p ->
             val w = planesOut ?: File(outDir, RunLog.PLANES_FILE).bufferedWriter().also { it.line(RunLog.header(RunLog.PLANES_HEADER)); planesOut = it }
             w.line(RunLog.planesLine(step.depth.tCaptureNs, p))
@@ -92,7 +124,7 @@ class RunLogWriter(
 
     /** 기록 파일을 모두 닫는다(여러 번 불러도 된다). */
     override fun close() {
-        listOfNotNull(slowOut, guidOut, obsOut, clusterOut, stageOut, planesOut, motionOut, geometryOut).forEach { it.close() }
+        listOfNotNull(slowOut, guidOut, obsOut, clusterOut, stageOut, planesOut, motionOut, geometryOut, m54Out, insertsOut, rolesOut, planeOut, frameClustersOut, decaysOut).forEach { it.close() }
     }
 
     private fun motionLine(m: hearspace.core.tracking.MotionDebug): String = listOf(
@@ -103,6 +135,12 @@ class RunLogWriter(
     companion object {
         /** 움직임 기록(M48): track마다 칼만·판정·물체 좌표 칸 수. */
         const val MOTION_FILE = "motion.csv"
+        const val M54_FILE = "m54.csv"
+        const val INSERTS_FILE = "map_inserts.csv"
+        const val ROLES_FILE = "map_roles.csv"
+        const val FRAME_FLOOR_FILE = "frame_floor.csv"
+        const val DECAYS_FILE = "map_decays.csv"
+        const val FRAME_CLUSTERS_FILE = "frame_clusters.csv"
         const val MOTION_HEADER = "tCaptureNs,id,candidate,moving,measX,measZ,posX,posZ,velX,velZ,posSigmaM,velSigmaMps,chi2,nMeasCells,votes,score," +
             "measTNs,labelVotes,labelScore,nRawPoints"
     }

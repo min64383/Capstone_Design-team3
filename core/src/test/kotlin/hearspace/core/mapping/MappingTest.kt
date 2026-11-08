@@ -278,6 +278,17 @@ class VoxelMapTest {
     }
 
     @Test
+    fun `confidence decay weighting keeps the hit to decay balance of weighted votes`() {
+        // M54 결과 검토: 표 무게 0.57 두 장(score 0.228)은 감쇠 0.3 한 번에 지워지고, 같은 무게 감쇠(0.171)면 남는다(무게 1 두 장 + 감쇠 0.3과 같은 균형)
+        val p = Vec3(0f, 0f, -2f)
+        val cfg = hitsCfg.copy(hitWeighting = hearspace.core.types.HitWeighting.CONFIDENCE)
+        fun mapAfterTwoHits(w: Float) = VoxelMap(cfg).also { m -> repeat(2) { i -> m.beginFrame(); m.insert(p, i.toLong(), w) } }
+        mapAfterTwoHits(0.57f).also { m -> m.beginFrame(); m.decayFree(depthImage(3000), k, camFromWorld); assertEquals(0, m.size) }
+        mapAfterTwoHits(0.57f).also { m -> m.beginFrame(); m.decayFree(depthImage(3000), k, camFromWorld) { 0.57f }; assertEquals(1, m.size) }
+        mapAfterTwoHits(1f).also { m -> m.beginFrame(); m.decayFree(depthImage(3000), k, camFromWorld); assertEquals(1, m.size) }
+    }
+
+    @Test
     fun `cell view uses the same rule as free-space decay`() {
         val p = Vec3(0f, 0f, -2f) // 광축 위 2 m
         val m = mapWithVoxelAt(p)

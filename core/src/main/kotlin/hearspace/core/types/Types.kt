@@ -48,13 +48,16 @@ class LabelImage(val tCaptureNs: Long, val labels: ByteArray, val K: Intrinsics,
     private val camFromWorld = worldFromCam.rigidInverse()
 
     /** 월드 점 [pW]가 맺히는 화소의 라벨 값. 카메라 뒤이거나 영상 밖이면 −1. */
-    fun pixelAt(pW: hearspace.core.geometry.Vec3): Int {
+    fun pixelAt(pW: hearspace.core.geometry.Vec3): Int = indexAt(pW).let { if (it < 0) -1 else labels[it].toInt() and 0xFF }
+
+    /** 월드 점 [pW]가 맺히는 화소의 번호(행 우선). 카메라 뒤이거나 영상 밖이면 −1. */
+    fun indexAt(pW: hearspace.core.geometry.Vec3): Int {
         val c = camFromWorld.transformPoint(pW)
         if (c.z <= 0f) return -1
         val u = (K.fx * c.x / c.z + K.cx).toInt()
         val v = (K.fy * c.y / c.z + K.cy).toInt()
         if (u < 0 || v < 0 || u >= K.width || v >= K.height) return -1
-        return labels[v * K.width + u].toInt() and 0xFF
+        return v * K.width + u
     }
 }
 
@@ -75,7 +78,7 @@ enum class FloorDecompose { BAND, REGION_PLANE }
  * WALKABLE = 단면마다 보행선을 포함하는 빈 좌우 구간이 몸 폭(`corridor.widthM`)보다 좁을 때만 그 단면의 몸 폭 안 칸을 장애물로(걸을 수 있는 영역, M44 첫 설계 F),
  * BOUNDARY = BOX에서 진행 방향 ±α 안의 길게 이어진 옆 경계(벽)를 더 빼되 양쪽 경계 사이가 몸 폭보다 좁은 곳은 남김(M44 재설계).
  */
-enum class CorridorJudgeMode { BOX, WALKABLE, BOUNDARY }
+enum class CorridorJudgeMode { BOX, WALKABLE, BOUNDARY, LABEL }
 
 /**
  * 지도 갱신 규칙(IMPROVE_SPEC §6.1.1): HITS = 관측 횟수·점수(기준선), LOG_ODDS = 로그 오즈 점유(OctoMap, M13.2),
@@ -87,7 +90,23 @@ enum class MapMode { HITS, LOG_ODDS, TSDF, TRISTATE }
  * HITS의 표 세기(M13.5): NONE = 깊이 한 장에 한 표(기준선), DISTANCE = 한 장의 표를 거리 가중치 min(1, (`map.weightRefM` / 거리)²)로.
  * 근거: 평평한 바닥 실측(`tools/analysis/depth_error.py`)에서 1.5~2 m 바닥 σ 3~7 cm, 2 m 밖은 꼬리(10 cm 넘게 벗어난 점) 50~60%.
  */
-enum class HitWeighting { NONE, DISTANCE }
+enum class HitWeighting { NONE, DISTANCE, CONFIDENCE }
+
+/**
+ * HITS 빈 곳 감쇠 한 번의 세기(M54 결과 검토, 사용자 제안): NONE = `map.decayPerObservation` 그대로(기준선), CONFIDENCE = 그 칸을 비었다고 본
+ * 깊이 화소의 원시 신뢰도 구간 지도 무게(`depth.mapConfidenceWeights`)를 곱함. 점유 격자에서 차지·빈 증거는 같은 센서 모형에서 나오므로(Thrun 2005)
+ * 표에 신뢰도 무게를 주면 감쇠에도 같은 무게를 준다. `map.hitWeighting` CONFIDENCE일 때만.
+ */
+enum class DecayWeighting { NONE, CONFIDENCE }
+
+/**
+ * 지도에 넣는 사람·차량(`vision.movingLabels`) 라벨 화소의 깊이 원천(M54): SMOOTHED = 평활 화소 그대로(기준선), RAW = 평활 화소는 지도·빈 곳 감쇠에서
+ * 빼고(후보 세기용 이번 장 점에는 남김) 새 원시 장의 같은 라벨 원시 점(신뢰도 ≥ `vision.movableRawMinConfidence`)을 넣는다.
+ */
+enum class MovableDepth { SMOOTHED, RAW }
+
+/** 바닥 높이 히스토그램의 점 무게(M54): NONE = 한 점 하나(기준선), CONFIDENCE = 그 자리 원시 신뢰도 구간의 바닥 무게(`depth.floorConfidenceWeights`). */
+enum class FloorWeighting { NONE, CONFIDENCE }
 
 /** TRISTATE 관측 가중 곡선(M33). */
 enum class TriWeight { SIGMA, SIGMA_INCIDENCE, DISTANCE }

@@ -36,12 +36,16 @@ class Floor(private val cfg: FloorConfig, private val maxDistM: Float) {
     var floorY: Float? = null
         private set
 
-    /** 월드 점 배열(x, y, z 교차)과 카메라 위치 [cameraW]로 바닥을 갱신한다. */
-    fun update(pointsW: FloatArray, cameraW: Vec3): FloorUpdate {
+    /**
+     * 월드 점 배열(x, y, z 교차)과 카메라 위치 [cameraW]로 바닥을 갱신한다. [weights]가 있으면(M54 `floor.weighting` CONFIDENCE) 최빈 칸과 그 둘레
+     * 평균을 점 무게로 센다. 최소 점 수 검사(`floor.minPoints`)는 무게와 상관없이 점 수로 한다(바닥을 잃는 장이 늘지 않게).
+     */
+    fun update(pointsW: FloatArray, cameraW: Vec3, weights: FloatArray? = null): FloorUpdate {
         val prev = floorY
         val n = pointsW.size / 3
         // 후보 높이 모으기
         val ys = FloatArray(n)
+        val ws = if (weights == null) null else FloatArray(n)
         var m = 0
         for (i in 0 until n) {
             val y = pointsW[3 * i + 1]
@@ -50,6 +54,7 @@ class Floor(private val cfg: FloorConfig, private val maxDistM: Float) {
             val dz = pointsW[3 * i + 2] - cameraW.z
             if (dx * dx + dz * dz > maxDistM * maxDistM) continue
             if (prev != null && !searching && abs(y - prev) > cfg.searchBandM) continue
+            if (ws != null) ws[m] = weights!![i]
             ys[m++] = y
         }
         if (m < cfg.minPoints) {
@@ -62,6 +67,7 @@ class Floor(private val cfg: FloorConfig, private val maxDistM: Float) {
         val wasSearching = searching
         searching = false
 
+        if (ws != null) return weightedEstimate(ys, ws, m, prev, wasSearching)
         // 최빈 칸
         val counts = HashMap<Int, Int>()
         var bestBin = 0
@@ -87,6 +93,34 @@ class Floor(private val cfg: FloorConfig, private val maxDistM: Float) {
         }
         val estimate = (sum / k).toFloat()
         // 재탐색으로 찾은 값은 다른 높이일 수 있으므로 평활하지 않고 받는다(잊고 다시 찾는 기준선과 같은 결과)
+        floorY = if (prev == null || wasSearching) estimate else prev + cfg.emaAlpha * (estimate - prev)
+        return FloorUpdate(true, floorY, m)
+    }
+
+    /** [update]의 무게 판(M54): 칸마다 무게 합의 최빈 칸(같으면 낮은 칸), 그 칸 중심 ± `toleranceM` 점의 가중 평균. 평활은 같다. */
+    private fun weightedEstimate(ys: FloatArray, ws: FloatArray, m: Int, prev: Float?, wasSearching: Boolean): FloorUpdate {
+        val sums = HashMap<Int, Double>()
+        var bestBin = 0
+        var best = -1.0
+        for (i in 0 until m) {
+            val b = floor(ys[i] / cfg.binM).toInt()
+            val c = (sums[b] ?: 0.0) + ws[i]
+            sums[b] = c
+            if (c > best || (c == best && b < bestBin)) {
+                best = c
+                bestBin = b
+            }
+        }
+        val center = (bestBin + 0.5f) * cfg.binM
+        var sum = 0.0
+        var wsum = 0.0
+        for (i in 0 until m) {
+            if (abs(ys[i] - center) < cfg.toleranceM) {
+                sum += ws[i] * ys[i]
+                wsum += ws[i]
+            }
+        }
+        val estimate = (sum / wsum).toFloat()
         floorY = if (prev == null || wasSearching) estimate else prev + cfg.emaAlpha * (estimate - prev)
         return FloorUpdate(true, floorY, m)
     }

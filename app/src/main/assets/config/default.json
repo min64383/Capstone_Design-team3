@@ -29,7 +29,10 @@
     "smoothedBiasPerM": 0.0,
     "learnedSigma0M": 0.0,
     "learnedSigmaPerM2": 0.0,
-    "sensorUsage": "AUTO"
+    "sensorUsage": "AUTO",
+    "confidenceEdges": [1, 30, 128],
+    "mapConfidenceWeights": [0.37, 0.16, 0.57, 1.0],
+    "floorConfidenceWeights": [0.16, 0.18, 0.16, 1.0]
   },
   "frontend": {
     "enabled": false,
@@ -68,7 +71,8 @@
     "rgbGuideLumaSigma": 12,
     "rgbMaxAgeMs": 20,
     "rgbMarginMaxPx": 25,
-    "segment": "NONE"
+    "segment": "NONE",
+    "labelBandPx": 0
   },
   "map": {
     "voxelSizeM": 0.05,
@@ -89,6 +93,7 @@
     "weightRefM": 2.0,
     "freeMarginRatio": 0.03,
     "hitWeighting": "DISTANCE",
+    "decayWeighting": "NONE",
     "tsdfTruncMinM": 0.1,
     "tsdfTruncPerM": 0.05,
     "tsdfMaxWeight": 12,
@@ -124,7 +129,8 @@
     "source": "HISTOGRAM",
     "holdWhenLost": true,
     "decompose": "BAND",
-    "regionM": 2.0
+    "regionM": 2.0,
+    "weighting": "NONE"
   },
   "cluster": { "epsM": 0.15, "minSamples": 5, "headMinM": 1.2, "bodyMinM": 0.5, "separateWalls": false, "wallFraction": 0.5, "coreEvidenceMultiplier": 1.0 },
   "geometry": {
@@ -240,7 +246,7 @@
   "haptics": { "readyMs": 40, "pauseMs": 40, "pauseGapMs": 80, "unknownMs": 400, "exitMs": 600 },
   "record": { "depthEveryN": 1, "rgbEveryN": 3, "deviceLogIntervalS": 1.0, "maxRuns": 20 },
   "slowPath": { "maxRateHz": 0 },
-  "vision": { "semantics": false, "label": "NONE", "movingLabels": ["PERSON", "VEHICLE"], "maxLabelAgeMs": 200, "maxSpeedMps": { "PERSON": 2.5, "VEHICLE": 6.9 } },
+  "vision": { "semantics": false, "label": "NONE", "movingLabels": ["PERSON", "VEHICLE"], "maxLabelAgeMs": 200, "maxSpeedMps": { "PERSON": 2.5, "VEHICLE": 6.9 }, "movableDepth": "SMOOTHED", "movableRawMinConfidence": 30, "voxelLabels": false },
   "align": { "fitLengthM": 2.0, "minTravelM": 0.5, "headingWindowS": 3.0 },
   "sonify": {
       "mode": "PULSE",

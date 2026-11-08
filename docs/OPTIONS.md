@@ -14,6 +14,12 @@
 | 깊이 입력 | `frontend.segment` NONE → REGION, `map.instances` | M13.3(C3a·C3b) | NONE / false | M35 |
 | 지도 | `map.mode` HITS → LOG_ODDS·TSDF·TRISTATE | M13.2·M13.6·M32 | HITS | M37 |
 | 지도 | `map.hitWeighting` DISTANCE | v0.3.14 기본값 | DISTANCE | M37 |
+| 깊이 입력 | `vision.movableDepth` SMOOTHED → RAW(사람·차량 라벨 화소는 지도에 원시 점, 신뢰도 ≥ 30) | M54: 사람 둘레 고리 칸 243 → 11, 출력 늦음 ≤ 0.33 s, 경고 7.40 → 7.54 s(단독) | SMOOTHED | M51(H·기기, 기본값 후보 P+B) |
+| 깊이 입력 | `frontend.labelBandPx` 0 → 6(라벨 경계 양쪽 띠, 심 남김) | M54: P와 함께 T 경고 6.54 s·거짓 시작 3, 받침대 첫 STOP −0.045 m, 실내 출력 같음 | 0 | M51(기본값 후보 P+B) |
+| 지도 | `map.hitWeighting` CONFIDENCE(원시 신뢰도 구간 무게 `depth.mapConfidenceWeights`) | M54: T 경고 6.01 s이나 실내 131039 누운 캐리어 STOP 놓침(6표 문턱) | DISTANCE | M55(점유 판정 다시) |
+| 지도 | `map.decayWeighting` CONFIDENCE(빈 곳 감쇠에 같은 무게) | M54 결과 검토(사용자 제안): 131039 놓침 그대로, 방향은 맞음(사용자) | NONE | M55 |
+| 지도 | `vision.voxelLabels`(칸 라벨 표·역할, 프레임 바닥면·군집 법선 기록) | M54: 기록용, 받침대 둘레 건물 역할 2~10%, 바닥면은 앱 바닥보다 못함, 법선 안정 | false | M50(막힌 길)·M53 |
+| 요소 분해 | `floor.weighting` CONFIDENCE(바닥 히스토그램 신뢰도 무게) | M54: 바닥 오차 중앙값 0.038 → 0.039 m(미충족), 실내 131003 STOP 놓침 | NONE | — |
 | 지도 | `map.decayBehind` | M24: 꺼진 옵션(GO는 기본값 후보) | false | M37 |
 | 지도 | `map.freeEvidenceDecay`, `cluster.coreEvidenceMultiplier` (PR #58 E·C) | v0.3.19: 꺼진 옵션 | 0 / 1.0 | M35 |
 | 지도 | `map.tri*`(RM, M33), `map.triViewRho` 등(RV, M39), `map.prunePassed` | M33 P·M39 P: 다음 바탕, 기본값 HITS 유지 | 끔 | M37 |
@@ -39,6 +45,7 @@
 | 통로 판정 | `corridor.wallAlign` (M42 C) | M42 이전 판 확인 재생: 오경보 늘어 채택 안 함 | false | M44 |
 | 통로 판정 | `corridor.judge` BOX → WALKABLE | M44: 옆 벽 오경보 안 줄고 합성 STOP 검출 −0.14로 F | BOX | M38 녹화에서 진행 방향 결합과 함께(M36) |
 | 통로 판정 | `corridor.judge` BOX → BOUNDARY (나란한 경계) | M44 재설계: 기준 충족(P) | BOX | M36 기본값 후보 |
+| 통로 판정 | `corridor.judge` BOX → LABEL(건물 칸만 나란한 경계) | M54 SL-7: 얕게 다가오는 건물 벽 첫 STOP 2.0 s 늦음(M44 결함, BOUNDARY에도) | BOX | 경계 결함 고친 뒤(M50) |
 | 안내 | `repPoint.strategy` CORRIDOR_NEAREST → CORRIDOR_BAND | M21 기본값(평활 깊이에서 방향 불합격 7/15 → 4/15) | CORRIDOR_BAND | M42 |
 | 안내 | `repPoint.stableTies` false → true | M21 보완(2026-10-30): 같은 거리 후보의 입력 순서 의존 재현 | false | 높이·피치 청취와 회전 재현 후, 기본값 후보 아님 |
 | 안내 | `policy.prioritizeStop`, `policy.maxSources` | 팀 소리 후보(IMPROVE_SPEC §15) | false / 1 | M42, 소리는 M36 |
@@ -59,3 +66,6 @@
 - 2026-10-31 · M37 · `frontend.enabled`(경계 판정) · 원시 RV 바탕(같은 하류) · 오경보 합 10 → 10, 152743 2 → 3, 물체 세션 결과 같음 · F, 꺼진 옵션
 - 2026-10-31 · M37 · `frontend.rgbGuide` WEIGHTED_MEDIAN·EDGE·EDGE_MARGIN(`rgbFrom=mp4`) · 원시 RV 바탕 · 오경보 합 10 → 11(152354 1 → 2, 152743 2 → 3), 물체 세션 결과 같음. 3상태 지도에서는 바닥 추정기가 돌지 않아 EDGE·EDGE_MARGIN이 WEIGHTED_MEDIAN과 같은 출력 · F, 꺼진 옵션
 - 2026-10-31 · M37 · 공정 비교(순수 대체 `fullonly` 대 같은 장 원시 `rawonly`, 같은 원시 σ) · E 6세션 · ZipDepth 헛 칸 0.316 → 0.244·표면 오차 0.174 → 0.139 m(나음), 오경보 10 → 16 · F 그대로. MiDaS·SML 완전성 0.349 → 0.195·0.191 · 버림 그대로
+- 2026-11-06 · M54 · `vision.movableDepth` RAW + `frontend.labelBandPx` 6 · 앞 단계 정답 없음(M49 끝 설정 위, T 7·O01 9·실내 21) · T 정답 없는 경고 7.40 → 6.54 s·거짓 시작 5 → 3, 150338 STOP 1.62 → 1.66 m, 받침대 첫 STOP 1.318 → 1.273 m, O01·실내 출력 같음 · 꺼진 옵션, 기본값 후보(M51 H·기기)
+- 2026-11-06 · M54 · `map.hitWeighting` CONFIDENCE, `map.decayWeighting` CONFIDENCE, `floor.weighting` CONFIDENCE · 같은 조건 · T 경고 6.01 s(W)이나 실내 STOP 놓침 2 → 4(131039 W·감쇠 무게로도 그대로, 131003 F) · 꺼진 옵션, 점유 판정은 M55
+- 2026-11-06 · M54 · `corridor.judge` LABEL · 합성 SL-7 · 첫 STOP BOX 3.17 s 대 5.18 s · 꺼진 옵션, BOUNDARY·LABEL 기본값 금지(경계 결함 고칠 때까지)

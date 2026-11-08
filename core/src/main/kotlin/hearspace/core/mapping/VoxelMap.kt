@@ -38,7 +38,15 @@ data class VoxelView(
     val evidence: Float = hits.toFloat(),
     /** TRISTATE의 빈 증거 F(광선이 지난 장의 관측 가중 합). 다른 모드는 0. */
     val free: Float = 0f,
+    /** 칸의 라벨 역할(M54 `vision.voxelLabels`). 끄면 NONE. */
+    val role: VoxelRole = VoxelRole.NONE,
 )
+
+/**
+ * 칸의 라벨 역할(M54 설계 3.5절). 프레임 표(건물+보도+도로+지면)가 `map.minHits` 이상이고 나머지 표의 합보다 많으면 프레임(건물 표가 바닥류 표 이상이면
+ * BUILDING, 아니면 FLOORISH), 아니면 OBSTACLE(라벨 없음·하늘·물·표 모자람 포함, 처음 보는 종류가 소리 없이 지나가지 않게). NONE = 라벨 표를 끔.
+ */
+enum class VoxelRole { NONE, OBSTACLE, BUILDING, FLOORISH }
 
 /**
  * 칸이 깊이 한 장에서 어떻게 보이는가(M20 대표점 진단). HIT = 이번 장에 점이 들어옴, FREE = 칸 뒤가 관측됨(빈 공간, 감쇠 대상),
@@ -98,6 +106,10 @@ class VoxelMap(private val cfg: MapConfig) {
         var group: ViewGroup? = null,
         /** 처음 맞은 시각(M48 정지·움직임 분해: 움직이는 track이 생긴 뒤에 생긴 칸만 옮긴다). MIN = 모름. */
         var firstNs: Long = Long.MIN_VALUE,
+        /** 이번 장에 이 칸이 받은 표의 무게(M54 `map.hitWeighting` CONFIDENCE: 장마다 칸별 가장 큰 무게). */
+        var lastVote: Float = 0f,
+        /** 라벨 값(0~11)별 표 수(M54 `vision.voxelLabels`). null = 아직 표 없음. */
+        var labelCounts: IntArray? = null,
     )
 
     /**
@@ -123,7 +135,10 @@ class VoxelMap(private val cfg: MapConfig) {
 
     /** TSDF 잘림 폭: 깊이 [depthM]에서 max(`tsdfTruncMinM`, `tsdfTruncPerM` × 깊이). */
     fun truncation(depthM: Float): Float = max(cfg.tsdfTruncMinM, cfg.tsdfTruncPerM * depthM)
-    private val weighted = cfg.hitWeighting == HitWeighting.DISTANCE || tristate
+    private val weighted = cfg.hitWeighting == HitWeighting.DISTANCE || cfg.hitWeighting == HitWeighting.CONFIDENCE || tristate
+
+    /** M54 CONFIDENCE: 한 장에서 칸마다 그 장 점들의 가장 큰 무게로 한 번 갱신(OctoMap). 다른 방식은 그 장 첫 점의 무게(기준선 그대로). */
+    private val maxVotePerFrame = cfg.hitWeighting == HitWeighting.CONFIDENCE
 
     /** 관측 가중치: 거리 [distM]에서 min(1, (weightRefM / 거리)²). */
     fun weight(distM: Float): Float = if (distM <= cfg.weightRefM) 1f else (cfg.weightRefM / distM).let { it * it }
@@ -137,7 +152,14 @@ class VoxelMap(private val cfg: MapConfig) {
     /** 새 깊이 한 장을 시작한다. [insert]의 "한 장에 한 번" 판정에 쓴다. */
     fun beginFrame() {
         frame++
+        decayedVoxels.clear()
     }
+
+    /** true면 [decayFree]가 감쇠한 칸을 [decayedVoxels]에 모은다(M54 평가 전용). */
+    var collectDecays = false
+
+    /** 이번 장에 감쇠한 칸(ix, iy, iz, 그 칸을 비었다고 본 깊이 화소 번호 교차). */
+    val decayedVoxels = ArrayList<Int>()
 
     /**
      * 비바닥 점 하나를 관측으로 넣는다. [weight]는 관측 가중치([weight] 함수): LOG_ODDS와 HITS의 `hitWeighting` DISTANCE가 쓴다.
@@ -328,9 +350,16 @@ class VoxelMap(private val cfg: MapConfig) {
         if (v == null) {
             voxels[key] = Voxel(
                 1, min(1f, cfg.hitGain * vote), tNs, frame, min(cfg.logMax, cfg.logHit * weight), vote, if (wall) 1 else 0, if (wall) frame else -1,
-                currentEvidence = vote, firstNs = tNs,
+                currentEvidence = vote, firstNs = tNs, lastVote = vote,
             )
             return
+        }
+        if (maxVotePerFrame && v.lastHitFrame == frame && vote > v.lastVote) {
+            val d = vote - v.lastVote
+            v.weightedHits += d
+            v.currentEvidence += d
+            v.score = min(1f, v.score + cfg.hitGain * d)
+            v.lastVote = vote
         }
         if (wall && v.lastWallFrame != frame) {
             v.wallHits++
@@ -344,6 +373,7 @@ class VoxelMap(private val cfg: MapConfig) {
             v.lastSeenNs = tNs
             v.lastHitFrame = frame
             v.logOdds = min(cfg.logMax, v.logOdds + cfg.logHit * weight)
+            v.lastVote = vote
         }
     }
 
@@ -391,6 +421,23 @@ class VoxelMap(private val cfg: MapConfig) {
     /**
      * [pW]가 든 칸에 물체 번호 [id]를 한 표(한 장에 한 번, 다수결 투표: 같은 번호면 +1, 다르면 −1이고 0이 되면 바뀐다). 칸이 없으면 무시.
      */
+    /** 칸 [pW]에 라벨 [label](의미 영상 화소 값) 한 표(M54). 칸이 없거나 값이 범위 밖이면 무시. 부르는 쪽이 새 라벨 영상마다 칸당 한 번만 부른다. */
+    fun voteLabel(pW: Vec3, label: Int) {
+        if (label !in 0 until LABEL_KINDS) return
+        val v = voxels[key(index(pW.x), index(pW.y), index(pW.z))] ?: return
+        val c = v.labelCounts ?: IntArray(LABEL_KINDS).also { v.labelCounts = it }
+        c[label]++
+    }
+
+    private fun roleOf(v: Voxel): VoxelRole {
+        val c = v.labelCounts ?: return VoxelRole.NONE
+        val building = c[2]
+        val floorish = c[4] + c[5] + c[6]
+        val frame = building + floorish
+        val other = c.sum() - frame
+        return if (frame >= cfg.minHits && frame > other) (if (building >= floorish) VoxelRole.BUILDING else VoxelRole.FLOORISH) else VoxelRole.OBSTACLE
+    }
+
     fun voteInstance(pW: Vec3, id: Int) {
         val v = voxels[key(index(pW.x), index(pW.y), index(pW.z))] ?: return
         if (v.lastInstFrame == frame) return
@@ -445,7 +492,8 @@ class VoxelMap(private val cfg: MapConfig) {
      * 현재 깊이 이미지로 빈 공간을 관측한 복셀을 감쇠한다. 이번 장에서 관측된 복셀은 건너뛴다.
      * [depthMm]은 이미 신뢰도 필터를 거친 깊이(0 = 무효). 돌려주는 값은 감쇠한 복셀 수.
      */
-    fun decayFree(depthMm: ShortArray, k: Intrinsics, camFromWorld: Mat4): Int {
+    /** [pixelWeight]: 깊이 화소 번호 → 감쇠 세기 배수(`map.decayWeighting` CONFIDENCE, HITS만). null이면 1. */
+    fun decayFree(depthMm: ShortArray, k: Intrinsics, camFromWorld: Mat4, pixelWeight: ((Int) -> Float)? = null): Int {
         if (tsdf) return updateTsdf(depthMm, k, camFromWorld)
         if (tristate) return 0 // 빈 증거는 광선이 쌓는다([insertRay])
         var decayed = 0
@@ -462,7 +510,11 @@ class VoxelMap(private val cfg: MapConfig) {
                 if (v.logOdds <= cfg.logMin) it.remove()
                 continue
             }
-            v.score -= cfg.decayPerObservation
+            val px = if (pixelWeight != null || collectDecays) pixelIndex(pCv, k) else -1
+            v.score -= cfg.decayPerObservation * (pixelWeight?.invoke(px) ?: 1f)
+            if (collectDecays) {
+                decayedVoxels += ix(key); decayedVoxels += iy(key); decayedVoxels += iz(key); decayedVoxels += px
+            }
             if (cfg.freeEvidenceDecay > 0f) v.currentEvidence = max(0f, v.currentEvidence - cfg.freeEvidenceDecay)
             decayed++
             if (v.score <= 0f) it.remove()
@@ -476,6 +528,10 @@ class VoxelMap(private val cfg: MapConfig) {
      */
     fun cellView(centerW: Vec3, hitThisFrame: Boolean, depthMm: ShortArray, k: Intrinsics, camFromWorld: Mat4): CellView =
         if (hitThisFrame) CellView.HIT else sight(camFromWorld.transformPoint(centerW), depthMm, k)
+
+    /** [sight]와 같은 반올림으로 칸이 투영되는 깊이 화소 번호(시야 안이라고 가정). */
+    private fun pixelIndex(pCv: Vec3, k: Intrinsics): Int =
+        (k.fy * pCv.y / pCv.z + k.cy).roundToInt() * k.width + (k.fx * pCv.x / pCv.z + k.cx).roundToInt()
 
     /** 카메라 좌표 [pCv]의 칸이 이 깊이 장에서 어떻게 보이는가(관측 여부 제외). 빈 공간 여유는 지도 방식마다 다르다. */
     private fun sight(pCv: Vec3, depthMm: ShortArray, k: Intrinsics): CellView {
@@ -605,7 +661,7 @@ class VoxelMap(private val cfg: MapConfig) {
             cfg.freeEvidenceDecay > 0f -> v.currentEvidence
             else -> historical
         }
-        return VoxelView(ix(key), iy(key), iz(key), center(key), v.hits, v.score, v.lastSeenNs, v.logOdds, v.wallHits, v.instId, evidence, v.free)
+        return VoxelView(ix(key), iy(key), iz(key), center(key), v.hits, v.score, v.lastSeenNs, v.logOdds, v.wallHits, v.instId, evidence, v.free, roleOf(v))
     }
 
     /** 모든 score에 [factor]를 곱한다(추적 복귀 시 `state.recoverScoreScale`, §7.5). LOG_ODDS는 로그 오즈를 0(모름) 쪽으로 같은 비율만큼. */
@@ -641,6 +697,8 @@ class VoxelMap(private val cfg: MapConfig) {
     )
 
     private companion object {
+        /** 의미 영상 라벨 종류 수(ARCore SemanticLabel 0~11, M54 칸 라벨 표). */
+        const val LABEL_KINDS = 12
         const val BITS = 21
         const val OFFSET = 1 shl (BITS - 1) // ±2^20 칸 (0.05 m면 ±52 km)
         const val MASK = (1L shl BITS) - 1
