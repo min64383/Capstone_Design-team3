@@ -69,7 +69,15 @@ fun main(args: Array<String>) {
         out.mkdirs()
         java.util.zip.GZIPOutputStream(File(out, "cell_obs.bin.gz").outputStream().buffered(1 shl 16)).also { replay.cellTraceOut = it }
     } else null
-    trace.use { replay.run(session, out, overrides, note) }
+    // M56 A단계 평가: 장마다 점유 칸 과반 라벨·군집 번호(voxel_labels.csv.gz)
+    val labelDump = if (opts["labelDump"] == "true") {
+        out.mkdirs()
+        java.util.zip.GZIPOutputStream(File(out, "voxel_labels.csv.gz").outputStream().buffered(1 shl 16)).writer().also {
+            it.write("tCaptureNs,ix,iy,iz,cluster,label,evidence\n")
+            replay.labelDumpOut = it
+        }
+    } else null
+    labelDump.use { trace.use { replay.run(session, out, overrides, note) } }
     // 끊긴 녹화(잘린 줄·손상된 PNG)는 건너뛰고 끝까지 돈다: 건너뛴 것을 알린다
     if (replay.warnings.isNotEmpty()) System.err.println("session warnings ${replay.warnings.size}: ${replay.warnings.take(3).joinToString("; ")}")
     println("replay log: ${out.absolutePath}")

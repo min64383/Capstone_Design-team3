@@ -101,6 +101,8 @@ class MainWindow(initialSession: String?) : JFrame("HEARSPACE 평가 GUI") {
             })
             add(JCheckBox("깊이 겹침", true).apply { addActionListener { vm.showDepth = isSelected; vm.fire() } })
             add(JCheckBox("라벨 겹침").apply { toolTipText = "M49 라벨 영상: 자홍 사람, 하늘색 차량(라벨을 쓰는 변형만)"; addActionListener { vm.showLabels = isSelected; vm.fire() } })
+            add(JCheckBox("칸 라벨").apply { toolTipText = "M56 칸 과반 라벨 색(칸 라벨 표를 켠 변형만): 사람 빨강, 물체 파랑, 구조물 보라, 나무 초록, 차량 청록, 건물 주황, 보도 노랑, 라벨 없음 밝은 회색, 과반 없음 어두운 회색"; addActionListener { vm.showVoxelLabels = isSelected; vm.fire() } })
+            add(JCheckBox("띠 보기").apply { toolTipText = "M56 경계 띠: 빨강 라벨 띠·깊이 경계 띠 모두 지움, 노랑 지금 라벨 띠만 지움(깊이 경계 띠는 남김), 하늘색 깊이 경계 화소(라벨을 쓰는 변형만)"; addActionListener { vm.showBands = isSelected; vm.fire() } })
             add(JCheckBox("지도 칸").apply {
                 toolTipText = "지도 칸을 겹친다(M30). 정답이 장면 전체인 세션(E)은 칸 분류 색: 초록 맞음, 회색 속, 빨강 헛, 흰 테 놓친 표면"
                 addActionListener { vm.showVoxels = isSelected; vm.fire() }

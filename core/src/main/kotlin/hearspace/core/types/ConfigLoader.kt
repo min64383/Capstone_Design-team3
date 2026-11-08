@@ -133,6 +133,11 @@ object ConfigLoader {
                     rgbMarginMaxPx = atLeast1("rgbMarginMaxPx"),
                     segment = enumValue<SegmentMode>("segment"),
                     labelBandPx = intIn("labelBandPx", 0, 64),
+                    bandDepthEdgeSigmas = nonNegative("bandDepthEdgeSigmas"),
+                    bandWidthM = nonNegative("bandWidthM"),
+                    bandMinPx = intIn("bandMinPx", 0, 64),
+                    bandNearM = nonNegative("bandNearM"),
+                    bandFarPx = intIn("bandFarPx", 0, 64),
                     bandLabels = enumList<SemanticLabel>("bandLabels").toSet(),
                 )
             },
@@ -222,6 +227,8 @@ object ConfigLoader {
                     separateWalls = boolean("separateWalls"),
                     wallFraction = unit("wallFraction"),
                     coreEvidenceMultiplier = positive("coreEvidenceMultiplier"),
+                    sameLabelEpsM = nonNegative("sameLabelEpsM"),
+                    sameLabels = enumList<SemanticLabel>("sameLabels").toSet(),
                 )
             },
             geometry = root.section("geometry") {
@@ -387,6 +394,7 @@ object ConfigLoader {
                     obstacleDepth = enumValue<MovableDepth>("obstacleDepth"),
                     obstacleLabels = enumList<SemanticLabel>("obstacleLabels").toSet(),
                     obstacleRawWeight = positive("obstacleRawWeight"),
+                    obstacleFill = enumValue<ObstacleFill>("obstacleFill"),
                     voxelLabels = boolean("voxelLabels"),
                     floorishLabels = enumList<SemanticLabel>("floorishLabels").toSet(),
                 )

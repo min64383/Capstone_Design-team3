@@ -253,6 +253,25 @@ data class FrontendConfig(
      * 상관없이 무효로 한다. 영역 안쪽은 영역 안쪽 반지름의 절반까지만. 프레임 라벨끼리의 경계는 보지 않는다. 0 = 끔(기준선). 값은 0단계 측정(b = 6).
      */
     val labelBandPx: Int = 0,
+    /**
+     * 깊이 경계 띠(M56): 0보다 크면 라벨 경계 띠를 깊이 경계 근처(평활 4이웃 차 > 이 배수 × σ_평활(Z) 화소에서 `labelBandPx` 안)에서만 둔다.
+     * 0 = 끔(라벨 경계 어디서나, M54). 2 = 프로젝트의 2σ 배수(M32·M33·M54).
+     */
+    val bandDepthEdgeSigmas: Float = 0f,
+    /**
+     * 거리 비례 띠(M56, 사용자 제안 "거리 상관없이 5cm 정도"): 0보다 크면 띠 폭(화소) = 이 실제 폭을 경계 옆 가장 가까운 깊이에서 화소로 바꾼 값을
+     * [bandMinPx]~`labelBandPx`로 자른 값. 0 = 끔(고정 `labelBandPx`). 근거: M56 0-5 막 반폭 3.5 m 안 3~5 cm, 밖 2~3화소.
+     */
+    val bandWidthM: Float = 0f,
+    /** 거리 비례 띠의 가장 얇은 폭(화소). M56 0-5 먼 곳(3.5~5 m) 막 반폭 2~3화소. */
+    val bandMinPx: Int = 0,
+    /**
+     * 계단 띠(M56, 사용자 "거리 비례 화소를 적게 세는 라벨 띠 규칙을 똑바로"): 0보다 크면 경계 옆 가장 가까운 깊이가 이 거리(m)보다 가까우면
+     * `labelBandPx`, 아니면 [bandFarPx]. 0 = 끔. 근거: M56 0-5 막 전체 폭(1.5 m 안 6화소 넘음, 밖 2~3화소). [bandWidthM]보다 먼저 본다.
+     */
+    val bandNearM: Float = 0f,
+    /** 계단 띠의 먼 쪽 폭(화소). */
+    val bandFarPx: Int = 0,
     /** 경계 띠의 장애물 역할 라벨(M54 기본: 라벨 없음·하늘·나무·구조물·물체·차량·사람·물). M55 O 조합은 하늘·물을 뺀다(사용자 결정). */
     val bandLabels: Set<SemanticLabel> = setOf(
         SemanticLabel.UNLABELED, SemanticLabel.SKY, SemanticLabel.TREE, SemanticLabel.STRUCTURE, SemanticLabel.OBJECT,
@@ -460,6 +479,16 @@ data class ClusterConfig(
     val wallFraction: Float,
     /** 1보다 크면 점유 문턱보다 이 배 이상 강한 복셀만 DBSCAN core로 확장하고 약한 복셀은 border로만 붙인다. */
     val coreEvidenceMultiplier: Float,
+    /**
+     * 같은 라벨 이웃 반경(M56 3.3절, m). [epsM]보다 크면 두 칸의 과반 라벨(`vision.voxelLabels`)이 같을 때(라벨 없음·과반 없음 제외) 이 거리까지
+     * 이웃으로 본다. 0 = 끔. 0.30 = 다른 두 물체 사이 같은 라벨 틈(실내 캐리어–종이 상자 0.32 m)보다 작은 가장 큰 5 cm 격자값(사용자 결정).
+     */
+    val sameLabelEpsM: Float = 0f,
+    /**
+     * 같은 라벨 연결을 주는 라벨(M56, 사용자 결정): 셀 수 있는 물체 라벨(장애물 묶음에서 라벨 없음을 뺌). 보도·도로·지면·건물·하늘·물은 펼쳐진 면이라
+     * 같은 라벨이어도 한 물체라는 근거가 없다(모든 라벨에 주었더니 150159 바닥 결함의 보도 칸이 군집이 되어 실외 경고 6.66 s).
+     */
+    val sameLabels: Set<SemanticLabel> = setOf(SemanticLabel.TREE, SemanticLabel.STRUCTURE, SemanticLabel.OBJECT, SemanticLabel.VEHICLE, SemanticLabel.PERSON),
 )
 
 /** Depth/복셀 기하만으로 실내 보행 형태를 분기하는 실험 모듈 설정. */
@@ -759,6 +788,11 @@ data class VisionConfig(
     ),
     /** O 원시 점의 표 무게(`map.hitWeighting` CONFIDENCE일 때). M54 P는 1. 낮은 물체 STOP 요구에서 유도한다(설계 표 8). */
     val obstacleRawWeight: Float = 1f,
+    /**
+     * O에서 원시가 없는 장애물 라벨 화소(M56 설계 3.7절). NONE이면 장애물 라벨 평활 점을 모두 버린다(지도·빈 곳 감쇠·track 점, 맞음과 빈 곳이 같은
+     * 센서 모형에서 나오게). SMOOTHED = M55 O.
+     */
+    val obstacleFill: ObstacleFill = ObstacleFill.SMOOTHED,
     /** [movableDepth] RAW에서 쓰는 원시 점의 신뢰도 하한(M54 정답 비교: 사람 다리 1~29 틀림, 30~127 맞음). */
     val movableRawMinConfidence: Int = 30,
     /** 칸마다 라벨 표와 역할(M54). false = 기준선. */

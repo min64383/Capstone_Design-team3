@@ -29,6 +29,12 @@
 | 깊이 입력 | `vision.obstacleDepth` SMOOTHED → RAW(`vision.obstacleLabels`·`obstacleRawWeight`: 장애물 라벨 띠 안쪽 원시, 원시 없는 화소는 평활로 채움) | M55: T 경고 6.64 → 8.01 s·거짓 시작 4 → 5, 실내 130646 늦춤 풀림 | SMOOTHED | M56(평활을 버리는 "P처럼" 판과 비교) |
 | 깊이 입력 | `frontend.bandLabels`(띠의 장애물 묶음) M54 묶음 → 하늘·물 뺌 | M55: T 결과 P+B+W5와 같음 | M54 묶음 | M56(B+W5에서 씀) |
 | 평가 | 재생 `-PcellTrace`(복셀 관측 기록), `-PlabelRemap`(라벨 화소 값 바꾸기) | M55: 기록으로 돌린 지금 규칙이 31세션 14,448장 재생과 같음 / 보도 라벨 바꾸기 시험 | 꺼짐 | — |
+| 깊이 입력 | `frontend.bandDepthEdgeSigmas`(깊이 경계 근처에만 띠) | M56: T 경고 6.71~7.07 s·거짓 시작 4~8, 6 px에서 131039 누운 캐리어 놓침 | 0 | — |
+| 깊이 입력 | `frontend.bandWidthM`·`bandMinPx`(거리 비례 띠), `frontend.bandNearM`·`bandFarPx`(계단 띠: 1.5 m 안 6·밖 3 px) | M56: 거리 비례 T 6.81 s·6; 계단 + W6(W 다시 유도) T 6.41 s·거짓 시작 4, 먼 막 약 40% 남김 | 0 | — |
+| 깊이 입력 | `vision.obstacleFill` SMOOTHED → NONE(장애물 라벨은 평활을 버리고 원시만, `vision.obstacleDepth` RAW와 함께) | M56: T 경고 8.05 s·거짓 시작 6, 실외 첫 STOP 0.05~0.27 m 이름 | SMOOTHED | 정지 장애물 원시 점 신뢰도별 오차를 잰 뒤 |
+| 지도 | `map.weightedMinHits` 5 → 6(고정 6 px 띠, 신뢰도 무게) | M56: T 5.84 s·2이나 실내 늦음 131003 0.049·135701 0.050 m(한도에 걸침) | B+W5는 5 | — |
+| 군집·추적 | `vision.voxelLabels`(칸 과반 라벨) + `cluster.sameLabelEpsM` 0.30·`cluster.sameLabels`(나무·구조물·물체·차량·사람끼리 더 먼 거리까지 이웃) | M56: 모든 기준 충족(150159 갈림 7 → 0, T 6.32 s·3); 모든 라벨에 주면 T 6.66 s | 끔(앱 기본값), M56 조합에서 켬 | M57 바탕 |
+| 평가 | 재생 `-PlabelDump`(장마다 점유 칸 과반 라벨·군집 번호, voxel_labels.csv.gz) | M56 구현 전 점검 | — | — |
 | 지도 | `map.decayBehind` | M24: 꺼진 옵션(GO는 기본값 후보) | false | M37 |
 | 지도 | `map.freeEvidenceDecay`, `cluster.coreEvidenceMultiplier` (PR #58 E·C) | v0.3.19: 꺼진 옵션 | 0 / 1.0 | M35 |
 | 지도 | `map.tri*`(RM, M33), `map.triViewRho` 등(RV, M39), `map.prunePassed` | M33 P·M39 P: 다음 바탕, 기본값 HITS 유지 | 끔 | M37 |
@@ -83,3 +89,6 @@
 - 2026-11-07 · M55 · `floor.model` PLANE_RAW·`floor.histogramMinDistM`/`MaxDistM`·`floor.weighting` DISTANCE · P+B+W5 위 · 위 표 · 꺼진 옵션, ①은 150159 녹화 깊이 결함으로 닫음(사용자)
 - 2026-11-07 · M55 · `vision.obstacleDepth` RAW(평활 채움) · P·O 끈 B+W5와 비교 · T 6.32 → 8.01 s(첫 구현은 원시에 띠를 안 깎아 10.68 s) · 꺼진 옵션. 장애물 라벨 전체를 P처럼(평활 버림) 다루는 판은 시험 안 함 → M56
 - 2026-11-07 · M55 · B+W5(`vision.movableDepth` SMOOTHED, 띠 6 하늘·물 뺌, `map.weightedMinHits` 5) · 실내 21·T 7·O01 9 · 실내 놓침 2·오경보 26·130646 한도 넘음, T 6.32 s·거짓 시작 3(기준 충족), 150338 1.62 m·TTC 1.35 s, 사람 2 m 안 빈 장 22%·3 m 안 출력 둘 이상 150300 11%, O01 같음 · M56 판정 바탕
+- 2026-11-07 · M56 · `frontend.bandDepthEdgeSigmas`·`bandWidthM`·`bandNearM`(경계 띠 변형 셋) · B+W5 위, 계단 띠는 W 문턱을 같은 규칙으로 다시 유도, 늦음 = 첫 STOP 시각 차 × 걷는 속도(자세 튐 뺌) · 위 표 · 꺼진 옵션, 앞단은 고정 6 px + W5(사용자 결정)
+- 2026-11-08 · M56 · `vision.obstacleFill` NONE · B+W5 위, 원시 무게 1 · T 8.05 s·거짓 시작 6, 흔적 47 → 50 · 꺼진 옵션
+- 2026-11-08 · M56 · `vision.voxelLabels` + `cluster.sameLabelEpsM` 0.30 + `cluster.sameLabels` · B+W5 위(`map.weightedFrameMinHits` 5) · 위 표, 새 옵션을 끈 출력 바이트 같음 · M56 조합(뷰어 변형 39), M57 바탕

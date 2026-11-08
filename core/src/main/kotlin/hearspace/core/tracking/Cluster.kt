@@ -13,12 +13,20 @@ object Cluster {
     /** [pointsW]를 군집으로 나눈다. 이웃 수(자기 포함)가 [minSamples] 이상인 점이 핵심점.
      * [canExpand]가 있으면 false인 점은 경계점으로 군집에 붙을 수는 있지만 다른 점으로 군집을 확장하지 못한다.
      * 낮은 신뢰도의 얇은 bridge가 두 강한 물체를 한 덩어리로 잇는 것을 막는 실험 옵션이다.
+     * 라벨 가중(M56 3.3절): [labels]가 있고 [sameLabelEpsM] > [epsM]이면, 두 점의 라벨이 같고 0보다 클 때(라벨 없음 0·과반 없음 -1 제외)
+     * 수평 거리 [sameLabelEpsM]까지 이웃으로 본다. 라벨이 다른 쌍은 [epsM] 그대로.
      */
-    fun dbscanXZ(pointsW: List<Vec3>, epsM: Float, minSamples: Int, canExpand: BooleanArray? = null): List<List<Int>> {
+    fun dbscanXZ(
+        pointsW: List<Vec3>, epsM: Float, minSamples: Int, canExpand: BooleanArray? = null, labels: IntArray? = null, sameLabelEpsM: Float = 0f,
+    ): List<List<Int>> {
         require(canExpand == null || canExpand.size == pointsW.size)
+        require(labels == null || labels.size == pointsW.size)
         val eps2 = epsM * epsM
+        val same = labels != null && sameLabelEpsM > epsM
+        val same2 = sameLabelEpsM * sameLabelEpsM
+        val cellM = if (same) sameLabelEpsM else epsM
         val grid = HashMap<Long, MutableList<Int>>()
-        fun cell(v: Float) = floor(v / epsM).toInt()
+        fun cell(v: Float) = floor(v / cellM).toInt()
         fun key(cx: Int, cz: Int) = (cx.toLong() shl 32) or (cz.toLong() and 0xFFFFFFFFL)
         for ((i, p) in pointsW.withIndex()) grid.getOrPut(key(cell(p.x), cell(p.z))) { ArrayList() } += i
 
@@ -32,7 +40,8 @@ object Cluster {
                     val q = pointsW[j]
                     val ddx = p.x - q.x
                     val ddz = p.z - q.z
-                    if (ddx * ddx + ddz * ddz <= eps2) out += j
+                    val d2 = ddx * ddx + ddz * ddz
+                    if (d2 <= eps2 || (same && d2 <= same2 && labels!![i] > 0 && labels[i] == labels[j])) out += j
                 }
             }
             return out

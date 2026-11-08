@@ -178,6 +178,15 @@ class OfflineReplay(
             val stepIndex = startedSteps++
             val s = slow.process(d, h)
             slow.map.cellTrace?.let { cellTraceOut!!.write(it.drain()) }
+            labelDumpOut?.let { w ->
+                val inCluster = HashMap<Triple<Int, Int, Int>, Int>()
+                slow.lastClusters.forEachIndexed { ci, c -> c.forEach { v -> inCluster[Triple(v.ix, v.iy, v.iz)] = ci } }
+                val u = slow.lastUserPosW
+                for (v in slow.map.voxels.occupied()) {
+                    if ((v.centerW - u).horizontal().norm() > 3.5f) continue
+                    w.write("${d.tCaptureNs},${v.ix},${v.iy},${v.iz},${inCluster[Triple(v.ix, v.iy, v.iz)] ?: -1},${v.label},${v.evidence}\n")
+                }
+            }
             // M54 평가: 칸 역할 기록(map_roles.csv)은 mapInserts이고 칸 라벨 표를 켰을 때 0.5 s(15장)마다
             val roleDump = mapInserts && config.vision.voxelLabels && stepIndex % 15 == 0
             val voxels = if (listener.captureVoxels || roleDump) slow.map.voxels.occupied() else null
@@ -278,6 +287,12 @@ class OfflineReplay(
 
     /** 있으면 칸 관측 기록([hearspace.core.mapping.CellTrace])을 여기에 쓴다(M55 평가 전용, `-PcellTrace=true`). 닫는 것은 부르는 쪽. */
     var cellTraceOut: java.io.OutputStream? = null
+
+    /**
+     * 있으면 장마다 사용자 3.5 m 안 점유 칸의 과반 라벨과 정지 지도 군집 번호를 여기에 쓴다(M56 A단계 평가 전용, `-PlabelDump=true`,
+     * 줄: tCaptureNs,ix,iy,iz,cluster,label,evidence; cluster -1 = 군집 밖). 닫는 것은 부르는 쪽.
+     */
+    var labelDumpOut: java.io.Writer? = null
 
     private class Job(
         val depth: DepthFrame,

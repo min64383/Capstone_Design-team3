@@ -201,7 +201,7 @@ class LocalMap(private val config: Config) {
                     // 장애물 원천(M55 O): 장애물 묶음 평활 점 중 그 자리 원시(신뢰도 ≥ movableRawMinConfidence)가 있는 것만 원시가 대신하고(지도·track 모두),
                     // 원시가 없는 것은 평활 점으로 채운다
                     val rawCovered = labels54 != null && labels54.pixelAt(p) in rawPixels &&
-                        (!obstacleRaw || (confOf?.get(i) ?: 0) >= config.vision.movableRawMinConfidence)
+                        (!fillSmoothed || (confOf?.get(i) ?: 0) >= config.vision.movableRawMinConfidence)
                     if (collectFramePoints && !(obstacleRaw && rawCovered)) frameObstaclePoints += p to wDist
                     if (excludeBoxes.isNotEmpty() && excludeBoxes.any { (lo, hi) -> p.x in lo.x..hi.x && p.y in lo.y..hi.y && p.z in lo.z..hi.z }) continue
                     if (rawCovered) {
@@ -458,6 +458,9 @@ class LocalMap(private val config: Config) {
     // ---- M55 ②-A 장애물 원천 O(`vision.obstacleDepth` RAW): M54 P를 장애물 묶음 전체로 넓히고, 원시가 없는 화소는 평활로 채운다 ----
     private val obstacleRaw = config.vision.obstacleDepth == hearspace.core.types.MovableDepth.RAW
 
+    /** 장애물 라벨 화소를 원시가 대신하는지: P는 늘, O는 그 자리 원시(신뢰도 ≥ 하한)가 있을 때, O + `vision.obstacleFill` NONE은 늘(M56 P처럼 판). */
+    private val fillSmoothed = obstacleRaw && config.vision.obstacleFill == hearspace.core.types.ObstacleFill.SMOOTHED
+
     /** 원시 점으로 지도에 넣는 라벨: O면 `vision.obstacleLabels`, 아니면 P의 움직일 수 있는 라벨. */
     private val rawPixels: Set<Int> = if (obstacleRaw) config.vision.obstacleLabels.map { it.pixel }.toSet() else movingPixels
 
@@ -639,7 +642,7 @@ class LocalMap(private val config: Config) {
             val mm = depthMm[i].toInt() and 0xFFFF
             if (mm == 0) continue
             val p = depth.worldFromCam.transformPoint(Projection.backproject(u.toFloat(), v.toFloat(), mm / 1000f, k))
-            if (labels.pixelAt(p) in rawPixels && (!obstacleRaw || rawConfidenceAt(raw, rawCamFromWorld, p) >= config.vision.movableRawMinConfidence)) out[i] = 0
+            if (labels.pixelAt(p) in rawPixels && (!fillSmoothed || rawConfidenceAt(raw, rawCamFromWorld, p) >= config.vision.movableRawMinConfidence)) out[i] = 0
         }
         return out
     }
@@ -750,7 +753,23 @@ class LocalMap(private val config: Config) {
         val labels = if (b > 0) freshLabels(depth) else null
         if (labels != null) {
             val field = bandField?.takeIf { it.image === labels } ?: hearspace.core.frontend.LabelBand.field(labels, depth.K.fx, b, bandObstacle).also { bandField = it }
-            val (banded, removed) = hearspace.core.frontend.LabelBand.apply(out, depth, field)
+            // M56 깊이 경계 띠: 이 평활 장의 깊이 경계 근처에서만 뺀다(0 = 끔)
+            val ns = config.frontend.bandDepthEdgeSigmas
+            val near = if (ns > 0f) hearspace.core.frontend.LabelBand.depthEdgeNear(
+                depth.depthMm, depth.K.width, depth.K.height, ns, config.depth.smoothedSigma0M, config.depth.smoothedSigmaPerM2, b,
+            ) else null
+            // M56 거리 비례 띠: 화소마다 폭 = 실제 폭을 경계 옆 가장 가까운 깊이에서 화소로(0 = 끔)
+            val bw = config.frontend.bandWidthM
+            val pxLim = when {
+                config.frontend.bandNearM > 0f -> hearspace.core.frontend.LabelBand.stepByDepth(
+                    depth.depthMm, depth.K.width, depth.K.height, config.frontend.bandNearM, config.frontend.bandFarPx, b,
+                )
+                bw > 0f -> hearspace.core.frontend.LabelBand.widthByDepth(
+                    depth.depthMm, depth.K.width, depth.K.height, depth.K.fx, bw, config.frontend.bandMinPx, b,
+                )
+                else -> null
+            }
+            val (banded, removed) = hearspace.core.frontend.LabelBand.apply(out, depth, field, near, pxLimit = pxLim)
             out = banded
             lastBandRemoved = removed
         }

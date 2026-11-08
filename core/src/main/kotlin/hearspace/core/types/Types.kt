@@ -105,6 +105,9 @@ enum class DecayWeighting { NONE, CONFIDENCE }
  */
 enum class MovableDepth { SMOOTHED, RAW }
 
+/** 장애물 원천 O(`vision.obstacleDepth` RAW)에서 원시가 없는 장애물 라벨 화소(M56 3.7절): SMOOTHED = 평활로 채움(M55 O), NONE = 채우지 않음(P처럼 판). */
+enum class ObstacleFill { SMOOTHED, NONE }
+
 /** 바닥 높이 히스토그램의 점 무게(M54): NONE = 한 점 하나(기준선), CONFIDENCE = 그 자리 원시 신뢰도 구간의 바닥 무게(`depth.floorConfidenceWeights`). */
 /** DISTANCE(M55): 지도와 같은 거리 무게 min(1, (`map.weightRefM`/거리)²) — 깊이 오차가 거리에 따라 커져 가까운 바닥을 더 믿는다. */
 enum class FloorWeighting { NONE, CONFIDENCE, DISTANCE }

@@ -1,9 +1,11 @@
 package hearspace.core.synth
 
 import hearspace.core.geometry.Vec3
+import hearspace.core.mapping.VoxelView
 import hearspace.core.replay.OfflineReplay
 import hearspace.core.replay.ReplayListener
 import hearspace.core.replay.SlowStep
+import hearspace.core.tracking.Cluster
 import hearspace.core.types.Band
 import hearspace.core.types.ConfigLoader
 import hearspace.core.types.GuidanceOutput
@@ -173,9 +175,10 @@ class LabelMapTest {
      * SL-O(M55 ②-A 장애물 원천 O): 장애물 라벨(물체) 상자 3 m. 원시가 없는 상자(신뢰도 0)는 평활로 채우므로 O를 켜도 첫 STOP이 그대로다.
      * 원시가 있는 상자는 원시 점(10 Hz)으로 들어가 STOP이 나야 한다. 원시 점 표 무게가 정해지기 전이라 늦음은 보고만 한다(설계 표 8에서 유도).
      */
+    private val bandO = """ "frontend": { "labelBandPx": 6, "bandLabels": ["UNLABELED", "TREE", "STRUCTURE", "OBJECT", "VEHICLE", "PERSON"] }, "map": { "hitWeighting": "CONFIDENCE", "weightedMinHits": 5 } """
+
     @Test
     fun slObstacleRawFillsWithSmoothed() {
-        val bandO = """ "frontend": { "labelBandPx": 6, "bandLabels": ["UNLABELED", "TREE", "STRUCTURE", "OBJECT", "VEHICLE", "PERSON"] }, "map": { "hitWeighting": "CONFIDENCE", "weightedMinHits": 5 } """
         val withO = """$bandO, "vision": { "obstacleDepth": "RAW" } """
         val box = Box(Vec3(-0.225f, 0f, -3.45f), Vec3(0.225f, 0.8f, -3.0f))
         for (conf in listOf(0, 200)) {
@@ -187,6 +190,67 @@ class LabelMapTest {
             assertTrue(s0 != null && s1 != null, "STOP이 나야 한다")
             if (conf == 0) assertEquals(s0!!, s1!!, 0.01f, "원시가 없으면 평활로 채워 그대로")
         }
+    }
+
+    /**
+     * SL-P(M56 설계 3.7절 P처럼 판, O + `vision.obstacleFill` NONE): 장애물 라벨 평활은 채우지 않는다. 원시가 없는 상자(신뢰도 0)는 지도에 들어가지 않아
+     * STOP이 없고(이 판의 위험 — 실제 물체는 0-6 사전 점검으로 확인), 원시가 있는 상자(신뢰도 200)는 원시 점만으로 STOP이 난다.
+     */
+    @Test
+    fun slObstacleNoFillDropsSmoothed() {
+        val noFill = """$bandO, "vision": { "obstacleDepth": "RAW", "obstacleFill": "NONE" } """
+        val box = Box(Vec3(-0.225f, 0f, -3.45f), Vec3(0.225f, 0.8f, -3.0f))
+        for (conf in listOf(0, 200)) {
+            val spec = SceneSpec("SL-P-$conf", Scene(listOf(floor, SceneItem("box", box, obstacle = true, expectedClass = HeightClass.FLOOR, semantic = SemanticLabel.OBJECT, rawConfidence = conf))),
+                walkTo(3f))
+            val s = firstAlong(spec, box, replay(spec, noFill), Band.STOP)
+            println("SL-P raw confidence $conf: first STOP $s")
+            if (conf == 0) assertTrue(s == null, "원시가 없으면 평활로 채우지 않아 STOP이 없다") else assertTrue(s != null, "원시 점만으로 STOP이 나야 한다")
+        }
+    }
+
+    /** 라벨 가중 이웃 규칙(M56 3.3절) 단위 확인: 9점 묶음 둘(가장 가까운 점 사이 0.25 m). */
+    @Test
+    fun dbscanSameLabelRadius() {
+        val pts = (0 until 9).map { Vec3((it % 3) * 0.05f, 0f, (it / 3) * 0.05f) } + (0 until 9).map { Vec3(0.35f + (it % 3) * 0.05f, 0f, (it / 3) * 0.05f) }
+        fun n(a: Int, b: Int, epsSame: Float) = Cluster.dbscanXZ(pts, 0.15f, 5, null, IntArray(18) { if (it < 9) a else b }, epsSame).size
+        assertEquals(2, Cluster.dbscanXZ(pts, 0.15f, 5).size, "라벨 없이: 0.25 m > ε라 둘")
+        assertEquals(1, n(8, 8, 0.3f), "같은 라벨(물체): ε같은 0.30 m 안이라 하나")
+        assertEquals(2, n(8, 7, 0.3f), "다른 라벨: 그대로 둘")
+        assertEquals(2, n(0, 0, 0.3f), "라벨 없음끼리는 같은 라벨로 보지 않음")
+        assertEquals(2, n(-1, -1, 0.3f), "과반 없음끼리도")
+        assertEquals(2, n(8, 8, 0f), "ε같은 0 = 끔")
+    }
+
+    /**
+     * SL-C(M56 3.3절 라벨 가중 군집): 2.8 m 앞 낮은 상자(0.6 m, 물체 라벨) 뒤에 높은 상자(1.2 m, 앞면 3.08 m). 앞 상자는 앞면 칸만 점유되어
+     * 두 상자의 점유 칸 사이 수평 틈이 0.25 m(> ε)라
+     * 지금은 두 군집. 뒤 상자도 물체 라벨이면 칸 라벨 + ε같은 0.30 m로 한 군집, 구조물 라벨이면 켜도 두 군집, 둘 다 보도 라벨이면(펼쳐진 면) 켜도
+     * 두 군집. 서서 본 2 s 끝 장의 군집으로 본다.
+     */
+    @Test
+    fun slSameLabelLinksFragments() {
+        val near = Box(Vec3(-0.2f, 0f, -3.0f), Vec3(0.2f, 0.6f, -2.8f))
+        val far = Box(Vec3(-0.2f, 0f, -3.35f), Vec3(0.2f, 1.2f, -3.08f))
+        val lab = """ "frontend": { "labelBandPx": 6, "bandLabels": ["UNLABELED", "TREE", "STRUCTURE", "OBJECT", "VEHICLE", "PERSON"] }, "map": { "hitWeighting": "CONFIDENCE", "weightedMinHits": 5, "weightedFrameMinHits": 5 }, "vision": { "voxelLabels": true } """
+        fun inBox(v: VoxelView, b: Box) = v.centerW.x in (b.min.x - 0.05f)..(b.max.x + 0.05f) && v.centerW.z in (b.min.z - 0.05f)..(b.max.z + 0.05f)
+        fun clusters(farLabel: SemanticLabel, extra: String, nearLabel: SemanticLabel = SemanticLabel.OBJECT): Int {
+            val spec = SceneSpec("SL-C-$nearLabel-$farLabel", Scene(listOf(floor,
+                SceneItem("near", near, obstacle = true, expectedClass = HeightClass.FLOOR, semantic = nearLabel, rawConfidence = 200),
+                SceneItem("far", far, obstacle = true, expectedClass = HeightClass.BODY, semantic = farLabel, rawConfidence = 200))), walkTo(2.8f))
+            val step = replay(spec, extra).steps.last { tS(it.depth.tCaptureNs) <= 2.0f }
+            return step.clusters.count { c -> c.any { inBox(it, near) } || c.any { inBox(it, far) } }
+        }
+        val on = """$lab, "cluster": { "sameLabelEpsM": 0.3 }"""
+        val off = listOf(SemanticLabel.OBJECT, SemanticLabel.STRUCTURE).map { clusters(it, lab) }
+        val sameOn = clusters(SemanticLabel.OBJECT, on)
+        val diffOn = clusters(SemanticLabel.STRUCTURE, on)
+        val frameOn = clusters(SemanticLabel.SIDEWALK, on, SemanticLabel.SIDEWALK)
+        println("SL-C clusters off $off, same label on $sameOn, different label on $diffOn, both sidewalk on $frameOn")
+        assertEquals(listOf(2, 2), off, "끄면 두 군집")
+        assertEquals(1, sameOn, "같은 라벨은 한 군집")
+        assertEquals(2, diffOn, "다른 라벨은 그대로 두 군집")
+        assertEquals(2, frameOn, "보도처럼 펼쳐진 면 라벨(cluster.sameLabels 밖)은 같은 라벨이어도 잇지 않음")
     }
 
     private val roles = """ "vision": { "voxelLabels": true }, "corridor": { "judge": "LABEL" } """
