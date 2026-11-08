@@ -21,7 +21,7 @@ class NearStopDetector(private val config: Config) {
     internal var observeFrame: ((FrameEvidence) -> Unit)? = null
 
     private val cfg = requireNotNull(config.policy.nearStop)
-    private data class Candidate(val obstacle: Obstacle)
+    private data class Candidate(val obstacle: Obstacle, val fullWidth: Boolean)
     private var previous = emptyList<Candidate>()
     private var lastTNs: Long? = null
     private var nextId = -1
@@ -59,17 +59,25 @@ class NearStopDetector(private val config: Config) {
             val gate = when {
                 indices.size < cfg.minVoxels -> "cells"
                 height < cfg.minHeightSpanM -> "height"
-                width < cfg.minLateralSpanM -> "width"
+                width < cfg.confirmMinLateralSpanM -> "width"
                 else -> "pass"
             }
-            observeGroup?.invoke(indices.size, height, width, gate)
-            if (gate != "pass") continue
-            sizeCandidates++
+            if (gate != "pass") {
+                observeGroup?.invoke(indices.size, height, width, gate)
+                continue
+            }
+            val fullWidth = width >= cfg.minLateralSpanM
             val reps = RepPoint.candidates(group, corridor, voxelM, config.repPoint.bandM, config.repPoint.stableTies)
             val rep = reps.getValue(config.repPoint.strategy)
-            val old = previous.filter { it.obstacle.id !in used &&
+            val old = previous.filter { it.obstacle.id !in used && (fullWidth || it.fullWidth) &&
                 (it.obstacle.repPointW - rep).norm() <= config.track.matchRadiusM }
                 .minByOrNull { (it.obstacle.repPointW - rep).norm() }?.obstacle
+            if (!fullWidth && old == null) {
+                observeGroup?.invoke(indices.size, height, width, "width")
+                continue
+            }
+            sizeCandidates++
+            observeGroup?.invoke(indices.size, height, width, if (fullWidth) "pass" else "matched_width")
             val id = old?.id ?: nextId--
             used += id
             val observations = ((old?.nObservations ?: 0) + 1).coerceAtMost(cfg.confirmFrames)
@@ -78,7 +86,7 @@ class NearStopDetector(private val config: Config) {
                 Vec3(group.maxOf { it.x }, group.maxOf { it.y }, group.maxOf { it.z }),
                 HeightClassifier.classify(group.map { it.y - corridor.floorY }, config.cluster) ?: continue,
                 true, observations.toFloat() / cfg.confirmFrames, tNs, observations, earlyStop = true)
-            candidates += Candidate(obstacle)
+            candidates += Candidate(obstacle, fullWidth)
         }
         previous = candidates
         val published = candidates.map { it.obstacle }.filter { early ->

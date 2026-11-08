@@ -295,7 +295,8 @@ object ConfigLoader {
                     motionSigmaMultiple = nonNegative("motionSigmaMultiple"),
                     nearStop = nullableSection("nearStop") {
                         NearStopConfig(atLeast1("minVoxels"), positive("minHeightSpanM"), positive("minLateralSpanM"),
-                            positive("minAboveFloorM"), atLeast1("confirmFrames"), positive("maxGapMs"), positive("maxAgeMs"))
+                            positive("minAboveFloorM"), atLeast1("confirmFrames"), positive("maxGapMs"), positive("maxAgeMs"),
+                            positiveOr("confirmMinLateralSpanM", positive("minLateralSpanM")))
                     },
                 )
             },
@@ -393,6 +394,8 @@ object ConfigLoader {
             if (c.heading.chestMount == null) throw ConfigException("policy.nearStop", "requires paired chest mounting calibration")
             if (c.map.mode != MapMode.HITS) throw ConfigException("policy.nearStop", "requires map.mode = HITS")
             if (!c.policy.prioritizeStop) throw ConfigException("policy.nearStop", "requires prioritizeStop to protect existing confirmed STOPs")
+            if (n.confirmMinLateralSpanM > n.minLateralSpanM)
+                throw ConfigException("policy.nearStop.confirmMinLateralSpanM", "must not exceed minLateralSpanM")
             if (n.confirmFrames < 2) throw ConfigException("policy.nearStop.confirmFrames", "must be at least 2 distinct depth frames")
             if (n.minVoxels < c.cluster.minSamples) throw ConfigException("policy.nearStop.minVoxels", "must be >= cluster.minSamples")
             if (!listOf(n.minHeightSpanM, n.minLateralSpanM, n.minAboveFloorM, n.maxGapMs, n.maxAgeMs).all { it.isFinite() })
@@ -532,6 +535,9 @@ object ConfigLoader {
             val v = raw(key) as? JsonBool ?: throw ConfigException(path(key), "must be a boolean")
             return v.value
         }
+
+        fun positiveOr(key: String, fallback: Float): Float =
+            if (key in obj.fields) positive(key) else fallback
 
         fun positive(key: String): Float =
             float(key).also { if (it <= 0f) throw ConfigException(path(key), "must be > 0, got $it") }

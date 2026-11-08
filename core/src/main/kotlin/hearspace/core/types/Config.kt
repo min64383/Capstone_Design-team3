@@ -583,6 +583,7 @@ data class NearStopConfig(
     val confirmFrames: Int,
     val maxGapMs: Float,
     val maxAgeMs: Float,
+    val confirmMinLateralSpanM: Float = minLateralSpanM,
 )
 
 /** 안내 상태 기계 설정. */
