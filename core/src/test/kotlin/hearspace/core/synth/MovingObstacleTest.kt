@@ -65,6 +65,9 @@ class MovingObstacleTest {
         val out = ArrayList<Block>()
         val listener = object : ReplayListener {
             override fun onSlowStep(step: SlowStep) {
+                if (System.getenv("M57_EV") != null && spec.id.startsWith(System.getenv("M57_EV"))) for (e in step.evidence) {
+                    println("  ev t=${"%.2f".format(tS(step.depth.tCaptureNs))} id${e.id}${if (e.candidate) "C" else ""}${if (e.moving) "M" else ""} age=${"%.2f".format(e.ageS)} pts=${e.nPts} cmp=${e.nCmp} viol=${e.nViol} rot=${"%.1f".format(e.rotDegS)} labs=${e.labels.withIndex().filter { it.value > 0 }.joinToString { "${it.index}:${it.value}" }}")
+                }
                 if (System.getenv("M48_TRACE") != null && spec.id == System.getenv("M48_TRACE") && extra.contains("KALMAN")) {
                     val t = tS(step.depth.tCaptureNs)
                     if (t in (System.getenv("M48_T0")?.toFloat() ?: 4.6f)..(System.getenv("M48_T1")?.toFloat() ?: 6.4f)) println("  trace t=${"%.2f".format(t)} " + step.motion.joinToString(" | ") { m ->
@@ -494,6 +497,66 @@ class MovingObstacleTest {
             println("M57 SM-11 noise=${n.depthQuadK}: trail two maps ${trailS(off)} s, one map ${trailS(on)} s; one map stop ${a.stopAlongM} ttc ${a.ttcS}")
             if (trailS(on) > 0f) fails += "s=${n.depthQuadK}: trail ${trailS(on)} s"
             if (!approachOk(a)) fails += "s=${n.depthQuadK}: $a"
+        }
+        assertTrue(fails.isEmpty(), fails.joinToString("; "))
+    }
+
+    /** M57 3단계: 복셀 지도 하나 + 빈 곳 위반 판정(2단계 값, data/sweeps/m57/s2/judge2.json) + 후보 문턱 5·판정 전 출력 + 측정 점 라벨 거름 없앰. */
+    private val m57j = """ "track": { "motion": "KALMAN", "measureWeight": "POINTS", "initMaxSpeedMps": 6.9, "measureFrom": "RAW_MASK",
+        "motionMap": "OWNED", "gateLagS": 0.345, "shadowDepthM": 2.93, "motionEvidence": "FREE_SPACE",
+        "freeSpaceLagFrames": [6, 6, 12, 12, 10, 12, 12, 12, 12], "freeSpaceMarginM": [0.1017, 0.0966, 0.4026, 0.4584, 0.1673, 0.2616, 0.4972, 0.4231, 0.5157],
+        "freeSpaceWindow": 5, "freeSpaceThreshold": 0.112, "freeSpaceMinCompared": 50, "freeSpaceMaxRotDegS": 100, "freeSpaceConvergeS": 1.5,
+        "freeSpacePersistFrames": 30, "objectMinHits": 5, "candidateOutput": true, "measureLabels": false },
+        "vision": { "label": "SEMANTICS", "voxelLabels": true } """
+
+    @Test fun `M57 FREE_SPACE SM-1`() { useLabels = true; kalman = m57j; `SM-1 KALMAN - an oncoming person is stopped before 1 m with TTC at least 1 s`() }
+    @Test fun `M57 FREE_SPACE SM-2`() { useLabels = true; kalman = m57j; `SM-2 KALMAN - user and person walk toward each other`() }
+    @Test fun `M57 FREE_SPACE SM-3`() { useLabels = true; kalman = m57j; `SM-3 KALMAN - a person crossing 2 m ahead is not a STOP and leaves no lingering warning`() }
+    @Test fun `M57 FREE_SPACE SM-4`() { useLabels = true; kalman = m57j; `SM-4 KALMAN - a static box is never judged moving and its first STOP is unchanged`() }
+    @Test fun `M57 FREE_SPACE SM-5`() { useLabels = true; kalman = m57j; `SM-5 KALMAN - a person crossing just in front of a box does not take the box cells`() }
+    @Test fun `M57 FREE_SPACE SM-6`() { useLabels = true; kalman = m57j; `SM-6 KALMAN - a person who comes close and steps aside is stopped in time and leaves less lingering warning`() }
+
+    private val backWall = SceneItem("wall", Box(Vec3(-4f, 0f, -7.2f), Vec3(4f, 3f, -7f)), obstacle = false, semantic = hearspace.core.types.SemanticLabel.BUILDING)
+
+    /**
+     * SM-12(M57): 라벨 없음·물체 라벨 상자(폭 0.5·높이 1.0 m)가 머리 앞 4.8 m에서 0.5 m/s로 8 s 다가온다(뒤 7 m에 벽: 지난 장이 빈 곳을 봄).
+     * 통과: 움직이는 동안 기하 길로 움직이는 track이 출력됨(보인 지 T_수렴 1.5 s + 이어짐 3.0 s 뒤). M49 라벨 표의 움직이는 출력 수는 보고만.
+     * 처음 판(3.0 m를 옆으로 가로지름)은 track이 통로 안 군집에만 생겨 상자가 통로에 약 2 s만 있어 기하 길(4.5 s)을 시험할 수 없었다.
+     * 0.5 m/s로 7 s만 움직이면 통로(3.5 m)에 들어온 뒤 4.5 s인 8.15 s에 판정돼 움직임이 끝난 8.0 s보다 늦었다. 0.3 m/s는 1.5~2.5 m 구간 여유(0.40·0.46 m)를
+     * 되돌아보기 위 끝 1.2 s로 넘지 못해 판정되지 않았다(v_min 조건을 못 맞추는 구간, 0단계부터 알던 한계). 둘 다 결과에 한계로 적는다.
+     */
+    @Test
+    fun `M57 FREE_SPACE SM-12 - an unlabelled moving box is judged moving by geometry after convergence`() {
+        useLabels = true
+        val fails = ArrayList<String>()
+        for (lab in listOf(hearspace.core.types.SemanticLabel.UNLABELED, hearspace.core.types.SemanticLabel.OBJECT)) {
+            val box = SceneItem(
+                "box", Box(Vec3(-0.25f, 0f, 0.3f - 4.8f - 0.5f), Vec3(0.25f, 1.0f, 0.3f - 4.8f)), obstacle = true, expectedClass = HeightClass.BODY,
+                motion = Motion(Vec3(0f, 0f, 0.5f), 1.0f, 9.0f), semantic = lab,
+            )
+            val spec = SceneSpec("SM-12-$lab", Scene(listOf(floor, backWall, box)), Walk(standS = 1000f, durationS = 10.0f), Noise())
+            val on = replay(spec, m57j)
+            val off = replay(spec, m49)
+            val firstMoving = on.firstOrNull { b -> b.snapshot?.obstacles?.any { it.moving } == true }?.let { tS(it.tNs) }
+            val offMoving = off.count { b -> b.snapshot?.obstacles?.any { it.moving } == true }
+            println("M57 SM-12 $lab: first moving output ${firstMoving} s (motion 1.0~9.0 s), M49 label moving blocks $offMoving")
+            if (firstMoving == null || firstMoving > 9.0f) fails += "$lab: no moving output while moving"
+        }
+        assertTrue(fails.isEmpty(), fails.joinToString("; "))
+    }
+
+    /** SM-13(M57): 사람 라벨 원기둥이 2.5 m 앞에 6 s 서 있다(뒤 벽). 통과: 움직이는 출력 없음(라벨 길도 S > 문턱이 필요). */
+    @Test
+    fun `M57 FREE_SPACE SM-13 - a standing person stays static`() {
+        useLabels = true
+        val p = SceneItem("person", VerticalCylinder(0f, 0.3f - 2.5f - 0.2f, 0.2f, 0f, 1.7f), obstacle = true, expectedClass = HeightClass.BODY,
+            semantic = hearspace.core.types.SemanticLabel.PERSON)
+        val fails = ArrayList<String>()
+        for (n in listOf(Noise(), noisy)) {
+            val spec = SceneSpec("SM-13", Scene(listOf(floor, backWall, p)), Walk(standS = 1000f, durationS = 6.0f), n)
+            val moving = replay(spec, m57j).count { b -> b.snapshot?.obstacles?.any { it.moving } == true }
+            println("M57 SM-13 noise=${n.depthQuadK}: moving blocks $moving")
+            if (moving > 0) fails += "s=${n.depthQuadK}: $moving moving blocks"
         }
         assertTrue(fails.isEmpty(), fails.joinToString("; "))
     }

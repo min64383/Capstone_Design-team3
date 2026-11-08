@@ -317,6 +317,16 @@ object ConfigLoader {
                     freeSpaceLagFrames = intList("freeSpaceLagFrames"),
                     freeSpaceMarginM = floatList("freeSpaceMarginM"),
                     freeSpaceFrameS = positive("freeSpaceFrameS"),
+                    motionEvidence = enumValue<MotionEvidence>("motionEvidence"),
+                    freeSpaceWindow = intIn("freeSpaceWindow", 1, 100),
+                    freeSpaceThreshold = nonNegative("freeSpaceThreshold"),
+                    freeSpaceMinCompared = intIn("freeSpaceMinCompared", 0, 1_000_000),
+                    freeSpaceMaxRotDegS = positive("freeSpaceMaxRotDegS"),
+                    freeSpaceConvergeS = nonNegative("freeSpaceConvergeS"),
+                    freeSpacePersistFrames = intIn("freeSpacePersistFrames", 1, 1000),
+                    objectMinHits = nonNegative("objectMinHits"),
+                    candidateOutput = boolean("candidateOutput"),
+                    measureLabels = boolean("measureLabels"),
                 )
             },
             repPoint = root.section("repPoint") {

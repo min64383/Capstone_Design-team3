@@ -75,7 +75,9 @@ class SlowPath(
     val lastEvidenceDebug: List<hearspace.core.tracking.EvidenceDebug> get() = tracker.lastEvidenceDebug
 
     /** 빈 곳 위반의 지난 원시 장 기록(M57). */
-    private val freeSpace = if (motion && config.track.freeSpaceRecord) hearspace.core.tracking.FreeSpace(config.track) else null
+    private val freeSpace = if (motion && (config.track.freeSpaceRecord || config.track.motionEvidence == hearspace.core.types.MotionEvidence.FREE_SPACE)) {
+        hearspace.core.tracking.FreeSpace(config.track)
+    } else null
     private var lastFreeSpaceRawTNs = Long.MIN_VALUE
 
     init {

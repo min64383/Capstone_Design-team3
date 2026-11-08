@@ -819,6 +819,9 @@ class VoxelMap(private val cfg: MapConfig, private val floorishPixels: IntArray 
         for (v in voxels.values) if (v.owner == from) v.owner = to
     }
 
+    /** 점 [pW]가 든 칸이 [id] 소유가 아닌 정지 점유 칸인지(M57 측정 점에서 뺄 배경). */
+    fun staticOther(pW: Vec3, id: Int): Boolean = voxels[key(index(pW.x), index(pW.y), index(pW.z))]?.let { it.owner != id && isOccupied(it) } ?: false
+
     /** [id]의 움직이는 칸 중심(출력 모양). */
     fun movingCells(id: Int): List<Vec3> = voxels.entries.filter { (_, v) -> v.owner == id && v.moving }.map { center(it.key) }
 
