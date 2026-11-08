@@ -289,6 +289,36 @@ class VoxelMapTest {
     }
 
     @Test
+    fun `confidence weighting uses its own occupancy threshold`() {
+        // M55: 무게 0.57 여섯 장(가중 표 3.42)은 무게 없는 문턱 6으로는 점유가 아니고, 신뢰도 무게 문턱 3이면 점유다. 거리 무게(DISTANCE)는 그대로 minHits
+        val p = Vec3(0f, 0f, -2f)
+        fun occupiedAfterSixHits(cfg: hearspace.core.types.MapConfig) =
+            VoxelMap(cfg).also { m -> repeat(6) { i -> m.beginFrame(); m.insert(p, i.toLong(), 0.57f) } }.occupied().size
+        val conf = hitsCfg.copy(hitWeighting = hearspace.core.types.HitWeighting.CONFIDENCE)
+        assertEquals(0, occupiedAfterSixHits(conf))
+        assertEquals(1, occupiedAfterSixHits(conf.copy(weightedMinHits = 3f)))
+        assertEquals(0, occupiedAfterSixHits(hitsCfg.copy(hitWeighting = hearspace.core.types.HitWeighting.DISTANCE, weightedMinHits = 3f)))
+    }
+
+    @Test
+    fun `confidence weighting can use a separate threshold for frame-role cells`() {
+        // M55: 보도 라벨 표 6개를 받은 칸(가중 표 3.42)은 바닥류(프레임)라 문턱 6으로 점유가 아니고, 보도를 바닥류에서 빼면 장애물 역할이라 문턱 3으로 점유다
+        val p = Vec3(0f, 0f, -2f)
+        val cfg = hitsCfg.copy(hitWeighting = hearspace.core.types.HitWeighting.CONFIDENCE, weightedMinHits = 3f, weightedFrameMinHits = 6f)
+        fun occupied(floorish: IntArray) = VoxelMap(cfg, floorish).also { m ->
+            repeat(6) { i -> m.beginFrame(); m.insert(p, i.toLong(), 0.57f); m.voteLabel(p, 5) }
+        }.occupied().size
+        assertEquals(0, occupied(intArrayOf(4, 5, 6)))
+        assertEquals(1, occupied(intArrayOf(4, 6)))
+        // 정해지지 않은 칸을 프레임 문턱으로: 라벨 표가 없으면 문턱 6이라 점유가 아니고, 장애물 표 6개로 정해지면 문턱 3
+        val strict = cfg.copy(weightedUndecidedAsFrame = true)
+        val noLabel = VoxelMap(strict, intArrayOf(4, 6)).also { m -> repeat(6) { i -> m.beginFrame(); m.insert(p, i.toLong(), 0.57f) } }
+        assertEquals(0, noLabel.occupied().size)
+        val labeled = VoxelMap(strict, intArrayOf(4, 6)).also { m -> repeat(6) { i -> m.beginFrame(); m.insert(p, i.toLong(), 0.57f); m.voteLabel(p, 5) } }
+        assertEquals(1, labeled.occupied().size)
+    }
+
+    @Test
     fun `cell view uses the same rule as free-space decay`() {
         val p = Vec3(0f, 0f, -2f) // 광축 위 2 m
         val m = mapWithVoxelAt(p)
@@ -453,6 +483,30 @@ class FloorTest {
 
     private fun points(vararg ys: Pair<Float, Int>): FloatArray =
         ys.flatMap { (y, n) -> List(n) { listOf(0f, y, 0f) }.flatten() }.toFloatArray()
+
+    @Test
+    fun `a tilted floor plane keeps near and far floor points on the floor`() {
+        // M55 150159: 월드가 약 10° 기울어 가까운 바닥은 높고 먼 바닥은 낮게 찍힘. 수평 바닥 하나면 1.9 m 바닥 점이 띠 위로 올라온다
+        val slope = 0.176f // tan 10°
+        val rnd = java.util.Random(7)
+        val xyz = ArrayList<Float>()
+        for (i in 0 until 600) {
+            val x = rnd.nextFloat() * 2f - 1f
+            val z = 1f + rnd.nextFloat() * 4f
+            xyz += x; xyz += -1.3f + slope * (3f - z) + (rnd.nextFloat() - 0.5f) * 0.02f; xyz += z
+        }
+        for (i in 0 until 60) { xyz += rnd.nextFloat() - 0.5f; xyz += -1.0f; xyz += 2f + rnd.nextFloat() } // 바닥 위 물건 점
+        val cam = Vec3(0f, 0f, 0f)
+        val f = Floor(baseFloor.copy(model = hearspace.core.types.FloorModel.PLANE_RAW), config.map.radiusM)
+        f.update(xyz.toFloatArray(), cam)
+        assertTrue(f.updatePlane(xyz.toFloatArray(), cam))
+        assertEquals(-1.3f + slope * 1.1f, f.heightAt(0f, 1.9f)!!, 0.01f)
+        assertTrue(f.isFloor(Vec3(0f, -1.3f + slope * 1.1f + 0.05f, 1.9f), 1.9f)) // 1.9 m의 높게 찍힌 바닥
+        assertTrue(f.isFloor(Vec3(0f, -1.3f + slope * (3f - 4.5f), 4.5f), 4.5f)) // 4.5 m의 낮게 찍힌 바닥
+        assertTrue(!f.isFloor(Vec3(0f, -1.3f + slope * 1.1f + 0.3f, 1.9f), 1.9f)) // 바닥 위 0.3 m(누운 캐리어 높이)는 바닥이 아님
+        f.alignToCamera(cam)
+        assertEquals(-1.3f + slope * 3f, f.floorY!!, 0.01f)
+    }
 
     @Test
     fun `a nearby box top with more points is not the floor when candidates must be well below the camera`() {

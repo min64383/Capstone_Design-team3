@@ -15,16 +15,18 @@ import kotlin.math.sqrt
  * 뺀다(가는 물체도 폭의 절반은 남김).
  */
 object LabelBand {
-    /** 장애물 역할 라벨 값(기본값 장애물인 라벨 없음·하늘·물 포함). */
-    private val OBSTACLE = booleanArrayOf(true, true, false, true, false, false, false, true, true, true, true, true)
+    /** 장애물 역할 라벨 값(M54 기본: 라벨 없음·하늘·물 포함). `frontend.bandLabels`로 바꿀 수 있다(M55 O는 하늘·물 뺌). */
+    val OBSTACLE = booleanArrayOf(true, true, false, true, false, false, false, true, true, true, true, true)
 
-    private fun obstacle(v: Int) = v !in OBSTACLE.indices || OBSTACLE[v]
+    /** 표에 없는 값(12 이상)은 장애물로 본다(처음 보는 종류가 소리 없이 지나가지 않게). */
+    private fun BooleanArray.obstacle(v: Int) = v !in indices || this[v]
 
-    /** 라벨 영상 화소마다 경계까지 거리(깊이 화소, 창 밖은 +∞)와 그 화소의 빼는 한도(깊이 화소). */
-    class Field(val image: LabelImage, val distPx: FloatArray, val limitPx: FloatArray, val bandPx: Float)
+    /** 라벨 영상 화소마다 경계까지 거리(깊이 화소, 창 밖은 +∞)와 그 화소의 빼는 한도(깊이 화소). [obstacle]은 장애물 역할 표. */
+    class Field(val image: LabelImage, val distPx: FloatArray, val limitPx: FloatArray, val bandPx: Float, val obstacle: BooleanArray = OBSTACLE)
 
     /** [image]의 거리 마당. [depthFx]는 깊이 영상 fx(화소 단위 변환). 영역 반지름은 2 × [bandPx]까지만 재면 충분하다(넘으면 한도 = [bandPx]). */
-    fun field(image: LabelImage, depthFx: Float, bandPx: Int): Field {
+    fun field(image: LabelImage, depthFx: Float, bandPx: Int, obs: BooleanArray = OBSTACLE): Field {
+        fun obstacle(v: Int) = obs.obstacle(v)
         val w = image.K.width
         val h = image.K.height
         val lab = IntArray(w * h) { image.labels[it].toInt() and 0xFF }
@@ -79,7 +81,7 @@ object LabelBand {
             for (k in 0 until tail) limit[queue[k]] = lim
             nComp++
         }
-        return Field(image, dist, limit, bandPx.toFloat())
+        return Field(image, dist, limit, bandPx.toFloat(), obs)
     }
 
     /**
@@ -99,7 +101,7 @@ object LabelBand {
             if (j < 0) continue
             val d = f.distPx[j]
             if (d.isInfinite()) continue
-            val inside = obstacle(f.image.labels[j].toInt() and 0xFF)
+            val inside = f.obstacle.obstacle(f.image.labels[j].toInt() and 0xFF)
             if (d <= (if (inside) f.limitPx[j] else f.bandPx)) {
                 out[i] = 0
                 removed++

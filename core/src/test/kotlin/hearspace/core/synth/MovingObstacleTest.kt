@@ -49,6 +49,9 @@ class MovingObstacleTest {
     private var useOracle = false
     /** M49: 판정 단계를 합성 의미 영상의 라벨 표로(정답 대신). 세션에 의미 영상을 쓰고 원시 깊이를 10 Hz로 흉내 낸다. */
     private var useLabels = false
+
+    /** 합성 의미 영상 간격(새 깊이 장 수). M55 시험은 기기 라벨 빈도(약 16 Hz)에 맞춰 2. */
+    private var semEveryN = 1
     /** 모든 경우를 관문으로 판정한다(M48 결과 기준. 깊이 기하 판정 시험은 따로 `useOracle`로 보고만). */
     @Suppress("UNUSED_PARAMETER")
     private fun gated(n: Noise) = true
@@ -58,7 +61,7 @@ class MovingObstacleTest {
         val sep = if (extra.isBlank()) "" else ", $extra"
         val overrides = """{ "head": { "offsetFromCameraM": [${g.x}, ${g.y}, ${g.z}] }$sep }"""
         val dir = File(tmp, "${spec.id}_${extra.hashCode()}_${spec.noise.depthQuadK}_${useOracle}_$useLabels")
-        SyntheticSessionWriter.write(spec.generate(), File(dir, "session"), "SYN", rawEveryN = if (useLabels) 3 else 1, semantics = useLabels)
+        SyntheticSessionWriter.write(spec.generate(), File(dir, "session"), "SYN", rawEveryN = if (useLabels) 3 else 1, semantics = useLabels, semanticEveryN = semEveryN)
         val out = ArrayList<Block>()
         val listener = object : ReplayListener {
             override fun onSlowStep(step: SlowStep) {
@@ -395,6 +398,39 @@ class MovingObstacleTest {
         }
         assertTrue(fails.isEmpty(), fails.joinToString("; "))
     }
+
+    /**
+     * M55 ②: 의미 모드 조합(사람 원천 P + 경계 띠 B + 신뢰도 무게 W, 문턱 5). 사람 원천은 사람 평활 점을 정지 지도에 넣지 않으므로, 라벨 판정 전에
+     * 후보를 정지 지도로 넘기면 다가오는 사람을 아무도 표현하지 않는다(T 150159). `track.holdLabelPending`이 그 넘김을 라벨 판정까지 미룬다.
+     */
+    private fun m55(hold: Boolean) = """ "track": { "motion": "KALMAN", "measureWeight": "POINTS", "initMaxSpeedMps": 6.9, "measureFrom": "RAW_MASK", "holdLabelPending": $hold },
+        "vision": { "label": "SEMANTICS", "movableDepth": "RAW" }, "frontend": { "labelBandPx": 6 }, "map": { "hitWeighting": "CONFIDENCE", "weightedMinHits": 5 } """
+
+    /** SM-10(M55): 이미 걷는 사람이 7 m에서 와 0.4 m에서 선다. 깊이는 3 m까지만(T 150159처럼 사람이 걷는 채로 3 m 안에서 처음 깊이에 나타남). */
+    private fun sm10(speedMps: Float, noise: Noise): Pair<SceneSpec, SceneItem> {
+        val p = oncoming(speedMps, startAlongM = 7f, startS = 0.2f)
+        return SceneSpec("SM-10-$speedMps", Scene(listOf(floor, p)), Walk(standS = 1000f, durationS = 0.2f + (7f - 0.4f) / speedMps + 1.0f), noise) to p
+    }
+
+    @Test
+    fun `M55 PBW5 SM-10 - a person already walking into a 3 m depth range is stopped in time with or without hold`() {
+        useLabels = true; semEveryN = 2
+        val fails = ArrayList<String>()
+        for (v in listOf(1.0f, 1.5f)) for (n in listOf(Noise(maxDepthM = 3f), noisy.copy(maxDepthM = 3f))) {
+            val (spec, p) = sm10(v, n)
+            val off = approach(spec, p, replay(spec, m55(false)))
+            val on = approach(spec, p, replay(spec, m55(true)))
+            println("M55 SM-10 v=$v noise=${n.depthQuadK}: no hold stop ${off.stopAlongM} ttc ${off.ttcS} ok ${approachOk(off)} | hold stop ${on.stopAlongM} ttc ${on.ttcS} ok ${approachOk(on)}")
+            // 합성은 평활 깊이가 움직이는 사람을 뒤따르지 않아(T에서 0.10~0.36 m 뒤처짐, M54) 기기의 라벨 표 정체를 재현하지 못한다: 두 설정 모두 통과만 본다
+            if (!approachOk(off)) fails += "no hold v=$v s=${n.depthQuadK}: $off"
+            if (!approachOk(on)) fails += "hold v=$v s=${n.depthQuadK}: $on"
+        }
+        assertTrue(fails.isEmpty(), fails.joinToString("; "))
+    }
+
+    @Test fun `M55 PBW5 hold SM-1`() { useLabels = true; semEveryN = 2; kalman = m55(true); `SM-1 KALMAN - an oncoming person is stopped before 1 m with TTC at least 1 s`() }
+    @Test fun `M55 PBW5 hold SM-3`() { useLabels = true; semEveryN = 2; kalman = m55(true); `SM-3 KALMAN - a person crossing 2 m ahead is not a STOP and leaves no lingering warning`() }
+    @Test fun `M55 PBW5 hold SM-4`() { useLabels = true; semEveryN = 2; kalman = m55(true); `SM-4 KALMAN - a static box is never judged moving and its first STOP is unchanged`() }
 
     /** M52 새 옵션을 켜고 SM-1~SM-6 정답 판정이 그대로 통과하는지(회귀). */
     @Test fun `M52 ORACLE SM-1`() { useOracle = true; kalman = m52; `SM-1 KALMAN - an oncoming person is stopped before 1 m with TTC at least 1 s`() }

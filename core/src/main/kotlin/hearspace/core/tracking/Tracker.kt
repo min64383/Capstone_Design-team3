@@ -341,7 +341,9 @@ class Tracker(
                 mm.candidate && mm.missed > cfg.maxMissedUpdates -> removed += t
                 // 6표가 모였는데 정지: 정지 지도가 맡음. RAW_MASK는 칼만이 원시 장(10 Hz)으로만 차므로 준비 전에는 판정하지 않는다
                 mm.candidate && !isMoving && mm.occupied(mc.minHits, mc.minScore) &&
-                    (cfg.measureFrom != MeasureFrom.RAW_MASK || mm.filter.ready) -> removed += t
+                    (cfg.measureFrom != MeasureFrom.RAW_MASK || mm.filter.ready) &&
+                    // M55 ②: 라벨 판정 중(움직일 수 있는 라벨 증거가 있음)이면 넘기지 않고 기다린다(`track.holdLabelPending`)
+                    !(cfg.holdLabelPending && f.labelVotes && (mm.labelScore > 0f || mm.nRawPoints >= minSamples)) -> removed += t
             }
         }
         // 같은 물체를 따르는 움직이는 track·후보가 둘이면(한 사람이 두 묶음으로 갈려 후보 둘이 생김) 짝짓기 반경 안에서 움직이는 track을 먼저,
