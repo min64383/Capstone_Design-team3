@@ -61,7 +61,7 @@ class SlowPath(
     )
 
     /** 움직이는 장애물(M48 정지·움직임 분해)을 켰는지. 고정 지도(정답 대입)에서는 쓰지 않는다. */
-    private val nearStop = if (fixedMap == null && config.policy.nearStop != null) NearStopDetector(config) else null
+    internal val nearStop = if (fixedMap == null && config.policy.nearStop != null) NearStopDetector(config) else null
 
     private val motion = config.track.motion == MotionMode.KALMAN && fixedMap == null
 

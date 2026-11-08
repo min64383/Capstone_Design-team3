@@ -15,6 +15,10 @@ import kotlin.math.floor
  * Negative ids are local warning identities, never normal map track ids.
  */
 class NearStopDetector(private val config: Config) {
+    internal data class FrameEvidence(val roiPoints: Int, val cells: Int, val sizeCandidates: Int,
+        val maxObservations: Int, val published: Int)
+    internal var observeFrame: ((FrameEvidence) -> Unit)? = null
+
     private val cfg = requireNotNull(config.policy.nearStop)
     private data class Candidate(val obstacle: Obstacle)
     private var previous = emptyList<Candidate>()
@@ -29,11 +33,13 @@ class NearStopDetector(private val config: Config) {
         val voxelM = config.map.voxelSizeM
         // One vote per spatial cell. Dense pixels on the same cell cannot meet minVoxels alone.
         val unique = LinkedHashMap<Triple<Int, Int, Int>, Vec3>()
+        var roiPoints = 0
         for (p in pointsW) {
             if (!p.x.isFinite() || !p.y.isFinite() || !p.z.isFinite()) continue
             val along = corridor.alongM(p)
             if (along < 0f || along >= config.policy.stopM || abs(corridor.lateralM(p)) > config.corridor.widthM / 2 ||
                 p.y - corridor.floorY < cfg.minAboveFloorM || p.y - corridor.floorY > config.corridor.heightM) continue
+            roiPoints++
             val key = Triple(floor(p.x / voxelM).toInt(), floor(p.y / voxelM).toInt(), floor(p.z / voxelM).toInt())
             unique.putIfAbsent(key, p)
         }
@@ -41,12 +47,14 @@ class NearStopDetector(private val config: Config) {
         val groups = Cluster.dbscanXZ(pts, config.cluster.epsM, config.cluster.minSamples)
         val candidates = ArrayList<Candidate>()
         val used = HashSet<Int>()
+        var sizeCandidates = 0
         for (indices in groups) {
             if (indices.size < cfg.minVoxels) continue
             val group = indices.map { pts[it] }
             if (group.maxOf { it.y } - group.minOf { it.y } < cfg.minHeightSpanM) continue
             val laterals = group.map { corridor.lateralM(it) }
             if (laterals.max() - laterals.min() < cfg.minLateralSpanM) continue
+            sizeCandidates++
             val reps = RepPoint.candidates(group, corridor, voxelM, config.repPoint.bandM, config.repPoint.stableTies)
             val rep = reps.getValue(config.repPoint.strategy)
             val old = previous.filter { it.obstacle.id !in used &&
@@ -63,12 +71,15 @@ class NearStopDetector(private val config: Config) {
             candidates += Candidate(obstacle)
         }
         previous = candidates
-        return candidates.map { it.obstacle }.filter { early ->
+        val published = candidates.map { it.obstacle }.filter { early ->
             early.nObservations >= cfg.confirmFrames && confirmed.none { normal ->
                 corridor.alongM(normal.repPointW) >= 0f && corridor.alongM(normal.repPointW) < config.policy.stopM &&
                     abs(corridor.lateralM(normal.repPointW)) <= config.corridor.widthM / 2 && overlap(early, normal, voxelM)
             }
         }
+        observeFrame?.invoke(FrameEvidence(roiPoints, unique.size, sizeCandidates,
+            candidates.maxOfOrNull { it.obstacle.nObservations } ?: 0, published.size))
+        return published
     }
 
     private fun overlap(a: Obstacle, b: Obstacle, marginM: Float) =
