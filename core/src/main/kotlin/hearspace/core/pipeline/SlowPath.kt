@@ -56,7 +56,7 @@ class SlowPath(
 
     private val tracker = Tracker(
         config.track, config.repPoint.strategy, if (config.track.reidLost) (config.map.maxUnseenS * 1e9).toLong() else 0L,
-        config.map, config.cluster.minSamples, (config.policy.maxInfoAgeMs * 1e6).toLong(),
+        config.map, config.cluster.minSamples, (config.policy.maxInfoAgeMs * 1e6).toLong(), config.cluster.epsM,
     )
 
     /** 움직이는 장애물(M48 정지·움직임 분해)을 켰는지. 고정 지도(정답 대입)에서는 쓰지 않는다. */
@@ -73,6 +73,9 @@ class SlowPath(
 
     /** 마지막 [process]의 빈 곳 위반 기록(M57 `track.freeSpaceRecord`). */
     val lastEvidenceDebug: List<hearspace.core.tracking.EvidenceDebug> get() = tracker.lastEvidenceDebug
+
+    /** 마지막 갱신의 원시 측정 짝짓기 기록(M59 `track.rawAssociation` GATE·NEAREST_BLOB). */
+    val lastAssocDebug: List<hearspace.core.tracking.AssocDebug> get() = tracker.lastAssocDebug
 
     /** 빈 곳 위반의 지난 원시 장 기록(M57). */
     private val freeSpace = if (motion && (config.track.freeSpaceRecord || config.track.motionEvidence == hearspace.core.types.MotionEvidence.FREE_SPACE)) {

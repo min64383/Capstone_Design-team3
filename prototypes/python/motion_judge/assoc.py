@@ -82,6 +82,10 @@ def main() -> None:
     print("R_사람 한 축 ≈", round(r_axis, 5), "σ =", round(np.sqrt(max(r_axis, 0)), 3), "m")
     by = ok.groupby("run").d.agg(["size", "median", lambda s: s.quantile(.99), "max"])
     print(by.round(3).to_string())
+    # 옮겨 붙음(M59 완료 기준): 한 track의 받아들인 측정에 붙은 정답(0.5 m 안 가장 가까운 정답)이 둘 이상
+    jumps = {(r, i): list(dict.fromkeys(g["gt"].dropna())) for (r, i), g in df.groupby(["run", "id"])}
+    jumps = {k: v for k, v in jumps.items() if len(v) > 1}
+    print("옮겨 붙음(정답이 바뀐 track)", len(jumps), jumps)
     print("NIS 큰 측정(> 9.21):")
     print(df[df.nis > 9.21][["run", "id", "t", "d", "n", "gt", "dm", "z", "nis", "clean"]].round(3).to_string())
 

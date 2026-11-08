@@ -234,6 +234,28 @@ data class MotionDebug(
     val nRawPoints: Int = -1,
 )
 
+/** 원시 측정 짝짓기 기록(M59 GATE·NEAREST_BLOB, `raw_assoc.csv`) 한 줄: track 하나 × 새 원시 장 하나. */
+data class AssocDebug(
+    val tRawNs: Long,
+    val id: Int,
+    val moving: Boolean,
+    /** 창 안 라벨 원시 점 수. */
+    val nPts: Int,
+    /** 점 [minSamples] 이상 덩어리 수(GATE는 −1). */
+    val nBlobs: Int,
+    /** 고른 덩어리의 점 수. */
+    val nChosen: Int,
+    /** 측정(고른 덩어리) 가까운 면 점의 혁신 χ²(칼만 준비 전이면 NaN). */
+    val chi2: Float,
+    /** 칼만이 받아들였는지(게이트·시작 게이트). */
+    val accepted: Boolean,
+    /** 고른 덩어리의 가까운 면 점. */
+    val measW: Vec3,
+    /** 창 상자(월드). */
+    val lo: Vec3,
+    val hi: Vec3,
+)
+
 /** 빈 곳 위반 창의 한 원시 장(M57). */
 class FsRow(val nCmp: Int, val nViol: Int, val rotDegS: Float, val labels: IntArray)
 

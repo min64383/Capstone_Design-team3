@@ -239,7 +239,11 @@
     "objectMinHits": 0,
     "candidateOutput": false,
     "measureLabels": true,
-    "existFrom": "SMOOTHED"
+    "existFrom": "SMOOTHED",
+    "rawAssociation": "ALL",
+    "rawGateChi2": 9.21,
+    "maxGateRadiusM": 0.4,
+    "mergeVelChi2": 1000000
   },
   "repPoint": { "strategy": "CORRIDOR_BAND", "bandM": 0.20, "stableTies": false },
   "policy": {

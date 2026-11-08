@@ -328,6 +328,10 @@ object ConfigLoader {
                     candidateOutput = boolean("candidateOutput"),
                     measureLabels = boolean("measureLabels"),
                     existFrom = enumValue<ExistFrom>("existFrom"),
+                    rawAssociation = enumValue<RawAssociation>("rawAssociation"),
+                    rawGateChi2 = positive("rawGateChi2"),
+                    maxGateRadiusM = positive("maxGateRadiusM"),
+                    mergeVelChi2 = positive("mergeVelChi2"),
                 )
             },
             repPoint = root.section("repPoint") {

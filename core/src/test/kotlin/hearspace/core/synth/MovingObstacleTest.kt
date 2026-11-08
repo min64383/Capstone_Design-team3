@@ -53,6 +53,9 @@ class MovingObstacleTest {
     /** 원시 깊이에 평활 전 깊이를 따로 쓴다(M58 SM-14·15: 평활에서만 빠지는 사람). 끄면 원시 파일 = 평활 영상. */
     private var realRaw = false
 
+    /** 있으면 재생의 움직임 기록(motion.csv 줄)을 모은다(M59 SM-16: 받아들인 원시 측정이 어느 사람 것인지). */
+    private var motionSink: MutableList<hearspace.core.tracking.MotionDebug>? = null
+
     /** 합성 의미 영상 간격(새 깊이 장 수). M55 시험은 기기 라벨 빈도(약 16 Hz)에 맞춰 2. */
     private var semEveryN = 1
     /** 모든 경우를 관문으로 판정한다(M48 결과 기준. 깊이 기하 판정 시험은 따로 `useOracle`로 보고만). */
@@ -68,6 +71,7 @@ class MovingObstacleTest {
         val out = ArrayList<Block>()
         val listener = object : ReplayListener {
             override fun onSlowStep(step: SlowStep) {
+                motionSink?.addAll(step.motion)
                 if (System.getenv("M57_EV") != null && spec.id.startsWith(System.getenv("M57_EV"))) for (e in step.evidence) {
                     println("  ev t=${"%.2f".format(tS(step.depth.tCaptureNs))} id${e.id}${if (e.candidate) "C" else ""}${if (e.moving) "M" else ""} age=${"%.2f".format(e.ageS)} pts=${e.nPts} cmp=${e.nCmp} viol=${e.nViol} rot=${"%.1f".format(e.rotDegS)} labs=${e.labels.withIndex().filter { it.value > 0 }.joinToString { "${it.index}:${it.value}" }}")
                 }
@@ -76,6 +80,8 @@ class MovingObstacleTest {
                     if (t in (System.getenv("M48_T0")?.toFloat() ?: 4.6f)..(System.getenv("M48_T1")?.toFloat() ?: 6.4f)) println("  trace t=${"%.2f".format(t)} " + step.motion.joinToString(" | ") { m ->
                         "id${m.id}${if (m.candidate) "C" else ""}${if (m.moving) "M" else ""} sv=${"%.2f".format(m.velSigmaMps)} pos=${m.posW?.let { "%.2f,%.2f".format(it.x, it.z) }} v=${m.velW?.let { "%.2f,%.2f".format(it.x, it.z) }} meas=${m.nMeasCells} votes=${"%.2f".format(m.votes)} sc=${"%.2f".format(m.score)}"
                     } + " obs=" + step.snapshot.obstacles.joinToString { "${it.id}${if (it.moving) "M" else ""}@%.2f,%.2f".format(it.repPointW.x, it.repPointW.z) })
+                    if (t in (System.getenv("M48_T0")?.toFloat() ?: 4.6f)..(System.getenv("M48_T1")?.toFloat() ?: 6.4f)) for (x in step.assoc) println(
+                        "    assoc id${x.id}${if (x.moving) "M" else ""} pts=${x.nPts} blobs=${x.nBlobs} chosen=${x.nChosen} chi2=${"%.1f".format(x.chi2)} ok=${x.accepted} meas=${"%.2f,%.2f".format(x.measW.x, x.measW.z)} box x ${"%.2f..%.2f".format(x.lo.x, x.hi.x)} z ${"%.2f..%.2f".format(x.lo.z, x.hi.z)}")
                 }
             }
             override fun onBlock(tNs: Long, pose: PoseFrame, snapshot: ObstacleSnapshot?, g: GuidanceOutput) { out += Block(tNs, g, snapshot) }
@@ -691,6 +697,86 @@ class MovingObstacleTest {
                 if (name == "M58") {
                     if (firstMovingS(on)?.let { it < gone } != true) fails += "s=${n.depthQuadK}: not judged moving before $gone s (test invalid)"
                     if (last != null && last > gone + 0.5f) fails += "s=${n.depthQuadK}: moving output until $last s"
+                }
+            }
+        }
+        assertTrue(fails.isEmpty(), fails.joinToString("; "))
+    }
+
+    /** M59 조합: M58 조합 + 원시 측정 게이트(`track.rawAssociation` GATE: χ² 9.21, 게이트 반지름 0.4 m에서 지움). */
+    private val m59 = m58.replace("\"existFrom\": \"RAW\" }", "\"existFrom\": \"RAW\", \"rawAssociation\": \"GATE\" }")
+
+    @Test fun `M59 SM-1`() { useLabels = true; kalman = m59; `SM-1 KALMAN - an oncoming person is stopped before 1 m with TTC at least 1 s`() }
+    @Test fun `M59 SM-2`() { useLabels = true; kalman = m59; `SM-2 KALMAN - user and person walk toward each other`() }
+    @Test fun `M59 SM-3`() { useLabels = true; kalman = m59; `SM-3 KALMAN - a person crossing 2 m ahead is not a STOP and leaves no lingering warning`() }
+    @Test fun `M59 SM-4`() { useLabels = true; kalman = m59; `SM-4 KALMAN - a static box is never judged moving and its first STOP is unchanged`() }
+    @Test fun `M59 SM-5`() { useLabels = true; kalman = m59; `SM-5 KALMAN - a person crossing just in front of a box does not take the box cells`() }
+    @Test fun `M59 SM-6`() { useLabels = true; kalman = m59; `SM-6 KALMAN - a person who comes close and steps aside is stopped in time and leaves less lingering warning`() }
+    @Test fun `M59 SM-11`() { oneMap = m59; `M57 OWNED SM-11 - a person who stood then walks toward the user leaves no trail`() }
+    @Test fun `M59 SM-13`() { fsCfg = m59; `M57 FREE_SPACE SM-13 - a standing person stays static`() }
+
+    /**
+     * SM-16 장면(M59, T 150439를 좌우로 뒤집어 본뜸): 사람 A가 머리 앞 2.0 m를 오른쪽으로 0.7 m/s로 지나 깊이 영상 오른쪽 가장자리 밖으로 나가고, 사람 B가
+     * 옆 [bX]에서 머리 앞 4.5 m부터([bStartS]) 0.7 m/s로 다가와 0.4 m에서 선다. A가 가장자리에 있을 때 B가 A의 창에 든다. 뒤 7 m에 벽. [withA]가
+     * false면 B만(B 혼자의 STOP 기준).
+     */
+    private fun sm16(n: Noise, bX: Float, bStartS: Float, withA: Boolean = true): Triple<SceneSpec, SceneItem, SceneItem> {
+        val r = 0.2f
+        val a = SceneItem("personA", VerticalCylinder(-2.5f, 0.3f - 2.0f - r, r, 0f, 1.7f), obstacle = true, expectedClass = HeightClass.BODY,
+            motion = Motion(Vec3(0.7f, 0f, 0f), 1.5f, 9.0f))
+        val b = SceneItem("personB", VerticalCylinder(bX, 0.3f - 4.5f - r, r, 0f, 1.7f), obstacle = true, expectedClass = HeightClass.BODY,
+            motion = Motion(Vec3(0f, 0f, 0.7f), bStartS, bStartS + (4.5f - 0.4f) / 0.7f))
+        val dur = bStartS + (4.5f - 0.4f) / 0.7f + 1.0f
+        val items = if (withA) listOf(floor, backWall, a, b) else listOf(floor, backWall, b)
+        return Triple(SceneSpec("SM-16-$bX-$bStartS-$withA", Scene(items), Walk(standS = 1000f, durationS = dur), n), a, b)
+    }
+
+    /** 움직이는 track마다 받아들인 원시 측정(시각순)과 그때 가장 가까운 사람(중심 0.5 m 안, 없으면 null). */
+    private fun measuredBy(motion: List<hearspace.core.tracking.MotionDebug>, people: List<SceneItem>): Map<Int, List<Pair<Float, String?>>> =
+        motion.filter { it.moving && it.measW != null }.distinctBy { it.id to it.measTNs }.groupBy { it.id }.mapValues { (_, ms) ->
+            ms.sortedBy { it.measTNs }.map { m ->
+                val t = tS(m.measTNs)
+                val near = people.map { p ->
+                    val c = p.shape as VerticalCylinder
+                    p.name to (m.measW!! - (Vec3(c.cx, 0f, c.cz) + p.offsetAt(t))).horizontal().norm()
+                }.filter { it.second <= 0.5f }.minByOrNull { it.second }?.first
+                t to near
+            }
+        }
+
+    /**
+     * SM-16(M59): 두 사람 장면에서 A를 따르던 움직이는 track이 B로 옮겨 붙지 않는다. 시험이 되려면 M58 조합에서 옮겨 붙음(A track의 받아들인 측정이
+     * A 0.5 m 밖)이 일어나야 한다. 장면 둘: 기본(B 옆 0.3 m, 3.6 s 출발) 통과 = A를 먼저 잰 track의 받아들인 측정이 모두 A 0.5 m 안, B는 SM-1 기준
+     * (1.0 m 앞 진입 전 STOP, TTC ≥ 1.0 s). 변형(B 옆 0.5 m, 3.9 s: 1단계에서 가장자리에서 기운 예측이 B를 가로채고 합치기가 B track을 흡수한 장면) 통과 =
+     * 보고만(M59 조합 GATE는 가장자리에서 기운 예측이 B를 0.3 s 받는다: 한 덩어리 한 track은 덩어리 나눔과 함께 꺼진 옵션, M59 결과).
+     */
+    @Test
+    fun `M59 SM-16 - a track following a crossing person does not jump to a person approaching behind`() {
+        useLabels = true
+        realRaw = true
+        val fails = ArrayList<String>()
+        for ((bX, bStart) in listOf(0.3f to 3.6f, 0.5f to 3.9f)) for (n in listOf(Noise(), noisy)) {
+            val (spec, a, b) = sm16(n, bX, bStart)
+            val alone = approach(spec, b, replay(sm16(n, bX, bStart, withA = false).first, m59))
+            for ((name, cfg) in listOf("M58" to m58, "M59" to m59)) {
+                val sink = ArrayList<hearspace.core.tracking.MotionDebug>()
+                motionSink = sink
+                val blocks = replay(spec, cfg)
+                motionSink = null
+                val by = measuredBy(sink, listOf(a, b))
+                val aTracks = by.filterValues { ms -> ms.firstOrNull { it.second != null }?.second == "personA" }
+                val strays = aTracks.mapValues { (_, ms) -> ms.filter { it.second != "personA" } }.filterValues { it.isNotEmpty() }
+                val ap = approach(spec, b, blocks)
+                val tag = "bX=$bX s=${n.depthQuadK}"
+                println("SM-16 $name $tag: A tracks ${aTracks.keys} (${aTracks.values.sumOf { it.size }} meas), strays ${strays.mapValues { (_, v) -> v.joinToString { "%.2f:%s".format(it.first, it.second ?: "-") } }}; B stop ${ap.stopAlongM} ttc ${ap.ttcS} entered ${ap.entryBeforeStop} (alone ${alone.stopAlongM})")
+                if (System.getenv("SM16_TRACE") != null) by.forEach { (id, ms) -> println("  id$id " + ms.joinToString(" ") { "%.2f:%s".format(it.first, it.second?.last() ?: "-") }) }
+                when (name) {
+                    "M58" -> if (strays.isEmpty()) fails += "$tag: M58 combination did not jump (test invalid)"
+                    "M59" -> if (bX <= 0.3f) { // 변형 장면(옆 0.5 m)은 보고만: 가장자리에서 기운 예측이 B를 0.3 s 받는 한계(한 덩어리 한 track 없음, M59 결과)
+                        if (aTracks.isEmpty()) fails += "$tag: no track measured A"
+                        if (strays.isNotEmpty()) fails += "$tag: A track measured off A ${strays.keys}"
+                        if (!approachOk(ap)) fails += "$tag: B $ap (alone $alone)"
+                    }
                 }
             }
         }
