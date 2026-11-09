@@ -60,6 +60,8 @@ class SlowStep(
     val evidence: List<hearspace.core.tracking.EvidenceDebug> = emptyList(),
     /** 원시 측정 짝짓기 기록(M59 `track.rawAssociation` NEAREST_BLOB). */
     val assoc: List<hearspace.core.tracking.AssocDebug> = emptyList(),
+    /** 발 접점 추적 기록(M53 `vision.footContact`). */
+    val foot: List<hearspace.core.tracking.FootDebug> = emptyList(),
 )
 
 /** [OfflineReplay] 결과를 받는 쪽: 실행 로그 파일([RunLogWriter]) 또는 평가 GUI의 메모리 수집. */
@@ -149,7 +151,7 @@ class OfflineReplay(
             config.frontend.labelBandPx > 0 || config.map.hitWeighting == hearspace.core.types.HitWeighting.CONFIDENCE ||
             config.floor.weighting == hearspace.core.types.FloorWeighting.CONFIDENCE || config.vision.voxelLabels ||
             config.track.measureFrom == hearspace.core.types.MeasureFrom.RAW_MASK || cellTraceOut != null ||
-            config.floor.model == hearspace.core.types.FloorModel.PLANE_RAW
+            config.floor.model == hearspace.core.types.FloorModel.PLANE_RAW || config.vision.footContact
         ) VisionFrames(session, reader, labelRemap) else null
         val fast = FastPath(config, substitution?.headingSnap())
         val slow = SlowPath(config, substitution?.fixedMap(config.map.voxelSizeM), floorOverrideY = substitution?.floorY(), movingOracle = movingOracle)
@@ -210,6 +212,7 @@ class OfflineReplay(
                 if (listener.captureVoxels && config.track.motionMap == hearspace.core.types.MotionMap.OWNED) slow.map.voxels.views().filter { it.moving } else null,
                 slow.lastEvidenceDebug,
                 slow.lastAssocDebug,
+                slow.lastFootDebug,
             )
         }
 
@@ -221,7 +224,7 @@ class OfflineReplay(
                 val applied = resetAfterNs == j.resetMark
                 if (applied) snapshot = j.snapshot
                 listener.onSlowStep(
-                    SlowStep(j.depth, j.startNs, j.doneNs, j.snapshot, j.mapUpdate, j.clusterDebug, j.stageNs, applied, j.voxels, j.clusters, j.userPosW, j.mapDepthMm, j.free, j.motion, j.m54Counts, j.inserted, j.framePlane, j.frameClusters, j.decayed, j.moving, j.evidence, j.assoc),
+                    SlowStep(j.depth, j.startNs, j.doneNs, j.snapshot, j.mapUpdate, j.clusterDebug, j.stageNs, applied, j.voxels, j.clusters, j.userPosW, j.mapDepthMm, j.free, j.motion, j.m54Counts, j.inserted, j.framePlane, j.frameClusters, j.decayed, j.moving, j.evidence, j.assoc, j.foot),
                 )
                 startIfIdle(j.doneNs)
             }
@@ -326,6 +329,7 @@ class OfflineReplay(
         val moving: List<VoxelView>? = null,
         val evidence: List<hearspace.core.tracking.EvidenceDebug> = emptyList(),
         val assoc: List<hearspace.core.tracking.AssocDebug> = emptyList(),
+        val foot: List<hearspace.core.tracking.FootDebug> = emptyList(),
     )
 
     companion object {

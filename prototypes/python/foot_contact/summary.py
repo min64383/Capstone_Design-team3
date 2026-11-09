@@ -121,6 +121,18 @@ out['errorPerSession2.5-4.5'] = per_session
 
 # 앱 바닥 변화율, 앱 바닥 − floor_rgb(깊이와 독립인 걷는 세션)
 out['floorRateP95'] = {s: {f'W{w}': round(rate_p95(*app_floor(s, w)), 3) for w in (0, 2, 4, 8)} for s in T7}
+
+
+def lag_sd(t, f, lag_s=0.5):
+    """바닥 높이의 lag_s초 사이 변화(f(t) − f(t − lag))의 σ(m). 칼만이 기억하는 시간 동안의 바닥 흔들림(σ_h, M53 0단계)."""
+    j = np.searchsorted(t, t - lag_s * 1e9, side='right') - 1
+    ok = j >= 0
+    return float(np.std(f[ok] - f[j[ok]], ddof=1))
+
+
+sh = {s: round(lag_sd(*app_floor(s, 8)), 4) for s in T7}
+out['floorLagSd0.5s_W8'] = dict(perSession=sh, median=round(float(np.median(list(sh.values()))), 4),
+                                pooled=round(float(np.sqrt(np.mean(np.square(list(sh.values()))))), 4))
 rgb = {}
 for s in T7:
     fy = json.loads((ses(s) / 'floor_rgb.json').read_text(encoding='utf-8')).get('floorY')

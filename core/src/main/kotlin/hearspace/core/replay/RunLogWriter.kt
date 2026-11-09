@@ -38,6 +38,7 @@ class RunLogWriter(
     private var motionOut: Writer? = null
     private var evidenceOut: Writer? = null
     private var assocOut: Writer? = null
+    private var footOut: Writer? = null
     private var geometryOut: Writer? = null
     private var m54Out: Writer? = null
     private var insertsOut: Writer? = null
@@ -85,6 +86,13 @@ class RunLogWriter(
             for (e in step.evidence) w.line(listOf(
                 e.tRawNs, e.tNs, e.id, e.candidate, e.moving, e.ageS, e.nPts, e.nCmp, e.nViol, e.zMedM, e.rotDegS, (e.lo.x + e.hi.x) / 2, (e.lo.z + e.hi.z) / 2, e.lo.x, e.lo.z, e.hi.x, e.hi.z,
             ).joinToString(",") + "," + e.labels.joinToString(",") + "," + (if (e.ownLabels.isEmpty()) IntArray(12) else e.ownLabels).joinToString(","))
+        }
+        if (step.foot.isNotEmpty()) { // M53 `vision.footContact`일 때만 생긴다
+            val w = footOut ?: File(outDir, FOOT_FILE).bufferedWriter().also { it.line(FOOT_HEADER); footOut = it }
+            for (a in step.foot) w.line(listOf(
+                a.kind, a.tNs, a.id, a.label, a.nMeas, a.measW?.x ?: Float.NaN, a.measW?.z ?: Float.NaN, a.distM, a.sigmaM, a.chi2,
+                a.posW?.x ?: Float.NaN, a.posW?.z ?: Float.NaN, a.velW?.x ?: Float.NaN, a.velW?.z ?: Float.NaN, a.velSigmaMps, a.moving, a.output, a.suppressed,
+            ).joinToString(","))
         }
         if (step.assoc.isNotEmpty()) { // M59 `track.rawAssociation` GATE·NEAREST_BLOB일 때만 생긴다
             val w = assocOut ?: File(outDir, ASSOC_FILE).bufferedWriter().also { it.line(ASSOC_HEADER); assocOut = it }
@@ -136,7 +144,7 @@ class RunLogWriter(
 
     /** 기록 파일을 모두 닫는다(여러 번 불러도 된다). */
     override fun close() {
-        listOfNotNull(slowOut, guidOut, obsOut, clusterOut, stageOut, planesOut, motionOut, evidenceOut, assocOut, geometryOut, m54Out, insertsOut, rolesOut, planeOut, frameClustersOut, decaysOut).forEach { it.close() }
+        listOfNotNull(slowOut, guidOut, obsOut, clusterOut, stageOut, planesOut, motionOut, evidenceOut, assocOut, footOut, geometryOut, m54Out, insertsOut, rolesOut, planeOut, frameClustersOut, decaysOut).forEach { it.close() }
     }
 
     private fun motionLine(m: hearspace.core.tracking.MotionDebug): String = listOf(
@@ -152,6 +160,8 @@ class RunLogWriter(
         val EVIDENCE_HEADER = "tRawNs,tNs,id,candidate,moving,ageS,nPts,nCmp,nViol,zMedM,rotDegS,cx,cz,loX,loZ,hiX,hiZ," +
             (0 until 12).joinToString(",") { "lab$it" } + "," + (0 until 12).joinToString(",") { "own$it" }
         /** 원시 측정 짝짓기 기록(M59). */
+        const val FOOT_FILE = "foot.csv"
+        const val FOOT_HEADER = "kind,tNs,id,label,nMeas,measX,measZ,distM,sigmaM,chi2,posX,posZ,velX,velZ,velSigmaMps,moving,output,suppressed"
         const val ASSOC_FILE = "raw_assoc.csv"
         const val ASSOC_HEADER = "tRawNs,id,moving,nPts,nBlobs,nChosen,chi2,accepted,measX,measZ,loX,loZ,hiX,hiZ"
         const val M54_FILE = "m54.csv"

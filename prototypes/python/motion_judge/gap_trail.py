@@ -48,7 +48,8 @@ def analyze(run: Path) -> tuple[dict, list, list]:
     ob = pd.read_csv(run / "obstacles.csv")
     mo = pd.read_csv(run / "motion.csv")
     cl = pd.read_csv(run / "cluster_debug.csv")
-    moving_ids = set(mo[mo.moving].id)
+    # M53: 발 접점 출력(번호 1,000,000 이상, core FarTracker.FIRST_ID)은 늘 움직이는 출력이라 흔적(움직이는 track 제외)에서 뺀다
+    moving_ids = set(mo[mo.moving].id) | set(ob.id[ob.id >= 1_000_000])
     cam = fr.drop_duplicates("depthTNs").set_index("depthTNs")[["tx", "tz"]]
     times = np.sort(mo.tCaptureNs.unique()) if len(mo) else np.sort(ob.tCaptureNs.unique())
     gap = {}
