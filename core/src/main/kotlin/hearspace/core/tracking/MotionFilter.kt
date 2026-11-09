@@ -148,6 +148,37 @@ class MotionFilter(
         return Vec3((ax.p + ax.v * dt).toFloat(), 0f, (az.p + az.v * dt).toFloat()) to Math.sqrt((pp(ax) + pp(az)) / 2).toFloat()
     }
 
+    /**
+     * 시각 [tNs]의 측정 [pW](표준편차 [sigmaM])의 혁신 χ²(자유도 2)를 상태를 바꾸지 않고 낸다([update]의 검증 게이트와 같은 계산, M59 덩어리 고르기).
+     * 준비 전이거나 [tNs]가 필터 시각보다 이르면 null.
+     */
+    fun innovationChi2(tNs: Long, pW: Vec3, sigmaM: Float): Float? {
+        val ax = x ?: return null
+        val az = z!!
+        if (tNs < this.tNs) return null
+        val dt = (tNs - this.tNs) / 1e9
+        val q = accelSigmaMps2.toDouble() * accelSigmaMps2
+        val r = sigmaM.toDouble() * sigmaM
+        fun s(a: Axis) = a.pp + 2 * dt * a.pv + dt * dt * a.vv + q * dt * dt * dt * dt / 4 + r
+        val ex = pW.x - (ax.p + ax.v * dt)
+        val ez = pW.z - (az.p + az.v * dt)
+        return (ex * ex / s(ax) + ez * ez / s(az)).toFloat()
+    }
+
+    /**
+     * 다른 필터와의 속도 차 χ²(자유도 2) = Σ축 (v_a − v_b)² / (var_a + var_b)(M59 합치기 속도 검정, 두 추정의 교차 공분산은 뺌).
+     * 둘 중 하나라도 준비 전이면 null.
+     */
+    fun velocityDiffChi2(other: MotionFilter): Float? {
+        val ax = x ?: return null
+        val bx = other.x ?: return null
+        val az = z!!
+        val bz = other.z!!
+        val dx = ax.v - bx.v
+        val dz = az.v - bz.v
+        return (dx * dx / (ax.vv + bx.vv) + dz * dz / (az.vv + bz.vv)).toFloat()
+    }
+
     /** 위치 표준편차(두 축 분산 평균의 제곱근, m). */
     val positionSigmaM: Float get() = x?.let { Math.sqrt((it.pp + z!!.pp) / 2).toFloat() } ?: Float.NaN
 

@@ -37,6 +37,7 @@ class RunLogWriter(
     private var planesOut: Writer? = null
     private var motionOut: Writer? = null
     private var evidenceOut: Writer? = null
+    private var assocOut: Writer? = null
     private var geometryOut: Writer? = null
     private var m54Out: Writer? = null
     private var insertsOut: Writer? = null
@@ -85,6 +86,10 @@ class RunLogWriter(
                 e.tRawNs, e.tNs, e.id, e.candidate, e.moving, e.ageS, e.nPts, e.nCmp, e.nViol, e.zMedM, e.rotDegS, (e.lo.x + e.hi.x) / 2, (e.lo.z + e.hi.z) / 2, e.lo.x, e.lo.z, e.hi.x, e.hi.z,
             ).joinToString(",") + "," + e.labels.joinToString(",") + "," + (if (e.ownLabels.isEmpty()) IntArray(12) else e.ownLabels).joinToString(","))
         }
+        if (step.assoc.isNotEmpty()) { // M59 `track.rawAssociation` GATE·NEAREST_BLOB일 때만 생긴다
+            val w = assocOut ?: File(outDir, ASSOC_FILE).bufferedWriter().also { it.line(ASSOC_HEADER); assocOut = it }
+            for (a in step.assoc) w.line(listOf(a.tRawNs, a.id, a.moving, a.nPts, a.nBlobs, a.nChosen, a.chi2, a.accepted, a.measW.x, a.measW.z, a.lo.x, a.lo.z, a.hi.x, a.hi.z).joinToString(","))
+        }
         step.mapUpdate.geometry?.let { result ->
             val w = geometryOut ?: File(outDir, RunLog.GEOMETRY_FILE).bufferedWriter().also {
                 it.line(RunLog.header(RunLog.GEOMETRY_HEADER)); geometryOut = it
@@ -131,7 +136,7 @@ class RunLogWriter(
 
     /** 기록 파일을 모두 닫는다(여러 번 불러도 된다). */
     override fun close() {
-        listOfNotNull(slowOut, guidOut, obsOut, clusterOut, stageOut, planesOut, motionOut, evidenceOut, geometryOut, m54Out, insertsOut, rolesOut, planeOut, frameClustersOut, decaysOut).forEach { it.close() }
+        listOfNotNull(slowOut, guidOut, obsOut, clusterOut, stageOut, planesOut, motionOut, evidenceOut, assocOut, geometryOut, m54Out, insertsOut, rolesOut, planeOut, frameClustersOut, decaysOut).forEach { it.close() }
     }
 
     private fun motionLine(m: hearspace.core.tracking.MotionDebug): String = listOf(
@@ -146,6 +151,9 @@ class RunLogWriter(
         const val EVIDENCE_FILE = "motion_evidence.csv"
         val EVIDENCE_HEADER = "tRawNs,tNs,id,candidate,moving,ageS,nPts,nCmp,nViol,zMedM,rotDegS,cx,cz,loX,loZ,hiX,hiZ," +
             (0 until 12).joinToString(",") { "lab$it" } + "," + (0 until 12).joinToString(",") { "own$it" }
+        /** 원시 측정 짝짓기 기록(M59). */
+        const val ASSOC_FILE = "raw_assoc.csv"
+        const val ASSOC_HEADER = "tRawNs,id,moving,nPts,nBlobs,nChosen,chi2,accepted,measX,measZ,loX,loZ,hiX,hiZ"
         const val M54_FILE = "m54.csv"
         const val INSERTS_FILE = "map_inserts.csv"
         const val ROLES_FILE = "map_roles.csv"

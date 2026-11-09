@@ -696,7 +696,26 @@ data class TrackConfig(
      * 없는 평활 장 = 그대로. 출력 모양은 원시 측정과 평활 칸 중 더 최근 측정에서.
      */
     val existFrom: ExistFrom = ExistFrom.SMOOTHED,
+    /**
+     * 원시 측정 짝짓기(M59 설계 3.1~3.6절). ALL = 창 안 라벨 원시 점 전부가 측정 하나, 게이트 꺼짐(기준선). GATE(M59 조합) = 측정은 ALL 그대로,
+     * 칼만 혁신 χ² ≤ [rawGateChi2]일 때만 갱신(규칙 3), 99% 게이트 반지름이 [maxGateRadiusM]을 넘은 움직이는 track 지우기(규칙 4), 합치기 속도
+     * 검정(규칙 6). NEAREST_BLOB(꺼진 옵션) = GATE에 더해 창 안 점을 수평 DBSCAN 덩어리로 나눠 한 덩어리는 한 track만(규칙 1·2·5): 판정·칸 소유가
+     * 창 단위라 B-2에서 흔적·중복 출력·정지 거짓 판정이 늘었다(T 150159·150338·150439).
+     */
+    val rawAssociation: RawAssociation = RawAssociation.ALL,
+    /** GATE·NEAREST_BLOB 검증 게이트(자유도 2 χ², 99% = 9.21, Bar-Shalom 외 2001). 깨끗한 짝 89개 최대 6.73(M59 설계 표 3, ALL 측정으로 잼). */
+    val rawGateChi2: Float = 9.21f,
+    /** GATE·NEAREST_BLOB 지우기: 측정 없이 예측만 하는 움직이는 track의 게이트 반지름 상한(m). 정답 원기둥 반지름 0.2 × 2(두 사람 중심 최소 거리). */
+    val maxGateRadiusM: Float = 0.4f,
+    /**
+     * 합치기 속도 검정(M59 설계 3.5절, 꺼진 옵션): 0.3 m 안 두 track도 속도 차 χ²(자유도 2)가 이를 넘으면 다른 물체. 기본 1e6 = 끔: 9.21로 켜면
+     * 후보 칼만이 창 안 섞인 측정으로 확신하며 틀린 속도를 내(T 150439 (0, 1.48) ± 0.19 m/s) 같은 사람의 중복을 남겨 정지 거짓 판정이 났다(M59 B-2).
+     */
+    val mergeVelChi2: Float = 1_000_000f,
 )
+
+/** 원시 측정 짝짓기(M59). */
+enum class RawAssociation { ALL, GATE, NEAREST_BLOB }
 
 /** 움직임 판정의 증거(M57). */
 enum class MotionEvidence { LABEL, FREE_SPACE }

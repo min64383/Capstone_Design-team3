@@ -6,6 +6,7 @@ import hearspace.core.types.MapConfig
 import hearspace.core.types.MeasureFrom
 import hearspace.core.types.MeasureWeight
 import hearspace.core.types.Obstacle
+import hearspace.core.types.RawAssociation
 import hearspace.core.types.RepStrategy
 import hearspace.core.types.TrackConfig
 
@@ -56,6 +57,8 @@ class Tracker(
     private val minSamples: Int = 5,
     /** 정보 나이 허용치(ns, `policy.maxInfoAgeMs`): M58 `track.existFrom` RAW면 마지막 측정이 이보다 오래된 움직이는 track은 내지 않는다. */
     private val maxInfoAgeNs: Long = Long.MAX_VALUE,
+    /** 원시 측정 덩어리 간격(m, `cluster.epsM`, M59 `track.rawAssociation` NEAREST_BLOB). */
+    private val clusterEpsM: Float = 0.15f,
 ) {
 
     private class Track(
@@ -85,6 +88,11 @@ class Tracker(
     /** 마지막 [update]의 빈 곳 위반 기록(M57 `track.freeSpaceRecord`, `motion_evidence.csv`). 새 원시 장이 없던 장은 빈 목록. */
     var lastEvidenceDebug: List<EvidenceDebug> = emptyList()
         private set
+
+    /** 마지막 [update]의 원시 측정 짝짓기 기록(M59 GATE·NEAREST_BLOB, `raw_assoc.csv`). 새 원시 장이 없던 장은 빈 목록. */
+    var lastAssocDebug: List<AssocDebug> = emptyList()
+        private set
+    private val assoc = ArrayList<AssocDebug>()
 
     /** 시각 [tNs]의 움직이는 track 추적 창(정지 지도에 넣지 않을 점의 상자, M48). 지난 장의 상태로 정한다. */
     fun movingGates(tNs: Long): List<Pair<Vec3, Vec3>> =
@@ -285,7 +293,9 @@ class Tracker(
         // 움직이는 track·후보의 측정 = 창에 걸린 군집 전체(창은 군집을 고르는 데만 쓴다). 창 안 칸만 쓰면 측정점이 창 쪽(예측 쪽)으로 끌려
         // 속도가 작게 나오고 창이 물체보다 점점 뒤처졌다(합성 SM-3: 1.0 m/s를 0.55~0.7 m/s로)
         val clustersAll by lazy { f.clusterXZ(f.allCells) }
+        val rawPicks = if (cfg.rawAssociation == RawAssociation.NEAREST_BLOB && f.rawPoints != null) assignRawBlobs(f, f.rawPoints, tf) else emptyMap()
         val evidence = ArrayList<EvidenceDebug>()
+        assoc.clear()
         for (t in tracks) {
             val m = t.motion!!
             // 추적 창: 움직이는 track·후보는 측정 상자를 예측만큼 옮긴 것, 지도 track은 이번 지도 군집 상자(지도 앞면이 뒤처지므로 여유로 덮음)
@@ -322,7 +332,7 @@ class Tracker(
             val restarts = m.filter.restarts
             // RAW_MASK(M49): 움직이는 track·후보의 칼만은 새 원시 장의 마스크 점으로만, 원시 장 촬영 시각으로 갱신한다. 원시 장이 없는 장에는
             // 필터를 건드리지 않는다(평활 시각으로 예측해 두면 더 이른 원시 시각의 측정이 버려진다). 표·점수·창은 아래처럼 평활 칸으로 센다
-            if (rawMode) f.rawPoints?.let { rawMeasure(m, f, it, lo, hi, t.id) }
+            if (rawMode) f.rawPoints?.let { rawMeasure(m, f, it, lo, hi, t.id, rawPicks[t]) }
             if (rep != null && !rawMode && !m.filter.update(tf, rep, f.sigmaAt(rep), cfg.validationChi2)) {
                 m.missed++
                 m.nMeasCells = -meas.size // 버린 측정(기록용 음수)
@@ -442,6 +452,9 @@ class Tracker(
                 // `map.maxUnseenS` 동안 둔다. 처음 설계(마지막 자리를 정지 지도로 넘김)는 옆으로 비켜 시야를 벗어난 사람을 통로 가장자리의
                 // 유령 칸으로 남겼다(합성 SM-6)
                 mm.moving && mm.score <= 0f -> removed += t // 시야 안에서 빈 곳으로 보여 지워짐
+                // M59 규칙 4: 측정 없이 예측만 하는 동안 99% 게이트가 두 사람 중심 최소 거리보다 커지면 짝짓기가 뜻을 잃는다. 남겨 두면 0.3 m 합치기가
+                // 그 사람의 새 후보를 이 낡은 track에 흡수시켜 옮겨 붙음 길이 된다(설계 3.3절, M58 "track은 지우지 않는다"를 뒤집음)
+                cfg.rawAssociation != RawAssociation.ALL && mm.moving && mm.filterRaw && gateRadiusM(mm, tNs, f.sigmaAt) > cfg.maxGateRadiusM -> removed += t
                 mm.candidate && mm.missed > cfg.maxMissedUpdates -> removed += t
                 // 6표가 모였는데 정지: 정지 지도가 맡음. RAW_MASK는 칼만이 원시 장(10 Hz)으로만 차므로 준비 전에는 판정하지 않는다
                 // M57 FREE_SPACE: 판정 전에 넘기지 않는다(새 판정은 창이 차야 함, M55 판정 전 넘김 빈틈). 정지 후보는 지도 군집이 창을 차지하면 넘겨받는다
@@ -462,7 +475,7 @@ class Tracker(
             for (b in live.subList(i + 1, live.size)) {
                 if (b in removed) continue
                 val pb = b.motion!!.origin() ?: continue
-                if ((pa - pb).horizontal().norm() <= cfg.matchRadiusM) {
+                if ((pa - pb).horizontal().norm() <= cfg.matchRadiusM && sameMotion(a.motion!!, b.motion!!)) {
                     removed += b
                     mergedInto[b] = a
                 }
@@ -589,6 +602,7 @@ class Tracker(
             )
         }
         lastEvidenceDebug = evidence
+        lastAssocDebug = assoc.toList()
         lastMotionDebug = tracks.map { t ->
             val m = t.motion!!
             // RAW_MASK의 움직이는 track·후보는 이번 장에 원시 측정을 넣었을 때만 측정점을 적고, 그 시각은 원시 장 촬영 시각이다
@@ -642,14 +656,24 @@ class Tracker(
     }
 
     /**
+     * M59 규칙 4: 시각 [tNs] 예측의 99% 게이트 반지름(m) = √rawGateChi2 · √(σ_예측² + σ_m(Z)²), Z = 카메라에서 예측 자리까지. 준비 전이면 0(지우지 않음).
+     */
+    private fun gateRadiusM(m: MotionState, tNs: Long, sigmaAt: (Vec3) -> Float): Float {
+        val (p, sp) = m.filter.predictedAt(tNs) ?: return 0f
+        val sm = sigmaAt(p)
+        return kotlin.math.sqrt(cfg.rawGateChi2 * (sp * sp + sm * sm))
+    }
+
+    /**
      * RAW_MASK 측정(M49 설계 3.4절): 새 원시 장의 장애물 점 중 창 안이고 라벨이 움직일 수 있는 라벨인 점(원시 장 시각에서 라벨 영상 시각까지
      * 칼만 속도로 되돌려 투영)의 가까운 면 점으로 칼만을 원시 장 촬영 시각에 갱신한다. 점 하나 = 관측 하나. 라벨이 없거나 점이 적으면 측정 없음.
      */
-    private fun rawMeasure(m: MotionState, f: MotionFrame, points: List<Vec3>, lo: Vec3, hi: Vec3, id: Int) {
+    /** 창 안 라벨 원시 점(M49 RAW_MASK 측정 재료)과 그 라벨. 라벨 영상이 없으면 null. [MotionState.nRawPoints]를 적는다. */
+    private fun rawLabelled(m: MotionState, f: MotionFrame, points: List<Vec3>, lo: Vec3, hi: Vec3, id: Int): List<Pair<Vec3, Int>>? {
         val label = f.labels
         if (label == null && cfg.measureLabels) {
             m.nRawPoints = 0
-            return
+            return null
         }
         val shift = (m.filter.velocityW ?: Vec3.ZERO) * (((label?.tCaptureNs ?: f.rawTNs) - f.rawTNs) / 1e9f)
         // M57 `track.measureLabels` false: 라벨로 거르지 않고, 그 track 소유가 아닌 정지 점유 칸(track보다 먼저 있던 배경)의 점만 뺀다
@@ -658,19 +682,116 @@ class Tracker(
         } else {
             points.filter { p -> inBox(p, lo, hi) && f.owned?.staticOther(p, id) != true }.map { p -> p to (label?.pixelAt(p + shift) ?: -1) }
         }
-        val pts = labelled.map { it.first }
-        m.nRawPoints = pts.size
-        if (pts.size < minSamples) return
-        val r = nearSurfacePoint(pts, f.rawCameraW) ?: return
-        // 원천을 섞지 않는다: 평활 칸으로 쌓인 칼만이면 첫 원시 측정에서 다시 시작한다(지도 track → 움직이는 track 전환)
-        if (!m.filterRaw) {
-            m.filter.reset()
-            m.filterRaw = true
+        m.nRawPoints = labelled.size
+        return labelled
+    }
+
+    /** M59 덩어리 하나: 점(라벨 포함)과 가까운 면 점. */
+    private class RawBlob(val pts: List<Pair<Vec3, Int>>, val r: Vec3)
+
+    /** M59 한 track의 이번 원시 장 짝짓기: 덩어리 수, 받은 덩어리(없으면 null)와 그 χ², 기록용으로 그 track에 가장 잘 맞던 덩어리와 그 χ². */
+    private class RawPick(val nBlobs: Int, val blob: RawBlob?, val chi2: Float, val own: RawBlob?, val ownChi2: Float)
+
+    /**
+     * M59 규칙 1·2·5(설계 3.1·3.5절): 원시 측정을 쓰는 track마다 창 안 라벨 원시 점을 수평 DBSCAN 덩어리로 나누고, 덩어리 하나는 한 track만 받는다
+     * (측정 하나는 표적 하나에서, GNN을 χ² 오름차순 탐욕으로). 칼만이 준비된 track이 먼저 χ² ≤ rawGateChi2인 짝을 χ²가 작은 순서로 갖고(점을 하나라도
+     * 나눠 가진 덩어리는 같은 덩어리로 봄), 준비 전 track은 남은 덩어리 중 마지막 측정에 가장 가까운 것(없으면 점이 가장 많은 것)을 갖는다.
+     * 합성 SM-16: 사람을 놓친 track이 다른 사람 덩어리를 그 사람 자신의 track보다 나쁜 χ²(8.4 대 0.0)로 가로챘다.
+     */
+    private fun assignRawBlobs(f: MotionFrame, points: List<Vec3>, tf: Long): Map<Track, RawPick> {
+        class Cand(val t: Track, val b: RawBlob, val chi2: Float)
+        val blobsOf = LinkedHashMap<Track, List<RawBlob>>()
+        val ready = ArrayList<Cand>()
+        for (t in tracks) {
+            val m = t.motion ?: continue
+            if (!(m.moving || m.candidate)) continue
+            val (lo, hi) = gateOf(m, tf)
+            val lab = rawLabelled(m, f, points, lo, hi, t.id) ?: continue
+            if (lab.size < minSamples) continue
+            val blobs = Cluster.dbscanXZ(lab.map { it.first }, clusterEpsM, minSamples).map { idx -> idx.map { lab[it] } }
+                .filter { it.size >= minSamples }.mapNotNull { b -> nearSurfacePoint(b.map { it.first }, f.rawCameraW)?.let { RawBlob(b, it) } }
+            blobsOf[t] = blobs
+            if (m.filterRaw && m.filter.ready) blobs.forEach { b -> m.filter.innovationChi2(f.rawTNs, b.r, f.sigmaAt(b.r))?.let { ready += Cand(t, b, it) } }
         }
+        val claimed = HashSet<Vec3>()
+        val got = HashMap<Track, Cand>()
+        fun free(b: RawBlob) = b.pts.none { it.first in claimed }
+        for (c in ready.sortedBy { it.chi2 }) {
+            if (c.chi2 > cfg.rawGateChi2) break
+            if (c.t in got || !free(c.b)) continue
+            got[c.t] = c
+            c.b.pts.forEach { claimed += it.first }
+        }
+        val out = HashMap<Track, RawPick>()
+        for ((t, blobs) in blobsOf) {
+            val m = t.motion!!
+            if (m.filterRaw && m.filter.ready) {
+                val own = ready.filter { it.t === t }.minByOrNull { it.chi2 }
+                val g = got[t]
+                out[t] = RawPick(blobs.size, g?.b, g?.chi2 ?: Float.NaN, own?.b, own?.chi2 ?: Float.NaN)
+                continue
+            }
+            // 준비 전 track도 자기가 원하는 덩어리(마지막 측정에 가장 가까운 것, 없으면 점이 가장 많은 것)가 이미 잡혔으면 측정 없음이다. 남은 덩어리로 옮겨 가면
+            // 사람을 내준 중복 후보가 사람 뒤 섞인 화소·라벨 늦음 자리의 작은 덩어리로 가서 흔적·정지 거짓 판정이 되었다(B-2: 150159 흔적, 150338 거짓 판정)
+            val last = m.lastMeasW
+            val want = if (last != null) blobs.minByOrNull { (it.r - last).horizontal().norm() } else blobs.maxByOrNull { it.pts.size }
+            val b = want?.takeIf(::free)
+            b?.pts?.forEach { claimed += it.first }
+            out[t] = RawPick(blobs.size, b, Float.NaN, want, Float.NaN)
+        }
+        return out
+    }
+
+    /**
+     * M59 규칙 6(설계 3.5절, GATE·NEAREST_BLOB): 같은 물체 track 합치기(0.3 m)에 속도 검정을 더한다. 두 칼만이 모두 준비됐으면 속도 차의 χ²(자유도 2)가
+     * `track.mergeVelChi2` 이하일 때만 같은 물체로 본다. 위치는 검정하지 않는다: 한 사람이 덩어리 둘로 갈린 중복 track은 몸 크기만큼 실제로 떨어져
+     * 있다. T 150439: 서 있는 사람의 track이 그 옆 0.27 m를 걸어 지나는 사람의 후보를 흡수했다.
+     */
+    private fun sameMotion(a: MotionState, b: MotionState): Boolean {
+        if (cfg.rawAssociation == RawAssociation.ALL) return true
+        val c = a.filter.velocityDiffChi2(b.filter) ?: return true
+        return c <= cfg.mergeVelChi2
+    }
+
+    private fun rawMeasure(m: MotionState, f: MotionFrame, points: List<Vec3>, lo: Vec3, hi: Vec3, id: Int, pick: RawPick? = null) {
+        val blob = cfg.rawAssociation == RawAssociation.NEAREST_BLOB
+        val chosen: List<Pair<Vec3, Int>>
+        val r: Vec3
+        if (blob) {
+            // M59: 덩어리와 짝은 [assignRawBlobs]가 이 원시 장의 모든 track을 함께 보고 정했다
+            if (pick == null || pick.nBlobs == 0) return
+            if (pick.blob == null) {
+                pick.own?.let { o -> assoc += AssocDebug(f.rawTNs, id, m.moving, m.nRawPoints, pick.nBlobs, o.pts.size, pick.ownChi2, false, o.r, lo, hi) }
+                return
+            }
+            if (!m.filterRaw) {
+                m.filter.reset()
+                m.filterRaw = true
+            }
+            chosen = pick.blob.pts
+            r = pick.blob.r
+        } else {
+            val labelled = rawLabelled(m, f, points, lo, hi, id) ?: return
+            if (labelled.size < minSamples) return
+            chosen = labelled
+            r = nearSurfacePoint(labelled.map { it.first }, f.rawCameraW) ?: return
+            // 원천을 섞지 않는다: 평활 칸으로 쌓인 칼만이면 첫 원시 측정에서 다시 시작한다(지도 track → 움직이는 track 전환)
+            if (!m.filterRaw) {
+                m.filter.reset()
+                m.filterRaw = true
+            }
+        }
+        val pts = chosen.map { it.first }
         // 시작 게이트의 최대 속도 = 마스크 점의 다수 라벨 종류의 최대 속도(사람 2.5·차량 6.9 m/s, M49 측정 단계 결과 뒤 사용자 승인)
-        val major = labelled.groupingBy { it.second }.eachCount().maxByOrNull { it.value }!!.key // 라벨 없으면 −1 → initMaxSpeedMps
+        val major = chosen.groupingBy { it.second }.eachCount().maxByOrNull { it.value }!!.key // 라벨 없으면 −1 → initMaxSpeedMps
         val vmax = f.maxSpeedOfPixel[major] ?: cfg.initMaxSpeedMps
-        if (m.filter.update(f.rawTNs, r, f.sigmaAt(r), cfg.validationChi2, maxSpeedMps = vmax)) {
+        // M59 규칙 3: 고른 덩어리도 χ² > rawGateChi2면 측정 없음(평활 칸 경로의 validationChi2는 M48 그대로 꺼 둠)
+        // M59 규칙 3: GATE·NEAREST_BLOB는 혁신 χ² > rawGateChi2인 측정을 버린다(평활 칸 경로의 validationChi2는 M48 그대로 꺼 둠)
+        val gated = cfg.rawAssociation != RawAssociation.ALL
+        val chi2 = if (blob) pick!!.chi2 else if (gated) m.filter.innovationChi2(f.rawTNs, r, f.sigmaAt(r)) ?: Float.NaN else Float.NaN
+        val accepted = m.filter.update(f.rawTNs, r, f.sigmaAt(r), if (gated) cfg.rawGateChi2 else cfg.validationChi2, maxSpeedMps = vmax)
+        if (gated) assoc += AssocDebug(f.rawTNs, id, m.moving, m.nRawPoints, pick?.nBlobs ?: -1, pts.size, chi2, accepted, r, lo, hi)
+        if (accepted) {
             m.lastMeasW = r
             m.rawMeasTNs = f.rawTNs
             // 창 = 측정한 것의 상자(M48 규칙): RAW_MASK의 측정은 마스크 점이므로 그 점들의 범위로. 평활 군집 전체로 두면 큰 군집이 창을 키워
@@ -727,6 +848,7 @@ class Tracker(
         tracks = emptyList()
         lastMotionDebug = emptyList()
         lastEvidenceDebug = emptyList()
+        lastAssocDebug = emptyList()
         idOfInstance.clear()
         lost.clear()
     }
