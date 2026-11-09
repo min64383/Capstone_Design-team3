@@ -1,6 +1,6 @@
 # foot_contact — 깊이 밖 사람 거리(발 접점) 설계 측정
 
-- 상태: 이식 중(M53 1단계). core 파일: `core/.../tracking/FootContact.kt`(발 접점 측정), `FarTracker.kt`(발 접점 track). 골든 벡터 `core/src/test/resources/golden/tracking/foot_contact.json`(golden.py, 합성 의미 영상)
+- 상태: 이식 완료 d856260f(M53). core 파일: `core/.../tracking/FootContact.kt`(발 접점 측정), `FarTracker.kt`(발 접점 track). 골든 벡터 `core/src/test/resources/golden/tracking/foot_contact.json`(golden.py, 합성 의미 영상)
 - 명세: IMPROVE_SPEC §13 M53, §9.5(클릭 정답 기하)
 - 재생 없음. 입력은 T 세션(`data/sessions/20261102_*_S01`)의 의미 영상·자세·클릭 정답과 M59 조합 재생 기록(`data/sweeps/m59/t/a4`의 `slow_path.csv` 앱 바닥)
 
