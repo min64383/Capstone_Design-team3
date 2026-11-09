@@ -1,0 +1,12 @@
+# foot_contact — 깊이 밖 사람 거리(발 접점) 설계 측정
+
+- 상태: 실험 중(M53 설계 측정). 이식 대상 core 파일: `core/.../tracking/FootContact.kt`(M53 1단계에서 만듦)
+- 명세: IMPROVE_SPEC §13 M53, §9.5(클릭 정답 기하)
+- 재생 없음. 입력은 T 세션(`data/sessions/20261102_*_S01`)의 의미 영상·자세·클릭 정답과 M59 조합 재생 기록(`data/sweeps/m59/t/a4`의 `slow_path.csv` 앱 바닥)
+
+| 파일 | 하는 일 |
+|---|---|
+| `foot.py <세션 시각…>` | 의미 영상마다 사람 라벨 덩어리(4-이웃)의 땅 쪽 끝 화소 광선을 바닥면(클릭 정답 바닥)과 만나게 해 거리를 재고, 같은 시각 클릭 정답과 비교. `data/sweeps/m53/design/foot_rows.csv`·`truth_rows.csv` |
+| `summary.py` | 발 접점 나옴 비율, 거리 오차(정답 앞면 = 클릭 − 0.15 m 기준; 정답 바닥·앱 바닥·카메라 높이 W초 중앙값 바닥), 화소 잡음 맞춤, 앱 바닥 변화율·앱 바닥 − floor_rgb. `summary.json` |
+
+실행: `.venv/Scripts/python.exe prototypes/python/foot_contact/foot.py 150159 150300 150338 150439 150457` 뒤 `summary.py`.
