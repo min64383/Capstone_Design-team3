@@ -327,6 +327,7 @@ object ConfigLoader {
                     objectMinHits = nonNegative("objectMinHits"),
                     candidateOutput = boolean("candidateOutput"),
                     measureLabels = boolean("measureLabels"),
+                    existFrom = enumValue<ExistFrom>("existFrom"),
                 )
             },
             repPoint = root.section("repPoint") {

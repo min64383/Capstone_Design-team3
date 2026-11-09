@@ -18,7 +18,8 @@ import pandas as pd
 import stage0 as S
 
 
-def main(run: Path, every: int) -> None:
+def rows(run: Path, every: int = 1):
+    """장마다 (t, dist, lat, 평활 점, 원시 점, 칸, track 목록, 출력 수). t는 세션 첫 장부터(s)."""
     session = S.session_of(run)
     meta = json.loads((session / "meta.json").read_text(encoding="utf-8"))
     fr = S.load_frames(session).reset_index(drop=True)
@@ -30,7 +31,6 @@ def main(run: Path, every: int) -> None:
     raws = S.raw_frames(session, meta, fr)
     rt = np.array([f.t_capture_ns for f, _ in raws])
     t0 = fr.tNs.iloc[0]
-    print("  t     dist  lat   평활  원시  칸  track          출력")
     for i, row in enumerate(fr.itertuples(index=False)):
         if i % every or not isinstance(row.depthFile, str) or row.tracking != "TRACKING":
             continue
@@ -72,7 +72,13 @@ def main(run: Path, every: int) -> None:
                 trk.append(f"{r.id}{'C' if r.candidate else ('M' if r.moving else 'S')}")
         o = ob[ob.tCaptureNs == t]
         n_o = sum(1 for b in o.itertuples() if np.hypot(max(b.aabbMinX - pos[0], 0, pos[0] - b.aabbMaxX), max(b.aabbMinZ - pos[1], 0, pos[1] - b.aabbMaxZ)) <= 0.8)
-        print(f"{(t - t0) / 1e9:6.2f} {dist:5.2f} {lat:5.2f} {n_s:5d} {n_r:5d} {n_c:3d}  {','.join(trk):14s} {n_o}")
+        yield (t - t0) / 1e9, dist, lat, n_s, n_r, n_c, trk, n_o
+
+
+def main(run: Path, every: int) -> None:
+    print("  t     dist  lat   평활  원시  칸  track          출력")
+    for t, dist, lat, n_s, n_r, n_c, trk, n_o in rows(run, every):
+        print(f"{t:6.2f} {dist:5.2f} {lat:5.2f} {n_s:5d} {n_r:5d} {n_c:3d}  {','.join(trk):14s} {n_o}")
 
 
 if __name__ == "__main__":

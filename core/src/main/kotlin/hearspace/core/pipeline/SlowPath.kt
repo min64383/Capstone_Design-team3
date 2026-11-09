@@ -56,7 +56,7 @@ class SlowPath(
 
     private val tracker = Tracker(
         config.track, config.repPoint.strategy, if (config.track.reidLost) (config.map.maxUnseenS * 1e9).toLong() else 0L,
-        config.map, config.cluster.minSamples,
+        config.map, config.cluster.minSamples, (config.policy.maxInfoAgeMs * 1e6).toLong(),
     )
 
     /** 움직이는 장애물(M48 정지·움직임 분해)을 켰는지. 고정 지도(정답 대입)에서는 쓰지 않는다. */
@@ -321,6 +321,7 @@ class SlowPath(
             rawPoints = rawNew?.let { map.obstaclePointsOf(it, tr.rawMinConfidence, lastUserPosW) },
             rawTNs = rawNew?.tCaptureNs ?: Long.MIN_VALUE,
             rawCameraW = rawNew?.worldFromCam?.translation() ?: Vec3.ZERO,
+            rawFreeAt = depth.raw?.takeIf { rawMask && tr.existFrom == hearspace.core.types.ExistFrom.RAW }?.let { rawFree(it, tr.rawMinConfidence) },
             maxSpeedOfPixel = config.vision.maxSpeedMps.mapKeys { it.key.pixel },
             rawVisible = depth.raw?.takeIf { useLabels }?.let { r -> rawVisibility(r, tr.rawMinConfidence) },
             rawLatestTNs = depth.raw?.tCaptureNs ?: Long.MIN_VALUE,
@@ -331,6 +332,21 @@ class SlowPath(
 
     /** 가시성 검사(M49, [MotionFrame.rawVisible]): 원시 장 [r]에서 월드 점이 보이는 표면인지. */
     private fun rawVisibility(r: DepthFrame, minConfidence: Int): (Vec3) -> Boolean? {
+        val sight = rawSight(r, minConfidence)
+        return { p -> sight(p)?.let { (d, margin) -> kotlin.math.abs(d) <= margin } }
+    }
+
+    /** 원시 빈 곳 검사(M58, [MotionFrame.rawFreeAt]): 가시성 검사와 같은 투영·여유로, 원시 깊이가 점보다 여유 넘게 멀면 빈 곳, 원시가 모르면 null. */
+    private fun rawFree(r: DepthFrame, minConfidence: Int): (Vec3) -> Boolean? {
+        val sight = rawSight(r, minConfidence)
+        return { p -> sight(p)?.let { (d, margin) -> d > margin } }
+    }
+
+    /**
+     * 원시 장 [r]에서 월드 점 자리의 (원시 깊이 − 점의 카메라 깊이, 여유 max(`map.sigmaMultiple` × σ_원시(Z), 복셀)) (m). 카메라 0.1 m 안·영상 밖·
+     * 깊이 없음·신뢰도 미달이면 null.
+     */
+    private fun rawSight(r: DepthFrame, minConfidence: Int): (Vec3) -> Pair<Float, Float>? {
         val camFromWorld = r.worldFromCam.rigidInverse()
         val k = r.K
         val sm = config.map.sigmaMultiple
@@ -345,7 +361,7 @@ class SlowPath(
                     val mm = r.depthMm[i].toInt() and 0xFFFF
                     val conf = r.confidence?.get(i)?.toInt()?.and(0xFF) ?: 255
                     if (mm == 0 || conf < minConfidence) null
-                    else kotlin.math.abs(mm / 1000f - c.z) <= kotlin.math.max(sm * config.depth.sigmaM(true, c.z), vs)
+                    else (mm / 1000f - c.z) to kotlin.math.max(sm * config.depth.sigmaM(true, c.z), vs)
                 }
             }
         }
