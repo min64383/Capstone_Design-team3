@@ -27,3 +27,6 @@ Thumbs.db
 
 # milepost 플러그인 산출물(검토 문서·상태)은 올리지 않는다(2026-10-10 사용자)
 milepost/
+
+# references 원본 발표 파일(pptx)은 올리지 않는다. 저장소에는 PDF만(2026-11-10)
+references/*.pptx
