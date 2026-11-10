@@ -740,3 +740,7 @@ Full semantics, log format, test scope and remaining recording requirements: `do
 사용자가 승인한 가슴 하네스 회전 개선. `heading.chestMount=null`은 OFF(기존 이동/M42 규칙), 객체이면 `yawOffsetDeg`·`headOffsetBodyM`·`minHorizontalNorm`을 모두 요구한다. 장착 yaw는 카메라 수평 시선이 몸 정면보다 오른쪽이면 양수, 머리 오프셋은 카메라→머리의 몸 기준 오른쪽/월드 위/앞(m)이다. 기존 `head.offsetFromCameraM`은 OFF 기준선이며 가슴 모드의 모든 위치 계산·평가·표시에는 공통 실측 오프셋을 쓴다. M42 결합과 동시 선택하지 않는다. 옛 base 설정에 새 키가 없으면 OFF로 읽는다.
 
 똑바로 선 첫 유효 TRACKING 자세와 실측 상대 yaw로 카메라 로컬 몸 정면 벡터를 보정하고 이후 현재 자세로 옮긴다. 기준 수평 길이 미달 시 UNKNOWN과 기존 확인 불가 알림을 사용한다. 월드 RESET에서도 상대 장착 관계는 유지하되, 재장착은 새 실측/세션이 필요하다. 고개 독립 회전·몸 숙임·앵커 기준 지도 재정렬은 해결하지 않는다. 기본값은 OFF, 실측값은 자동 추정하지 않는다. 세부 입력·생성 도구·적용·검증 범위: [CHEST_MOUNT_CALIBRATION.md](CHEST_MOUNT_CALIBRATION.md).
+
+### 회전 중 근거리 조기 STOP (2026-11-07, 실험 옵션)
+
+사용자 요청에 따라 가슴 보정 이후 남은 첫 경고 지연을 다룬다. `policy.nearStop=null` 기본 OFF, 객체는 현재 깊이의 지지 셀 수·높이/좌우 폭·바닥 위 여유·연속 확인 장 수·최대 관측 간격·정보 나이를 요구한다. paired chestMount/HITS/prioritizeStop 전제이며 문턱 원본은 `near-stop.experimental.override.json`. 바닥/mapHealth 정상인 현재 장 점만 쓰고 2장 이상을 확인, 비관측 즉시 후보 출력을 끊는다. 기존 map/Tracker 문턱을 완화하지 않는다. 정식 근거리 track과 중복 제거, 임시 ID는 음수. Policy는 현재 몸 정면·거리·관측 나이를 재확인하고 STOP만 허용하며 기존 확인 STOP을 우선한다. 기본 실험 16.7→73.6%는 평가 사건 내 회전 중 표본 비율이며 실제 탐지 정확도/오경보율 검증이 아니다. 소스 ID 인계·빠른 회전 누락·기기 처리율/깊이 오류는 남는다. 설계·실험·한계: [ROTATION_NEAR_STOP.md](ROTATION_NEAR_STOP.md).

@@ -4,6 +4,7 @@ import hearspace.core.geometry.HeadPose
 import hearspace.core.geometry.Vec3
 import hearspace.core.guidance.Corridor
 import hearspace.core.guidance.MapAction
+import hearspace.core.guidance.NearStopDetector
 import hearspace.core.guidance.walkableInPath
 import hearspace.core.guidance.withoutEdgeStructures
 import hearspace.core.guidance.withoutParallelBoundaries
@@ -60,6 +61,8 @@ class SlowPath(
     )
 
     /** 움직이는 장애물(M48 정지·움직임 분해)을 켰는지. 고정 지도(정답 대입)에서는 쓰지 않는다. */
+    internal val nearStop = if (fixedMap == null && config.policy.nearStop != null) NearStopDetector(config) else null
+
     private val motion = config.track.motion == MotionMode.KALMAN && fixedMap == null
 
     /** 복셀 지도 하나(M57)를 켰는지. */
@@ -92,7 +95,7 @@ class SlowPath(
     private var lastFreeSpaceRawTNs = Long.MIN_VALUE
 
     init {
-        if (motion) map.collectFramePoints = true
+        if (motion || nearStop != null) map.collectFramePoints = true
     }
 
     /** 마지막 맵 갱신 결과(`slow_path.csv` 기록용). */
@@ -131,6 +134,7 @@ class SlowPath(
         val t1 = nanoTime()
         val floorY = if (u.floorY != null) floorOverrideY ?: u.floorY else null
         if (floorY == null) {
+            nearStop?.reset()
             lastClusterDebug = emptyList()
             lastClusters = emptyList()
             val obstacles = tracker.update(emptyList(), depth.tCaptureNs)
@@ -259,8 +263,12 @@ class SlowPath(
             val labels = depth.labels?.takeIf { kotlin.math.abs(depth.tCaptureNs - it.tCaptureNs) <= config.vision.maxLabelAgeMs * 1_000_000L }
             tracked + f.step(depth.tCaptureNs, depth.worldFromCam.translation().y, floorY, labels, corridor, tracked)
         } ?: tracked
+        // 근거리 조기 STOP: 발 접점까지 합친 출력과 겹치는 후보는 뺀다(같은 물체 음원 둘 방지)
+        val early = if (u.mapHealth == MapHealth.OK) {
+            nearStop?.update(map.frameObstaclePoints.map { it.first }, depth.tCaptureNs, corridor, obstacles).orEmpty()
+        } else { nearStop?.reset(); emptyList() }
         lastStageNs = StageTimes(t1 - t0, t2 - t1, nanoTime() - t2)
-        return ObstacleSnapshot(depth.tCaptureNs, obstacles, floorY, u.mapHealth)
+        return ObstacleSnapshot(depth.tCaptureNs, obstacles + early, floorY, u.mapHealth)
     }
 
     /** 같은 라벨 연결을 주는 라벨 화소 값(`cluster.sameLabels`). 나머지는 -1(연결 없음). */
@@ -422,6 +430,7 @@ class SlowPath(
     fun reset() {
         map.reset()
         tracker.reset()
+        nearStop?.reset()
         freeSpace?.reset()
     }
 }

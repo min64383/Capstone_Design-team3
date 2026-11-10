@@ -1,0 +1,15 @@
+{
+  "policy": {
+    "prioritizeStop": true,
+    "nearStop": {
+      "minVoxels": 12,
+      "minHeightSpanM": 0.15,
+      "minLateralSpanM": 0.08,
+      "confirmMinLateralSpanM": 0.079,
+      "minAboveFloorM": 0.15,
+      "confirmFrames": 2,
+      "maxGapMs": 150.0,
+      "maxAgeMs": 150.0
+    }
+  }
+}

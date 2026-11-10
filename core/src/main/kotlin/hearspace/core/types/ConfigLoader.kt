@@ -351,6 +351,11 @@ object ConfigLoader {
                     prioritizeStop = boolean("prioritizeStop"),
                     ttcStopS = positive("ttcStopS"),
                     motionSigmaMultiple = nonNegative("motionSigmaMultiple"),
+                    nearStop = nullableSection("nearStop") {
+                        NearStopConfig(atLeast1("minVoxels"), positive("minHeightSpanM"), positive("minLateralSpanM"),
+                            positive("minAboveFloorM"), atLeast1("confirmFrames"), positive("maxGapMs"), positive("maxAgeMs"),
+                            positiveOr("confirmMinLateralSpanM", positive("minLateralSpanM")))
+                    },
                 )
             },
             state = root.section("state") {
@@ -473,6 +478,21 @@ object ConfigLoader {
 
     /** 여러 키에 걸친 일관성 검사. */
     private fun crossCheck(c: Config) {
+        c.policy.nearStop?.let { n ->
+            if (c.heading.chestMount == null) throw ConfigException("policy.nearStop", "requires paired chest mounting calibration")
+            if (c.map.mode != MapMode.HITS) throw ConfigException("policy.nearStop", "requires map.mode = HITS")
+            if (!c.policy.prioritizeStop) throw ConfigException("policy.nearStop", "requires prioritizeStop to protect existing confirmed STOPs")
+            if (n.confirmMinLateralSpanM > n.minLateralSpanM)
+                throw ConfigException("policy.nearStop.confirmMinLateralSpanM", "must not exceed minLateralSpanM")
+            if (n.confirmFrames < 2) throw ConfigException("policy.nearStop.confirmFrames", "must be at least 2 distinct depth frames")
+            if (n.minVoxels < c.cluster.minSamples) throw ConfigException("policy.nearStop.minVoxels", "must be >= cluster.minSamples")
+            if (!listOf(n.minHeightSpanM, n.minLateralSpanM, n.minAboveFloorM, n.maxGapMs, n.maxAgeMs).all { it.isFinite() })
+                throw ConfigException("policy.nearStop", "parameters must be finite")
+            if (n.maxAgeMs > c.policy.maxInfoAgeMs || n.maxGapMs > c.policy.maxInfoAgeMs)
+                throw ConfigException("policy.nearStop", "maxAgeMs and maxGapMs must not exceed maxInfoAgeMs")
+            if (n.minHeightSpanM >= c.corridor.heightM || n.minAboveFloorM >= c.corridor.heightM || n.minLateralSpanM >= c.corridor.widthM)
+                throw ConfigException("policy.nearStop", "support thresholds must fit inside the corridor")
+        }
         c.heading.chestMount?.let { m ->
             if (!m.yawOffsetDeg.isFinite() || kotlin.math.abs(m.yawOffsetDeg) > 180f)
                 throw ConfigException("heading.chestMount.yawOffsetDeg", "must be finite and in [-180, 180]")
@@ -608,6 +628,9 @@ object ConfigLoader {
             val v = raw(key) as? JsonBool ?: throw ConfigException(path(key), "must be a boolean")
             return v.value
         }
+
+        fun positiveOr(key: String, fallback: Float): Float =
+            if (key in obj.fields) positive(key) else fallback
 
         fun positive(key: String): Float =
             float(key).also { if (it <= 0f) throw ConfigException(path(key), "must be > 0, got $it") }

@@ -20,7 +20,7 @@ import hearspace.core.types.SoundKind
  * 늘이지 않고(d = min(d_tc, d_tc − 다가오는 속도 × 정보 나이)), 위치 불확실성만큼 가깝게 본다(d_lo = d − k·σ_d, σ_d² = σ_p² + (나이·σ_v)²).
  * d_lo < stopM이거나 TTC = d_lo ÷ (다가오는 상대 속도 + k·σ_v) < `ttcStopS`면 STOP. 과거 깊이·자세만 쓰는 외삽이다(미래 프레임 없음).
  */
-class Policy(private val cfg: PolicyConfig, private val behindM: Float) {
+class Policy(private val cfg: PolicyConfig, private val behindM: Float, private val corridorWidthM: Float? = null) {
 
     private val lastRank = HashMap<Int, Int>()
 
@@ -38,6 +38,16 @@ class Policy(private val cfg: PolicyConfig, private val behindM: Float) {
             val v = o.velocityW
             var point = o.repPointW
             var along = (o.repPointW - head.positionW).horizontal() dot head.headingW
+            if (o.earlyStop) {
+                val near = cfg.nearStop ?: continue
+                val width = corridorWidthM ?: continue
+                val ageMs = infoAgeMs + (snapshot.tCaptureNs - o.lastSeenNs) / 1e6f
+                val lateral = (o.repPointW - head.positionW).horizontal() dot head.rightW
+                if (ageMs < 0f || ageMs > near.maxAgeMs || along < 0f || along >= cfg.stopM || kotlin.math.abs(lateral) > width / 2) {
+                    lastRank.remove(o.id)
+                    continue
+                }
+            }
             var ttcStop = false
             if (o.moving && v != null) {
                 val ageS = infoAgeMs / 1000f
@@ -56,7 +66,7 @@ class Policy(private val cfg: PolicyConfig, private val behindM: Float) {
                 lastRank.remove(o.id)
                 continue
             }
-            val rank = if (ttcStop) 0.also { lastRank[o.id] = 0 } else rankWithHysteresis(o.id, along)
+            val rank = if (ttcStop || o.earlyStop) 0.also { lastRank[o.id] = 0 } else rankWithHysteresis(o.id, along)
             if (rank == EXCLUDED) continue
             val rel = headRelative(point, head)
             scored += Triple(
@@ -75,9 +85,10 @@ class Policy(private val cfg: PolicyConfig, private val behindM: Float) {
             )
         }
         lastRank.keys.retainAll(seen)
+        val earlyIds = snapshot.obstacles.filter { it.earlyStop }.map { it.id }.toSet()
         val sorted = if (cfg.prioritizeStop) {
             scored.sortedWith(compareBy<Triple<Float, Int, AudioCmd>>(
-                { if (it.third.inCorridor && it.third.band == Band.STOP) 0 else 1 },
+                { if (it.third.inCorridor && it.third.band == Band.STOP) { if (it.second in earlyIds) 1 else 0 } else 2 },
                 { it.first }, { it.second }))
         } else scored.sortedWith(compareBy({ it.first }, { it.second }))
         return sorted.take(cfg.maxSources).map { it.third }
