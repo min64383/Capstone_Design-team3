@@ -57,7 +57,7 @@ class SlowPath(
 
     private val tracker = Tracker(
         config.track, config.repPoint.strategy, if (config.track.reidLost) (config.map.maxUnseenS * 1e9).toLong() else 0L,
-        config.map, config.cluster.minSamples,
+        config.map, config.cluster.minSamples, (config.policy.maxInfoAgeMs * 1e6).toLong(), config.cluster.epsM,
     )
 
     /** 움직이는 장애물(M48 정지·움직임 분해)을 켰는지. 고정 지도(정답 대입)에서는 쓰지 않는다. */
@@ -65,11 +65,34 @@ class SlowPath(
 
     private val motion = config.track.motion == MotionMode.KALMAN && fixedMap == null
 
+    /** 복셀 지도 하나(M57)를 켰는지. */
+    private val owned = motion && config.track.motionMap == hearspace.core.types.MotionMap.OWNED
+
     /** 처리한 깊이 장 수(물체 좌표 HITS의 "한 장에 한 번", M48). */
     private var frameNo = 0L
 
     /** 마지막 [process]의 움직임 기록(M48 `motion.csv`). 끈 설정에서는 빈 목록. */
     val lastMotionDebug: List<MotionDebug> get() = tracker.lastMotionDebug
+
+    /** 마지막 [process]의 빈 곳 위반 기록(M57 `track.freeSpaceRecord`). */
+    val lastEvidenceDebug: List<hearspace.core.tracking.EvidenceDebug> get() = tracker.lastEvidenceDebug
+
+    /** 마지막 갱신의 원시 측정 짝짓기 기록(M59 `track.rawAssociation` GATE·NEAREST_BLOB). */
+    val lastAssocDebug: List<hearspace.core.tracking.AssocDebug> get() = tracker.lastAssocDebug
+
+    /** 깊이 밖 사람의 발 접점 track(M53 `vision.footContact`). 끄면 null이라 출력이 지금과 같다. */
+    private val far = if (config.vision.footContact) {
+        hearspace.core.tracking.FarTracker(config.vision, config.track, config.map.minHits, (config.policy.maxInfoAgeMs * 1e6).toLong())
+    } else null
+
+    /** 마지막 [process]의 발 접점 기록(M53 `foot.csv`). */
+    val lastFootDebug: List<hearspace.core.tracking.FootDebug> get() = far?.lastDebug ?: emptyList()
+
+    /** 빈 곳 위반의 지난 원시 장 기록(M57). */
+    private val freeSpace = if (motion && (config.track.freeSpaceRecord || config.track.motionEvidence == hearspace.core.types.MotionEvidence.FREE_SPACE)) {
+        hearspace.core.tracking.FreeSpace(config.track)
+    } else null
+    private var lastFreeSpaceRawTNs = Long.MIN_VALUE
 
     init {
         if (motion || nearStop != null) map.collectFramePoints = true
@@ -98,7 +121,10 @@ class SlowPath(
         val t0 = nanoTime()
         val userPosW = HeadPose.fromCamera(depth.worldFromCam.translation(), headingW, config.headOffsetFromCameraM).positionW
         val fm = fixedMap
-        if (motion) map.excludeBoxes = tracker.movingGates(depth.tCaptureNs) // 움직이는 track의 창 안 점은 정지 지도에 넣지 않는다(지난 장 상태로)
+        // 움직이는 track의 창 안 점은 정지 지도에 넣지 않는다(지난 장 상태로). M57 OWNED: 넣고 새 칸에 track 소유를 적는다
+        if (motion) {
+            if (owned) map.ownerGates = tracker.ownerGates(depth.tCaptureNs) else map.excludeBoxes = tracker.movingGates(depth.tCaptureNs)
+        }
         frameNo++
         val u = if (fm == null) map.update(depth, userPosW, headingW) else {
             MapUpdate(depth.tCaptureNs, 0, 0, 0, 0, 0, PruneCounts(0, 0, 0), fm.voxels.size, fm.floorY, MapHealth.OK)
@@ -130,6 +156,11 @@ class SlowPath(
             CorridorJudgeMode.BOUNDARY -> withoutParallelBoundaries(
                 occupied, withoutEdgeStructures(occupied, occupied.filter { corridor.contains(it.centerW) }, corridor, config), corridor, config,
             )
+            // M54 3.6절: 건물 역할 칸에만 M44 나란한 경계(경계 줄도 건물 칸에서만 찾음), 나머지는 BOX 그대로. 남은 칸은 역할과 상관없이 함께 군집
+            CorridorJudgeMode.LABEL -> withoutParallelBoundaries(
+                occupied.filter { it.role == hearspace.core.mapping.VoxelRole.BUILDING },
+                withoutEdgeStructures(occupied, occupied.filter { corridor.contains(it.centerW) }, corridor, config), corridor, config,
+            )
         }
         // C2: 남은 칸을 벽 칸과 나머지로 나눠 따로 묶는다(벽도 장애물로 남는다). 끄면 한 묶음(기준선). 가장자리 구조물 규칙을 먼저 전체에
         // 적용해야 한다: 벽 칸을 먼저 떼면 라벨 없는 옆 벽 밑동 조각이 짧은 덩어리로 남아 오경보가 됐다(S02 130646 0.11 → 0.22)
@@ -141,10 +172,12 @@ class SlowPath(
         fun dbscan(g: List<VoxelView>): List<List<VoxelView>> {
             val multiplier = config.cluster.coreEvidenceMultiplier
             val coreMask = if (multiplier <= 1f || config.map.mode != hearspace.core.types.MapMode.HITS) null else {
-                val minCoreEvidence = config.map.minHits * multiplier
+                val minCoreEvidence = config.map.occupiedEvidence * multiplier
                 BooleanArray(g.size) { i -> g[i].evidence >= minCoreEvidence }
             }
-            return Cluster.dbscanXZ(g.map { it.centerW }, config.cluster.epsM, config.cluster.minSamples, coreMask)
+            // M56 라벨 가중: 칸의 과반 라벨(칸 라벨 표를 끄면 모두 -1이라 지금과 같음)
+            val labels = if (config.cluster.sameLabelEpsM > config.cluster.epsM) IntArray(g.size) { linkLabel(g[it].label) } else null
+            return Cluster.dbscanXZ(g.map { it.centerW }, config.cluster.epsM, config.cluster.minSamples, coreMask, labels, config.cluster.sameLabelEpsM)
                 .map { idx -> idx.map { g[it] } }
         }
         // C3b: 같은 물체 번호끼리(번호 없는 칸은 한 묶음) 묶고 그 안에서 떨어진 조각은 DBSCAN으로 나눈 뒤, 위에서 본 면적이 겹치는
@@ -224,13 +257,23 @@ class SlowPath(
         lastClusterDebug = debug
         lastClusters = clusters
         val t2 = nanoTime()
-        val obstacles = tracker.update(detections, depth.tCaptureNs, if (motion) motionFrame(depth, corridor, floorY, camFromWorld) else null)
+        val tracked = tracker.update(detections, depth.tCaptureNs, if (motion) motionFrame(depth, corridor, floorY, camFromWorld) else null)
+        // M53: 발 접점 출력은 더하기만 한다(깊이 출력은 그대로). 의미 영상은 깊이 장과의 시각 차가 `vision.maxLabelAgeMs` 안인 것만
+        val obstacles = far?.let { f ->
+            val labels = depth.labels?.takeIf { kotlin.math.abs(depth.tCaptureNs - it.tCaptureNs) <= config.vision.maxLabelAgeMs * 1_000_000L }
+            tracked + f.step(depth.tCaptureNs, depth.worldFromCam.translation().y, floorY, labels, corridor, tracked)
+        } ?: tracked
+        // 근거리 조기 STOP: 발 접점까지 합친 출력과 겹치는 후보는 뺀다(같은 물체 음원 둘 방지)
         val early = if (u.mapHealth == MapHealth.OK) {
             nearStop?.update(map.frameObstaclePoints.map { it.first }, depth.tCaptureNs, corridor, obstacles).orEmpty()
         } else { nearStop?.reset(); emptyList() }
         lastStageNs = StageTimes(t1 - t0, t2 - t1, nanoTime() - t2)
         return ObstacleSnapshot(depth.tCaptureNs, obstacles + early, floorY, u.mapHealth)
     }
+
+    /** 같은 라벨 연결을 주는 라벨 화소 값(`cluster.sameLabels`). 나머지는 -1(연결 없음). */
+    private val linkPixels = config.cluster.sameLabels.map { it.pixel }.toSet()
+    private fun linkLabel(l: Int) = if (l in linkPixels) l else -1
 
     /** 이번 장의 정보를 추적에 넘길 꼴로(M48 정지·움직임 분해). */
     private fun motionFrame(depth: DepthFrame, corridor: Corridor, floorY: Float, camFromWorld: hearspace.core.geometry.Mat4): MotionFrame {
@@ -255,6 +298,20 @@ class SlowPath(
         }
         val depthMm = map.lastDepthMm
         val tr = config.track
+        val rawMask = tr.measureFrom == hearspace.core.types.MeasureFrom.RAW_MASK
+        val useLabels = config.vision.label == hearspace.core.types.VisionLabelSource.SEMANTICS || rawMask
+        val rawNew = depth.raw?.takeIf { rawMask && it.tCaptureNs > lastRawTNs }
+        if (rawNew != null) lastRawTNs = rawNew.tCaptureNs
+        // M57: 새 원시 장마다 빈 곳 위반 재료(지난 원시 장 기록은 이 장을 넣기 전 것으로 센다)
+        val fsFrame = freeSpace?.let { fs ->
+            depth.raw?.takeIf { it.tCaptureNs > lastFreeSpaceRawTNs }?.let { r ->
+                lastFreeSpaceRawTNs = r.tCaptureNs
+                val (count, rot) = fs.advance(r)
+                hearspace.core.tracking.FreeSpaceFrame(
+                    r.tCaptureNs, map.obstaclePointsOf(r, tr.freeSpaceMinConfidence, lastUserPosW), count, rot, map.voxels::labelAt,
+                )
+            }
+        }
         return MotionFrame(
             tNs = depth.tCaptureNs,
             frame = frameNo,
@@ -268,7 +325,11 @@ class SlowPath(
             heightClass = { c -> HeightClassifier.classify(c.map { it.y - floorY }, config.cluster) },
             take = { lo, hi, since -> map.voxels.takeCells(lo, hi, since) },
             seed = { e -> map.voxels.seed(e.centerW, depth.tCaptureNs, e.weightedHits, e.score) },
-            clusterXZ = { c -> Cluster.dbscanXZ(c, config.cluster.epsM, config.cluster.minSamples, null).map { idx -> idx.map { c[it] } } },
+            clusterXZ = { c ->
+                // M56 라벨 가중: 이번 장 칸의 라벨은 같은 격자의 복셀 지도 칸에서 읽는다(움직이는 track 창 안은 지도에 없어 -1, M57)
+                val labels = if (config.cluster.sameLabelEpsM > config.cluster.epsM) IntArray(c.size) { linkLabel(map.voxels.labelAt(c[it])) } else null
+                Cluster.dbscanXZ(c, config.cluster.epsM, config.cluster.minSamples, null, labels, config.cluster.sameLabelEpsM).map { idx -> idx.map { c[it] } }
+            },
             voxelM = vs,
             inCorridor = corridor::contains,
             movingOracle = movingOracle,
@@ -278,8 +339,60 @@ class SlowPath(
                 (count[key(kotlin.math.floor(c.x / vs).toInt(), kotlin.math.floor(c.y / vs).toInt(), kotlin.math.floor(c.z / vs).toInt())] ?: 1).toFloat()
             },
             measLagNs = if (config.depth.source == DepthSource.SMOOTHED) (tr.depthLagMs * 1e6).toLong() else 0L,
+            labels = depth.labels?.takeIf { useLabels && kotlin.math.abs(depth.tCaptureNs - it.tCaptureNs) <= config.vision.maxLabelAgeMs * 1_000_000L },
+            labelVotes = config.vision.label == hearspace.core.types.VisionLabelSource.SEMANTICS,
+            movingPixels = config.vision.movingLabels.map { it.pixel }.toSet(),
+            rawPoints = rawNew?.let { map.obstaclePointsOf(it, tr.rawMinConfidence, lastUserPosW) },
+            rawTNs = rawNew?.tCaptureNs ?: Long.MIN_VALUE,
+            rawCameraW = rawNew?.worldFromCam?.translation() ?: Vec3.ZERO,
+            rawFreeAt = depth.raw?.takeIf { rawMask && tr.existFrom == hearspace.core.types.ExistFrom.RAW }?.let { rawFree(it, tr.rawMinConfidence) },
+            maxSpeedOfPixel = config.vision.maxSpeedMps.mapKeys { it.key.pixel },
+            rawVisible = depth.raw?.takeIf { useLabels }?.let { r -> rawVisibility(r, tr.rawMinConfidence) },
+            rawLatestTNs = depth.raw?.tCaptureNs ?: Long.MIN_VALUE,
+            owned = if (owned) map.voxels else null,
+            freeSpace = fsFrame,
         )
     }
+
+    /** 가시성 검사(M49, [MotionFrame.rawVisible]): 원시 장 [r]에서 월드 점이 보이는 표면인지. */
+    private fun rawVisibility(r: DepthFrame, minConfidence: Int): (Vec3) -> Boolean? {
+        val sight = rawSight(r, minConfidence)
+        return { p -> sight(p)?.let { (d, margin) -> kotlin.math.abs(d) <= margin } }
+    }
+
+    /** 원시 빈 곳 검사(M58, [MotionFrame.rawFreeAt]): 가시성 검사와 같은 투영·여유로, 원시 깊이가 점보다 여유 넘게 멀면 빈 곳, 원시가 모르면 null. */
+    private fun rawFree(r: DepthFrame, minConfidence: Int): (Vec3) -> Boolean? {
+        val sight = rawSight(r, minConfidence)
+        return { p -> sight(p)?.let { (d, margin) -> d > margin } }
+    }
+
+    /**
+     * 원시 장 [r]에서 월드 점 자리의 (원시 깊이 − 점의 카메라 깊이, 여유 max(`map.sigmaMultiple` × σ_원시(Z), 복셀)) (m). 카메라 0.1 m 안·영상 밖·
+     * 깊이 없음·신뢰도 미달이면 null.
+     */
+    private fun rawSight(r: DepthFrame, minConfidence: Int): (Vec3) -> Pair<Float, Float>? {
+        val camFromWorld = r.worldFromCam.rigidInverse()
+        val k = r.K
+        val sm = config.map.sigmaMultiple
+        val vs = config.map.voxelSizeM
+        return { p ->
+            val c = camFromWorld.transformPoint(p)
+            if (c.z <= 0.1f) null else {
+                val u = (k.fx * c.x / c.z + k.cx).toInt()
+                val v = (k.fy * c.y / c.z + k.cy).toInt()
+                if (u < 0 || v < 0 || u >= k.width || v >= k.height) null else {
+                    val i = v * k.width + u
+                    val mm = r.depthMm[i].toInt() and 0xFFFF
+                    val conf = r.confidence?.get(i)?.toInt()?.and(0xFF) ?: 255
+                    if (mm == 0 || conf < minConfidence) null
+                    else (mm / 1000f - c.z) to kotlin.math.max(sm * config.depth.sigmaM(true, c.z), vs)
+                }
+            }
+        }
+    }
+
+    /** RAW_MASK(M49): 마지막으로 측정에 넘긴 원시 장 시각. 같은 원시 장은 한 번만 넘긴다(원시 약 10 Hz, 평활 30 Hz). */
+    private var lastRawTNs = Long.MIN_VALUE
 
     /**
      * 위에서 본 바닥 사각형(복셀 중심 ± 반 칸)이 작은 쪽 면적의 과반 넘게 겹치는 군집을 합친다(C3b). 같은 물체의 앞면과 윗면은
@@ -318,6 +431,7 @@ class SlowPath(
         map.reset()
         tracker.reset()
         nearStop?.reset()
+        freeSpace?.reset()
     }
 }
 

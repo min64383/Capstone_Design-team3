@@ -24,6 +24,9 @@ import kotlin.math.abs
  *
  * 시계: 실시간은 `elapsedRealtimeNanos()`(ARCore 프레임 시각과 같은 기준, F5). 재생은 프레임 시각이 녹화 당시 값이므로
  * 첫 프레임에서 (수신 시각 − 프레임 시각)을 빼 맞춘다(F8).
+ *
+ * 의미 모드(M49): 세션에서 켜져 있으면 새 의미 영상마다 복사한다. [semanticSaver]가 있으면(재생 모드 "의미 영상 저장") 세션 폴더에 쓰고,
+ * 없으면 복사만 하고 버린다(0단계 비용 측정: 받아서 복사하는 데까지. core로 넘기는 것은 M51).
  */
 class ArFeeder(private val config: Config, private val replay: Boolean, private val drawCamera: Boolean) {
 
@@ -46,6 +49,19 @@ class ArFeeder(private val config: Config, private val replay: Boolean, private 
     var playbackFinished = false
         private set
 
+    /** 재생 모드에서 의미 영상을 저장할 곳(UI 스레드가 실행마다 바꾼다). */
+    @Volatile
+    var semanticSaver: SemanticSaver? = null
+
+    /** 받은 새 의미 영상 수와 마지막 크기(화면 표시). */
+    @Volatile
+    var nSemantic = 0L
+        private set
+
+    @Volatile
+    var semanticSize = "-"
+        private set
+
     // GL 스레드 전용
     private var textureBound: Session? = null
     private var viewportChanged = false
@@ -55,6 +71,8 @@ class ArFeeder(private val config: Config, private val replay: Boolean, private 
         private set
     private var lastFrameTNs = Long.MIN_VALUE
     private var lastDepthTNs = Long.MIN_VALUE
+    private var lastSemanticTNs = Long.MIN_VALUE
+    private var semanticOn = false
     private val recentPoses = ArrayDeque<PoseFrame>()
 
     /** 새 실행을 시작할 때(UI 스레드). */
@@ -86,6 +104,7 @@ class ArFeeder(private val config: Config, private val replay: Boolean, private 
         if (textureBound !== s) {
             s.setCameraTextureName(background.textureId)
             textureBound = s
+            semanticOn = s.config.semanticMode == com.google.ar.core.Config.SemanticMode.ENABLED
             viewportChanged = true
         }
         if (viewportChanged) {
@@ -113,6 +132,7 @@ class ArFeeder(private val config: Config, private val replay: Boolean, private 
         )
         recentPoses.addLast(pose)
         if (recentPoses.size > RECENT_POSES) recentPoses.removeFirst()
+        if (semanticOn) readSemantic(frame)
         val p = pipeline ?: return camera
         p.publishPose(pose)
 
@@ -135,6 +155,13 @@ class ArFeeder(private val config: Config, private val replay: Boolean, private 
             ),
         )
         return camera
+    }
+
+    private fun readSemantic(frame: com.google.ar.core.Frame) {
+        semanticSaver?.let { it.onFrame(frame); return }
+        val c = FrameAdapter.readSemantic(frame) { t -> (t != lastSemanticTNs).also { lastSemanticTNs = t } } ?: return
+        nSemantic++
+        semanticSize = "${c.width}x${c.height}"
     }
 
     companion object {

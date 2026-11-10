@@ -44,6 +44,24 @@ class SlowStep(
     val freeCentersW: List<Vec3>? = null,
     /** 움직임 기록(M48 `track.motion` KALMAN). 끈 설정에서는 빈 목록. */
     val motion: List<hearspace.core.tracking.MotionDebug> = emptyList(),
+    /** M54 앞단 개수 [경계 띠가 뺀 화소, 지도에서 뺀 움직이는 라벨 점, 넣은 움직이는 라벨 원시 점]. M54 옵션을 하나라도 켰을 때만, 아니면 null. */
+    val m54Counts: IntArray? = null,
+    /** 이번 장에 지도에 넣은 칸 번호(ix, iy, iz 교차). [OfflineReplay.mapInserts]일 때만, 아니면 null. */
+    val insertedVoxels: IntArray? = null,
+    /** 프레임 바닥면(M54, `vision.voxelLabels`일 때만). */
+    val framePlane: hearspace.core.mapping.FramePlane? = null,
+    /** 프레임 군집 법선(M54, 칸 역할 기록 장에서만). */
+    val frameClusters: List<hearspace.core.mapping.FrameCluster>? = null,
+    /** 이번 장에 감쇠한 칸과 그 화소 신뢰도 구간(ix, iy, iz, 구간 교차). [OfflineReplay.mapInserts]일 때만. */
+    val decayedVoxels: IntArray? = null,
+    /** 움직이는 칸(M57 `track.motionMap` OWNED, 소유 track 번호 포함). [ReplayListener.captureVoxels]가 true일 때만, 아니면 null. */
+    val movingVoxels: List<VoxelView>? = null,
+    /** 빈 곳 위반 기록(M57 `track.freeSpaceRecord`). */
+    val evidence: List<hearspace.core.tracking.EvidenceDebug> = emptyList(),
+    /** 원시 측정 짝짓기 기록(M59 `track.rawAssociation` NEAREST_BLOB). */
+    val assoc: List<hearspace.core.tracking.AssocDebug> = emptyList(),
+    /** 발 접점 추적 기록(M53 `vision.footContact`). */
+    val foot: List<hearspace.core.tracking.FootDebug> = emptyList(),
 )
 
 /** [OfflineReplay] 결과를 받는 쪽: 실행 로그 파일([RunLogWriter]) 또는 평가 GUI의 메모리 수집. */
@@ -127,8 +145,18 @@ class OfflineReplay(
             null
         }
 
+        // M49: 라벨 판정이나 RAW_MASK 측정을 켜면 깊이 장마다 그 프레임까지 받은 의미 영상·원시 깊이를 붙인다
+        val vision = if (config.vision.label == hearspace.core.types.VisionLabelSource.SEMANTICS || config.vision.movableDepth == hearspace.core.types.MovableDepth.RAW ||
+            config.vision.obstacleDepth == hearspace.core.types.MovableDepth.RAW ||
+            config.frontend.labelBandPx > 0 || config.map.hitWeighting == hearspace.core.types.HitWeighting.CONFIDENCE ||
+            config.floor.weighting == hearspace.core.types.FloorWeighting.CONFIDENCE || config.vision.voxelLabels ||
+            config.track.measureFrom == hearspace.core.types.MeasureFrom.RAW_MASK || cellTraceOut != null ||
+            config.floor.model == hearspace.core.types.FloorModel.PLANE_RAW || config.vision.footContact
+        ) VisionFrames(session, reader, labelRemap) else null
         val fast = FastPath(config, substitution?.headingSnap())
         val slow = SlowPath(config, substitution?.fixedMap(config.map.voxelSizeM), floorOverrideY = substitution?.floorY(), movingOracle = movingOracle)
+        slow.map.collectInserted = mapInserts
+        if (cellTraceOut != null) slow.map.cellTrace = hearspace.core.mapping.CellTrace(config.map)
         var pose: PoseFrame? = null
         var snapshot: ObstacleSnapshot? = null
         var heading: Vec3? = null
@@ -146,6 +174,7 @@ class OfflineReplay(
             if (job != null) return
             if (minIntervalNs > 0 && lastStartNs != Long.MIN_VALUE && atNs - lastStartNs < minIntervalNs) return // 깊이는 최신 값으로 기다림
             if (mapAction != MapAction.NONE) {
+                if (mapAction == MapAction.SCALE) slow.map.cellTrace?.noteScale(config.state.recoverScoreScale)
                 slow.apply(mapAction)
                 mapAction = MapAction.NONE
             }
@@ -156,11 +185,34 @@ class OfflineReplay(
             lastStartNs = atNs
             val stepIndex = startedSteps++
             val s = slow.process(d, h)
-            val voxels = if (listener.captureVoxels) slow.map.voxels.occupied() else null
+            slow.map.cellTrace?.let { cellTraceOut!!.write(it.drain()) }
+            labelDumpOut?.let { w ->
+                val inCluster = HashMap<Triple<Int, Int, Int>, Int>()
+                slow.lastClusters.forEachIndexed { ci, c -> c.forEach { v -> inCluster[Triple(v.ix, v.iy, v.iz)] = ci } }
+                val u = slow.lastUserPosW
+                for (v in slow.map.voxels.occupied()) {
+                    if ((v.centerW - u).horizontal().norm() > 3.5f) continue
+                    w.write("${d.tCaptureNs},${v.ix},${v.iy},${v.iz},${inCluster[Triple(v.ix, v.iy, v.iz)] ?: -1},${v.label},${v.evidence}\n")
+                }
+            }
+            // M54 평가: 칸 역할 기록(map_roles.csv)은 mapInserts이고 칸 라벨 표를 켰을 때 0.5 s(15장)마다
+            val roleDump = mapInserts && config.vision.voxelLabels && stepIndex % 15 == 0
+            val voxels = if (listener.captureVoxels || roleDump) slow.map.voxels.occupied() else null
             val free = if (config.map.mode == hearspace.core.types.MapMode.TRISTATE && listener.captureFree(stepIndex)) slow.map.voxels.freeCenters() else null
             job = Job(
                 d, atNs, atNs + slowPathNs(d), s, resetAfterNs, slow.lastMapUpdate!!, slow.lastClusterDebug, slow.lastStageNs, voxels,
                 slow.lastClusters, slow.lastUserPosW, if (substitution?.map == true) null else slow.map.lastDepthMm, free, slow.lastMotionDebug,
+                if (slow.map.m54On) intArrayOf(slow.map.lastBandRemoved, slow.map.lastMovableExcluded, slow.map.lastMovableRawInserted) else null,
+                if (mapInserts) slow.map.insertedVoxels.toIntArray() else null,
+                if (mapInserts) slow.map.decayTrace.toIntArray() else null,
+                if (config.vision.voxelLabels || config.floor.model == hearspace.core.types.FloorModel.PLANE_RAW) slow.map.lastFramePlane else null,
+                if (roleDump && voxels != null) hearspace.core.mapping.FrameRecords.clusters(
+                    voxels, d.worldFromCam.translation(), config.map.radiusM, config.cluster.epsM, config.cluster.minSamples,
+                ) else null,
+                if (listener.captureVoxels && config.track.motionMap == hearspace.core.types.MotionMap.OWNED) slow.map.voxels.views().filter { it.moving } else null,
+                slow.lastEvidenceDebug,
+                slow.lastAssocDebug,
+                slow.lastFootDebug,
             )
         }
 
@@ -172,7 +224,7 @@ class OfflineReplay(
                 val applied = resetAfterNs == j.resetMark
                 if (applied) snapshot = j.snapshot
                 listener.onSlowStep(
-                    SlowStep(j.depth, j.startNs, j.doneNs, j.snapshot, j.mapUpdate, j.clusterDebug, j.stageNs, applied, j.voxels, j.clusters, j.userPosW, j.mapDepthMm, j.free, j.motion),
+                    SlowStep(j.depth, j.startNs, j.doneNs, j.snapshot, j.mapUpdate, j.clusterDebug, j.stageNs, applied, j.voxels, j.clusters, j.userPosW, j.mapDepthMm, j.free, j.motion, j.m54Counts, j.inserted, j.framePlane, j.frameClusters, j.decayed, j.moving, j.evidence, j.assoc, j.foot),
                 )
                 startIfIdle(j.doneNs)
             }
@@ -205,7 +257,7 @@ class OfflineReplay(
                         is PoseEvent -> pose = e.pose
                         is DepthEvent -> {
                             val d = substitution?.depthOf(e.depth) ?: e.depth
-                            pending = rgb?.attach(d, e.frameIndex) ?: d
+                            pending = (rgb?.attach(d, e.frameIndex) ?: d).let { vision?.attach(it, e.frameIndex) ?: it }
                             startIfIdle(arrival)
                         }
                     }
@@ -239,6 +291,21 @@ class OfflineReplay(
         listener.onEnd()
     }
 
+    /** true면 장마다 지도에 넣은 칸을 [SlowStep.insertedVoxels]·`map_inserts.csv`로 낸다(M54 평가 전용, `-PmapInserts=true`). */
+    var mapInserts = false
+
+    /** 라벨 화소 값 바꾸기(M55 평가 전용 `-PlabelRemap=5:8`). */
+    var labelRemap: Map<Int, Int> = emptyMap()
+
+    /** 있으면 칸 관측 기록([hearspace.core.mapping.CellTrace])을 여기에 쓴다(M55 평가 전용, `-PcellTrace=true`). 닫는 것은 부르는 쪽. */
+    var cellTraceOut: java.io.OutputStream? = null
+
+    /**
+     * 있으면 장마다 사용자 3.5 m 안 점유 칸의 과반 라벨과 정지 지도 군집 번호를 여기에 쓴다(M56 A단계 평가 전용, `-PlabelDump=true`,
+     * 줄: tCaptureNs,ix,iy,iz,cluster,label,evidence; cluster -1 = 군집 밖). 닫는 것은 부르는 쪽.
+     */
+    var labelDumpOut: java.io.Writer? = null
+
     private class Job(
         val depth: DepthFrame,
         val startNs: Long,
@@ -254,6 +321,15 @@ class OfflineReplay(
         val mapDepthMm: ShortArray?,
         val free: List<Vec3>?,
         val motion: List<hearspace.core.tracking.MotionDebug>,
+        val m54Counts: IntArray?,
+        val inserted: IntArray?,
+        val decayed: IntArray?,
+        val framePlane: hearspace.core.mapping.FramePlane?,
+        val frameClusters: List<hearspace.core.mapping.FrameCluster>?,
+        val moving: List<VoxelView>? = null,
+        val evidence: List<hearspace.core.tracking.EvidenceDebug> = emptyList(),
+        val assoc: List<hearspace.core.tracking.AssocDebug> = emptyList(),
+        val foot: List<hearspace.core.tracking.FootDebug> = emptyList(),
     )
 
     companion object {

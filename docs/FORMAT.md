@@ -98,6 +98,20 @@ accepted), 요약 floorY·offsetP50M·offsetIqrM·noiseM(받아들인 짝 5개 �
 - 원시 깊이는 새 시각마다 저장한다. RGB는 `record.rgbEveryN` 프레임마다.
 - 파일 작업은 슬롯 1개로 저장 스레드에 넘긴다. 슬롯이 차 있으면 그 프레임의 파일은 건너뛰고 행에 파일 이름을 쓰지 않는다. **행에 적힌 파일은 모두 존재한다**(쓰기 오류는 `stats.nWriteErrors`).
 
+### 의미 영상 `semantic/` (M49, 선택)
+
+ARCore Scene Semantics 의미 영상. 설정 `vision.semantics`가 켜지고 기기가 지원할 때만 생긴다(`tools/device/m49_semantics.json`). 녹화 모드가 쓰고, 이미 찍은 세션은 개발 화면의 재생 모드가 녹화 MP4를 재생하며 같은 형식으로 쓴다(같은 세션을 다시 재생하면 덮어씀).
+
+| 파일 | 내용 |
+|---|---|
+| `semantic/index.csv` | `frameTNs,imageTNs,width,height,file,confFile`: 그 영상을 처음 받은 프레임 시각, 영상 촬영 시각(`Image.getTimestamp()`), 크기, 파일 |
+| `semantic/<imageTNs>.png` | 8비트 라벨. 화소 값 = `SemanticLabel` 번호(UNLABELED 0 … WATER 11로 봄, VERIFY) |
+| `semantic/<imageTNs>_conf.png` | 8비트 신뢰도(0~255), 라벨과 같은 크기 |
+| `semantic/fractions.csv` | 처음 30장의 `getSemanticLabelFraction` 라벨별 비율: 화소 값 ↔ 라벨 대응 확인용 |
+
+- 새 촬영 시각의 영상만 저장한다. 쓰기 슬롯이 차 있으면 그 영상은 건너뛰고 세며, 목록에 없는 영상은 저장되지 않은 것이다.
+- 영상의 방향·시야(CPU 영상인지 GPU 텍스처인지)는 문서에 없다(VERIFY, M49 0단계 뒤 RGB 경계와 겹쳐 확인).
+
 ### PC 재생 출력 (`:core:replay`, M41)
 
 실행 로그(MVP §10.1)와 함께 `replay_info.json`(세션 경로·느린 경로 시간·`rgbSource`·`gitHash` = 재생한 코드 판·설정 덮어쓰기·정답 대입)을

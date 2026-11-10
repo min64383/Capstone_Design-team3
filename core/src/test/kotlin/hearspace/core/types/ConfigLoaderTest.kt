@@ -183,4 +183,18 @@ class ConfigLoaderTest {
         assertConfigError("sonify.duckDb", """{"sonify":{"duckDb":3}}""")
         assertConfigError("sonify.prototypeGain", """{"sonify":{"prototypeGain":2}}""")
     }
+
+    @Test
+    fun `vision labels are off by default and label lists are validated`() {
+        val c = load()
+        assertEquals(false, c.vision.semantics)
+        assertEquals(VisionLabelSource.NONE, c.vision.label)
+        assertEquals(setOf(SemanticLabel.PERSON, SemanticLabel.VEHICLE), c.vision.movingLabels)
+        assertEquals(SemanticLabel.PERSON, SemanticLabel.ofPixel(10))
+        assertConfigError("vision.movingLabels", """{"vision":{"movingLabels":["PERSON","CAT"]}}""")
+        assertConfigError("vision.movingLabels", """{"vision":{"movingLabels":"PERSON"}}""")
+        assertEquals(mapOf(SemanticLabel.PERSON to 2.5f, SemanticLabel.VEHICLE to 6.9f), c.vision.maxSpeedMps)
+        assertConfigError("vision.maxSpeedMps", """{"vision":{"movingLabels":["PERSON","OBJECT"]}}""")
+        assertConfigError("vision.maxSpeedMps.CAT", """{"vision":{"maxSpeedMps":{"CAT":1}}}""")
+    }
 }
