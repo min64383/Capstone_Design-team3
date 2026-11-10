@@ -21,6 +21,9 @@ class DepthCopy(val tNs: Long, val width: Int, val height: Int, val mm: ShortArr
 /** 8비트 신뢰도 이미지 복사본. */
 class ConfidenceCopy(val tNs: Long, val width: Int, val height: Int, val values: ByteArray)
 
+/** ARCore 의미 영상(8비트 라벨)과 같은 크기의 신뢰도 영상 복사본(M49). [conf]는 없을 수 있다. */
+class SemanticCopy(val tNs: Long, val width: Int, val height: Int, val labels: ByteArray, val conf: ByteArray?)
+
 /** CPU 카메라 이미지를 NV21로 복사한 것. 센서 방향 그대로(회전하지 않음). */
 class Nv21Copy(val tNs: Long, val width: Int, val height: Int, val bytes: ByteArray)
 
@@ -65,6 +68,23 @@ object FrameAdapter {
     fun readConfidence(frame: Frame): ConfidenceCopy? {
         val image = acquireOrNull { frame.acquireRawDepthConfidenceImage() } ?: return null
         image.use { return ConfidenceCopy(it.timestamp, it.width, it.height, copyU8(it)) }
+    }
+
+    /**
+     * 의미 영상과 신뢰도 영상을 복사한다(M49). 의미 모드가 꺼졌거나 아직 없으면 null. [copyIf]가 영상 시각에 false면 복사하지 않고 null.
+     * VERIFY: 의미 영상의 방향·시야가 CPU 영상인지 GPU 텍스처인지 문서에 없다(ARCore Frame.acquireSemanticImage: 폭 256, 높이는 화면 비율).
+     */
+    fun readSemantic(frame: Frame, copyIf: (tNs: Long) -> Boolean): SemanticCopy? {
+        val image = acquireOrNull { frame.acquireSemanticImage() } ?: return null
+        image.use { sem ->
+            val tNs = sem.timestamp
+            if (!copyIf(tNs)) return null
+            val labels = copyU8(sem)
+            val conf = acquireOrNull { frame.acquireSemanticConfidenceImage() }?.use { c ->
+                if (c.width == sem.width && c.height == sem.height) copyU8(c) else null
+            }
+            return SemanticCopy(tNs, sem.width, sem.height, labels, conf)
+        }
     }
 
     /** CPU 카메라 이미지(YUV_420_888)를 NV21로 복사한다. 없으면 null. */

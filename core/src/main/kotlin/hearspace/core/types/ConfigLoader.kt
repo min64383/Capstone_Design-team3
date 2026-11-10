@@ -84,7 +84,17 @@ object ConfigLoader {
                     learnedSigma0M = float("learnedSigma0M"),
                     learnedSigmaPerM2 = nonNegative("learnedSigmaPerM2"),
                     sensorUsage = enumValue<DepthSensorUsage>("sensorUsage"),
-                )
+                    confidenceEdges = intList("confidenceEdges"),
+                    mapConfidenceWeights = floatList("mapConfidenceWeights"),
+                    floorConfidenceWeights = floatList("floorConfidenceWeights"),
+                ).also { d ->
+                    if (d.confidenceEdges.zipWithNext().any { (a, b) -> a >= b } || d.confidenceEdges.any { it !in 1..255 }) {
+                        throw ConfigException("depth.confidenceEdges", "must be increasing within 1..255")
+                    }
+                    for ((k, w) in listOf("mapConfidenceWeights" to d.mapConfidenceWeights, "floorConfidenceWeights" to d.floorConfidenceWeights)) {
+                        if (w.size != d.confidenceEdges.size + 1 || w.any { it <= 0f || it > 1f }) throw ConfigException("depth.$k", "needs confidenceEdges.size + 1 values in (0, 1]")
+                    }
+                }
             },
             frontend = root.section("frontend") {
                 FrontendConfig(
@@ -125,6 +135,13 @@ object ConfigLoader {
                     rgbMaxAgeMs = nonNegative("rgbMaxAgeMs"),
                     rgbMarginMaxPx = atLeast1("rgbMarginMaxPx"),
                     segment = enumValue<SegmentMode>("segment"),
+                    labelBandPx = intIn("labelBandPx", 0, 64),
+                    bandDepthEdgeSigmas = nonNegative("bandDepthEdgeSigmas"),
+                    bandWidthM = nonNegative("bandWidthM"),
+                    bandMinPx = intIn("bandMinPx", 0, 64),
+                    bandNearM = nonNegative("bandNearM"),
+                    bandFarPx = intIn("bandFarPx", 0, 64),
+                    bandLabels = enumList<SemanticLabel>("bandLabels").toSet(),
                 )
             },
             map = root.section("map") {
@@ -147,6 +164,10 @@ object ConfigLoader {
                     weightRefM = positive("weightRefM"),
                     freeMarginRatio = nonNegative("freeMarginRatio"),
                     hitWeighting = enumValue<HitWeighting>("hitWeighting"),
+                    decayWeighting = enumValue<DecayWeighting>("decayWeighting"),
+                    weightedMinHits = positive("weightedMinHits"),
+                    weightedFrameMinHits = positive("weightedFrameMinHits"),
+                    weightedUndecidedAsFrame = boolean("weightedUndecidedAsFrame"),
                     tsdfTruncMinM = positive("tsdfTruncMinM"),
                     tsdfTruncPerM = nonNegative("tsdfTruncPerM"),
                     tsdfMaxWeight = positive("tsdfMaxWeight"),
@@ -190,6 +211,14 @@ object ConfigLoader {
                     decompose = enumValue<FloorDecompose>("decompose"),
                     regionM = positive("regionM"),
                     mode = enumValue<FloorMode>("mode"),
+                    weighting = enumValue<FloorWeighting>("weighting"),
+                    model = enumValue<FloorModel>("model"),
+                    planeMinConfidence = intIn("planeMinConfidence", 0, 255),
+                    planeMaxTiltDeg = positive("planeMaxTiltDeg"),
+                    planeIterations = atLeast1("planeIterations"),
+                    planeWindowS = positive("planeWindowS"),
+                    histogramMinDistM = nonNegative("histogramMinDistM"),
+                    histogramMaxDistM = nonNegative("histogramMaxDistM"),
                 )
             },
             cluster = root.section("cluster") {
@@ -201,6 +230,8 @@ object ConfigLoader {
                     separateWalls = boolean("separateWalls"),
                     wallFraction = unit("wallFraction"),
                     coreEvidenceMultiplier = positive("coreEvidenceMultiplier"),
+                    sameLabelEpsM = nonNegative("sameLabelEpsM"),
+                    sameLabels = enumList<SemanticLabel>("sameLabels").toSet(),
                 )
             },
             geometry = root.section("geometry") {
@@ -277,6 +308,33 @@ object ConfigLoader {
                     depthLagMs = nonNegative("depthLagMs"),
                     initMaxSpeedMps = nonNegative("initMaxSpeedMps"),
                     initGateSigmas = positive("initGateSigmas"),
+                    measureFrom = enumValue<MeasureFrom>("measureFrom"),
+                    rawMinConfidence = intIn("rawMinConfidence", 0, 255),
+                    holdLabelPending = boolean("holdLabelPending"),
+                    motionMap = enumValue<MotionMap>("motionMap"),
+                    gateLagS = nonNegative("gateLagS"),
+                    shadowDepthM = nonNegative("shadowDepthM"),
+                    freeSpaceRecord = boolean("freeSpaceRecord"),
+                    freeSpaceMinConfidence = intIn("freeSpaceMinConfidence", 0, 255),
+                    freeSpaceZEdgesM = floatList("freeSpaceZEdgesM"),
+                    freeSpaceLagFrames = intList("freeSpaceLagFrames"),
+                    freeSpaceMarginM = floatList("freeSpaceMarginM"),
+                    freeSpaceFrameS = positive("freeSpaceFrameS"),
+                    motionEvidence = enumValue<MotionEvidence>("motionEvidence"),
+                    freeSpaceWindow = intIn("freeSpaceWindow", 1, 100),
+                    freeSpaceThreshold = nonNegative("freeSpaceThreshold"),
+                    freeSpaceMinCompared = intIn("freeSpaceMinCompared", 0, 1_000_000),
+                    freeSpaceMaxRotDegS = positive("freeSpaceMaxRotDegS"),
+                    freeSpaceConvergeS = nonNegative("freeSpaceConvergeS"),
+                    freeSpacePersistFrames = intIn("freeSpacePersistFrames", 1, 1000),
+                    objectMinHits = nonNegative("objectMinHits"),
+                    candidateOutput = boolean("candidateOutput"),
+                    measureLabels = boolean("measureLabels"),
+                    existFrom = enumValue<ExistFrom>("existFrom"),
+                    rawAssociation = enumValue<RawAssociation>("rawAssociation"),
+                    rawGateChi2 = positive("rawGateChi2"),
+                    maxGateRadiusM = positive("maxGateRadiusM"),
+                    mergeVelChi2 = positive("mergeVelChi2"),
                 )
             },
             repPoint = root.section("repPoint") {
@@ -347,6 +405,36 @@ object ConfigLoader {
                 AlignConfig(fitLengthM = positive("fitLengthM"), minTravelM = positive("minTravelM"), headingWindowS = positive("headingWindowS"))
             },
             slowPath = root.section("slowPath") { SlowPathConfig(maxRateHz = nonNegative("maxRateHz")) },
+            vision = root.section("vision") {
+                VisionConfig(
+                    semantics = boolean("semantics"),
+                    label = enumValue<VisionLabelSource>("label"),
+                    movingLabels = enumList<SemanticLabel>("movingLabels").toSet(),
+                    maxLabelAgeMs = atLeast1("maxLabelAgeMs"),
+                    maxSpeedMps = (raw("maxSpeedMps") as? JsonObject ?: throw ConfigException(path("maxSpeedMps"), "must be an object")).fields.map { (k, v) ->
+                        val label = enumValues<SemanticLabel>().firstOrNull { it.name == k } ?: throw ConfigException(path("maxSpeedMps.$k"), "unknown label")
+                        val mps = (v as? JsonNumber)?.value?.toFloat()?.takeIf { it > 0f && it.isFinite() } ?: throw ConfigException(path("maxSpeedMps.$k"), "must be > 0")
+                        label to mps
+                    }.toMap(),
+                    movableDepth = enumValue<MovableDepth>("movableDepth"),
+                    movableRawMinConfidence = intIn("movableRawMinConfidence", 1, 255),
+                    obstacleDepth = enumValue<MovableDepth>("obstacleDepth"),
+                    obstacleLabels = enumList<SemanticLabel>("obstacleLabels").toSet(),
+                    obstacleRawWeight = positive("obstacleRawWeight"),
+                    obstacleFill = enumValue<ObstacleFill>("obstacleFill"),
+                    voxelLabels = boolean("voxelLabels"),
+                    floorishLabels = enumList<SemanticLabel>("floorishLabels").toSet(),
+                    footContact = boolean("footContact"),
+                    footEdgePx = intIn("footEdgePx", 0, 1000),
+                    footMinPx = intIn("footMinPx", 1, 1_000_000),
+                    footMaxDistM = positive("footMaxDistM"),
+                    footSigma0M = nonNegative("footSigma0M"),
+                    footSigmaPx = nonNegative("footSigmaPx"),
+                    footFloorSigmaM = nonNegative("footFloorSigmaM"),
+                    footHeightWindowS = positive("footHeightWindowS"),
+                    footBodyHeightM = positive("footBodyHeightM"),
+                )
+            },
             sonify = root.section("sonify") {
                 SonifyConfig(
                     mode = enumValue<SonifyMode>("mode"),
@@ -395,6 +483,11 @@ object ConfigLoader {
                 throw ConfigException("heading.chestMount.headOffsetBodyM", "must be finite; head must be above chest camera (y > 0)")
             if (c.heading.cameraSigmaDeg > 0f)
                 throw ConfigException("heading.cameraSigmaDeg", "must be 0 with chestMount; choose one heading method")
+        }
+        c.vision.movingLabels.firstOrNull { it !in c.vision.maxSpeedMps }?.let { throw ConfigException("vision.maxSpeedMps", "missing moving label $it") }
+        if (c.corridor.judge == CorridorJudgeMode.LABEL && !c.vision.voxelLabels) throw ConfigException("corridor.judge", "LABEL requires vision.voxelLabels")
+        if (c.map.decayWeighting == DecayWeighting.CONFIDENCE && c.map.hitWeighting != HitWeighting.CONFIDENCE) {
+            throw ConfigException("map.decayWeighting", "CONFIDENCE requires map.hitWeighting CONFIDENCE")
         }
         val p = c.policy
         val s = c.sonify
@@ -545,6 +638,24 @@ object ConfigLoader {
             }
             if (xs.size != 3) throw ConfigException(path(key), "must have 3 elements, got ${xs.size}")
             return Vec3(xs[0], xs[1], xs[2])
+        }
+
+        fun floatList(key: String): List<Float> {
+            val arr = raw(key) as? JsonArray ?: throw ConfigException(path(key), "must be an array of numbers")
+            return arr.items.map { (it as? JsonNumber)?.value?.toFloat()?.takeIf { f -> f.isFinite() } ?: throw ConfigException(path(key), "must be an array of numbers") }
+        }
+
+        fun intList(key: String): List<Int> = floatList(key).map { f ->
+            f.toInt().also { if (it.toFloat() != f) throw ConfigException(path(key), "must be integers") }
+        }
+
+        inline fun <reified E : Enum<E>> enumList(key: String): List<E> {
+            val arr = raw(key) as? JsonArray ?: throw ConfigException(path(key), "must be an array of strings")
+            return arr.items.map { v ->
+                val str = (v as? JsonString)?.value ?: throw ConfigException(path(key), "must be an array of strings")
+                enumValues<E>().firstOrNull { it.name == str }
+                    ?: throw ConfigException(path(key), "must be one of ${enumValues<E>().joinToString { it.name }}, got '$str'")
+            }
         }
 
         inline fun <reified E : Enum<E>> enumValue(key: String): E {

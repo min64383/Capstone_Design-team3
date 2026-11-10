@@ -664,6 +664,19 @@ def check_depth_absolute():
     assert p["SMOOTHED"]["sessions"] == 2 and abs(p["SMOOTHED"]["biasSpread"] - 0.05) < 0.01, p
 
 
+def check_label_band():
+    """M54 0단계: 장애물 역할 경계까지의 부호 있는 거리(깊이 화소). 사람 사각형 안은 음수, 보도는 양수, 보도–도로 경계는 경계가 아님."""
+    from label_band import K_WIN, signed_k
+    lab = np.full((20, 80), 5, dtype=np.uint8)  # 보도
+    lab[:, 60:] = 4  # 도로(프레임끼리 경계는 보지 않음)
+    lab[5:15, 5:15] = 10  # 사람
+    k = signed_k(lab, 0.5)
+    assert k[10, 4] == 0 and k[10, 5] == 0  # 경계 양쪽 화소
+    assert k[10, 2] == 1.0 and k[10, 8] == -1.5  # 라벨 화소 2·3칸 → 깊이 화소 ×0.5, 사람 쪽 음수
+    assert np.isinf(k[10, 59]) and np.isinf(k[10, 61])  # 보도–도로 경계는 무시, 사람에서 창(K_WIN / 0.5 + 1) 밖
+    assert np.abs(k[np.isfinite(k)]).max() <= K_WIN + 1
+
+
 def main():
     clean = run("clean")
     assert clean["directionErrorDeg"]["p95"] < 2.0, clean["directionErrorDeg"]
@@ -711,6 +724,9 @@ def main():
     check_depth_absolute()
     check_event_eval()
     check_tof()
+    check_label_band()
+    import occupancy
+    occupancy.selftest()  # M55 칸 관측 기록 분석: 상자 거리, 증거 합 창, 지금 규칙 창, 띠 합침, λ
     print("analysis self-check ok")
 
 

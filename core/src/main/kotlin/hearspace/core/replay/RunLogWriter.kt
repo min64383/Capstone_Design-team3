@@ -36,7 +36,16 @@ class RunLogWriter(
     private val stageOut: Writer
     private var planesOut: Writer? = null
     private var motionOut: Writer? = null
+    private var evidenceOut: Writer? = null
+    private var assocOut: Writer? = null
+    private var footOut: Writer? = null
     private var geometryOut: Writer? = null
+    private var m54Out: Writer? = null
+    private var insertsOut: Writer? = null
+    private var rolesOut: Writer? = null
+    private var planeOut: Writer? = null
+    private var decaysOut: Writer? = null
+    private var frameClustersOut: Writer? = null
     private val outDir = outDir
 
     init {
@@ -72,11 +81,54 @@ class RunLogWriter(
             val w = motionOut ?: File(outDir, MOTION_FILE).bufferedWriter().also { it.line(MOTION_HEADER); motionOut = it }
             for (m in step.motion) w.line(motionLine(m))
         }
+        if (step.evidence.isNotEmpty()) { // M57 `track.freeSpaceRecord`일 때만 생긴다
+            val w = evidenceOut ?: File(outDir, EVIDENCE_FILE).bufferedWriter().also { it.line(EVIDENCE_HEADER); evidenceOut = it }
+            for (e in step.evidence) w.line(listOf(
+                e.tRawNs, e.tNs, e.id, e.candidate, e.moving, e.ageS, e.nPts, e.nCmp, e.nViol, e.zMedM, e.rotDegS, (e.lo.x + e.hi.x) / 2, (e.lo.z + e.hi.z) / 2, e.lo.x, e.lo.z, e.hi.x, e.hi.z,
+            ).joinToString(",") + "," + e.labels.joinToString(",") + "," + (if (e.ownLabels.isEmpty()) IntArray(12) else e.ownLabels).joinToString(","))
+        }
+        if (step.foot.isNotEmpty()) { // M53 `vision.footContact`일 때만 생긴다
+            val w = footOut ?: File(outDir, FOOT_FILE).bufferedWriter().also { it.line(FOOT_HEADER); footOut = it }
+            for (a in step.foot) w.line(listOf(
+                a.kind, a.tNs, a.id, a.label, a.nMeas, a.measW?.x ?: Float.NaN, a.measW?.z ?: Float.NaN, a.distM, a.sigmaM, a.chi2,
+                a.posW?.x ?: Float.NaN, a.posW?.z ?: Float.NaN, a.velW?.x ?: Float.NaN, a.velW?.z ?: Float.NaN, a.velSigmaMps, a.moving, a.output, a.suppressed,
+            ).joinToString(","))
+        }
+        if (step.assoc.isNotEmpty()) { // M59 `track.rawAssociation` GATE·NEAREST_BLOB일 때만 생긴다
+            val w = assocOut ?: File(outDir, ASSOC_FILE).bufferedWriter().also { it.line(ASSOC_HEADER); assocOut = it }
+            for (a in step.assoc) w.line(listOf(a.tRawNs, a.id, a.moving, a.nPts, a.nBlobs, a.nChosen, a.chi2, a.accepted, a.measW.x, a.measW.z, a.lo.x, a.lo.z, a.hi.x, a.hi.z).joinToString(","))
+        }
         step.mapUpdate.geometry?.let { result ->
             val w = geometryOut ?: File(outDir, RunLog.GEOMETRY_FILE).bufferedWriter().also {
                 it.line(RunLog.header(RunLog.GEOMETRY_HEADER)); geometryOut = it
             }
             RunLog.geometryLines(step.depth.tCaptureNs, result).forEach { w.line(it) }
+        }
+        step.m54Counts?.let { c -> // M54 옵션을 켰을 때만(끈 설정은 파일 목록이 그대로)
+            val w = m54Out ?: File(outDir, M54_FILE).bufferedWriter().also { it.line("tCaptureNs,bandRemovedPx,movableExcluded,movableRawInserted"); m54Out = it }
+            w.line("${step.depth.tCaptureNs},${c[0]},${c[1]},${c[2]}")
+        }
+        step.occupiedVoxels?.takeIf { vs -> vs.any { it.role != hearspace.core.mapping.VoxelRole.NONE } }?.let { vs -> // M54 칸 역할(mapInserts + 칸 라벨 표)
+            val w = rolesOut ?: File(outDir, ROLES_FILE).bufferedWriter().also { it.line("tCaptureNs,ix,iy,iz,role"); rolesOut = it }
+            for (v in vs) w.line("${step.depth.tCaptureNs},${v.ix},${v.iy},${v.iz},${v.role}")
+        }
+        step.framePlane?.let { p -> // M54 프레임 바닥면(칸 라벨 표를 켰을 때만)
+            val w = planeOut ?: File(outDir, FRAME_FLOOR_FILE).bufferedWriter().also { it.line("tCaptureNs,a,b,c,n,fresh"); planeOut = it }
+            w.line("${step.depth.tCaptureNs},${p.a},${p.b},${p.c},${p.n},${p.fresh}")
+        }
+        step.frameClusters?.let { cs -> // M54 프레임 군집 법선(칸 역할 기록 장에서만)
+            val w = frameClustersOut ?: File(outDir, FRAME_CLUSTERS_FILE).bufferedWriter().also {
+                it.line("tCaptureNs,kind,n,cx,cy,cz,nx,ny,nz,thicknessM,lengthM"); frameClustersOut = it
+            }
+            for (c in cs) w.line("${step.depth.tCaptureNs},${c.kind},${c.n},${c.centerW.x},${c.centerW.y},${c.centerW.z},${c.normalW.x},${c.normalW.y},${c.normalW.z},${c.thicknessM},${c.lengthM}")
+        }
+        step.decayedVoxels?.let { v -> // M54 감쇠한 칸과 그 화소 신뢰도 구간(평가 전용)
+            val w = decaysOut ?: File(outDir, DECAYS_FILE).bufferedWriter().also { it.line("tCaptureNs,ix,iy,iz,cls"); decaysOut = it }
+            for (i in 0 until v.size / 4) w.line("${step.depth.tCaptureNs},${v[4 * i]},${v[4 * i + 1]},${v[4 * i + 2]},${v[4 * i + 3]}")
+        }
+        step.insertedVoxels?.let { v ->
+            val w = insertsOut ?: File(outDir, INSERTS_FILE).bufferedWriter().also { it.line("tCaptureNs,ix,iy,iz"); insertsOut = it }
+            for (i in 0 until v.size / 3) w.line("${step.depth.tCaptureNs},${v[3 * i]},${v[3 * i + 1]},${v[3 * i + 2]}")
         }
         step.mapUpdate.planes?.let { p ->
             val w = planesOut ?: File(outDir, RunLog.PLANES_FILE).bufferedWriter().also { it.line(RunLog.header(RunLog.PLANES_HEADER)); planesOut = it }
@@ -92,18 +144,34 @@ class RunLogWriter(
 
     /** 기록 파일을 모두 닫는다(여러 번 불러도 된다). */
     override fun close() {
-        listOfNotNull(slowOut, guidOut, obsOut, clusterOut, stageOut, planesOut, motionOut, geometryOut).forEach { it.close() }
+        listOfNotNull(slowOut, guidOut, obsOut, clusterOut, stageOut, planesOut, motionOut, evidenceOut, assocOut, footOut, geometryOut, m54Out, insertsOut, rolesOut, planeOut, frameClustersOut, decaysOut).forEach { it.close() }
     }
 
     private fun motionLine(m: hearspace.core.tracking.MotionDebug): String = listOf(
         m.tCaptureNs, m.id, m.candidate, m.moving, m.measW?.x, m.measW?.z, m.posW?.x, m.posW?.z, m.velW?.x, m.velW?.z,
-        m.posSigmaM, m.velSigmaMps, m.chi2, m.nMeasCells, m.votes, m.score,
+        m.posSigmaM, m.velSigmaMps, m.chi2, m.nMeasCells, m.votes, m.score, m.measTNs, m.labelVotes, m.labelScore, m.nRawPoints,
     ).joinToString(",") { it?.toString() ?: "" }
 
     companion object {
         /** 움직임 기록(M48): track마다 칼만·판정·물체 좌표 칸 수. */
         const val MOTION_FILE = "motion.csv"
-        const val MOTION_HEADER = "tCaptureNs,id,candidate,moving,measX,measZ,posX,posZ,velX,velZ,posSigmaM,velSigmaMps,chi2,nMeasCells,votes,score"
+        /** 빈 곳 위반 기록(M57 2단계). */
+        const val EVIDENCE_FILE = "motion_evidence.csv"
+        val EVIDENCE_HEADER = "tRawNs,tNs,id,candidate,moving,ageS,nPts,nCmp,nViol,zMedM,rotDegS,cx,cz,loX,loZ,hiX,hiZ," +
+            (0 until 12).joinToString(",") { "lab$it" } + "," + (0 until 12).joinToString(",") { "own$it" }
+        /** 원시 측정 짝짓기 기록(M59). */
+        const val FOOT_FILE = "foot.csv"
+        const val FOOT_HEADER = "kind,tNs,id,label,nMeas,measX,measZ,distM,sigmaM,chi2,posX,posZ,velX,velZ,velSigmaMps,moving,output,suppressed"
+        const val ASSOC_FILE = "raw_assoc.csv"
+        const val ASSOC_HEADER = "tRawNs,id,moving,nPts,nBlobs,nChosen,chi2,accepted,measX,measZ,loX,loZ,hiX,hiZ"
+        const val M54_FILE = "m54.csv"
+        const val INSERTS_FILE = "map_inserts.csv"
+        const val ROLES_FILE = "map_roles.csv"
+        const val FRAME_FLOOR_FILE = "frame_floor.csv"
+        const val DECAYS_FILE = "map_decays.csv"
+        const val FRAME_CLUSTERS_FILE = "frame_clusters.csv"
+        const val MOTION_HEADER = "tCaptureNs,id,candidate,moving,measX,measZ,posX,posZ,velX,velZ,posSigmaM,velSigmaMps,chi2,nMeasCells,votes,score," +
+            "measTNs,labelVotes,labelScore,nRawPoints"
     }
 
     private fun Writer.line(s: String) {

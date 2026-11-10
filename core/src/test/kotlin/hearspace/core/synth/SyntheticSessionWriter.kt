@@ -31,6 +31,12 @@ object SyntheticSessionWriter {
         version: String = SessionFormat.VERSION,
         /** 원시 깊이는 새 깊이 [rawEveryN]장에 한 장만 새로 쓴다(M32: 원시 깊이 약 10 Hz 흉내, 나머지 프레임은 마지막 원시 시각을 유지). */
         rawEveryN: Int = 1,
+        /** 깊이 장마다 같은 시각의 합성 의미 영상을 `semantic/`에 쓴다(M49, 그 프레임이 전달, 화소 = 맞은 요소의 라벨). */
+        semantics: Boolean = false,
+        /** 의미 영상은 새 깊이 [semanticEveryN]장에 한 장만 쓴다(M55: 기기 라벨 약 16 Hz, 깊이 30 Hz → 2). 1이면 장마다(기준선). */
+        semanticEveryN: Int = 1,
+        /** 원시 깊이·신뢰도를 합성 원시 장(평활 전 깊이, 요소별 신뢰도, M54)으로 쓴다. false면 일반 깊이와 같은 영상(기준선). */
+        realRaw: Boolean = false,
     ): File {
         dir.mkdirs()
         listOf(SessionFormat.DEPTH_DIR, SessionFormat.RAW_DEPTH_DIR, SessionFormat.DEPTH_CONF_DIR).forEach { File(dir, it).mkdirs() }
@@ -39,6 +45,12 @@ object SyntheticSessionWriter {
         var lastDepthT = Long.MIN_VALUE
         var lastRawT: Long? = null
         var saved = 0L
+        val semIndex = if (semantics) {
+            File(dir, SessionFormat.SEMANTIC_DIR).mkdirs()
+            StringBuilder("frameTNs,imageTNs,width,height,file,confFile\n")
+        } else {
+            null
+        }
         File(dir, SessionFormat.FRAMES_FILE).bufferedWriter().use { w ->
             w.write(FramesCsv.headerLine(version)); w.newLine()
             for (f in rec.frames) {
@@ -50,13 +62,20 @@ object SyntheticSessionWriter {
                     val png = Png16.encode(GrayImage.of16(d.K.width, d.K.height, d.depthMm))
                     File(dir, SessionFormat.depthFile(f.index.toLong())).writeBytes(png)
                     if (rawNew) {
-                        File(dir, SessionFormat.rawDepthFile(f.index.toLong())).writeBytes(png)
-                        val conf = ByteArray(d.depthMm.size) { i -> if (d.depthMm[i].toInt() == 0) 0 else 255.toByte() }
+                        val r = d.raw?.takeIf { realRaw }
+                        File(dir, SessionFormat.rawDepthFile(f.index.toLong())).writeBytes(if (r == null) png else Png16.encode(GrayImage.of16(r.K.width, r.K.height, r.depthMm)))
+                        val conf = r?.confidence ?: ByteArray(d.depthMm.size) { i -> if (d.depthMm[i].toInt() == 0) 0 else 255.toByte() }
                         File(dir, SessionFormat.confFile(f.index.toLong())).writeBytes(Png16.encode(GrayImage.of8(d.K.width, d.K.height, conf)))
                         lastRawT = depthT
                     }
                     lastDepthT = depthT
                     saved++
+                    val lab = d.labels
+                    if (semIndex != null && lab != null && (saved - 1) % semanticEveryN == 0L) {
+                        val file = SessionFormat.semanticFile(depthT!!)
+                        File(dir, file).writeBytes(Png16.encode(GrayImage.of8(lab.K.width, lab.K.height, lab.labels)))
+                        semIndex.append("${f.pose.tCaptureNs},$depthT,${lab.K.width},${lab.K.height},$file,\n")
+                    }
                 }
                 val row = FrameRow(
                     frameIndex = f.index.toLong(),
@@ -76,6 +95,7 @@ object SyntheticSessionWriter {
                 w.write(FramesCsv.format(row, version)); w.newLine()
             }
         }
+        semIndex?.let { File(dir, SessionFormat.SEMANTIC_INDEX).writeText(it.toString()) }
         val meta = SessionMeta(
             formatVersion = version,
             sessionId = dir.name,

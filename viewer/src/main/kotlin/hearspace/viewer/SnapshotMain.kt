@@ -67,7 +67,9 @@ internal fun render(a: ReplayResult, b: ReplayResult?, tNs: Long, title: String)
     g.color = Color.WHITE
     g.font = Font(Font.SANS_SERIF, Font.BOLD, 13)
     g.drawString(title, 8, 17)
-    val vm = ViewerModel().apply { showVoxels = true; showDepth = false }
+    // 라벨을 쓰는 설정(M49)이면 라벨 겹침도 그린다
+    val labels = a.config.vision.label == hearspace.core.types.VisionLabelSource.SEMANTICS || a.config.track.measureFrom == hearspace.core.types.MeasureFrom.RAW_MASK
+    val vm = ViewerModel().apply { showVoxels = true; showDepth = false; showLabels = labels }
     vm.setResult(a)
     vm.compare = b
     vm.setTime(tNs)

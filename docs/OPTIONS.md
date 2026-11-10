@@ -14,6 +14,27 @@
 | 깊이 입력 | `frontend.segment` NONE → REGION, `map.instances` | M13.3(C3a·C3b) | NONE / false | M35 |
 | 지도 | `map.mode` HITS → LOG_ODDS·TSDF·TRISTATE | M13.2·M13.6·M32 | HITS | M37 |
 | 지도 | `map.hitWeighting` DISTANCE | v0.3.14 기본값 | DISTANCE | M37 |
+| 깊이 입력 | `vision.movableDepth` SMOOTHED → RAW(사람·차량 라벨 화소는 지도에 원시 점, 신뢰도 ≥ 30) | M54: 사람 둘레 고리 칸 243 → 11, 출력 늦음 ≤ 0.33 s, 경고 7.40 → 7.54 s(단독) | SMOOTHED | M56(P를 끈 B+W5가 사람 빈 장·실외 경고 모두 적음(M55), 장애물 라벨 전체를 "P처럼" 시험) |
+| 깊이 입력 | `frontend.labelBandPx` 0 → 6(라벨 경계 양쪽 띠, 심 남김) | M54: P와 함께 T 경고 6.54 s·거짓 시작 3, 받침대 첫 STOP −0.045 m, 실내 출력 같음 | 0 | M56(폭 6은 M54 p90 규칙 — 요구에서 다시 유도, ③ 130646 늦춤) |
+| 지도 | `map.hitWeighting` CONFIDENCE(원시 신뢰도 구간 무게 `depth.mapConfidenceWeights`) | M54: T 경고 6.01 s이나 실내 131039 누운 캐리어 STOP 놓침(6표 문턱) | DISTANCE | M55: W 문턱 5 유도(`map.weightedMinHits`) → M56(B+W5 바탕) |
+| 지도 | `map.decayWeighting` CONFIDENCE(빈 곳 감쇠에 같은 무게) | M54 결과 검토(사용자 제안): 131039 놓침 그대로, 방향은 맞음(사용자) | NONE | M56 |
+| 지도 | `vision.voxelLabels`(칸 라벨 표·역할, 프레임 바닥면·군집 법선 기록) | M54: 기록용, 받침대 둘레 건물 역할 2~10%, 바닥면은 앱 바닥보다 못함, 법선 안정 | false | M50(막힌 길)·M53 |
+| 요소 분해 | `floor.weighting` CONFIDENCE(바닥 히스토그램 신뢰도 무게) | M54: 바닥 오차 중앙값 0.038 → 0.039 m(미충족), 실내 131003 STOP 놓침 | NONE | — |
+| 지도 | `map.weightedMinHits` 6 → 5(W일 때 점유 문턱) | M55: 낮은 물체 STOP 요구에서 유도(6·5.5는 131003·135701 첫 STOP 한도 넘음). P+B+W5 실내 놓침 2·오경보 41 → 26, 3은 T 경고 10.52 s | 6 | M56(B+W5 바탕) |
+| 지도 | `map.weightedFrameMinHits`, `map.weightedUndecidedAsFrame`, `vision.floorishLabels`(라벨 역할별 점유 문턱) | M55: T 경고 10.26~10.52 s | 6 / false | — |
+| 요소 분해 | `floor.model` LEVEL → PLANE_RAW(`floor.planeMinConfidence`·`planeMaxTiltDeg`·`planeIterations`·`planeWindowS`) | M55: 150159 바닥 군집 37% → 0이나 131039 캐리어 STOP 놓침, 150457 바닥 군집 0 → 12%, 실내 바닥 오경보 3 → 7 | LEVEL | — |
+| 요소 분해 | `floor.histogramMinDistM`·`histogramMaxDistM`(가까운 거리 바닥 히스토그램) | M55: 바닥 군집 0이나 바닥을 잃은 장 실외 44%·실내 14% | 0 / 0 | — |
+| 요소 분해 | `floor.weighting` DISTANCE | M55: 150159 바닥 군집 37% → 24%, 거짓 시작 4 → 5 | NONE | — |
+| 군집·추적 | `track.holdLabelPending`(라벨 판정 중인 후보를 정지 지도로 넘기지 않음) | M55: 150159 사람 2 m 안 빈 장 48% 그대로 | false | — (M56 움직임 판정이 넘김을 다시 설계) |
+| 깊이 입력 | `vision.obstacleDepth` SMOOTHED → RAW(`vision.obstacleLabels`·`obstacleRawWeight`: 장애물 라벨 띠 안쪽 원시, 원시 없는 화소는 평활로 채움) | M55: T 경고 6.64 → 8.01 s·거짓 시작 4 → 5, 실내 130646 늦춤 풀림 | SMOOTHED | M56(평활을 버리는 "P처럼" 판과 비교) |
+| 깊이 입력 | `frontend.bandLabels`(띠의 장애물 묶음) M54 묶음 → 하늘·물 뺌 | M55: T 결과 P+B+W5와 같음 | M54 묶음 | M56(B+W5에서 씀) |
+| 평가 | 재생 `-PcellTrace`(복셀 관측 기록), `-PlabelRemap`(라벨 화소 값 바꾸기) | M55: 기록으로 돌린 지금 규칙이 31세션 14,448장 재생과 같음 / 보도 라벨 바꾸기 시험 | 꺼짐 | — |
+| 깊이 입력 | `frontend.bandDepthEdgeSigmas`(깊이 경계 근처에만 띠) | M56: T 경고 6.71~7.07 s·거짓 시작 4~8, 6 px에서 131039 누운 캐리어 놓침 | 0 | — |
+| 깊이 입력 | `frontend.bandWidthM`·`bandMinPx`(거리 비례 띠), `frontend.bandNearM`·`bandFarPx`(계단 띠: 1.5 m 안 6·밖 3 px) | M56: 거리 비례 T 6.81 s·6; 계단 + W6(W 다시 유도) T 6.41 s·거짓 시작 4, 먼 막 약 40% 남김 | 0 | — |
+| 깊이 입력 | `vision.obstacleFill` SMOOTHED → NONE(장애물 라벨은 평활을 버리고 원시만, `vision.obstacleDepth` RAW와 함께) | M56: T 경고 8.05 s·거짓 시작 6, 실외 첫 STOP 0.05~0.27 m 이름 | SMOOTHED | 정지 장애물 원시 점 신뢰도별 오차를 잰 뒤 |
+| 지도 | `map.weightedMinHits` 5 → 6(고정 6 px 띠, 신뢰도 무게) | M56: T 5.84 s·2이나 실내 늦음 131003 0.049·135701 0.050 m(한도에 걸침) | B+W5는 5 | — |
+| 군집·추적 | `vision.voxelLabels`(칸 과반 라벨) + `cluster.sameLabelEpsM` 0.30·`cluster.sameLabels`(나무·구조물·물체·차량·사람끼리 더 먼 거리까지 이웃) | M56: 모든 기준 충족(150159 갈림 7 → 0, T 6.32 s·3); 모든 라벨에 주면 T 6.66 s | 끔(앱 기본값), M56 조합에서 켬 | M57 바탕 |
+| 평가 | 재생 `-PlabelDump`(장마다 점유 칸 과반 라벨·군집 번호, voxel_labels.csv.gz) | M56 구현 전 점검 | — | — |
 | 지도 | `map.decayBehind` | M24: 꺼진 옵션(GO는 기본값 후보) | false | M37 |
 | 지도 | `map.freeEvidenceDecay`, `cluster.coreEvidenceMultiplier` (PR #58 E·C) | v0.3.19: 꺼진 옵션 | 0 / 1.0 | M35 |
 | 지도 | `map.tri*`(RM, M33), `map.triViewRho` 등(RV, M39), `map.prunePassed` | M33 P·M39 P: 다음 바탕, 기본값 HITS 유지 | 끔 | M37 |
@@ -28,6 +49,9 @@
 | 군집·추적 | `track.measureWeight` CELLS → POINTS(칼만 측정점 아래 사분위를 깊이 점 단위로) | M52: T 접근 3세션 측정점 − 몸통 평활 깊이 0.159·0.216·0.115 → 0.025·0.081·0.060 m(움직임 정답 판정) | CELLS | M49(라벨 판정과 함께) |
 | 군집·추적 | `track.depthLagMs` 0 → 345(평활 깊이 뒤처짐만큼 측정 시각을 앞당김, SMOOTHED만) | M52: P4 합친 기울기 0.345 s[0.005, 0.883], 점 단위와 함께 칼만 위치 − 새 정답 앞면 +0.063·+0.166·+0.252 → −0.067·+0.029·−0.069 m(시작 게이트까지 켜면 150338 +0.157). 임시: 결과 검토 뒤 원시 깊이로 재면 보정 없이 −0.054·+0.078·+0.076 m라 쓰지 않을 예정(원시 측정으로 대체) | 0 | M49(원시 측정과 비교 뒤 지움 여부) |
 | 군집·추적 | `track.initMaxSpeedMps` 0 → 2.5, `track.initGateSigmas` 3(출력 전 시작 게이트, 넘으면 다시 시작) | M52: T 150338 첫 출력 속도 4.53 → 0.41 m/s(정답 0.49) | 0 | M49 |
+| 군집·추적 | `vision.label` NONE → SEMANTICS(track마다 라벨 표, 지도 HITS 상수, 가시성 검사 = 칸이 가장 최근 원시 장에서 보이는 표면일 때만), `vision.movingLabels` [PERSON, VEHICLE], `vision.maxLabelAgeMs` 200 | M49: T 판정 늦음 0.1·−4.1·−0.93 s(150159 2.1 s 미충족), 사람이 아닌 자리의 움직이는 track 받침대 0·150338 2, 정답 없는 경고 7.40 s(M52 6.75)·거짓 시작 5, 150338 STOP 1.62 m·TTC 1.35 s. 합성 SM-1~SM-7 통과 | NONE | M50(S1 영향부터) |
+| 군집·추적 | `track.measureFrom` CELLS → RAW_MASK(움직이는 track·후보의 칼만 = 새 원시 장의 라벨 마스크 점, 원시 시각, 첫 원시 측정에서 다시 시작, 창 = 마스크 점 범위), `track.rawMinConfidence` 1 | M49: 측정점 − 몸통 원시 0.015·0.020·0.017 m, 칼만 − 정답 앞면 −0.057·+0.070·+0.078 m(시각 보정 없이 충족), 첫 출력 속도 오차 1.40·0.60·0.03 m/s(미충족) | CELLS | M50 |
+| 군집·추적 | `vision.maxSpeedMps` {PERSON 2.5, VEHICLE 6.9}(RAW_MASK 시작 게이트를 마스크 점 다수 라벨로) | M49: 6.9 하나면 원시 진입 첫 부분 측정 뜀 통과(150338 첫 속도 2.66 → 0.72 m/s, 정답 0.75) | (값) | M50 |
 | 군집·추적 | `falsePositiveFilter.*`, `geometry.*` | 팀 코드, 판정 기록 없음 | 끔 | M35(팀과 상의) |
 | 진행 방향 | `heading.windowS` 1.0 → 2.0 | M18 기본값(문헌 값) | 2.0 | — |
 | 진행 방향 | `heading.cameraSigmaDeg` 0 → 2.3 (가중 결합) | M42 | 0 | 기본값 후보 아님(사용자, 2026-10-31): 팀원 회전 개선 뒤 비교 |
@@ -36,6 +60,7 @@
 | 통로 판정 | `corridor.wallAlign` (M42 C) | M42 이전 판 확인 재생: 오경보 늘어 채택 안 함 | false | M44 |
 | 통로 판정 | `corridor.judge` BOX → WALKABLE | M44: 옆 벽 오경보 안 줄고 합성 STOP 검출 −0.14로 F | BOX | M38 녹화에서 진행 방향 결합과 함께(M36) |
 | 통로 판정 | `corridor.judge` BOX → BOUNDARY (나란한 경계) | M44 재설계: 기준 충족(P) | BOX | M36 기본값 후보 |
+| 통로 판정 | `corridor.judge` BOX → LABEL(건물 칸만 나란한 경계) | M54 SL-7: 얕게 다가오는 건물 벽 첫 STOP 2.0 s 늦음(M44 결함, BOUNDARY에도) | BOX | 경계 결함 고친 뒤(M50) |
 | 안내 | `repPoint.strategy` CORRIDOR_NEAREST → CORRIDOR_BAND | M21 기본값(평활 깊이에서 방향 불합격 7/15 → 4/15) | CORRIDOR_BAND | M42 |
 | 안내 | `repPoint.stableTies` false → true | M21 보완(2026-10-30): 같은 거리 후보의 입력 순서 의존 재현 | false | 높이·피치 청취와 회전 재현 후, 기본값 후보 아님 |
 | 안내 | `policy.prioritizeStop`, `policy.maxSources` | 팀 소리 후보(IMPROVE_SPEC §15) | false / 1 | M42, 소리는 M36 |
@@ -56,3 +81,21 @@
 - 2026-10-31 · M37 · `frontend.enabled`(경계 판정) · 원시 RV 바탕(같은 하류) · 오경보 합 10 → 10, 152743 2 → 3, 물체 세션 결과 같음 · F, 꺼진 옵션
 - 2026-10-31 · M37 · `frontend.rgbGuide` WEIGHTED_MEDIAN·EDGE·EDGE_MARGIN(`rgbFrom=mp4`) · 원시 RV 바탕 · 오경보 합 10 → 11(152354 1 → 2, 152743 2 → 3), 물체 세션 결과 같음. 3상태 지도에서는 바닥 추정기가 돌지 않아 EDGE·EDGE_MARGIN이 WEIGHTED_MEDIAN과 같은 출력 · F, 꺼진 옵션
 - 2026-10-31 · M37 · 공정 비교(순수 대체 `fullonly` 대 같은 장 원시 `rawonly`, 같은 원시 σ) · E 6세션 · ZipDepth 헛 칸 0.316 → 0.244·표면 오차 0.174 → 0.139 m(나음), 오경보 10 → 16 · F 그대로. MiDaS·SML 완전성 0.349 → 0.195·0.191 · 버림 그대로
+- 2026-11-06 · M54 · `vision.movableDepth` RAW + `frontend.labelBandPx` 6 · 앞 단계 정답 없음(M49 끝 설정 위, T 7·O01 9·실내 21) · T 정답 없는 경고 7.40 → 6.54 s·거짓 시작 5 → 3, 150338 STOP 1.62 → 1.66 m, 받침대 첫 STOP 1.318 → 1.273 m, O01·실내 출력 같음 · 꺼진 옵션, 기본값 후보(M51 H·기기)
+- 2026-11-06 · M54 · `map.hitWeighting` CONFIDENCE, `map.decayWeighting` CONFIDENCE, `floor.weighting` CONFIDENCE · 같은 조건 · T 경고 6.01 s(W)이나 실내 STOP 놓침 2 → 4(131039 W·감쇠 무게로도 그대로, 131003 F) · 꺼진 옵션, 점유 판정은 M55
+- 2026-11-06 · M54 · `corridor.judge` LABEL · 합성 SL-7 · 첫 STOP BOX 3.17 s 대 5.18 s · 꺼진 옵션, BOUNDARY·LABEL 기본값 금지(경계 결함 고칠 때까지)
+- 2026-11-06 · M55 · 증거 합 점유 규칙(오프라인, 복셀 관측 기록) · E 10 + K01 8 · 헛 점유 1.87M → 2.57M 칸·장(95% [+0.29M, +1.17M]), 요구 유도 A 11.5에서도 +6% · 채택 안 함(장마다 독립 전제가 틀림), 문턱 6은 낮은 물체 STOP 요구의 상한
+- 2026-11-07 · M55 · `map.weightedMinHits` 5 + `vision.movableDepth` RAW + `frontend.labelBandPx` 6(P+B+W5) · 실내 21 라벨 저장 뒤, T 7·O01 9 · 실내 놓침 2·오경보 41 → 26·130646 한도 넘음, T 6.64 s·거짓 시작 4 · 조합 후보
+- 2026-11-07 · M55 · `floor.model` PLANE_RAW·`floor.histogramMinDistM`/`MaxDistM`·`floor.weighting` DISTANCE · P+B+W5 위 · 위 표 · 꺼진 옵션, ①은 150159 녹화 깊이 결함으로 닫음(사용자)
+- 2026-11-07 · M55 · `vision.obstacleDepth` RAW(평활 채움) · P·O 끈 B+W5와 비교 · T 6.32 → 8.01 s(첫 구현은 원시에 띠를 안 깎아 10.68 s) · 꺼진 옵션. 장애물 라벨 전체를 P처럼(평활 버림) 다루는 판은 시험 안 함 → M56
+- 2026-11-07 · M55 · B+W5(`vision.movableDepth` SMOOTHED, 띠 6 하늘·물 뺌, `map.weightedMinHits` 5) · 실내 21·T 7·O01 9 · 실내 놓침 2·오경보 26·130646 한도 넘음, T 6.32 s·거짓 시작 3(기준 충족), 150338 1.62 m·TTC 1.35 s, 사람 2 m 안 빈 장 22%·3 m 안 출력 둘 이상 150300 11%, O01 같음 · M56 판정 바탕
+- 2026-11-07 · M56 · `frontend.bandDepthEdgeSigmas`·`bandWidthM`·`bandNearM`(경계 띠 변형 셋) · B+W5 위, 계단 띠는 W 문턱을 같은 규칙으로 다시 유도, 늦음 = 첫 STOP 시각 차 × 걷는 속도(자세 튐 뺌) · 위 표 · 꺼진 옵션, 앞단은 고정 6 px + W5(사용자 결정)
+- 2026-11-08 · M56 · `vision.obstacleFill` NONE · B+W5 위, 원시 무게 1 · T 8.05 s·거짓 시작 6, 흔적 47 → 50 · 꺼진 옵션
+- 2026-11-08 · M56 · `vision.voxelLabels` + `cluster.sameLabelEpsM` 0.30 + `cluster.sameLabels` · B+W5 위(`map.weightedFrameMinHits` 5) · 위 표, 새 옵션을 끈 출력 바이트 같음 · M56 조합(뷰어 변형 39), M57 바탕
+- 2026-11-08 · M57 · `track.motionMap` OWNED + `gateLagS` 0.345 + `shadowDepthM` 2.93(복셀 지도 하나) · M56 조합 위, M49 라벨 판정·정답 판정 따로 · 150300 한 사람 갈림 8 → 0, 흔적 45 → 16(정답 판정 9), T 6.32 → 5.78 s·3, 안전·실내·O01 같음 · M57 조합에 넣음
+- 2026-11-08 · M57 · `track.motionEvidence` FREE_SPACE(빈 곳 위반 라벨 길·기하 길, 값 data/sweeps/m57/s2/judge2.json) · 한 지도 위(변형 j1) · 정지 거짓 판정 0(라벨 판정 1), 접근 150300 0.63 / 마감 0.54 s(라벨 판정 0.80)·150439 0.13 s(라벨 판정 판정 안 됨), 흔적 11, 2 m 안 빈 장 15 → 7%, T 5.81 s·3, 150338 1.79 m·TTC 2.04 s · M57 조합(뷰어 변형 41)
+- 2026-11-08 · M57 · `track.objectMinHits` 5 + `track.candidateOutput`(후보 문턱 지도와 같게·판정 전 출력) · j1 위(j2) · 실내 오경보 시작 26 → 34, T 5.81 → 6.55 s·거짓 시작 3 → 5, 150159 한 사람 갈림 1 → 22장, 2 m 안 빈 장 7 → 6% · 꺼진 옵션(채택 안 함)
+- 2026-11-08 · M57 · `track.measureLabels` false(측정 점 라벨 거름 대신 정지 칸 점 빼기) · j2 위(j3) · 정지 거짓 판정 0 → 1(150457), 150338 STOP 1.94 → 1.06 m, T 6.60 s·6 · 꺼진 옵션(채택 안 함)
+- 2026-11-08 · M59 · `track.rawAssociation` NEAREST_BLOB(창 안 라벨 원시 점을 DBSCAN 0.15 m 덩어리로 나눠 χ² 가장 작은 덩어리, 한 덩어리 한 track, 게이트·지우기 포함) · M58 조합 위(a1) · 합성 SM-16 옮겨 붙음 0, 150439 p2가 자기 track을 얻음, 그러나 정지 거짓 판정 0 → 1(150338), 한 사람 출력 둘 이상 150159 1 → 25%·150439 0 → 18%(준비 전 track 고침 뒤 150439 0%), 판정·후보·칸 소유가 창 단위라 작은 덩어리(섞인 화소·지난 자리·서 있는 사람)에 후보가 붙음 · 꺼진 옵션(판정을 덩어리 단위로 바꿀 때 다시 봄)
+- 2026-11-08 · M59 · `track.mergeVelChi2` 9.21(0.3 m 안 두 track도 속도 차 χ²가 크면 합치지 않음) · GATE 위(a3) · 정지 거짓 판정 0 → 1(150439: 중복 후보가 확신하며 틀린 속도로 합쳐지지 않음), 덩어리 모드에서 막으려던 흡수는 GATE에서 없었음 · 꺼진 옵션(채택 안 함)
+- 2026-11-09 · M53 · `vision.footContact`(의미 영상 사람·차량 덩어리 땅 쪽 끝 ∩ 카메라 높이 8 s 중앙값 바닥, 지금 추적과 따로 도는 발 접점 track, 깊이 움직이는 track 먼저; 키 `vision.foot*`) · M59 조합 위(a1, 뷰어 변형 44) · 접근 판정 넷 모두 깊이 전·마감 안, SM-17 2.6 m/s TTC 1.16 s, 안전·경고 그대로, 한 사람 출력 150300 5%·150439 11%(부분 충족) · M53 조합(기본값 꺼짐, M51 판정)

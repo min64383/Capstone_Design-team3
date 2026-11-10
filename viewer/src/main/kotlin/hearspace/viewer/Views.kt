@@ -47,6 +47,15 @@ class ViewerModel {
     var showVoxels = false
     /** 위에서 본 그림에 그릴 복셀 높이. 높이를 모두 겹치면 벽이 실제보다 두꺼워 보인다(M13: 한 층은 1~2칸). */
     var voxelHeight = VoxelHeight.ALL
+    /** 카메라 화면에 라벨 영상(M49)의 움직일 수 있는 라벨 화소를 겹친다(사람 자홍, 차량 하늘색). 라벨을 쓰는 설정에서만 있다. */
+    var showLabels = false
+    /**
+     * 카메라 화면에 경계 띠(M56)를 겹친다: 빨강 = 라벨 띠·깊이 경계 띠 모두 지우는 화소, 노랑 = 지금 라벨 띠만 지우고 깊이 경계 띠는 남기는 화소,
+     * 하늘색 = 깊이 경계 화소(평활 4이웃 차 > n·σ). 그 시각 직전에 느린 경로가 처리한 깊이 장과 그 라벨 영상으로 계산한다(라벨을 쓰는 변형만).
+     */
+    var showBands = false
+    /** M56 칸 과반 라벨 색(칸 라벨 표를 켠 변형만). */
+    var showVoxelLabels = false
     /** 카메라 화면의 정답 상자를 RGB·포즈로 잰 바닥(`ReplayResult.rgbFloorAt`) 위에 놓는다. 꺼짐 = 재생의 깊이 바닥(정렬 바닥) 위(M26). */
     var truthOnRgbFloor = false
     /** 지금 쓰고 있는 평가의 시점 메모(타임라인에 표시). */
@@ -92,6 +101,8 @@ internal object Palette {
     val text = Color(220, 220, 225)
     val truth = Color(80, 220, 120)
     val source = Color(255, 230, 80)
+    /** 움직이는 track(M48·M49): 상자·화살표·글자. */
+    val moving = Color(255, 90, 210)
     fun height(h: HeightClass): Color = when (h) {
         HeightClass.FLOOR -> Color(255, 160, 40)
         HeightClass.BODY -> Color(60, 200, 255)
@@ -108,6 +119,18 @@ internal object Palette {
     val erased = Color(255, 0, 255)
     /** 칸 분류 장면에서 평가 영역 밖(높이 상한 위 등) 칸. */
     val outside = Color(90, 90, 100)
+    /** M54 칸 역할 색. */
+    val roleBuilding = Color(235, 140, 40)
+    val roleFloorish = Color(225, 205, 60)
+    /** M56 칸 과반 라벨 색(라벨 화소 값 순: 라벨 없음·하늘·건물·나무·도로·보도·지면·구조물·물체·차량·사람·물). 과반 없음은 어두운 회색. */
+    val labels = arrayOf(
+        Color(200, 200, 200), Color(120, 180, 240), Color(235, 140, 40), Color(60, 170, 60), Color(150, 120, 90), Color(225, 205, 60),
+        Color(170, 150, 80), Color(160, 80, 200), Color(50, 110, 230), Color(0, 190, 190), Color(230, 40, 40), Color(40, 60, 160),
+    )
+    val noMajority = Color(90, 90, 90)
+    /** M57 움직이는 칸. */
+    val movingCell = Color(230, 60, 230)
+
     fun heightOf(yM: Float): Color = Color.getHSBColor(0.66f * (1f - (yM / 2f).coerceIn(0f, 1f)), 0.9f, 1f)
     fun band(b: Band?): Color = when (b) {
         Band.STOP -> Color(255, 70, 70)
@@ -144,6 +167,8 @@ class CameraView(
 ) : JPanel() {
     private val rgbCache = lru<String, BufferedImage?>()
     private val depthCache = lru<String, BufferedImage?>()
+    private val labelCache = lru<Long, BufferedImage>()
+    private val bandCache = lru<String, BufferedImage>()
     // 마지막으로 그린 화면 ← 센서 변환(클릭을 센서 좌표로 되돌릴 때 쓴다)
     private var lastSc = 1.0
     private var lastOx = 0.0
@@ -200,6 +225,20 @@ class CameraView(
                 s.drawImage(d, 0, (sh - ch) / 2, sw, ch, null)
             }
         }
+        // 경계 띠(M56): 그 시각 직전에 처리한 깊이 장과 그 라벨 영상으로 라벨 띠·깊이 경계 띠를 계산해 깊이와 같은 자리에 겹친다
+        val bandRec = if (model.showBands) r.slowAt(t)?.depth?.takeIf { it.labels != null } else null
+        bandRec?.let { d ->
+            val fe = r.config.frontend
+            val b = if (fe.labelBandPx > 0) fe.labelBandPx else 6
+            val ns = if (fe.bandDepthEdgeSigmas > 0f) fe.bandDepthEdgeSigmas else 2f
+            bandCache.getOrPut("${d.tCaptureNs}|$b|$ns|${fe.bandWidthM}|${fe.bandMinPx}|${fe.bandNearM}|${fe.bandFarPx}|${fe.bandLabels}") { bandOverlay(d, b, ns, r.config) }.let { img ->
+                val ch = sw * img.height / img.width
+                s.drawImage(img, 0, (sh - ch) / 2, sw, ch, null)
+            }
+        }
+        // 라벨 영상(M49): 그 시각 직전에 처리한 깊이 장에 붙은 의미 영상을 CPU 영상 좌표로 옮겨 겹친다
+        val labelImg = if (model.showLabels) r.slowAt(t)?.depth?.labels else null
+        labelImg?.let { li -> s.drawImage(labelCache.getOrPut(li.tCaptureNs) { labelOverlay(li, k) }, 0, 0, sw, sh, null) }
         val labels = ArrayList<Triple<Float, Float, Pair<String, Color>>>()
         val row = rgbRow ?: depthRow
         if (row != null) {
@@ -250,8 +289,9 @@ class CameraView(
             val block = r.blockIndexAt(t).takeIf { it >= 0 }?.let { r.blocks[it] }
             val active = block?.g?.commands?.map { it.obstacleId }?.toSet() ?: emptySet()
             r.slowAt(t)?.snapshot?.obstacles?.forEach { o ->
-                drawBox(boxCorners(o.aabbMinW, o.aabbMaxW), Palette.height(o.heightClass), dashed = false)
-                    ?.let { labels += Triple(it.first, it.second, "#${o.id}" to Palette.height(o.heightClass)) }
+                val col = if (o.moving) Palette.moving else Palette.height(o.heightClass)
+                drawBox(boxCorners(o.aabbMinW, o.aabbMaxW), col, dashed = false)
+                    ?.let { labels += Triple(it.first, it.second, "#${o.id}${if (o.moving) " 움직임" else ""}" to col) }
                 if (o.id in active) px(o.repPointW)?.let { (u, v) ->
                     s.color = Palette.source
                     s.fillOval(u.toInt() - 7, v.toInt() - 7, 14, 14)
@@ -299,12 +339,77 @@ class CameraView(
         val src = (if (rgbRow == null) "RGB 없음(깊이만)" else "RGB 프레임 ${rgbRow.frameIndex}") +
             (if (model.showVoxels) (if (r.classColors) "  ·  칸: 초록 맞음, 회색 속, 빨강 헛, 흰 테 놓친 표면(바닥 제외), 어두운 회색 영역 밖" else "  ·  칸: 높이 색(정답 장면 없음)") else "") +
             (if (model.showDepth && r.config.frontend.enabled) "  ·  자홍 = 경계(막) 판정" else "") +
+            (if (model.showLabels) (if (labelImg != null) "  ·  라벨: 자홍 사람, 하늘색 차량(%.0f ms 전 영상)".format((t - labelImg.tCaptureNs) / 1e6) else "  ·  라벨 없음(라벨을 쓰는 변형만)") else "") +
+            (if (model.showBands) (if (bandRec == null) "  ·  띠: 라벨 없음(라벨을 쓰는 변형만)"
+                else if (r.config.frontend.bandNearM > 0f) "  ·  띠: 빨강 두 띠 모두 지움, 노랑 고정 띠만 지움(계단 띠: %.1f m 밖 %d화소는 남김), 하늘색 깊이 경계".format(r.config.frontend.bandNearM, r.config.frontend.bandFarPx)
+                else if (r.config.frontend.bandWidthM > 0f) "  ·  띠: 빨강 두 띠 모두 지움, 노랑 고정 띠만 지움(거리 비례 띠 %.0f cm는 남김), 하늘색 깊이 경계".format(r.config.frontend.bandWidthM * 100)
+                else "  ·  띠: 빨강 두 띠 모두 지움, 노랑 라벨 띠만 지움(깊이 경계 띠는 남김), 하늘색 깊이 경계") else "") +
             (if (model.showDepth && r.config.frontend.planes == PlaneMode.RANSAC) "  ·  초록 = 바닥 평면, 주황 = 벽 평면" else "") +
             (if (model.showDepth && r.config.frontend.segment == SegmentMode.REGION) "  ·  색 = 영역(C3a, 직전 처리한 깊이)" else "")
         g.drawString(src, 8, height - 8)
     }
 
     private fun readImage(f: File): BufferedImage? = runCatching { ImageIO.read(f) }.getOrNull()
+
+    /**
+     * 깊이 장 [d](라벨 붙음)의 경계 띠 겹침(깊이 영상 크기): 고정 폭 라벨 띠([b]화소)와 비교 띠를 견준다. 비교 띠 = 설정에 `frontend.bandWidthM`이
+     * 있으면 거리 비례 띠, 없으면 깊이 경계 띠([sigmas]). 빨강 = 둘 다 지움, 노랑 = 고정 띠만 지움, 하늘색 = 깊이 경계 화소.
+     */
+    private fun bandOverlay(d: hearspace.core.types.DepthFrame, b: Int, sigmas: Float, cfg: hearspace.core.types.Config): BufferedImage {
+        val w = d.K.width
+        val h = d.K.height
+        val obs = BooleanArray(hearspace.core.frontend.LabelBand.OBSTACLE.size) { v -> cfg.frontend.bandLabels.any { it.pixel == v } }
+        val field = hearspace.core.frontend.LabelBand.field(d.labels!!, d.K.fx, b, obs)
+        val s0 = cfg.depth.smoothedSigma0M
+        val s2 = cfg.depth.smoothedSigmaPerM2
+        val near = hearspace.core.frontend.LabelBand.depthEdgeNear(d.depthMm, w, h, sigmas, s0, s2, b)
+        val jump = hearspace.core.frontend.LabelBand.depthEdgeNear(d.depthMm, w, h, sigmas, s0, s2, 0)
+        val (plain, _) = hearspace.core.frontend.LabelBand.apply(d.depthMm, d, field)
+        val bw = cfg.frontend.bandWidthM
+        val (cond, _) = when {
+            cfg.frontend.bandNearM > 0f -> hearspace.core.frontend.LabelBand.apply(
+                d.depthMm, d, field, pxLimit = hearspace.core.frontend.LabelBand.stepByDepth(d.depthMm, w, h, cfg.frontend.bandNearM, cfg.frontend.bandFarPx, b),
+            )
+            bw > 0f -> hearspace.core.frontend.LabelBand.apply(
+                d.depthMm, d, field, pxLimit = hearspace.core.frontend.LabelBand.widthByDepth(d.depthMm, w, h, d.K.fx, bw, cfg.frontend.bandMinPx, b),
+            )
+            else -> hearspace.core.frontend.LabelBand.apply(d.depthMm, d, field, near)
+        }
+        val out = BufferedImage(w, h, BufferedImage.TYPE_INT_ARGB)
+        for (i in 0 until w * h) {
+            if (d.depthMm[i].toInt() == 0) continue
+            val x = i % w
+            val y = i / w
+            val byLabel = plain[i].toInt() == 0
+            val byEdge = cond[i].toInt() == 0
+            when {
+                byLabel && byEdge -> out.setRGB(x, y, (200 shl 24) or 0xFF3030)
+                byLabel -> out.setRGB(x, y, (200 shl 24) or 0xFFE030)
+                jump[i] -> out.setRGB(x, y, (200 shl 24) or 0x40D8FF)
+            }
+        }
+        return out
+    }
+
+    /**
+     * 라벨 영상 -> CPU 영상([k]) 크기의 반투명 겹침. 같은 카메라의 두 내부 파라미터라 화소마다 정규화 좌표로 옮긴다(라벨 K는 VisionFrames가 고른
+     * 텍스처·CPU 영상 K의 비례, VERIFY). 사람 = 자홍, 차량 = 하늘색, 나머지는 칠하지 않는다.
+     */
+    private fun labelOverlay(li: hearspace.core.types.LabelImage, k: hearspace.core.types.Intrinsics): BufferedImage {
+        val out = BufferedImage(k.width, k.height, BufferedImage.TYPE_INT_ARGB)
+        val lk = li.K
+        val person = hearspace.core.types.SemanticLabel.PERSON.pixel
+        val vehicle = hearspace.core.types.SemanticLabel.VEHICLE.pixel
+        for (v in 0 until k.height) for (u in 0 until k.width) {
+            val lu = ((u - k.cx) / k.fx * lk.fx + lk.cx).toInt()
+            val lv = ((v - k.cy) / k.fy * lk.fy + lk.cy).toInt()
+            if (lu < 0 || lv < 0 || lu >= lk.width || lv >= lk.height) continue
+            val px = li.labels[lv * lk.width + lu].toInt() and 0xFF
+            if (px == person) out.setRGB(u, v, (110 shl 24) or 0xFF40D0)
+            else if (px == vehicle) out.setRGB(u, v, (110 shl 24) or 0x40D0FF)
+        }
+        return out
+    }
 
     /**
      * 깊이(mm) → 가까움 빨강 ~ 4 m 이상 파랑, 반투명. 0(무효)은 투명. [boundary]가 있으면 그 마스크 픽셀을 자홍(불투명)으로,
@@ -417,8 +522,25 @@ class TopView(private val model: ViewerModel, private val compare: Boolean = fal
                 if (!model.voxelHeight.contains(p.y, r.config.corridor.heightM)) continue
                 val c = if (model.showVoxels) r.classify(w)?.let(Palette::voxelClass) else null
                 val b = (80 + 120 * (p.y / 2f).coerceIn(0f, 1f)).toInt()
-                g.color = c ?: Color(b, b, b)
+                // M54 칸 역할(칸 라벨 표를 켠 변형): 건물 주황, 바닥류 노랑, 장애물·표 모자람은 높이 회색
+                val role = slow.roles?.get(i)?.toInt()
+                val rc = when (role) {
+                    hearspace.core.mapping.VoxelRole.BUILDING.ordinal -> Palette.roleBuilding
+                    hearspace.core.mapping.VoxelRole.FLOORISH.ordinal -> Palette.roleFloorish
+                    else -> null
+                }
+                val lc = if (model.showVoxelLabels) slow.labels?.get(i)?.toInt()?.let { l -> Palette.labels.getOrNull(l) ?: Palette.noMajority } else null
+                g.color = lc ?: c ?: rc ?: Color(b, b, b)
                 g.fillRect(sx(p.x).toInt() - 1, sy(p.z).toInt() - 1, 3, 3)
+            }
+            // M57 복셀 지도 하나: 움직이는 칸(움직이는 track 소유)은 자홍
+            slow.movingW?.let { m ->
+                g.color = Palette.movingCell
+                for (i in 0 until m.size / 3) {
+                    val p = al.toTruth(Vec3(m[3 * i], m[3 * i + 1], m[3 * i + 2]))
+                    if (!model.voxelHeight.contains(p.y, r.config.corridor.heightM)) continue
+                    g.fillRect(sx(p.x).toInt() - 1, sy(p.z).toInt() - 1, 3, 3)
+                }
             }
             if (model.showVoxels) {
                 for ((p, erased) in r.missedAt(slow)) {
@@ -436,17 +558,49 @@ class TopView(private val model: ViewerModel, private val compare: Boolean = fal
             g.drawString(o.name, sx(o.maxM.x) + 3, sy(o.maxM.z) + 12)
         }
         g.stroke = BasicStroke(2f)
+        // 머리 위치·진행 방향·사용자 속도(움직이는 track의 TTC 근삿값용, Policy와 같이 상대 속도. σ 여유는 뺌)
+        val bi = r.blockIndexAt(t)
+        val headNow = if (bi >= 0) r.headTruthAt(bi) else null
+        // 사용자 속도 창 = `track.userVelocityS`(FastPath와 같은 창)를 오디오 블록 수로
+        val velBlocks = (r.config.track.userVelocityS * r.config.audio.sampleRate / r.config.audio.blockSize).toInt().coerceAtLeast(1)
+        val bPast = (bi - velBlocks).coerceAtLeast(0)
+        val headPast = if (bi >= 0) r.headTruthAt(bPast) else null
+        val userVelT = if (headNow != null && headPast != null && bi > bPast) {
+            val dt = (r.blocks[bi].tNs - r.blocks[bPast].tNs) / 1e9f
+            if (dt > 0f) (headNow - headPast) * (1f / dt) else Vec3.ZERO
+        } else Vec3.ZERO
+        val headingT = if (bi >= 0 && headNow != null && !r.blocks[bi].g.headingDeg.isNaN()) {
+            val hd = Math.toRadians(r.blocks[bi].g.headingDeg.toDouble())
+            val hW = Vec3(sin(hd).toFloat(), 0f, -cos(hd).toFloat())
+            val o0 = al.toWorld(headNow)
+            (al.toTruth(o0 + hW) - al.toTruth(o0)).horizontal().normalized()
+        } else null
         // 추적 물체
         slow?.snapshot?.obstacles?.forEach { o ->
             val c = listOf(Vec3(o.aabbMinW.x, 0f, o.aabbMinW.z), Vec3(o.aabbMaxW.x, 0f, o.aabbMinW.z), Vec3(o.aabbMaxW.x, 0f, o.aabbMaxW.z), Vec3(o.aabbMinW.x, 0f, o.aabbMaxW.z))
                 .map { al.toTruth(it) }
             val poly = Path2D.Float().apply { c.forEachIndexed { i, p -> if (i == 0) moveTo(sx(p.x), sy(p.z)) else lineTo(sx(p.x), sy(p.z)) }; closePath() }
-            val col = Palette.height(o.heightClass)
+            val col = if (o.moving) Palette.moving else Palette.height(o.heightClass)
             g.color = Color(col.red, col.green, col.blue, 70); g.fill(poly)
             g.color = col; g.draw(poly)
             val rp = al.toTruth(o.repPointW)
             g.fillOval(sx(rp.x).toInt() - 3, sy(rp.z).toInt() - 3, 6, 6)
-            g.drawString("#${o.id}", sx(c.maxOf { it.x }) + 3, sy(c.maxOf { it.z }))
+            var tag = "#${o.id}"
+            val v = o.velocityW
+            if (o.moving && v != null) {
+                // 속도 화살표: 1초 동안 갈 자리
+                val vT = (al.toTruth(o.repPointW + v.horizontal()) - rp).horizontal()
+                val end = rp + vT
+                g.drawLine(sx(rp.x).toInt(), sy(rp.z).toInt(), sx(end.x).toInt(), sy(end.z).toInt())
+                g.fillOval(sx(end.x).toInt() - 2, sy(end.z).toInt() - 2, 5, 5)
+                tag += " %.1f m/s".format(vT.norm())
+                if (headNow != null && headingT != null) {
+                    val along = (rp - headNow).horizontal() dot headingT
+                    val closing = -((vT - userVelT.horizontal()) dot headingT)
+                    if (closing > 0.05f && along > 0f) tag += " TTC≈%.1f s".format(along / closing)
+                }
+            }
+            g.drawString(tag, sx(c.maxOf { it.x }) + 3, sy(c.maxOf { it.z }))
         }
         // 머리, 통로, 음원
         val i = r.blockIndexAt(t)
