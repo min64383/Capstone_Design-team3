@@ -658,14 +658,14 @@ class MovingObstacleTest {
                 val inMiss = bs.filter { val t = tS(it.tNs); t in miss && inCorridor(spec, p, t) }
                 return inMiss.count { b -> b.snapshot?.obstacles?.any { it.moving && nearPerson(p, it, tS(b.tNs)) } == true } to inMiss.size
             }
-            for ((name, cfg) in listOf("M57" to m57c, "M58" to m58)) {
+            for ((name, cfg) in listOf("M57" to m57c, "M58" to m58, "M53" to m53)) {
                 val on = replay(spec, cfg)
                 val (k, all) = kept(on)
                 val anyMoving = on.count { b -> val t = tS(b.tNs); t in miss && inCorridor(spec, p, t) && b.snapshot?.obstacles?.any { it.moving } == true }
                 val stops = on.count(::stopped)
                 val (u1, u0) = unexplainedWarnS(spec, p, on) to unexplainedWarnS(spec, p, off)
                 println("SM-14 $name noise=${n.depthQuadK}: first moving ${firstMovingS(on)} s, moving output near person in miss $k/$all (any moving $anyMoving), STOP blocks $stops, unexplained $u1 vs off $u0 s")
-                if (name == "M58") {
+                if (name == "M58" || name == "M53") {
                     val first = firstMovingS(on)
                     if (first == null || first >= miss.start) fails += "s=${n.depthQuadK}: judged at $first s, not before ${miss.start} s (test invalid)"
                     if (all == 0 || k < 0.9f * all) fails += "s=${n.depthQuadK}: moving output $k/$all"
@@ -690,11 +690,11 @@ class MovingObstacleTest {
         for (n in listOf(Noise(), noisy)) {
             val p = crossing(removeAtS = gone)
             val spec = SceneSpec("SM-15", Scene(listOf(floor, backWall, p)), Walk(standS = 1000f, durationS = 8.0f), n)
-            for ((name, cfg) in listOf("M57" to m57c, "M58" to m58)) {
+            for ((name, cfg) in listOf("M57" to m57c, "M58" to m58, "M53" to m53)) {
                 val on = replay(spec, cfg)
                 val last = on.lastOrNull { b -> b.snapshot?.obstacles?.any { it.moving } == true }?.let { tS(it.tNs) }
                 println("SM-15 $name noise=${n.depthQuadK}: first moving ${firstMovingS(on)} s, last moving $last s (gone $gone s)")
-                if (name == "M58") {
+                if (name == "M58" || name == "M53") {
                     if (firstMovingS(on)?.let { it < gone } != true) fails += "s=${n.depthQuadK}: not judged moving before $gone s (test invalid)"
                     if (last != null && last > gone + 0.5f) fails += "s=${n.depthQuadK}: moving output until $last s"
                 }
@@ -758,7 +758,7 @@ class MovingObstacleTest {
         for ((bX, bStart) in listOf(0.3f to 3.6f, 0.5f to 3.9f)) for (n in listOf(Noise(), noisy)) {
             val (spec, a, b) = sm16(n, bX, bStart)
             val alone = approach(spec, b, replay(sm16(n, bX, bStart, withA = false).first, m59))
-            for ((name, cfg) in listOf("M58" to m58, "M59" to m59)) {
+            for ((name, cfg) in listOf("M58" to m58, "M59" to m59, "M53" to m53)) {
                 val sink = ArrayList<hearspace.core.tracking.MotionDebug>()
                 motionSink = sink
                 val blocks = replay(spec, cfg)
@@ -772,13 +772,87 @@ class MovingObstacleTest {
                 if (System.getenv("SM16_TRACE") != null) by.forEach { (id, ms) -> println("  id$id " + ms.joinToString(" ") { "%.2f:%s".format(it.first, it.second?.last() ?: "-") }) }
                 when (name) {
                     "M58" -> if (strays.isEmpty()) fails += "$tag: M58 combination did not jump (test invalid)"
-                    "M59" -> if (bX <= 0.3f) { // 변형 장면(옆 0.5 m)은 보고만: 가장자리에서 기운 예측이 B를 0.3 s 받는 한계(한 덩어리 한 track 없음, M59 결과)
+                    "M59", "M53" -> if (bX <= 0.3f) { // 변형 장면(옆 0.5 m)은 보고만: 가장자리에서 기운 예측이 B를 0.3 s 받는 한계(한 덩어리 한 track 없음, M59 결과)
                         if (aTracks.isEmpty()) fails += "$tag: no track measured A"
                         if (strays.isNotEmpty()) fails += "$tag: A track measured off A ${strays.keys}"
                         if (!approachOk(ap)) fails += "$tag: B $ap (alone $alone)"
                     }
                 }
             }
+        }
+        assertTrue(fails.isEmpty(), fails.joinToString("; "))
+    }
+
+    /** M53 조합: M59 조합 + 깊이 밖 사람의 발 접점 track(`vision.footContact`). */
+    private val m53 = m59.replace("\"voxelLabels\": true }", "\"voxelLabels\": true, \"footContact\": true }")
+
+    @Test fun `M53 SM-1`() { useLabels = true; kalman = m53; `SM-1 KALMAN - an oncoming person is stopped before 1 m with TTC at least 1 s`() }
+    @Test fun `M53 SM-2`() { useLabels = true; kalman = m53; `SM-2 KALMAN - user and person walk toward each other`() }
+    @Test fun `M53 SM-3`() { useLabels = true; kalman = m53; `SM-3 KALMAN - a person crossing 2 m ahead is not a STOP and leaves no lingering warning`() }
+    @Test fun `M53 SM-4`() { useLabels = true; kalman = m53; `SM-4 KALMAN - a static box is never judged moving and its first STOP is unchanged`() }
+    @Test fun `M53 SM-5`() { useLabels = true; kalman = m53; `SM-5 KALMAN - a person crossing just in front of a box does not take the box cells`() }
+    @Test fun `M53 SM-6`() { useLabels = true; kalman = m53; `SM-6 KALMAN - a person who comes close and steps aside is stopped in time and leaves less lingering warning`() }
+    @Test fun `M53 SM-11`() { oneMap = m53; `M57 OWNED SM-11 - a person who stood then walks toward the user leaves no trail`() }
+    @Test fun `M53 SM-13`() { fsCfg = m53; `M57 FREE_SPACE SM-13 - a standing person stays static`() }
+
+    /** M53 합성 깊이: 사람을 2.4 m 안에서만 담는다(T 평활 D_a 1.98~2.68 m의 가운데, 설계 표 8). 라벨 끝은 장마다 ±1 px 흔든다. */
+    private fun beyondDepth(n: Noise) = n.copy(maxDepthM = 2.4f, labelJitterPx = 1)
+
+    /** SM-17(M53): 서 있는 사용자에게 사람이 머리 앞 8 m에서 [v]로 곧장 다가와 0.4 m에서 선다. 의미 영상은 깊이 2장에 1장(약 15 Hz). */
+    private fun sm17(v: Float, n: Noise): Pair<SceneSpec, SceneItem> {
+        val p = oncoming(v, startAlongM = 8f)
+        return SceneSpec("SM-17-$v", Scene(listOf(floor, p)), Walk(standS = 1000f, durationS = 1.5f + (8f - 0.4f) / v + 1.0f), beyondDepth(n)) to p
+    }
+
+    /**
+     * SM-17(M53 설계 표 8): 상대 2.6 m/s(마주 걷는 두 사람)로 다가오는 사람이 깊이에 2.4 m에서야 담길 때, M53 조합은 1.0 m 진입 전 STOP·TTC ≥ 1.0 s.
+     * M59 조합 값은 보고만(설계 예상: 깊이 경로만으로는 TTC < 1.0 s).
+     */
+    @Test
+    fun `M53 SM-17 - a fast oncoming person beyond depth range is stopped with TTC at least 1 s`() {
+        useLabels = true
+        semEveryN = 2
+        val fails = ArrayList<String>()
+        for (n in listOf(Noise(), noisy)) {
+            val (spec, p) = sm17(2.6f, n)
+            val (a59, a53) = approach(spec, p, replay(spec, m59)) to approach(spec, p, replay(spec, m53))
+            println("M53 SM-17 v=2.6 noise=${n.depthQuadK}: M59 stop ${a59.stopAlongM} ttc ${a59.ttcS} entered ${a59.entryBeforeStop} | M53 stop ${a53.stopAlongM} ttc ${a53.ttcS} entered ${a53.entryBeforeStop}")
+            if (!approachOk(a53)) fails += "s=${n.depthQuadK}: $a53"
+        }
+        assertTrue(fails.isEmpty(), fails.joinToString("; "))
+    }
+
+    /** SM-17 속도 변형(보고만, M50 S1 범위): 상대 속도마다 첫 STOP의 참 거리·TTC. */
+    @Test
+    fun `M53 SM-17 speeds - report the stop distance and TTC by relative speed`() {
+        useLabels = true
+        semEveryN = 2
+        for (v in listOf(1.5f, 2.0f, 2.6f, 3.0f, 3.5f, 4.5f)) for (n in listOf(Noise(), noisy)) {
+            val (spec, p) = sm17(v, n)
+            val (a59, a53) = approach(spec, p, replay(spec, m59)) to approach(spec, p, replay(spec, m53))
+            println("M53 SM-17 v=$v noise=${n.depthQuadK}: M59 stop ${a59.stopAlongM} ttc ${a59.ttcS} ok ${approachOk(a59)} | M53 stop ${a53.stopAlongM} ttc ${a53.ttcS} ok ${approachOk(a53)}")
+        }
+    }
+
+    /**
+     * SM-18(M53): 머리 앞 3 m를 1.3 m/s로 옆으로 지나가는 사람(깊이 밖). 다가오는 속도가 없으니 STOP·WARN이 없어야 한다. 설계 표 8의 4 m는 통로 길이
+     * (3.5 m) 밖이라 발 접점 출력이 처음부터 생기지 않아 시험이 되지 않아 3 m로 둔다.
+     */
+    @Test
+    fun `M53 SM-18 - a person crossing 3 m ahead beyond depth range gets no STOP or WARN`() {
+        useLabels = true
+        semEveryN = 2
+        val fails = ArrayList<String>()
+        for (n in listOf(Noise(), noisy)) {
+            val r = 0.2f
+            val p = SceneItem("person", VerticalCylinder(-2.5f, 0.3f - 3.0f - r, r, 0f, 1.7f), obstacle = true, expectedClass = HeightClass.BODY,
+                motion = Motion(Vec3(1.3f, 0f, 0f), 1.5f, 1.5f + 5f / 1.3f))
+            val spec = SceneSpec("SM-18", Scene(listOf(floor, p)), Walk(standS = 1000f, durationS = 1.5f + 5f / 1.3f + 0.5f), beyondDepth(n))
+            val on = replay(spec, m53)
+            val farOut = on.count { b -> b.snapshot?.obstacles?.any { it.id >= hearspace.core.tracking.FarTracker.FIRST_ID } == true }
+            val (stops, warns) = on.count(::stopped) to on.count(::warned)
+            println("M53 SM-18 noise=${n.depthQuadK}: STOP blocks $stops, WARN-or-STOP blocks $warns, blocks with a foot-contact output $farOut")
+            if (stops > 0 || warns > 0) fails += "s=${n.depthQuadK}: stops $stops warns $warns"
         }
         assertTrue(fails.isEmpty(), fails.joinToString("; "))
     }

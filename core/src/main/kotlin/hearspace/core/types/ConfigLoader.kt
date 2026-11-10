@@ -421,6 +421,15 @@ object ConfigLoader {
                     obstacleFill = enumValue<ObstacleFill>("obstacleFill"),
                     voxelLabels = boolean("voxelLabels"),
                     floorishLabels = enumList<SemanticLabel>("floorishLabels").toSet(),
+                    footContact = boolean("footContact"),
+                    footEdgePx = intIn("footEdgePx", 0, 1000),
+                    footMinPx = intIn("footMinPx", 1, 1_000_000),
+                    footMaxDistM = positive("footMaxDistM"),
+                    footSigma0M = nonNegative("footSigma0M"),
+                    footSigmaPx = nonNegative("footSigmaPx"),
+                    footFloorSigmaM = nonNegative("footFloorSigmaM"),
+                    footHeightWindowS = positive("footHeightWindowS"),
+                    footBodyHeightM = positive("footBodyHeightM"),
                 )
             },
             sonify = root.section("sonify") {

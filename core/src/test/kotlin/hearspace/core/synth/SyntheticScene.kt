@@ -292,6 +292,8 @@ data class Noise(
     val edgeSmoothPx: Int = 0,
     /** 깊이 최대 거리(m, M55): 넘는 화소는 평활·원시 모두 없음. 실외 T에서 사람은 약 3 m 안에서야 깊이에 나타났다. 기본은 [MAX_DEPTH_M]만. */
     val maxDepthM: Float = Float.MAX_VALUE,
+    /** 의미 영상 흔들림(M53): 장마다 라벨 영상 전체를 가로·세로 [−n, n] 화소 안 임의 정수만큼 옮긴다(마스크 경계 잡음). 0이면 그대로. */
+    val labelJitterPx: Int = 0,
     /**
      * 옆 번짐(M19): 평활 깊이가 앞 물체의 깊이를 옆·위 배경 화소로 퍼뜨리는 것을 흉내 낸다. 반경 이 픽셀 정사각형 안에 자기보다
      * [EDGE_JUMP_RATIO] 넘게 가까운 **장애물** 화소가 있으면 그중 가장 가까운 깊이로 바꾼다(물체가 이만큼 굵어진다). 원천을 장애물로
@@ -506,6 +508,17 @@ object SyntheticGenerator {
                 continue
             }
             mm[i] = min((z * 1000f).roundToInt(), 65535).toShort()
+        }
+        if (noise.labelJitterPx > 0) {
+            val n = noise.labelJitterPx
+            val du = rnd.nextInt(2 * n + 1) - n
+            val dv = rnd.nextInt(2 * n + 1) - n
+            val src = semantic.copyOf()
+            for (v in 0 until k.height) for (u in 0 until k.width) {
+                val su = (u - du).coerceIn(0, k.width - 1)
+                val sv = (v - dv).coerceIn(0, k.height - 1)
+                semantic[v * k.width + u] = src[sv * k.width + su]
+            }
         }
         val spilled = (if (noise.edgeSpillPx > 0) edgeSpill(mm, obstacle, k, noise.edgeSpillPx) else mm)
             .let { if (noise.edgePullPx > 0) edgePull(it, obstacle, k, noise.edgePullPx) else it }

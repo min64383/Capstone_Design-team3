@@ -887,6 +887,27 @@ data class VisionConfig(
     val voxelLabels: Boolean = false,
     /** 칸 역할에서 바닥류로 세는 라벨(M54 도로·보도·지형). M55 시험: 실내 누운 캐리어가 보도 87~100%라 보도를 빼면 장애물 역할이 된다. */
     val floorishLabels: Set<SemanticLabel> = setOf(SemanticLabel.ROAD, SemanticLabel.SIDEWALK, SemanticLabel.TERRAIN),
+    /**
+     * 깊이 밖 사람 거리(M53, IMPROVE_SPEC §13 v0.4.32): 의미 영상의 [movingLabels] 덩어리 땅 쪽 끝(발 접점) ∩ 바닥면으로 재는 발 접점 track을 지금 추적과
+     * 따로 돌리고, 깊이의 움직이는 track이 그 사람을 내지 않을 때만 출력한다. false = 기준선.
+     */
+    val footContact: Boolean = false,
+    /** 영상 가장자리 이 화소 수 안에 닿은 덩어리는 버린다(발·몸이 잘림, 자체 선택). */
+    val footEdgePx: Int = 2,
+    /** 이보다 작은 덩어리는 라벨 점 잡음으로 버린다(설계 측정 foot.py와 같음). */
+    val footMinPx: Int = 20,
+    /** 카메라에서 이보다 먼 발 접점은 버린다(설계 측정의 가장 먼 정답 7.6 m 위 끝). */
+    val footMaxDistM: Float = 8f,
+    /** 측정 잡음 상수 항(걷는 발·정답 클릭, 설계 측정 맞춤). */
+    val footSigma0M: Float = 0.064f,
+    /** 마스크 끝 화소 잡음(px, 설계 측정 맞춤). */
+    val footSigmaPx: Float = 1.18f,
+    /** 바닥 높이 잡음(m): 카메라 높이 중앙값 바닥의 0.5 s 사이 변화 σ(T 7세션 합친 RMS, M53 0단계). */
+    val footFloorSigmaM: Float = 0.019f,
+    /** 카메라 높이(카메라 y − 앱 바닥) 중앙값의 과거 창(s, 설계 3.4절). */
+    val footHeightWindowS: Float = 8f,
+    /** 발 접점 출력 대표점의 바닥 위 높이(m, 몸 가운데, 자체 선택: 높이 분류에만 쓴다). */
+    val footBodyHeightM: Float = 0.9f,
 )
 
 enum class VisionLabelSource { NONE, SEMANTICS }

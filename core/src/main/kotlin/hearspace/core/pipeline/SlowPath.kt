@@ -77,6 +77,14 @@ class SlowPath(
     /** 마지막 갱신의 원시 측정 짝짓기 기록(M59 `track.rawAssociation` GATE·NEAREST_BLOB). */
     val lastAssocDebug: List<hearspace.core.tracking.AssocDebug> get() = tracker.lastAssocDebug
 
+    /** 깊이 밖 사람의 발 접점 track(M53 `vision.footContact`). 끄면 null이라 출력이 지금과 같다. */
+    private val far = if (config.vision.footContact) {
+        hearspace.core.tracking.FarTracker(config.vision, config.track, config.map.minHits, (config.policy.maxInfoAgeMs * 1e6).toLong())
+    } else null
+
+    /** 마지막 [process]의 발 접점 기록(M53 `foot.csv`). */
+    val lastFootDebug: List<hearspace.core.tracking.FootDebug> get() = far?.lastDebug ?: emptyList()
+
     /** 빈 곳 위반의 지난 원시 장 기록(M57). */
     private val freeSpace = if (motion && (config.track.freeSpaceRecord || config.track.motionEvidence == hearspace.core.types.MotionEvidence.FREE_SPACE)) {
         hearspace.core.tracking.FreeSpace(config.track)
@@ -245,7 +253,12 @@ class SlowPath(
         lastClusterDebug = debug
         lastClusters = clusters
         val t2 = nanoTime()
-        val obstacles = tracker.update(detections, depth.tCaptureNs, if (motion) motionFrame(depth, corridor, floorY, camFromWorld) else null)
+        val tracked = tracker.update(detections, depth.tCaptureNs, if (motion) motionFrame(depth, corridor, floorY, camFromWorld) else null)
+        // M53: 발 접점 출력은 더하기만 한다(깊이 출력은 그대로). 의미 영상은 깊이 장과의 시각 차가 `vision.maxLabelAgeMs` 안인 것만
+        val obstacles = far?.let { f ->
+            val labels = depth.labels?.takeIf { kotlin.math.abs(depth.tCaptureNs - it.tCaptureNs) <= config.vision.maxLabelAgeMs * 1_000_000L }
+            tracked + f.step(depth.tCaptureNs, depth.worldFromCam.translation().y, floorY, labels, corridor, tracked)
+        } ?: tracked
         lastStageNs = StageTimes(t1 - t0, t2 - t1, nanoTime() - t2)
         return ObstacleSnapshot(depth.tCaptureNs, obstacles, floorY, u.mapHealth)
     }
