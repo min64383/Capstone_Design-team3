@@ -139,7 +139,7 @@ class ReplayResult(
     /** 세션 ID(폴더 이름). */
     val sessionId: String = session.name
 
-    val truth: GroundTruth? = GroundTruth.read(session, config.head.offsetFromCameraM)
+    val truth: GroundTruth? = GroundTruth.read(session, config.headOffsetFromCameraM)
 
     /**
      * RGB·포즈로 잰 바닥(세션의 `floor_rgb.json`, M26 `tools/analysis/floor_rgb.py`): 받아들인 짝의 (A 장 시각, 월드 바닥 y). 세션 안에서
@@ -160,7 +160,7 @@ class ReplayResult(
 
     /** 보행선 좌표(정답 좌표). 바닥을 한 번도 못 잡았으면 null. */
     val alignment: Alignment? = alignmentOverride ?: Alignment.medianFloorY(slow.map { it.snapshot.floorY })?.let {
-        runCatching { Alignment.fit(reader.rows, config.align, config.head.offsetFromCameraM, it) }.getOrNull()
+        runCatching { Alignment.fit(reader.rows, config.align, config.headOffsetFromCameraM, it) }.getOrNull()
     }
 
     /** 장면 지표의 정답 장면(M30): 정답에 벽이 있어 장면 전체가 정답일 때만(E 세션). 없으면 칸을 높이 색으로만 그린다. */
@@ -228,7 +228,7 @@ class ReplayResult(
     fun headTruthAt(i: Int): Vec3? {
         val al = alignment ?: return null
         val b = blocks[i]
-        val o = config.head.offsetFromCameraM
+        val o = config.headOffsetFromCameraM
         val cam = b.pose.worldFromCam.translation()
         if (b.g.headingDeg.isNaN()) {
             val c = al.toTruth(cam)

@@ -104,3 +104,28 @@ tasks.register<JavaExec>("sceneEval") {
         (project.findProperty(k) as String?)?.let { v -> "$k=${if (k in paths) rootProject.file(v).absolutePath else v}" }
     } + (if (project.findProperty("out") == null) listOf("out=${layout.buildDirectory.dir("scene-eval").get().asFile.absolutePath}") else emptyList())
 }
+
+// Measured values are all mandatory; output is opt-in and never written into default.json.
+tasks.register<JavaExec>("chestMountConfig") {
+    group = "hearspace"
+    description = "Generate a chest mount override from measured right/up/back cm and relative yaw degrees"
+    classpath = sourceSets["main"].runtimeClasspath
+    mainClass.set("hearspace.core.calibration.ChestMountConfigMain")
+    systemProperty("hearspace.defaultConfig", rootProject.file("app/src/main/assets/config/default.json").absolutePath)
+    systemProperty("hearspace.chestParameters", rootProject.file("tools/measurement/chest-mount.parameters.json").absolutePath)
+    args = listOf("rightCm", "upCm", "backCm", "yawDeg").mapNotNull { k -> project.findProperty(k)?.let { "$k=$it" } } +
+        "out=${rootProject.file((project.findProperty("out") as String?) ?: "data/calibration/chest-mount.override.json").absolutePath}" +
+        (project.findProperty("existingOverride")?.let { listOf("existingOverride=${rootProject.file(it.toString()).absolutePath}") } ?: emptyList())
+}
+
+tasks.register<JavaExec>("chestGuidanceExperiment") {
+    group = "hearspace"
+    description = "Compare production chest mounting through synthetic Depth, mapping, tracking and guidance"
+    dependsOn("testClasses")
+    classpath = sourceSets["test"].runtimeClasspath
+    mainClass.set("hearspace.core.synth.ChestGuidanceExperiment")
+    maxHeapSize = "2g"
+    systemProperty("hearspace.defaultConfig", rootProject.file("app/src/main/assets/config/default.json").absolutePath)
+    systemProperty("hearspace.runtimeOverride", rootProject.file("app/src/main/assets/config/risk-continuous.override.json").absolutePath)
+    args(rootProject.file((project.findProperty("out") as String?) ?: "core/build/chest-guidance-experiment").absolutePath)
+}

@@ -27,7 +27,10 @@ data class Config(
     val sonify: SonifyConfig,
     val slowPath: SlowPathConfig,
     val vision: VisionConfig,
-)
+) {
+    /** All live/replay/viewer geometry uses the same measured chest offset when enabled. */
+    val headOffsetFromCameraM: Vec3 get() = heading.chestMount?.headOffsetBodyM ?: head.offsetFromCameraM
+}
 
 /** 머리 좌표계 설정. */
 data class HeadConfig(
@@ -46,6 +49,18 @@ data class HeadingConfig(
      * (최소 분산 결합). 0 = 끔(기준선: 이동이 [minTravelM] 미만이면 직전 값 유지).
      */
     val cameraSigmaDeg: Float = 0f,
+    /** null = existing motion/fusion rule; non-null = rigid chest mount with measured geometry. */
+    val chestMount: ChestMountConfig? = null,
+)
+
+/** Camera and head must remain rigidly mounted relative to an upright body; independent head yaw is not measured. */
+data class ChestMountConfig(
+    /** Camera horizontal forward yaw relative to body forward: right is positive, degrees. */
+    val yawOffsetDeg: Float,
+    /** Camera → head, in body right/up/forward coordinates, meters. Measured together with yaw. */
+    val headOffsetBodyM: Vec3,
+    /** Reject nearly vertical direction projections; experiment parameter supplied in JSON. */
+    val minHorizontalNorm: Float,
 )
 
 /** 통로 치수와 가장자리 구조물 판정. */
