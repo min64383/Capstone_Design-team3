@@ -105,6 +105,29 @@ tasks.register<JavaExec>("sceneEval") {
     } + (if (project.findProperty("out") == null) listOf("out=${layout.buildDirectory.dir("scene-eval").get().asFile.absolutePath}") else emptyList())
 }
 
+// Evaluation-only rotation bench; production configuration is unchanged.
+tasks.register<JavaExec>("rotationExperiment") {
+    group = "hearspace"
+    description = "Run synthetic rotation cause experiments with known geometry"
+    dependsOn("testClasses")
+    classpath = sourceSets["test"].runtimeClasspath
+    mainClass.set("hearspace.core.synth.RotationExperiment")
+    maxHeapSize = "2g"
+    systemProperty("hearspace.defaultConfig", rootProject.file("app/src/main/assets/config/default.json").absolutePath)
+    args(rootProject.file((project.findProperty("out") as String?) ?: "core/build/rotation-experiment").absolutePath)
+}
+
+// Rigid chest mount evaluation; production configuration is unchanged.
+tasks.register<JavaExec>("chestMountExperiment") {
+    group = "hearspace"
+    description = "Run isolated chest mount rotation, calibration and offset experiments"
+    dependsOn("testClasses")
+    classpath = sourceSets["test"].runtimeClasspath
+    mainClass.set("hearspace.core.synth.ChestMountExperiment")
+    systemProperty("hearspace.defaultConfig", rootProject.file("app/src/main/assets/config/default.json").absolutePath)
+    args(rootProject.file((project.findProperty("out") as String?) ?: "core/build/chest-mount-experiment").absolutePath)
+}
+
 // Measured values are all mandatory; output is opt-in and never written into default.json.
 tasks.register<JavaExec>("chestMountConfig") {
     group = "hearspace"
@@ -118,6 +141,7 @@ tasks.register<JavaExec>("chestMountConfig") {
         (project.findProperty("existingOverride")?.let { listOf("existingOverride=${rootProject.file(it.toString()).absolutePath}") } ?: emptyList())
 }
 
+// End-to-end core command evaluation with chest calibration; no audio/device scheduling.
 tasks.register<JavaExec>("chestGuidanceExperiment") {
     group = "hearspace"
     description = "Compare production chest mounting through synthetic Depth, mapping, tracking and guidance"
