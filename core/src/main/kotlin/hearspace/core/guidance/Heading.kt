@@ -4,9 +4,11 @@ import hearspace.core.geometry.Vec3
 import hearspace.core.types.HeadingConfig
 import hearspace.core.types.PoseFrame
 import hearspace.core.types.TrackingState
+import kotlin.math.cos
+import kotlin.math.sin
 
 /**
- * 진행 방향 추정 (§7.5): 최근 `heading.windowS` 동안의 카메라 **수평 이동** 방향(창 자체가 평활 역할).
+ * chestMount가 있으면 가슴 고정 보정. 없으면 진행 방향 추정 (§7.5): 최근 `heading.windowS` 동안의 카메라 **수평 이동** 방향(창 자체가 평활 역할).
  * 이동량이 `heading.minTravelM` 미만이면 직전 값 유지, 초기값은 첫 TRACKING 프레임의 카메라 정면(C_cv +Z) 수평 투영.
  * 카메라 회전(손목 요)은 쓰지 않는다. 과거 자세만 쓴다.
  * `heading.cameraSigmaDeg` > 0이면(M42) 창 이동 방향(오차 √2·`swayM`/이동 거리)과 지금 카메라 정면(오차 `cameraSigmaDeg`)을
@@ -15,6 +17,8 @@ import hearspace.core.types.TrackingState
 class Heading(private val cfg: HeadingConfig) {
 
     private val history = ArrayDeque<Pair<Long, Vec3>>()
+    /** Body forward expressed in camera coordinates; invariant to a change of AR world coordinates. */
+    private var bodyForwardC: Vec3? = null
 
     /** 현재 진행 방향(수평 단위 벡터). 아직 모르면 null. */
     var headingW: Vec3? = null
@@ -23,6 +27,7 @@ class Heading(private val cfg: HeadingConfig) {
     /** 자세 하나로 갱신한다. TRACKING이 아니면 아무것도 바꾸지 않는다. */
     fun update(pose: PoseFrame): Vec3? {
         if (pose.tracking != TrackingState.TRACKING) return headingW
+        if (cfg.chestMount != null) return updateChest(pose)
         val p = pose.worldFromCam.translation()
         if (headingW == null) {
             val f = pose.worldFromCam.axis(2).horizontal()
@@ -47,10 +52,32 @@ class Heading(private val cfg: HeadingConfig) {
         return headingW
     }
 
-    /** 잊는다(자세 불연속: 이전 월드 좌표의 궤적은 쓸 수 없다). */
+    private fun updateChest(pose: PoseFrame): Vec3? {
+        val mount = cfg.chestMount!!
+        val m = pose.worldFromCam
+        if (bodyForwardC == null) {
+            // Calibrate from the first usable, upright-body pose and the measured relative yaw.
+            // No absolute world heading or future pose is supplied.
+            val cameraForward = m.axis(2).horizontal()
+            if (cameraForward.norm() < mount.minHorizontalNorm) {
+                headingW = null
+                return null
+            }
+            val f = cameraForward.normalized()
+            val yaw = Math.toRadians(mount.yawOffsetDeg.toDouble()).toFloat()
+            val bodyForwardW = f * cos(yaw) - (f cross Vec3.UP) * sin(yaw)
+            bodyForwardC = m.rigidInverse().transformDir(bodyForwardW).normalized()
+        }
+        val f = m.transformDir(bodyForwardC!!).horizontal()
+        headingW = if (f.norm() >= mount.minHorizontalNorm) f.normalized() else null
+        return headingW
+    }
+
+    /** 월드 좌표 궤적을 잊는다. 카메라 로컬의 장착 보정은 유지한다. */
     fun reset() {
         history.clear()
         headingW = null
+        // Keep relative mount calibration across AR world resets. Remounting requires a new Heading/session.
     }
 
     companion object {

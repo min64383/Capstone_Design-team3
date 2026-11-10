@@ -83,7 +83,7 @@ tasks.register<JavaExec>("replay") {
     systemProperty("hearspace.replayOut", layout.buildDirectory.dir("replay").get().asFile.absolutePath)
     systemProperty("hearspace.gitHash", gitHash)
     val paths = setOf("session", "out", "slowFrom", "overridesFile", "alignFrom")
-    args = listOf("session", "out", "slowMs", "slowFrom", "overrides", "overridesFile", "substitute", "alignFrom", "depthNoisePerM", "rgbFrom", "depthFrom", "depthFromDelayMs", "movingFrom").mapNotNull { k ->
+    args = listOf("session", "out", "slowMs", "slowFrom", "overrides", "overridesFile", "substitute", "alignFrom", "depthNoisePerM", "rgbFrom", "depthFrom", "depthFromDelayMs", "movingFrom", "mapInserts", "cellTrace", "labelRemap").mapNotNull { k ->
         (project.findProperty(k) as String?)?.let { v -> "$k=${if (k in paths) rootProject.file(v).absolutePath else v}" }
     }
 }
@@ -128,13 +128,27 @@ tasks.register<JavaExec>("chestMountExperiment") {
     args(rootProject.file((project.findProperty("out") as String?) ?: "core/build/chest-mount-experiment").absolutePath)
 }
 
+// Measured values are all mandatory; output is opt-in and never written into default.json.
+tasks.register<JavaExec>("chestMountConfig") {
+    group = "hearspace"
+    description = "Generate a chest mount override from measured right/up/back cm and relative yaw degrees"
+    classpath = sourceSets["main"].runtimeClasspath
+    mainClass.set("hearspace.core.calibration.ChestMountConfigMain")
+    systemProperty("hearspace.defaultConfig", rootProject.file("app/src/main/assets/config/default.json").absolutePath)
+    systemProperty("hearspace.chestParameters", rootProject.file("tools/measurement/chest-mount.parameters.json").absolutePath)
+    args = listOf("rightCm", "upCm", "backCm", "yawDeg").mapNotNull { k -> project.findProperty(k)?.let { "$k=$it" } } +
+        "out=${rootProject.file((project.findProperty("out") as String?) ?: "data/calibration/chest-mount.override.json").absolutePath}" +
+        (project.findProperty("existingOverride")?.let { listOf("existingOverride=${rootProject.file(it.toString()).absolutePath}") } ?: emptyList())
+}
+
 // End-to-end core command evaluation with chest calibration; no audio/device scheduling.
 tasks.register<JavaExec>("chestGuidanceExperiment") {
     group = "hearspace"
-    description = "Compare chest calibration through synthetic Depth, mapping, tracking and guidance"
+    description = "Compare production chest mounting through synthetic Depth, mapping, tracking and guidance"
     dependsOn("testClasses")
     classpath = sourceSets["test"].runtimeClasspath
     mainClass.set("hearspace.core.synth.ChestGuidanceExperiment")
+    systemProperty("hearspace.nearStopOverride", rootProject.file("app/src/main/assets/config/near-stop.experimental.override.json").absolutePath)
     maxHeapSize = "2g"
     systemProperty("hearspace.defaultConfig", rootProject.file("app/src/main/assets/config/default.json").absolutePath)
     systemProperty("hearspace.runtimeOverride", rootProject.file("app/src/main/assets/config/risk-continuous.override.json").absolutePath)

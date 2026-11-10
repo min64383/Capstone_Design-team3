@@ -7,6 +7,9 @@
     python motion_stats.py lag <세션> <재생 폴더>      → 다가오는 사람에게 안내한 거리의 늦음 분해(평활·지도·정보 나이, 설계 표 1)
     python motion_stats.py ray <재생 폴더>...          → M52 같은 광선 분해(설계 3.1절): P1 D_a, P2 r_front, P3 측정점 − 몸통 깊이, P4 τ
                                                        (재생 폴더는 움직임 정답 판정 재생, 세션은 replay_info.json에서. 여럿이면 합친 값도)
+    python motion_stats.py label <세션>...           → M49 라벨 품질(설계 표 6): 정답 몸통 화소의 사람 라벨 비율(D_a 안·밖), 정지 물체
+                                                       자리의 움직일 수 있는 라벨 비율, 라벨 나이, 종류 무관 재시험(정지 물체의 같은 라벨 원시
+                                                       점 측정점 속도, 1 s 직선 맞춤 p99). 세션에 semantic/(0단계 재생 저장)이 있어야 한다
 
 sigma·vmin의 재생 폴더는 정지 장면(실내 물체 세션, T 받침대 세션)이어야 한다: 그 안의 모든 track을 정지 물체로 본다.
 """
@@ -317,13 +320,16 @@ def ray(runs: list[Path]) -> dict:
         # (평활 재생 = 평활 장, 원시 재생 = 원시 장). 창은 둘 다 평활 D_a 시각부터(같은 구간 비교)
         m = _motion(run)
         if m is not None:
-            src = load_config(run)["depth"]["source"]
+            cfg = load_config(run)
+            # M49 RAW_MASK: 측정점은 원시 장의 마스크 점이라 원시 장(측정 시각 measTNs)과 짝짓는다
+            src = "RAW" if cfg["depth"]["source"] == "RAW" or cfg["track"].get("measureFrom") == "RAW_MASK" else cfg["depth"]["source"]
             base = rw_in.copy() if src == "RAW" else sm_in
+            tcol = "measTNs" if "measTNs" in m.columns else "tCaptureNs"
             res["measSource"] = src
             mv = m[(m.moving == True) & m.measX.notna()]  # noqa: E712 (csv의 bool 열)
             mm, kk = [], []
             for _, s in base.iterrows():
-                c = mv[mv.tCaptureNs == s.tNs]
+                c = mv[mv[tcol] == s.tNs]
                 if c.empty:
                     mm.append(np.nan)
                     kk.append(np.nan)
@@ -385,6 +391,191 @@ def ray(runs: list[Path]) -> dict:
     return {"sessions": per, "pooled": pooled, "rule": {"bandM": RAY_BAND_M, "frac": RAY_FRAC, "dropM": RAY_DROP_M, "blockS": RAY_BLOCK_S}}
 
 
+PERSON, VEHICLE = 10, 9  # ARCore SemanticLabel 화소 값(M49 0단계에서 확인: NDK 순서)
+MOVING_LABELS = (PERSON, VEHICLE)  # vision.movingLabels 기본값
+STATIC_LIFT_M = 0.2  # 정지 물체 클릭(발 접점 면) 위로 올려 앞면 화소를 읽는 높이(자체 선택: 바닥 띠 위, 낮은 물체 안)
+STATIC_RADIUS_M = 0.5  # 종류 무관 재시험: 정지 물체 클릭 중심 둘레의 원시 점 반경(track 창 여유 matchRadiusM과 같은 크기)
+FIT_S = 1.0  # 1 s 직선 맞춤(설계 표 6)
+
+
+def _sem_index(session: Path):
+    f = session / "semantic" / "index.csv"
+    return pd.read_csv(f).sort_values("frameTNs").reset_index(drop=True) if f.is_file() else None
+
+
+def _sem_k(meta: dict, w: int, h: int) -> dict:
+    """라벨 영상 K: 가로세로 비가 가까운 쪽(텍스처 또는 CPU 영상)의 K를 비례로(core VisionFrames.intrinsicsFor와 같음)."""
+    opts = [meta["camera"]["textureIntrinsics"], meta["camera"]["imageIntrinsics"]]
+    k = min(opts, key=lambda o: abs(o["width"] / o["height"] - w / h))
+    sx, sy = w / k["width"], h / k["height"]
+    return dict(fx=k["fx"] * sx, fy=k["fy"] * sy, cx=k["cx"] * sx, cy=k["cy"] * sy, width=w, height=h)
+
+
+class _Labels:
+    """깊이 시각까지 받은 가장 최근 라벨 영상(core와 같은 짝짓기)과 그 촬영 시각의 자세로 월드 점의 라벨을 읽는다."""
+
+    def __init__(self, session: Path, fr: pd.DataFrame, meta: dict):
+        from PIL import Image
+        self.idx, self.session, self.fr, self.meta, self.Image = _sem_index(session), session, fr, meta, Image
+        self.ft = fr.tNs.to_numpy()
+        self.cache = {}
+
+    def at(self, t_ns: int):
+        i = int(np.searchsorted(self.idx.frameTNs.to_numpy(), t_ns, side="right")) - 1
+        if i < 0:
+            return None
+        e = self.idx.iloc[i]
+        key = int(e.imageTNs)
+        if key not in self.cache:
+            img = np.array(self.Image.open(self.session / e.file))
+            j = int(np.argmin(np.abs(self.ft - key)))
+            pr = self.fr.iloc[j]
+            rot = quat_to_rot(np.array([[pr.qx, pr.qy, pr.qz, pr.qw]]))[0] @ FLIP
+            self.cache = {key: (img, _sem_k(self.meta, img.shape[1], img.shape[0]), rot, np.array([pr.tx, pr.ty, pr.tz]))}
+        return key, self.cache[key]
+
+    @staticmethod
+    def read(lab, pts_w: np.ndarray) -> np.ndarray:
+        """월드 점들(N×3)의 라벨 값(영상 밖·카메라 뒤 = −1)."""
+        img, k, rot, cam = lab
+        pc = (pts_w - cam) @ rot  # = rot.T @ (p − cam)
+        out = np.full(len(pts_w), -1)
+        ok = pc[:, 2] > 0.1
+        u = np.round(k["fx"] * pc[ok, 0] / pc[ok, 2] + k["cx"]).astype(int)
+        v = np.round(k["fy"] * pc[ok, 1] / pc[ok, 2] + k["cy"]).astype(int)
+        inside = (u >= 0) & (v >= 0) & (u < k["width"]) & (v < k["height"])
+        vals = np.full(int(ok.sum()), -1)
+        vals[inside] = img[v[inside], u[inside]]
+        out[ok] = vals
+        return out
+
+
+def _static_series(session: Path, fr: pd.DataFrame, meta: dict, L: "_Labels", pw: np.ndarray):
+    """종류 무관 재시험의 측정점 시계열: 원시 장마다 클릭 중심 반경 안·바닥 위 0.1~2 m 원시 점(신뢰도 ≥ 1) 중 그 장 가장 흔한 라벨의 점의
+    가까운 면 점(방위 중앙값·거리 아래 사분위, core nearSurfacePoint와 같은 통계)."""
+    from PIL import Image
+    ctr, floor_y = pw.mean(axis=0), float(np.median(pw[:, 1]))
+    series, last = [], -1
+    ft = fr.tNs.to_numpy()
+    for i, row in fr.iterrows():
+        if not isinstance(row.rawDepthFile, str) or row.tracking != "TRACKING" or row.rawDepthTNs <= last:
+            continue
+        last = int(row.rawDepthTNs)
+        got = L.at(int(row.tNs))
+        if got is None:
+            continue
+        d = load_depth_m(session / row.rawDepthFile)
+        if isinstance(row.confFile, str):
+            conf = np.array(Image.open(session / row.confFile))
+            d = np.where(conf >= 1, d, 0)
+        k = depth_k(meta, d.shape[1], d.shape[0])
+        j = int(np.argmin(np.abs(ft[:i + 1] - last)))
+        pr = fr.iloc[j]
+        rot = quat_to_rot(np.array([[pr.qx, pr.qy, pr.qz, pr.qw]]))[0] @ FLIP
+        cam = np.array([pr.tx, pr.ty, pr.tz])
+        vv, uu = np.nonzero(d > 0)
+        z = d[vv, uu]
+        pc = np.stack([(uu - k["cx"]) / k["fx"] * z, (vv - k["cy"]) / k["fy"] * z, z], axis=1)
+        pts = pc @ rot.T + cam
+        sel = (np.hypot(pts[:, 0] - ctr[0], pts[:, 2] - ctr[2]) <= STATIC_RADIUS_M) & (pts[:, 1] > floor_y + 0.1) & (pts[:, 1] < floor_y + 2.0)
+        pts = pts[sel]
+        if len(pts) < 5:
+            continue
+        lv = _Labels.read(got[1], pts)
+        if (lv >= 0).sum() < 5:
+            continue
+        pts = pts[lv == np.bincount(lv[lv >= 0]).argmax()]
+        if len(pts) < 5:
+            continue
+        b = np.arctan2(pts[:, 0] - cam[0], pts[:, 2] - cam[2])
+        rng = np.hypot(pts[:, 0] - cam[0], pts[:, 2] - cam[2])
+        bm, rq = float(np.median(b)), float(np.sort(rng)[(len(rng) - 1) // 4])
+        series.append((last / 1e9, cam[0] + rq * np.sin(bm), cam[2] + rq * np.cos(bm)))
+    return np.array(series)
+
+
+def label(sessions: list) -> dict:
+    """M49 라벨 품질(보고, 설계 표 6). 사람: 깊이 장마다 정답 몸통 점(클릭 보간, 허리 면, 라벨 영상 촬영 시각의 자리)을 그 시각까지 받은
+    라벨 영상에 투영한 라벨. 정지 물체: 클릭 점을 STATIC_LIFT_M 올린 점들의 라벨. 종류 무관 재시험: [_static_series]의 1 s 창 직선 맞춤 속도."""
+    out, all_speeds = {}, []
+    for session in sessions:
+        meta = json.loads((session / "meta.json").read_text(encoding="utf-8"))
+        fr = load_frames(session).reset_index(drop=True)
+        if _sem_index(session) is None:
+            out[session.name] = {"error": "no semantic/"}
+            continue
+        L = _Labels(session, fr, meta)
+        ev = E.load_events(session) or {"objects": []}
+        res = {}
+        mov = [o for o in ev["objects"] if o["kind"] == "moving" and o.get("added") != "check"]
+        if mov:
+            o = mov[0]
+            tr = E.moving_track(o)
+            waist_y = float(np.median([c["floorY"] for c in o["clicks"]])) + float(o["heightM"])
+            a = _appear(_ray_samples(session, "SMOOTHED"))
+            da = a[0] if a else None
+            rows = []
+            for _, row in fr[fr.depthFile.notna()].iterrows():
+                got = L.at(int(row.tNs))
+                if got is None:
+                    continue
+                t_img, lab = got
+                r = tr(t_img / 1e9)
+                if r is None:
+                    continue
+                p = np.array([[r[0][0], waist_y, r[0][1]]])
+                val = int(_Labels.read(lab, p)[0])
+                if val < 0:
+                    continue
+                cam = lab[3]
+                rows.append(dict(hd=float(np.hypot(p[0, 0] - cam[0], p[0, 2] - cam[2])), val=val, ageMs=(int(row.depthTNs) - t_img) / 1e6))
+            df = pd.DataFrame(rows)
+            if len(df):
+                def frac(d, vals):
+                    return float(d.val.isin(vals).mean()) if len(d) else None
+                inside = df[df.hd <= da] if da else df.iloc[0:0]
+                beyond = df[df.hd > da] if da else df
+                res["person"] = {"DaM": da, "n": int(len(df)), "nInDa": int(len(inside)), "nBeyondDa": int(len(beyond)),
+                                 "personInDa": frac(inside, [PERSON]), "personBeyondDa": frac(beyond, [PERSON]),
+                                 "movingLabelInDa": frac(inside, MOVING_LABELS), "movingLabelBeyondDa": frac(beyond, MOVING_LABELS),
+                                 "labelCounts": {int(k): int(v) for k, v in df.val.value_counts().items()},
+                                 "ageMsP50": float(df.ageMs.median()), "ageMsP95": float(df.ageMs.quantile(0.95))}
+        stat = [o for o in ev["objects"] if o["kind"] == "static"]
+        if stat:
+            vals = []
+            for _, e in L.idx.iterrows():
+                got = L.at(int(e.frameTNs))
+                if got is None:
+                    continue
+                for o in stat:
+                    pts = np.array([[c["pointW"][0], c["pointW"][1] + STATIC_LIFT_M, c["pointW"][2]] for c in o["clicks"] if c.get("pointW")])
+                    if len(pts):
+                        vals += [int(v) for v in _Labels.read(got[1], pts) if v >= 0]
+            vals = np.array(vals, dtype=int)
+            res["static"] = {"n": int(len(vals)), "movingLabelFrac": float(np.isin(vals, MOVING_LABELS).mean()) if len(vals) else None,
+                             "labelCounts": {int(k): int(v) for k, v in zip(*np.unique(vals, return_counts=True))} if len(vals) else {}}
+            speeds = []
+            for o in stat:
+                pw = np.array([c["pointW"] for c in o["clicks"] if c.get("pointW")])
+                if not len(pw):
+                    continue
+                ser = _static_series(session, fr, meta, L, pw)
+                for t0 in (ser[:, 0] if len(ser) else []):
+                    w = ser[(ser[:, 0] >= t0) & (ser[:, 0] < t0 + FIT_S)]
+                    if len(w) < 5:
+                        continue
+                    vx = np.polyfit(w[:, 0] - t0, w[:, 1], 1)[0]
+                    vz = np.polyfit(w[:, 0] - t0, w[:, 2], 1)[0]
+                    speeds.append(float(np.hypot(vx, vz)))
+            all_speeds += speeds
+            res["staticSpeed"] = {"nWindows": len(speeds), "p50": float(np.median(speeds)) if speeds else None,
+                                  "p99": float(np.percentile(speeds, 99)) if speeds else None}
+        out[session.name] = res
+    pooled = {"staticSpeedP99": float(np.percentile(all_speeds, 99)) if all_speeds else None, "nWindows": len(all_speeds),
+              "rule": "0.37 m/s 미만이면 종류 무관 판정 제안(설계 3.6절)"}
+    return {"sessions": out, "pooled": pooled}
+
+
 def main(args: list[str]) -> None:
     if len(args) < 2:
         print(__doc__)
@@ -400,6 +591,8 @@ def main(args: list[str]) -> None:
         res = lag(rest[0], rest[1])
     elif cmd == "ray":
         res = ray(rest)
+    elif cmd == "label":
+        res = label(rest)
     else:
         sys.exit(f"모르는 명령 {cmd}")
     print(json.dumps(res, ensure_ascii=False, indent=2))

@@ -29,7 +29,7 @@ class FastPath(
 
     private val heading = Heading(config.heading)
     private val stateMachine = StateMachine(config.state, config.policy.maxInfoAgeMs)
-    private val policy = Policy(config.policy, config.corridor.behindM)
+    private val policy = Policy(config.policy, config.corridor.behindM, config.corridor.widthM)
     private var lastTracked: PoseFrame? = null
     private var pendingMapAction = MapAction.NONE
     private var lastPoseTNs = Long.MIN_VALUE
@@ -61,16 +61,17 @@ class FastPath(
         if (pose.tracking == TrackingState.TRACKING) lastTracked = pose
 
         val h = adjusted(if (newFrame) heading.update(pose) else heading.headingW)
-        head = h?.let { HeadPose.fromCamera(pose.worldFromCam.translation(), it, config.head.offsetFromCameraM) }
+        head = h?.let { HeadPose.fromCamera(pose.worldFromCam.translation(), it, config.headOffsetFromCameraM) }
         val hp = head
-        if (discontinuity) headHistory.clear()
+        val headingUnavailable = config.heading.chestMount != null && h == null
+        if (discontinuity || headingUnavailable) headHistory.clear()
         if (newFrame && hp != null) {
             headHistory.addLast(pose.tCaptureNs to hp.positionW)
             val windowNs = (config.track.userVelocityS * 1e9).toLong()
             while (headHistory.size > 2 && pose.tCaptureNs - headHistory[1].first >= windowNs) headHistory.removeFirst()
         }
         val infoAgeMs = snapshot?.let { (nowNs - it.tCaptureNs) / 1e6f }
-        val step = stateMachine.step(nowNs, newFrame, pose.tracking, discontinuity, infoAgeMs, snapshot?.mapHealth, paused)
+        val step = stateMachine.step(nowNs, newFrame, if (headingUnavailable) TrackingState.PAUSED else pose.tracking, discontinuity, infoAgeMs, snapshot?.mapHealth, paused)
         if (step.mapAction == MapAction.RESET || (step.mapAction == MapAction.SCALE && pendingMapAction == MapAction.NONE)) {
             pendingMapAction = step.mapAction
         }

@@ -1,0 +1,23 @@
+{
+  "heading": {
+    "cameraSigmaDeg": 0,
+    "chestMount": {
+      "yawOffsetDeg": 0,
+      "headOffsetBodyM": [
+        0,
+        0.4,
+        -0.15
+      ],
+      "minHorizontalNorm": 0.1
+    }
+  },
+  "policy": {
+    "maxSources": 2,
+    "prioritizeStop": true,
+    "nearStop": null
+  },
+  "sonify": {
+    "mode": "RISK_CONTINUOUS",
+    "mapping": "DISTANCE_HEIGHT"
+  }
+}

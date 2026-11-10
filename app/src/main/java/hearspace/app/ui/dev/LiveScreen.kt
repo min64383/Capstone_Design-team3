@@ -16,6 +16,7 @@ import android.widget.Toast
 import hearspace.app.AppConfig
 import hearspace.app.ar.ArFeeder
 import hearspace.app.ar.ArSessionManager
+import hearspace.app.ar.SemanticSaver
 import hearspace.app.ar.displayRotationCompat
 import hearspace.app.loadHrtf
 import hearspace.app.runtime.RunSession
@@ -69,7 +70,7 @@ class LiveScreen : Activity(), GLSurfaceView.Renderer {
         config = AppConfig.get(this)
         hrtf = loadHrtf(this)
         sessionDir = intent.getStringExtra(EXTRA_SESSION_DIR)?.let(::File)
-        ar = ArSessionManager(this, sessionDir?.let { File(it, SessionFormat.MP4_FILE) }, config.depth.sensorUsage)
+        ar = ArSessionManager(this, sessionDir?.let { File(it, SessionFormat.MP4_FILE) }, config.depth.sensorUsage, config.vision.semantics)
         feeder = ArFeeder(config, replay, drawCamera = true)
         thermal = ThermalMonitor(this)
         window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
@@ -127,11 +128,14 @@ class LiveScreen : Activity(), GLSurfaceView.Renderer {
         val dir = sessionDir?.let { File(it, "run_log/$stamp") } ?: File(runs, stamp)
         feeder.resetClock()
         run = RunSession(config, hrtf, dir, feeder::nowNs).also { feeder.pipeline = it.pipeline }
+        // 재생 모드 "의미 영상 저장"(M49 0단계 0b): 의미 모드가 켜졌으면 재생 세션 폴더의 semantic/에 쓴다(같은 세션을 다시 재생하면 덮어씀)
+        if (replay && ar.depthSupport?.semanticEnabled == true) feeder.semanticSaver = SemanticSaver(sessionDir!!)
         if (sessionDir == null) thread(name = "RunsTrim") { RunSession.trimRuns(runs, config.record.maxRuns) }
     }
 
     private fun stopRun() {
         feeder.pipeline = null
+        feeder.semanticSaver?.let { feeder.semanticSaver = null; it.close() }
         run?.close()
         run = null
     }
@@ -200,6 +204,7 @@ class LiveScreen : Activity(), GLSurfaceView.Renderer {
             cmd?.let { "음원 #${it.obstacleId} %+.0f° %.2fm ${it.band} ${it.sound} 나이 %.0fms".format(it.azimuthDeg, it.distanceM, it.infoAgeMs) }
                 ?: "음원 -",
             "느린 경로 %.1f Hz · 물체 ${snap?.obstacles?.size ?: "-"} · 바닥 ${snap?.floorY?.let { "%.2f".format(it) } ?: "?"}".format(slowHz),
+            semanticLine(),
             "발열 ${thermal.thermalName(thermal.sample().thermalStatus)} · 출력 지연 ${out?.latencyMs?.let { "%.0fms".format(it) } ?: "?"}" +
                 " · 끊김 ${out?.underruns ?: 0} · 로그 누락 ${r?.logger?.nDropped?.get() ?: 0}",
         )
@@ -208,6 +213,15 @@ class LiveScreen : Activity(), GLSurfaceView.Renderer {
             stopRun()
             Toast.makeText(this, "재생 끝: 로그 저장", Toast.LENGTH_LONG).show()
         }
+    }
+
+    /** 의미 모드 상태(M49 0단계). */
+    private fun semanticLine(): String {
+        val d = ar.depthSupport ?: return "의미 -"
+        if (!d.semanticEnabled) return if (config.vision.semantics) "의미 모드 지원 안 함(${d.semanticSupported})" else "의미 끔"
+        val s = feeder.semanticSaver
+        return if (s != null) "의미 저장 ${s.nSaved.get()} · 건너뜀 ${s.nSkipped.get()} · 오류 ${s.nErrors.get()}"
+        else "의미 받음 ${feeder.nSemantic} · ${feeder.semanticSize}"
     }
 
     companion object {

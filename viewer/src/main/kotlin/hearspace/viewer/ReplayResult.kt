@@ -82,6 +82,12 @@ class SlowRec(
     /** TRISTATE 지도의 빈 곳 칸 중심(x, y, z 교차, M32). 다른 지도 방식이면 null. */
     val freeW: FloatArray? = null,
     val geometry: hearspace.core.types.IndoorGeometryResult? = null,
+    /** 점유 칸마다 라벨 역할([hearspace.core.mapping.VoxelRole] 순번, M54 `vision.voxelLabels`). 끄면 null. */
+    val roles: ByteArray? = null,
+    /** 점유 칸마다 과반 라벨(라벨 화소 값, -1 = 과반 없음, M56). 칸 라벨 표를 끄면 null. */
+    val labels: ByteArray? = null,
+    /** 움직이는 칸 중심(x, y, z 교차, M57 복셀 지도 하나). 끄면 null. */
+    val movingW: FloatArray? = null,
 )
 
 /** [times](오름차순)에서 [t] 이하인 마지막 위치. 없으면 −1. 화면은 이것으로만 찾아 미래 값을 쓰지 않는다. */
@@ -133,7 +139,7 @@ class ReplayResult(
     /** 세션 ID(폴더 이름). */
     val sessionId: String = session.name
 
-    val truth: GroundTruth? = GroundTruth.read(session, config.head.offsetFromCameraM)
+    val truth: GroundTruth? = GroundTruth.read(session, config.headOffsetFromCameraM)
 
     /**
      * RGB·포즈로 잰 바닥(세션의 `floor_rgb.json`, M26 `tools/analysis/floor_rgb.py`): 받아들인 짝의 (A 장 시각, 월드 바닥 y). 세션 안에서
@@ -154,7 +160,7 @@ class ReplayResult(
 
     /** 보행선 좌표(정답 좌표). 바닥을 한 번도 못 잡았으면 null. */
     val alignment: Alignment? = alignmentOverride ?: Alignment.medianFloorY(slow.map { it.snapshot.floorY })?.let {
-        runCatching { Alignment.fit(reader.rows, config.align, config.head.offsetFromCameraM, it) }.getOrNull()
+        runCatching { Alignment.fit(reader.rows, config.align, config.headOffsetFromCameraM, it) }.getOrNull()
     }
 
     /** 장면 지표의 정답 장면(M30): 정답에 벽이 있어 장면 전체가 정답일 때만(E 세션). 없으면 칸을 높이 색으로만 그린다. */
@@ -222,7 +228,7 @@ class ReplayResult(
     fun headTruthAt(i: Int): Vec3? {
         val al = alignment ?: return null
         val b = blocks[i]
-        val o = config.head.offsetFromCameraM
+        val o = config.headOffsetFromCameraM
         val cam = b.pose.worldFromCam.translation()
         if (b.g.headingDeg.isNaN()) {
             val c = al.toTruth(cam)
@@ -278,7 +284,9 @@ object ReplayRunner {
      */
     fun run(session: File, overridesJson: String, hrtf: Hrtf, exportDir: File? = null, substitution: Substitution? = null, label: String = "", objectCueSettings: ObjectCueSettings? = null): ReplayResult {
         val start = System.nanoTime()
-        val config = Repo.loadConfig(overridesJson)
+        // 변형의 viewer 전용 값(M49): "viewer": {"movingFrom": "clicks"} = 움직임 판정을 세션 클릭 정답으로(평가 전용, -PmovingFrom=clicks와 같음)
+        val (configJson, movingFrom) = ViewerOptions.split(overridesJson)
+        val config = Repo.loadConfig(configJson)
         val reader = SessionReader(session)
         val cueRenderer = objectCueSettings?.let { ObjectCueRenderer(it, config.audio.sampleRate, config.policy.maxInfoAgeMs) }
         val cueEvents = ArrayList<ObjectCueEvent>()
@@ -296,7 +304,10 @@ object ReplayRunner {
                 val xyz = FloatArray(v.size * 3)
                 v.forEachIndexed { i, vox -> xyz[3 * i] = vox.centerW.x; xyz[3 * i + 1] = vox.centerW.y; xyz[3 * i + 2] = vox.centerW.z }
                 val free = step.freeCentersW?.let { f -> FloatArray(f.size * 3).also { a -> f.forEachIndexed { i, c -> a[3 * i] = c.x; a[3 * i + 1] = c.y; a[3 * i + 2] = c.z } } }
-                slow += SlowRec(step.doneNs, step.snapshot, xyz, step.applied, step.stageNs, step.mapUpdate.planes, step.mapUpdate.segments, step.depth, step.mapDepthMm, free, step.mapUpdate.geometry)
+                val roles = if (v.any { it.role != hearspace.core.mapping.VoxelRole.NONE }) ByteArray(v.size) { v[it].role.ordinal.toByte() } else null
+                val labels = if (roles != null) ByteArray(v.size) { v[it].label.toByte() } else null
+                val moving = step.movingVoxels?.let { m -> FloatArray(m.size * 3).also { a -> m.forEachIndexed { i, c -> a[3 * i] = c.centerW.x; a[3 * i + 1] = c.centerW.y; a[3 * i + 2] = c.centerW.z } } }
+                slow += SlowRec(step.doneNs, step.snapshot, xyz, step.applied, step.stageNs, step.mapUpdate.planes, step.mapUpdate.segments, step.depth, step.mapDepthMm, free, step.mapUpdate.geometry, roles, labels, moving)
             }
 
             override fun onBlock(tNs: Long, pose: PoseFrame, snapshot: ObstacleSnapshot?, g: GuidanceOutput) {
@@ -312,7 +323,12 @@ object ReplayRunner {
         try {
             // RGB 안내 보정(M19·M23)은 MP4에서 꺼낸 매 프레임 밝기가 있으면 그것을 쓴다(재생 비교 -PrgbFrom=mp4와 같게). 녹화 JPEG는 3장마다라 거의 안 붙는다
             val rgb = if (File(session, "${RgbFrames.MP4_DIR}/index.csv").isFile) RgbSource.MP4 else RgbSource.RECORDED
-            OfflineReplay(config, OfflineReplay.fixed(SLOW_PATH_MS), substitution, rgbSource = rgb).run(session, listener)
+            val oracle = if (movingFrom == "clicks") {
+                File(session, hearspace.core.truth.ClickTruth.FILE).takeIf { it.isFile }
+                    ?.let { hearspace.core.truth.ClickTruth.movingOracle(hearspace.core.truth.ClickTruth.load(it)) }
+                    ?: { _: Long, _: List<Vec3> -> null as Boolean? } // 클릭 정답이 없으면 움직이는 물체도 없다
+            } else null
+            OfflineReplay(config, OfflineReplay.fixed(SLOW_PATH_MS), substitution, rgbSource = rgb, movingOracle = oracle, movingFrom = movingFrom).run(session, listener)
             if (exportDir != null && objectCueSettings != null) {
                 File(exportDir, "object-cues.csv").bufferedWriter().use { writer ->
                     writer.appendLine("elapsedS,tNs,obstacleId,event,disposition")
@@ -332,4 +348,17 @@ object ReplayRunner {
     }
 
     fun loadHrtf(): Hrtf = Hrtf.parse(Repo.hrtf.readBytes())
+}
+
+/** 변형 JSON의 viewer 전용 값(M49). 설정 파일에는 없는 키라 core에 넘기기 전에 떼어 낸다. */
+object ViewerOptions {
+    /** [overridesJson]에서 맨 위 `viewer` 객체를 떼어 (설정 JSON, movingFrom)으로. movingFrom은 clicks만 받는다. */
+    fun split(overridesJson: String): Pair<String, String?> {
+        val root = hearspace.core.types.MiniJson.parse(overridesJson.ifBlank { "{}" }) as? hearspace.core.types.JsonObject ?: return overridesJson to null
+        val viewer = root.fields["viewer"] as? hearspace.core.types.JsonObject ?: return overridesJson to null
+        val mf = (viewer.fields["movingFrom"] as? hearspace.core.types.JsonString)?.value
+        require(mf == null || mf == "clicks") { "viewer.movingFrom must be clicks: $mf" }
+        val rest = hearspace.core.types.JsonObject(LinkedHashMap(root.fields).apply { remove("viewer") })
+        return hearspace.core.types.MiniJson.write(rest, pretty = false) to mf
+    }
 }

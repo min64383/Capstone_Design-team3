@@ -155,7 +155,19 @@ data class SceneItem(
     val luma: Int = 128,
     /** 움직이는 요소(M48): 도형을 시각마다 이만큼 옮긴다. null이면 정지. */
     val motion: Motion? = null,
+    /** 합성 의미 영상(M49)의 라벨. null이면 움직이는 요소는 사람, 나머지는 라벨 없음(UNLABELED). */
+    val semantic: hearspace.core.types.SemanticLabel? = null,
+    /** 합성 원시 깊이(M54)의 신뢰도(0~255). 0이면 원시 없음. */
+    val rawConfidence: Int = 255,
+    /** 카메라 깊이가 이보다 먼 이 요소의 화소는 원시 없음(M54 SL-5: 먼 바닥). */
+    val rawMissingBeyondM: Float = Float.POSITIVE_INFINITY,
+    /** 이 시각 구간(s)에는 평활 깊이에서만 이 요소를 빼고 뒤 면을 그린다(원시·영상·라벨은 그대로, M58 SM-14: 평활이 옆으로 걷는 사람을 지움). */
+    val smoothedMissingS: ClosedFloatingPointRange<Float>? = null,
 ) {
+    /** 합성 의미 영상의 화소 값. */
+    val semanticPixel: Int
+        get() = (semantic ?: if (motion != null) hearspace.core.types.SemanticLabel.PERSON else hearspace.core.types.SemanticLabel.UNLABELED).pixel
+
     /** 시각 [tS]에 존재하는지. */
     fun presentAt(tS: Float) = removeAtS == null || tS < removeAtS
 
@@ -185,10 +197,10 @@ data class Motion(val velocityW: Vec3, val startS: Float = 0f, val stopS: Float 
 /** 장면: 도형 목록. */
 data class Scene(val items: List<SceneItem>) {
     /** 시각 [tS]에 광선의 가장 가까운 교차(t, 요소). */
-    fun raycast(o: Vec3, d: Vec3, tS: Float): Pair<Float, SceneItem>? {
+    fun raycast(o: Vec3, d: Vec3, tS: Float, skip: SceneItem? = null): Pair<Float, SceneItem>? {
         var best: Pair<Float, SceneItem>? = null
         for (it in items) {
-            if (!it.presentAt(tS)) continue
+            if (!it.presentAt(tS) || it === skip) continue
             val t = it.shape.intersect(o - it.offsetAt(tS), d) ?: continue
             if (best == null || t < best.first) best = t to it
         }
@@ -278,6 +290,10 @@ data class Noise(
      * 실측의 뒤 배경 끌림(경계에서 약 25픽셀 안 0.15~0.5 m)은 흉내 내지 않는다(M13.1의 짧은 경사 판정 대상이 아님).
      */
     val edgeSmoothPx: Int = 0,
+    /** 깊이 최대 거리(m, M55): 넘는 화소는 평활·원시 모두 없음. 실외 T에서 사람은 약 3 m 안에서야 깊이에 나타났다. 기본은 [MAX_DEPTH_M]만. */
+    val maxDepthM: Float = Float.MAX_VALUE,
+    /** 의미 영상 흔들림(M53): 장마다 라벨 영상 전체를 가로·세로 [−n, n] 화소 안 임의 정수만큼 옮긴다(마스크 경계 잡음). 0이면 그대로. */
+    val labelJitterPx: Int = 0,
     /**
      * 옆 번짐(M19): 평활 깊이가 앞 물체의 깊이를 옆·위 배경 화소로 퍼뜨리는 것을 흉내 낸다. 반경 이 픽셀 정사각형 안에 자기보다
      * [EDGE_JUMP_RATIO] 넘게 가까운 **장애물** 화소가 있으면 그중 가장 가까운 깊이로 바꾼다(물체가 이만큼 굵어진다). 원천을 장애물로
@@ -292,6 +308,8 @@ data class Noise(
      * 경사가 아니다). 실측(M13): 경계에서 약 25픽셀 안의 배경이 0.15~0.5 m 앞으로, 화소당 1~3%. 옆 번짐 뒤, 가장자리 평활 전에 한다.
      */
     val edgePullPx: Int = 0,
+    /** 원시가 없는 화소(신뢰도 0)의 평활 깊이를 이만큼 멀게(M54 SL-5: 원시 없는 먼 바닥의 평활이 바닥 아래로 치우침, 실측 +0.3~+0.8 m). */
+    val noRawSmoothedBiasM: Float = 0f,
 )
 
 /** 가장자리 평활 모드에서 깊이 불연속으로 보는 창 안 깊이 차 비율. */
@@ -458,24 +476,56 @@ object SyntheticGenerator {
         val mm = ShortArray(k.width * k.height)
         val luma = ByteArray(k.width * k.height)
         val obstacle = BooleanArray(k.width * k.height)
+        val semantic = ByteArray(k.width * k.height) // 맞은 요소의 라벨(M49, 선명: 평활은 깊이에만)
+        // M54 원시 깊이: 번짐·당김·평활 전 깊이와 요소별 신뢰도(신뢰도 0·먼 화소는 원시 없음)
+        val rawMm = ShortArray(k.width * k.height)
+        val rawConf = ByteArray(k.width * k.height)
         for (v in 0 until k.height) for (u in 0 until k.width) {
             // C_cv 광선 (Z = 1) → 월드. 교차 t가 곧 C_cv 깊이 Z다.
             val dCv = Vec3((u - k.cx) / k.fx, (v - k.cy) / k.fy, 1f)
             val hit = scene.raycast(o, truth.transformDir(dCv), tS) ?: continue
             luma[v * k.width + u] = hit.second.luma.toByte() // RGB는 선명하다(평활은 깊이에만)
             obstacle[v * k.width + u] = hit.second.obstacle
+            semantic[v * k.width + u] = hit.second.semanticPixel.toByte()
             var z = hit.first * (1f + noise.depthScaleBias)
             if (noise.depthMulStd > 0f) z *= 1f + noise.depthMulStd * gauss(rnd)
             if (noise.depthQuadK > 0f) z += noise.depthQuadK * z * z * gauss(rnd)
             if (noise.invalidRatio > 0f && rnd.nextFloat() < noise.invalidRatio) continue
-            if (garbage) z *= 10f else if (z > MAX_DEPTH_M) continue
+            if (garbage) z *= 10f else if (z > MAX_DEPTH_M || z > noise.maxDepthM) continue
             if (z <= 0f) continue
-            mm[v * k.width + u] = min((z * 1000f).roundToInt(), 65535).toShort()
+            val i = v * k.width + u
+            val rawOk = hit.second.rawConfidence > 0 && z <= hit.second.rawMissingBeyondM
+            if (rawOk) {
+                rawMm[i] = min((z * 1000f).roundToInt(), 65535).toShort()
+                rawConf[i] = hit.second.rawConfidence.toByte()
+            } else if (noise.noRawSmoothedBiasM > 0f) {
+                z += noise.noRawSmoothedBiasM
+            }
+            // M58: 평활에서만 빠지는 구간이면 평활 깊이는 그 요소 뒤의 면(잡음 없이, 뒤 면이 없으면 깊이 없음)
+            val behind = hit.second.smoothedMissingS?.takeIf { tS in it }?.let { scene.raycast(o, truth.transformDir(dCv), tS, skip = hit.second) }
+            if (hit.second.smoothedMissingS?.contains(tS) == true) {
+                mm[i] = if (behind == null || behind.first > MAX_DEPTH_M) 0 else min((behind.first * 1000f).roundToInt(), 65535).toShort()
+                continue
+            }
+            mm[i] = min((z * 1000f).roundToInt(), 65535).toShort()
+        }
+        if (noise.labelJitterPx > 0) {
+            val n = noise.labelJitterPx
+            val du = rnd.nextInt(2 * n + 1) - n
+            val dv = rnd.nextInt(2 * n + 1) - n
+            val src = semantic.copyOf()
+            for (v in 0 until k.height) for (u in 0 until k.width) {
+                val su = (u - du).coerceIn(0, k.width - 1)
+                val sv = (v - dv).coerceIn(0, k.height - 1)
+                semantic[v * k.width + u] = src[sv * k.width + su]
+            }
         }
         val spilled = (if (noise.edgeSpillPx > 0) edgeSpill(mm, obstacle, k, noise.edgeSpillPx) else mm)
             .let { if (noise.edgePullPx > 0) edgePull(it, obstacle, k, noise.edgePullPx) else it }
         return DepthFrame(
             tNs, if (noise.edgeSmoothPx > 0) edgeSmooth(spilled, k, noise.edgeSmoothPx) else spilled, null, k, reported, "synthetic", GuideImage(tNs, luma, k),
+            labels = hearspace.core.types.LabelImage(tNs, semantic, k, reported),
+            raw = DepthFrame(tNs, rawMm, rawConf, k, reported, "synthetic"),
         )
     }
 

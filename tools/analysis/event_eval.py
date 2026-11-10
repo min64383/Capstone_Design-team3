@@ -255,6 +255,11 @@ def compute(session: Path, run_dir: Path) -> dict:
             if ks is not None:
                 e["stopS"] = round(t[ks] - t[0], 3)
                 e["stopAlongM"] = round(float(A[ks, j]), 3)
+            # 첫 경고(WARN·STOP) 거리(M54 설계 표 8 W 보고 항목): STOP과 같은 창·조건
+            kw = next((q for q in range(s, hi + 1) if band[q] in ("WARN", "STOP") and active[q] and nearest[q] == j), None)
+            if kw is not None:
+                e["warnS"] = round(t[kw] - t[0], 3)
+                e["warnAlongM"] = round(float(A[kw, j]), 3)
             with np.errstate(all="ignore"):
                 deep = np.nanmin(np.r_[A_in[k0:k1 + 1, j], np.inf]) < stop_m - tol
             e["minAlongM"] = round(float(np.nanmin(A[k0:k1 + 1, j])), 3)

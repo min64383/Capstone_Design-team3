@@ -40,6 +40,27 @@ enum class RgbGuideMode { NONE, WEIGHTED_MEDIAN, EDGE, EDGE_MARGIN }
 /** RGB 안내 깊이 보정(M13.7)에 쓰는 같은 카메라의 밝기 영상. [K]는 이 영상의 내부 파라미터, [luma]는 행 우선 0~255. */
 class GuideImage(val tCaptureNs: Long, val luma: ByteArray, val K: Intrinsics)
 
+/**
+ * ARCore 의미 영상(M49): 화소 값 = [SemanticLabel.pixel]. [K]·[worldFromCam]은 이 영상 촬영 시각의 내부 파라미터와 C_cv → W 자세.
+ * 깊이 장에는 그 깊이를 전달한 프레임까지 받은 가장 최근 영상을 붙인다(과거만).
+ */
+class LabelImage(val tCaptureNs: Long, val labels: ByteArray, val K: Intrinsics, val worldFromCam: hearspace.core.geometry.Mat4) {
+    private val camFromWorld = worldFromCam.rigidInverse()
+
+    /** 월드 점 [pW]가 맺히는 화소의 라벨 값. 카메라 뒤이거나 영상 밖이면 −1. */
+    fun pixelAt(pW: hearspace.core.geometry.Vec3): Int = indexAt(pW).let { if (it < 0) -1 else labels[it].toInt() and 0xFF }
+
+    /** 월드 점 [pW]가 맺히는 화소의 번호(행 우선). 카메라 뒤이거나 영상 밖이면 −1. */
+    fun indexAt(pW: hearspace.core.geometry.Vec3): Int {
+        val c = camFromWorld.transformPoint(pW)
+        if (c.z <= 0f) return -1
+        val u = (K.fx * c.x / c.z + K.cx).toInt()
+        val v = (K.fy * c.y / c.z + K.cy).toInt()
+        if (u < 0 || v < 0 || u >= K.width || v >= K.height) return -1
+        return v * K.width + u
+    }
+}
+
 /** 바닥 높이 추정 원천(M13.1c): HISTOGRAM = 높이 히스토그램 최빈값(기준선), PLANE = 평면 추출의 바닥(없으면 갱신하지 않고 유지). */
 /** SINGLE preserves obstacle guidance; ELEVATION adds diagnostic geometry only. */
 enum class FloorMode { SINGLE, ELEVATION }
@@ -57,7 +78,7 @@ enum class FloorDecompose { BAND, REGION_PLANE }
  * WALKABLE = 단면마다 보행선을 포함하는 빈 좌우 구간이 몸 폭(`corridor.widthM`)보다 좁을 때만 그 단면의 몸 폭 안 칸을 장애물로(걸을 수 있는 영역, M44 첫 설계 F),
  * BOUNDARY = BOX에서 진행 방향 ±α 안의 길게 이어진 옆 경계(벽)를 더 빼되 양쪽 경계 사이가 몸 폭보다 좁은 곳은 남김(M44 재설계).
  */
-enum class CorridorJudgeMode { BOX, WALKABLE, BOUNDARY }
+enum class CorridorJudgeMode { BOX, WALKABLE, BOUNDARY, LABEL }
 
 /**
  * 지도 갱신 규칙(IMPROVE_SPEC §6.1.1): HITS = 관측 횟수·점수(기준선), LOG_ODDS = 로그 오즈 점유(OctoMap, M13.2),
@@ -69,7 +90,27 @@ enum class MapMode { HITS, LOG_ODDS, TSDF, TRISTATE }
  * HITS의 표 세기(M13.5): NONE = 깊이 한 장에 한 표(기준선), DISTANCE = 한 장의 표를 거리 가중치 min(1, (`map.weightRefM` / 거리)²)로.
  * 근거: 평평한 바닥 실측(`tools/analysis/depth_error.py`)에서 1.5~2 m 바닥 σ 3~7 cm, 2 m 밖은 꼬리(10 cm 넘게 벗어난 점) 50~60%.
  */
-enum class HitWeighting { NONE, DISTANCE }
+enum class HitWeighting { NONE, DISTANCE, CONFIDENCE }
+
+/**
+ * HITS 빈 곳 감쇠 한 번의 세기(M54 결과 검토, 사용자 제안): NONE = `map.decayPerObservation` 그대로(기준선), CONFIDENCE = 그 칸을 비었다고 본
+ * 깊이 화소의 원시 신뢰도 구간 지도 무게(`depth.mapConfidenceWeights`)를 곱함. 점유 격자에서 차지·빈 증거는 같은 센서 모형에서 나오므로(Thrun 2005)
+ * 표에 신뢰도 무게를 주면 감쇠에도 같은 무게를 준다. `map.hitWeighting` CONFIDENCE일 때만.
+ */
+enum class DecayWeighting { NONE, CONFIDENCE }
+
+/**
+ * 지도에 넣는 사람·차량(`vision.movingLabels`) 라벨 화소의 깊이 원천(M54): SMOOTHED = 평활 화소 그대로(기준선), RAW = 평활 화소는 지도·빈 곳 감쇠에서
+ * 빼고(후보 세기용 이번 장 점에는 남김) 새 원시 장의 같은 라벨 원시 점(신뢰도 ≥ `vision.movableRawMinConfidence`)을 넣는다.
+ */
+enum class MovableDepth { SMOOTHED, RAW }
+
+/** 장애물 원천 O(`vision.obstacleDepth` RAW)에서 원시가 없는 장애물 라벨 화소(M56 3.7절): SMOOTHED = 평활로 채움(M55 O), NONE = 채우지 않음(P처럼 판). */
+enum class ObstacleFill { SMOOTHED, NONE }
+
+/** 바닥 높이 히스토그램의 점 무게(M54): NONE = 한 점 하나(기준선), CONFIDENCE = 그 자리 원시 신뢰도 구간의 바닥 무게(`depth.floorConfidenceWeights`). */
+/** DISTANCE(M55): 지도와 같은 거리 무게 min(1, (`map.weightRefM`/거리)²) — 깊이 오차가 거리에 따라 커져 가까운 바닥을 더 믿는다. */
+enum class FloorWeighting { NONE, CONFIDENCE, DISTANCE }
 
 /** TRISTATE 관측 가중 곡선(M33). */
 enum class TriWeight { SIGMA, SIGMA_INCIDENCE, DISTANCE }
@@ -176,6 +217,10 @@ data class DepthFrame(
      * null이면 모두 측정값. 3상태 지도가 출처별 오차 σ를 쓴다([DepthConfig.sigmaM]).
      */
     val pixelSource: ByteArray? = null,
+    /** 의미 영상(M49, 과거 것만). 없으면 null. 같음 비교에는 넣지 않는다. */
+    val labels: LabelImage? = null,
+    /** 이 깊이를 전달한 프레임까지 받은 가장 최근 원시 깊이 장(M49 `track.measureFrom` RAW_MASK). 없으면 null. 같음 비교에는 넣지 않는다. */
+    val raw: DepthFrame? = null,
 ) {
     companion object {
         const val PIXEL_MEASURED = 0
@@ -230,6 +275,8 @@ data class Obstacle(
     /** 위치·속도 표준편차(공분산 대각 평균의 제곱근). 칼만이 없으면 NaN. */
     val positionSigmaM: Float = Float.NaN,
     val velocitySigmaMps: Float = Float.NaN,
+    /** Current-depth near STOP candidate; independent of persistent map occupancy/track identity. */
+    val earlyStop: Boolean = false,
 )
 
 /** 느린 경로의 출력. */

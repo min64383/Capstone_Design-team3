@@ -1,6 +1,6 @@
 {
   "head": { "offsetFromCameraM": [0.0, 0.5, -0.39] },
-  "heading": { "windowS": 2.0, "minTravelM": 0.15, "swayM": 0.016, "cameraSigmaDeg": 0.0 },
+  "heading": { "windowS": 2.0, "minTravelM": 0.15, "swayM": 0.016, "cameraSigmaDeg": 0.0, "chestMount": null },
   "corridor": {
     "widthM": 0.8,
     "heightM": 2.0,
@@ -29,7 +29,10 @@
     "smoothedBiasPerM": 0.0,
     "learnedSigma0M": 0.0,
     "learnedSigmaPerM2": 0.0,
-    "sensorUsage": "AUTO"
+    "sensorUsage": "AUTO",
+    "confidenceEdges": [1, 30, 128],
+    "mapConfidenceWeights": [0.37, 0.16, 0.57, 1.0],
+    "floorConfidenceWeights": [0.16, 0.18, 0.16, 1.0]
   },
   "frontend": {
     "enabled": false,
@@ -68,7 +71,14 @@
     "rgbGuideLumaSigma": 12,
     "rgbMaxAgeMs": 20,
     "rgbMarginMaxPx": 25,
-    "segment": "NONE"
+    "segment": "NONE",
+    "labelBandPx": 0,
+    "bandDepthEdgeSigmas": 0,
+    "bandWidthM": 0,
+    "bandMinPx": 0,
+    "bandNearM": 0,
+    "bandFarPx": 0,
+    "bandLabels": ["UNLABELED", "SKY", "TREE", "STRUCTURE", "OBJECT", "VEHICLE", "PERSON", "WATER"]
   },
   "map": {
     "voxelSizeM": 0.05,
@@ -89,6 +99,10 @@
     "weightRefM": 2.0,
     "freeMarginRatio": 0.03,
     "hitWeighting": "DISTANCE",
+    "decayWeighting": "NONE",
+    "weightedMinHits": 6,
+    "weightedFrameMinHits": 6,
+    "weightedUndecidedAsFrame": false,
     "tsdfTruncMinM": 0.1,
     "tsdfTruncPerM": 0.05,
     "tsdfMaxWeight": 12,
@@ -124,9 +138,17 @@
     "source": "HISTOGRAM",
     "holdWhenLost": true,
     "decompose": "BAND",
-    "regionM": 2.0
+    "regionM": 2.0,
+    "weighting": "NONE",
+    "model": "LEVEL",
+    "planeMinConfidence": 30,
+    "planeMaxTiltDeg": 15,
+    "planeIterations": 120,
+    "planeWindowS": 3,
+    "histogramMinDistM": 0,
+    "histogramMaxDistM": 0
   },
-  "cluster": { "epsM": 0.15, "minSamples": 5, "headMinM": 1.2, "bodyMinM": 0.5, "separateWalls": false, "wallFraction": 0.5, "coreEvidenceMultiplier": 1.0 },
+  "cluster": { "epsM": 0.15, "minSamples": 5, "headMinM": 1.2, "bodyMinM": 0.5, "separateWalls": false, "wallFraction": 0.5, "coreEvidenceMultiplier": 1.0, "sameLabelEpsM": 0, "sameLabels": ["TREE", "STRUCTURE", "OBJECT", "VEHICLE", "PERSON"] },
   "geometry": {
     "enabled": false,
     "profileBinM": 0.20,
@@ -194,7 +216,34 @@
     "measureWeight": "CELLS",
     "depthLagMs": 0,
     "initMaxSpeedMps": 0,
-    "initGateSigmas": 3
+    "initGateSigmas": 3,
+    "measureFrom": "CELLS",
+    "rawMinConfidence": 1,
+    "holdLabelPending": false,
+    "motionMap": "EXCLUDE",
+    "gateLagS": 0,
+    "shadowDepthM": 0,
+    "freeSpaceRecord": false,
+    "freeSpaceMinConfidence": 30,
+    "freeSpaceZEdgesM": [0.5, 1.0, 1.5, 2.0, 2.5, 3.0, 3.5, 4.0, 4.5, 5.0],
+    "freeSpaceLagFrames": [],
+    "freeSpaceMarginM": [],
+    "freeSpaceFrameS": 0.1,
+    "motionEvidence": "LABEL",
+    "freeSpaceWindow": 5,
+    "freeSpaceThreshold": 1,
+    "freeSpaceMinCompared": 50,
+    "freeSpaceMaxRotDegS": 100,
+    "freeSpaceConvergeS": 1.5,
+    "freeSpacePersistFrames": 30,
+    "objectMinHits": 0,
+    "candidateOutput": false,
+    "measureLabels": true,
+    "existFrom": "SMOOTHED",
+    "rawAssociation": "ALL",
+    "rawGateChi2": 9.21,
+    "maxGateRadiusM": 0.4,
+    "mergeVelChi2": 1000000
   },
   "repPoint": { "strategy": "CORRIDOR_BAND", "bandM": 0.20, "stableTies": false },
   "policy": {
@@ -206,7 +255,8 @@
     "maxInfoAgeMs": 500,
     "prioritizeStop": false,
     "ttcStopS": 1.0,
-    "motionSigmaMultiple": 2.0
+    "motionSigmaMultiple": 2.0,
+    "nearStop": null
   },
   "state": {
     "recoverFrames": 10,
@@ -238,6 +288,7 @@
   "haptics": { "readyMs": 40, "pauseMs": 40, "pauseGapMs": 80, "unknownMs": 400, "exitMs": 600 },
   "record": { "depthEveryN": 1, "rgbEveryN": 3, "deviceLogIntervalS": 1.0, "maxRuns": 20 },
   "slowPath": { "maxRateHz": 0 },
+  "vision": { "semantics": false, "label": "NONE", "movingLabels": ["PERSON", "VEHICLE"], "maxLabelAgeMs": 200, "maxSpeedMps": { "PERSON": 2.5, "VEHICLE": 6.9 }, "movableDepth": "SMOOTHED", "movableRawMinConfidence": 30, "obstacleDepth": "SMOOTHED", "obstacleLabels": ["UNLABELED", "TREE", "STRUCTURE", "OBJECT", "VEHICLE", "PERSON"], "obstacleRawWeight": 1, "obstacleFill": "SMOOTHED", "voxelLabels": false, "floorishLabels": ["ROAD", "SIDEWALK", "TERRAIN"], "footContact": false, "footEdgePx": 2, "footMinPx": 20, "footMaxDistM": 8, "footSigma0M": 0.064, "footSigmaPx": 1.18, "footFloorSigmaM": 0.019, "footHeightWindowS": 8, "footBodyHeightM": 0.9 },
   "align": { "fitLengthM": 2.0, "minTravelM": 0.5, "headingWindowS": 3.0 },
   "sonify": {
       "mode": "PULSE",

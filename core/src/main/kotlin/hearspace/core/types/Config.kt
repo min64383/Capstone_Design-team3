@@ -26,7 +26,11 @@ data class Config(
     val align: AlignConfig,
     val sonify: SonifyConfig,
     val slowPath: SlowPathConfig,
-)
+    val vision: VisionConfig,
+) {
+    /** All live/replay/viewer geometry uses the same measured chest offset when enabled. */
+    val headOffsetFromCameraM: Vec3 get() = heading.chestMount?.headOffsetBodyM ?: head.offsetFromCameraM
+}
 
 /** 머리 좌표계 설정. */
 data class HeadConfig(
@@ -45,6 +49,18 @@ data class HeadingConfig(
      * (최소 분산 결합). 0 = 끔(기준선: 이동이 [minTravelM] 미만이면 직전 값 유지).
      */
     val cameraSigmaDeg: Float = 0f,
+    /** null = existing motion/fusion rule; non-null = rigid chest mount with measured geometry. */
+    val chestMount: ChestMountConfig? = null,
+)
+
+/** Camera and head must remain rigidly mounted relative to an upright body; independent head yaw is not measured. */
+data class ChestMountConfig(
+    /** Camera horizontal forward yaw relative to body forward: right is positive, degrees. */
+    val yawOffsetDeg: Float,
+    /** Camera → head, in body right/up/forward coordinates, meters. Measured together with yaw. */
+    val headOffsetBodyM: Vec3,
+    /** Reject nearly vertical direction projections; experiment parameter supplied in JSON. */
+    val minHorizontalNorm: Float,
 )
 
 /** 통로 치수와 가장자리 구조물 판정. */
@@ -113,7 +129,25 @@ data class DepthConfig(
     val learnedSigmaPerM2: Float = 0f,
     /** ARCore 카메라 설정의 깊이 센서 사용(M47 ToF 확인). 앱 세션 생성에만 쓴다. */
     val sensorUsage: DepthSensorUsage = DepthSensorUsage.AUTO,
+    /**
+     * 원시 신뢰도 구간의 아래 끝(M54): [1, 30, 128]이면 구간은 원시 없음(신뢰도 0·깊이 0·영상 밖·`vision.maxLabelAgeMs`보다 오래된 장), 1~29, 30~127, 128 이상.
+     */
+    val confidenceEdges: List<Int> = listOf(1, 30, 128),
+    /**
+     * 신뢰도 구간마다 지도 표의 무게(`map.hitWeighting` CONFIDENCE, 원시 없음부터 차례로). M54 0단계 정답 비교(실내 K01·실외 O01·받침대, 1~5 m 합친 σ)의
+     * (σ(≥ 128) / σ(구간))²를 [(`map.weightRefM` / `map.radiusM`)², 1]로 자른 값(DECISIONS 2026-11-06, data/sweeps/m54/sigma_table.json).
+     */
+    val mapConfidenceWeights: List<Float> = listOf(0.37f, 0.16f, 0.57f, 1f),
+    /** 신뢰도 구간마다 바닥 히스토그램의 점 무게(`floor.weighting` CONFIDENCE). 같은 방식으로 T 7세션 바닥(RGB·클릭 바닥)에서. */
+    val floorConfidenceWeights: List<Float> = listOf(0.16f, 0.18f, 0.16f, 1f),
 ) {
+    /** 원시 신뢰도 [conf](0~255, 원시 없음이면 0) → 구간 번호(0 = 원시 없음). */
+    fun confidenceClass(conf: Int): Int {
+        var c = 0
+        for (e in confidenceEdges) if (conf >= e) c++
+        return c
+    }
+
     /** [learnedSigma0M]·[learnedSigmaPerM2]가 재서 주어졌는지. */
     val learnedSigmaSet: Boolean get() = learnedSigma0M != 0f || learnedSigmaPerM2 != 0f
 
@@ -229,6 +263,35 @@ data class FrontendConfig(
      * `cluster.minSamples`(격자 픽셀)를 쓴다(새 수치 없음).
      */
     val segment: SegmentMode,
+    /**
+     * 라벨 경계 띠(M54, 화소): 장애물 역할 라벨(라벨 없음·하늘·나무·구조물·물체·차량·사람·물) 영역의 경계에서 이 거리(깊이 영상 화소) 안의 화소를 원시 유무와
+     * 상관없이 무효로 한다. 영역 안쪽은 영역 안쪽 반지름의 절반까지만. 프레임 라벨끼리의 경계는 보지 않는다. 0 = 끔(기준선). 값은 0단계 측정(b = 6).
+     */
+    val labelBandPx: Int = 0,
+    /**
+     * 깊이 경계 띠(M56): 0보다 크면 라벨 경계 띠를 깊이 경계 근처(평활 4이웃 차 > 이 배수 × σ_평활(Z) 화소에서 `labelBandPx` 안)에서만 둔다.
+     * 0 = 끔(라벨 경계 어디서나, M54). 2 = 프로젝트의 2σ 배수(M32·M33·M54).
+     */
+    val bandDepthEdgeSigmas: Float = 0f,
+    /**
+     * 거리 비례 띠(M56, 사용자 제안 "거리 상관없이 5cm 정도"): 0보다 크면 띠 폭(화소) = 이 실제 폭을 경계 옆 가장 가까운 깊이에서 화소로 바꾼 값을
+     * [bandMinPx]~`labelBandPx`로 자른 값. 0 = 끔(고정 `labelBandPx`). 근거: M56 0-5 막 반폭 3.5 m 안 3~5 cm, 밖 2~3화소.
+     */
+    val bandWidthM: Float = 0f,
+    /** 거리 비례 띠의 가장 얇은 폭(화소). M56 0-5 먼 곳(3.5~5 m) 막 반폭 2~3화소. */
+    val bandMinPx: Int = 0,
+    /**
+     * 계단 띠(M56, 사용자 "거리 비례 화소를 적게 세는 라벨 띠 규칙을 똑바로"): 0보다 크면 경계 옆 가장 가까운 깊이가 이 거리(m)보다 가까우면
+     * `labelBandPx`, 아니면 [bandFarPx]. 0 = 끔. 근거: M56 0-5 막 전체 폭(1.5 m 안 6화소 넘음, 밖 2~3화소). [bandWidthM]보다 먼저 본다.
+     */
+    val bandNearM: Float = 0f,
+    /** 계단 띠의 먼 쪽 폭(화소). */
+    val bandFarPx: Int = 0,
+    /** 경계 띠의 장애물 역할 라벨(M54 기본: 라벨 없음·하늘·나무·구조물·물체·차량·사람·물). M55 O 조합은 하늘·물을 뺀다(사용자 결정). */
+    val bandLabels: Set<SemanticLabel> = setOf(
+        SemanticLabel.UNLABELED, SemanticLabel.SKY, SemanticLabel.TREE, SemanticLabel.STRUCTURE, SemanticLabel.OBJECT,
+        SemanticLabel.VEHICLE, SemanticLabel.PERSON, SemanticLabel.WATER,
+    ),
 )
 
 /** 로컬 복셀 맵 설정. */
@@ -335,7 +398,22 @@ data class MapConfig(
     val triViewRangeLn: Float,
     /** RV 묶음 경계 시선각 α(도): 칸에서 본 시선 방향이 묶음 첫 관측과 이만큼 이상 다르면 새 묶음. 40° = 상관이 0 근처인 것을 확인한 각(M39, 작은 각은 측정 부족). */
     val triViewAngleDeg: Float,
-)
+    /** 빈 곳 감쇠 세기([DecayWeighting], M54). */
+    val decayWeighting: DecayWeighting = DecayWeighting.NONE,
+    /**
+     * 신뢰도 지도 무게(`hitWeighting` CONFIDENCE)일 때 칸 점유 문턱(가중 표 합, M55). 무게가 구간마다 1 이하라 무게 없는 표로 정한 `minHits`를 그대로 쓰면
+     * 신뢰도 중간 화소의 낮은 물체를 놓친다(M54 131039). 값은 낮은 물체 STOP이 `policy.stopM` 전에 나오는 가장 큰 정수에서 정한다(M55 결과).
+     * 움직이는 track의 물체 표·칸 라벨 표는 `minHits` 그대로다.
+     */
+    val weightedMinHits: Float = 6f,
+    /** 신뢰도 지도 무게에서 칸 라벨 표가 프레임 역할(건물·`vision.floorishLabels`)인 칸의 점유 문턱(M55 라벨 역할별 문턱). 기본 6. */
+    val weightedFrameMinHits: Float = 6f,
+    /** true면 라벨 표로 장애물 역할이 정해지지 않은 칸(라벨 표 없음·표 모자람)도 [weightedFrameMinHits]를 쓴다(M55 라벨 시험). false = 장애물 문턱. */
+    val weightedUndecidedAsFrame: Boolean = false,
+) {
+    /** 칸 점유에 쓰는 표 문턱: 신뢰도 지도 무게면 [weightedMinHits], 아니면 [minHits]. */
+    val occupiedEvidence: Float get() = if (hitWeighting == HitWeighting.CONFIDENCE) weightedMinHits else minHits.toFloat()
+}
 
 /** 바닥 추정 설정. */
 data class FloorConfig(
@@ -378,7 +456,28 @@ data class FloorConfig(
      */
     val regionM: Float = 2f,
     val mode: FloorMode = FloorMode.SINGLE,
+    /** 바닥 높이 히스토그램의 점 무게(M54). NONE = 기준선. 최소 점 수 검사는 무게와 상관없이 점 수로 한다. */
+    val weighting: FloorWeighting = FloorWeighting.NONE,
+    /** 바닥 모형(M55). LEVEL = 수평 바닥 하나(기준선), PLANE_RAW = 원시 깊이 바닥 점으로 맞춘 기울 수 있는 평면(점을 지도에 넣을지 가를 때만). */
+    val model: FloorModel = FloorModel.LEVEL,
+    /** PLANE_RAW 후보 원시 점의 신뢰도 하한(M54 정답 비교: 1~29는 틀리고 30 이상은 맞음, `vision.movableRawMinConfidence`와 같은 값). */
+    val planeMinConfidence: Int = 30,
+    /** PLANE_RAW 평면 기울기 상한(도). 150159 약 10°를 받고 벽·경사로를 바닥으로 잡지 않게(자체 선택). */
+    val planeMaxTiltDeg: Float = 15f,
+    /** PLANE_RAW RANSAC 반복 수(`frontend.planeIterations`와 같은 값). */
+    val planeIterations: Int = 120,
+    /**
+     * 바닥 높이 히스토그램 후보의 카메라 수평 거리 범위(m, M55). 0·0 = 하한 없음·`map.radiusM`(기준선). 150159처럼 월드가 기울면 먼 바닥이 많아
+     * 바닥이 낮게 잡히고 가까운 바닥 점이 띠 위로 올라온다. 가까운 점으로 재면 사용자 앞 바닥에 맞춰진다. 후보 값 1~2 m는 M32 정렬 바닥과 같은 거리.
+     */
+    val histogramMinDistM: Float = 0f,
+    val histogramMaxDistM: Float = 0f,
+    /** PLANE_RAW 평면을 맞출 원시 바닥 점을 모으는 시간(s). 월드 기울기는 천천히 변하는 성질이고 물체는 바닥보다 좁아, 모을수록 바닥이 이긴다(자체 선택). */
+    val planeWindowS: Float = 3f,
 )
+
+/** 바닥 모형(M55). */
+enum class FloorModel { LEVEL, PLANE_RAW }
 
 /** 군집·높이 분류 설정. */
 data class ClusterConfig(
@@ -395,6 +494,16 @@ data class ClusterConfig(
     val wallFraction: Float,
     /** 1보다 크면 점유 문턱보다 이 배 이상 강한 복셀만 DBSCAN core로 확장하고 약한 복셀은 border로만 붙인다. */
     val coreEvidenceMultiplier: Float,
+    /**
+     * 같은 라벨 이웃 반경(M56 3.3절, m). [epsM]보다 크면 두 칸의 과반 라벨(`vision.voxelLabels`)이 같을 때(라벨 없음·과반 없음 제외) 이 거리까지
+     * 이웃으로 본다. 0 = 끔. 0.30 = 다른 두 물체 사이 같은 라벨 틈(실내 캐리어–종이 상자 0.32 m)보다 작은 가장 큰 5 cm 격자값(사용자 결정).
+     */
+    val sameLabelEpsM: Float = 0f,
+    /**
+     * 같은 라벨 연결을 주는 라벨(M56, 사용자 결정): 셀 수 있는 물체 라벨(장애물 묶음에서 라벨 없음을 뺌). 보도·도로·지면·건물·하늘·물은 펼쳐진 면이라
+     * 같은 라벨이어도 한 물체라는 근거가 없다(모든 라벨에 주었더니 150159 바닥 결함의 보도 칸이 군집이 되어 실외 경고 6.66 s).
+     */
+    val sameLabels: Set<SemanticLabel> = setOf(SemanticLabel.TREE, SemanticLabel.STRUCTURE, SemanticLabel.OBJECT, SemanticLabel.VEHICLE, SemanticLabel.PERSON),
 )
 
 /** Depth/복셀 기하만으로 실내 보행 형태를 분기하는 실험 모듈 설정. */
@@ -526,7 +635,114 @@ data class TrackConfig(
     val initMaxSpeedMps: Float = 0f,
     /** 시작 게이트의 측정 잡음 배수(관례: 2차원 99%에 가까운 3). */
     val initGateSigmas: Float = 3f,
+    /**
+     * 움직이는 track·후보의 칼만 측정(M49 설계 3.4절). CELLS = 이번 장 평활 칸(기준선). RAW_MASK = 새 원시 깊이 장에서 신뢰도 ≥
+     * [rawMinConfidence]이고 의미 영상 라벨이 `vision.movingLabels`이며 창 안인 점의 가까운 면 점, 원시 장의 촬영 시각으로(평활과 섞지 않음).
+     * 표·점수(물체가 있는지)는 그대로 평활 칸으로 센다(출력 시점이 원시 10 Hz에 묶이지 않게).
+     */
+    val measureFrom: MeasureFrom = MeasureFrom.CELLS,
+    /** RAW_MASK 원시 점의 신뢰도 하한(M39 원시 규칙: 0인 화소 버림). */
+    val rawMinConfidence: Int = 1,
+    /**
+     * 라벨 판정 중인 후보를 정지 지도로 넘기지 않는다(M55 ②). 후보는 표 6(거리 무게, 평활 30 Hz)이 모였는데 움직임 판정이 안 났으면 "정지 지도가
+     * 맡는다"며 지워진다. 라벨 판정은 라벨 영상 6장(16 Hz에서 0.31 s 이상)이 필요한데 가까운 후보의 표 6은 약 0.17 s에 모여, 라벨 모드의 후보는
+     * 늘 판정 전에 넘겨진다. 사람 원천(`vision.movableDepth` RAW)은 움직일 수 있는 라벨 평활 점을 정지 지도에 넣지 않아 넘겨받을 곳이 없다
+     * (T 150159 P+B+W5: 사람 2 m 안 장의 48%가 빔, 후보가 100~300 ms마다 새로 생겼다 사라짐). true면 라벨 표 점수 > 0이거나 창 안 움직일 수
+     * 있는 라벨 원시 점이 `cluster.minSamples` 이상인 후보는 넘기지 않고 라벨 판정을 기다린다(놓침·점수 규칙은 그대로).
+     */
+    val holdLabelPending: Boolean = false,
+    /**
+     * 움직이는 물체를 어디에 두는가(M57 설계 3.2절). EXCLUDE = 움직이는 track 창 안 점을 복셀 지도에 넣지 않고 track이 모양 칸을 따로 가짐(기준선,
+     * 두 지도). OWNED = 모든 점을 복셀 지도에 넣고, 지난 장 track 창 안에 새로 생긴 칸에 그 track 번호(소유)를 적는다. 움직이는 track이 소유한 칸은
+     * 움직이는 칸(칸 군집에서 빠짐, 그 track이 측정한 장에 맞지 않으면 지움)이고, 판정 순간 소유 칸 중 track 다수 라벨과 같거나 라벨 없는 칸이
+     * 움직이는 칸이 되며(take 대신), 멈추면 움직이는 칸이 물체 표로 보통 칸이 된다(seed 대신).
+     */
+    val motionMap: MotionMap = MotionMap.EXCLUDE,
+    /**
+     * 움직이는 track·후보 창을 속도 반대쪽으로 [gateLagS]·|v|만큼 늘린다(M57 설계 3.2절 규칙 2, 평활 깊이 뒤처짐 M52 0.345 s: 사람 뒤에 남는 평활 점이
+     * 창 밖에 떨어져 정지 칸이 됐다). 0 = 끔.
+     */
+    val gateLagS: Float = 0f,
+    /**
+     * 시선 그늘(M57 A-1, OWNED만): 움직이는 track마다 매 장 지금 카메라에서 본 그 track 뒤(움직이는 칸의 방위·높이 범위 안, 가까운 면(움직이는 칸 거리의 아래 사분위)에서
+     * 뒤로 [shadowDepthM]까지)의 칸 중 칸 라벨이 track 다수 라벨과 같은 칸을 그 track의 움직이는 칸으로 가져온다(깊이 수렴 전 시선 뒤 메아리). 0 = 끔.
+     */
+    val shadowDepthM: Float = 0f,
+    /** 빈 곳 위반을 track마다 새 원시 장마다 세어 `motion_evidence.csv`로 기록만 한다(M57 2단계 값 유도, 판정은 바꾸지 않음). */
+    val freeSpaceRecord: Boolean = false,
+    /** 빈 곳 위반에 쓰는 원시 화소 신뢰도 하한(지금 점·지난 화소 모두, M56 0-1). */
+    val freeSpaceMinConfidence: Int = 30,
+    /** 거리 구간 경계(m, 지금 원시 카메라 깊이): 구간 밖 점은 첫·끝 구간으로(M56 0-1 표). */
+    val freeSpaceZEdgesM: List<Float> = listOf(0.5f, 1.0f, 1.5f, 2.0f, 2.5f, 3.0f, 3.5f, 4.0f, 4.5f, 5.0f),
+    /** 구간마다 되돌아볼 장 수(× [freeSpaceFrameS]): L·Δ ≥ 여유 / v_min인 가장 작은 장 수, 위 끝 12(M57 표 4). */
+    val freeSpaceLagFrames: List<Int> = emptyList(),
+    /** 구간마다 위반 여유(m): 정지 원시끼리 깊이 차의 묶음별 97.7% 분위수 최댓값(M56 0-2 규칙). */
+    val freeSpaceMarginM: List<Float> = emptyList(),
+    /** 되돌아보기 한 장의 시간(s): 원시 깊이 간격(M56 0-1, 중앙값 0.1 s). */
+    val freeSpaceFrameS: Float = 0.1f,
+    /**
+     * 움직임 판정의 증거(M57 설계 3.4절). LABEL = track 라벨 표(M49, `vision.label` SEMANTICS일 때, 기준선). FREE_SPACE = 빈 곳 위반 창 S로:
+     * 라벨 길(창 칸 다수 라벨이 `vision.movingLabels`이고 S > [freeSpaceThreshold]) 또는 기하 길(나이 ≥ [freeSpaceConvergeS]이고 S > 문턱이
+     * [freeSpacePersistFrames] 원시 장 연속), 정지 복귀는 보류 아닌 창에서 S ≤ 문턱이 [freeSpaceWindow]장 연속. 창 비교 합 < [freeSpaceMinCompared]
+     * 이거나 창 안 회전 > [freeSpaceMaxRotDegS]면 판정을 미룬다.
+     */
+    val motionEvidence: MotionEvidence = MotionEvidence.LABEL,
+    /** 빈 곳 위반 창의 최대 원시 장 수 W(가장 빠듯한 접근 마감 안의 장 수, M57 2단계 5). */
+    val freeSpaceWindow: Int = 5,
+    /** 위반 비율 문턱 q_ref(나이 ≥ T_수렴 보류 아닌 정지 창 S의 99% 분위수, M57 2단계 0.112). */
+    val freeSpaceThreshold: Float = 1f,
+    /** 판정 보류 창 비교 합 하한 N_min(M57 2단계 50). */
+    val freeSpaceMinCompared: Int = 50,
+    /** 판정 보류 창 안 회전 상한 ω_max(°/s, M57 2단계 100). */
+    val freeSpaceMaxRotDegS: Float = 100f,
+    /** 새 면 수렴 시간 T_수렴(s): 기하 길은 track 나이가 이만큼 지난 뒤(M57 A-0·2단계 1.5). */
+    val freeSpaceConvergeS: Float = 1.5f,
+    /** 기하 길 이어짐 원시 장 수 K·W(정지 거짓 판정 ≤ 1/시간 요구, M57 2단계 30). */
+    val freeSpacePersistFrames: Int = 30,
+    /** 후보·움직이는 track의 물체 단위 점유 문턱(표). 0 = `map.minHits`(기준선). M57: `map.weightedMinHits`와 같게(0-4 문턱 불일치). */
+    val objectMinHits: Float = 0f,
+    /** 점유한 후보를 판정 전에도 속도 없이 낸다(M57 설계 3.5절). */
+    val candidateOutput: Boolean = false,
+    /** RAW_MASK 칼만 측정을 움직일 수 있는 라벨 원시 점으로만(기준선 true). false = 창 안 원시 점 중 그 track 소유가 아닌 정지 점유 칸의 점만 뺌(M57). */
+    val measureLabels: Boolean = true,
+    /**
+     * 움직이는 track의 존재 증거(M58 설계 3.1~3.3절). SMOOTHED = 평활 장마다 창 안 평활 칸 군집(기준선). RAW = 칼만이 원시 장으로 갱신되는
+     * 움직이는 track은 새 원시 장에서만 센다: 받아들인 원시 측정 = 표·점수 +, 측정 없고 원시 깊이로 예측 자리가 빈 곳 = 점수 − decay, 원시 장
+     * 없는 평활 장 = 그대로. 출력 모양은 원시 측정과 평활 칸 중 더 최근 측정에서.
+     */
+    val existFrom: ExistFrom = ExistFrom.SMOOTHED,
+    /**
+     * 원시 측정 짝짓기(M59 설계 3.1~3.6절). ALL = 창 안 라벨 원시 점 전부가 측정 하나, 게이트 꺼짐(기준선). GATE(M59 조합) = 측정은 ALL 그대로,
+     * 칼만 혁신 χ² ≤ [rawGateChi2]일 때만 갱신(규칙 3), 99% 게이트 반지름이 [maxGateRadiusM]을 넘은 움직이는 track 지우기(규칙 4), 합치기 속도
+     * 검정(규칙 6). NEAREST_BLOB(꺼진 옵션) = GATE에 더해 창 안 점을 수평 DBSCAN 덩어리로 나눠 한 덩어리는 한 track만(규칙 1·2·5): 판정·칸 소유가
+     * 창 단위라 B-2에서 흔적·중복 출력·정지 거짓 판정이 늘었다(T 150159·150338·150439).
+     */
+    val rawAssociation: RawAssociation = RawAssociation.ALL,
+    /** GATE·NEAREST_BLOB 검증 게이트(자유도 2 χ², 99% = 9.21, Bar-Shalom 외 2001). 깨끗한 짝 89개 최대 6.73(M59 설계 표 3, ALL 측정으로 잼). */
+    val rawGateChi2: Float = 9.21f,
+    /** GATE·NEAREST_BLOB 지우기: 측정 없이 예측만 하는 움직이는 track의 게이트 반지름 상한(m). 정답 원기둥 반지름 0.2 × 2(두 사람 중심 최소 거리). */
+    val maxGateRadiusM: Float = 0.4f,
+    /**
+     * 합치기 속도 검정(M59 설계 3.5절, 꺼진 옵션): 0.3 m 안 두 track도 속도 차 χ²(자유도 2)가 이를 넘으면 다른 물체. 기본 1e6 = 끔: 9.21로 켜면
+     * 후보 칼만이 창 안 섞인 측정으로 확신하며 틀린 속도를 내(T 150439 (0, 1.48) ± 0.19 m/s) 같은 사람의 중복을 남겨 정지 거짓 판정이 났다(M59 B-2).
+     */
+    val mergeVelChi2: Float = 1_000_000f,
 )
+
+/** 원시 측정 짝짓기(M59). */
+enum class RawAssociation { ALL, GATE, NEAREST_BLOB }
+
+/** 움직임 판정의 증거(M57). */
+enum class MotionEvidence { LABEL, FREE_SPACE }
+
+/** 움직이는 track의 존재 증거 출처(M58). */
+enum class ExistFrom { SMOOTHED, RAW }
+
+/** 움직이는 물체를 두는 곳(M57). */
+enum class MotionMap { EXCLUDE, OWNED }
+
+/** 움직이는 track 칼만 측정의 원천(M49). */
+enum class MeasureFrom { CELLS, RAW_MASK }
 
 /** 움직이는 장애물 처리(M48). */
 enum class MotionMode { NONE, KALMAN }
@@ -556,6 +772,19 @@ data class PolicyConfig(
     val ttcStopS: Float = 1f,
     /** 움직이는 물체를 가깝게 보는 표준편차 배수(M48): 2 = 한쪽 97.7%. */
     val motionSigmaMultiple: Float = 2f,
+    /** null = OFF. Fresh near-field support can warn before accumulated map occupancy. */
+    val nearStop: NearStopConfig? = null,
+)
+
+data class NearStopConfig(
+    val minVoxels: Int,
+    val minHeightSpanM: Float,
+    val minLateralSpanM: Float,
+    val minAboveFloorM: Float,
+    val confirmFrames: Int,
+    val maxGapMs: Float,
+    val maxAgeMs: Float,
+    val confirmMinLateralSpanM: Float = minLateralSpanM,
 )
 
 /** 안내 상태 기계 설정. */
@@ -643,6 +872,87 @@ data class RecordConfig(
  * 깊이를 꺼낸다(그동안 온 깊이는 최신 값으로 교체). 0 = 제한 없음(기준선). 선행 시스템은 융합을 카메라보다 낮은 주기로 돌린다.
  */
 data class SlowPathConfig(val maxRateHz: Float)
+
+/**
+ * ARCore Scene Semantics 의미 영상(M49, IMPROVE_SPEC §13). 화소 값은 [SemanticLabel] 번호다.
+ * [semantics]: 앱이 의미 모드를 켠다(지원할 때만). 재생 모드에서는 받은 의미 영상을 세션 `semantic/`에 저장한다.
+ * [label]: 움직임 판정 출처. NONE = 지금(깊이 기하 또는 평가 전용 정답). SEMANTICS = track마다 라벨 표를 지도 HITS로 쌓는다.
+ * [movingLabels]: 스스로 움직일 수 있는 라벨. 종류마다 규칙을 나누지 않는다.
+ * [maxLabelAgeMs]: 깊이 장 시각과 의미 영상 촬영 시각의 차가 이보다 크면 라벨을 "모름"으로 본다(속도 보정 뒤 남는 어긋남에서 유도).
+ */
+data class VisionConfig(
+    val semantics: Boolean,
+    val label: VisionLabelSource,
+    val movingLabels: Set<SemanticLabel>,
+    val maxLabelAgeMs: Int,
+    /**
+     * 종류별 최대 속도(m/s): RAW_MASK 시작 게이트가 마스크 점의 다수 라벨로 고른다(M49 측정 단계 결과 뒤 사용자 승인). 사람 2.5(Bohannon 1997
+     * 최대 보행), 차량 6.9(도로교통법 개인형 이동장치 25 km/h). 하나로 6.9를 쓰면 사람이 원시 깊이에 막 들어오는 첫 부분 측정의 뜀이 통과했다.
+     */
+    val maxSpeedMps: Map<SemanticLabel, Float>,
+    /** 지도에 넣는 움직일 수 있는 라벨 화소의 깊이 원천(M54, [MovableDepth]). SMOOTHED = 기준선. */
+    val movableDepth: MovableDepth = MovableDepth.SMOOTHED,
+    /**
+     * 장애물 원천 O(M55 ②-A, 설계 3.6절). RAW면 [obstacleLabels] 화소는 새 원시 장마다 신뢰도 ≥ [movableRawMinConfidence]인 원시 점으로 지도에 넣고,
+     * 그 자리에 원시가 없는(신뢰도 미만) 평활 화소는 평활 점으로 채운다(W 무게). 빈 곳 감쇠와 track에 넘기는 점도 같은 깊이를 쓴다.
+     * [movableDepth]보다 앞선다. 사람·차량만 따로 다루지 않는다(사용자 결정).
+     */
+    val obstacleDepth: MovableDepth = MovableDepth.SMOOTHED,
+    /** O의 장애물 묶음(사용자 결정: 나무·구조물·물체·차량·사람·라벨 없음). 프레임(건물·도로·보도·지면)과 하늘·물은 평활. */
+    val obstacleLabels: Set<SemanticLabel> = setOf(
+        SemanticLabel.UNLABELED, SemanticLabel.TREE, SemanticLabel.STRUCTURE, SemanticLabel.OBJECT, SemanticLabel.VEHICLE, SemanticLabel.PERSON,
+    ),
+    /** O 원시 점의 표 무게(`map.hitWeighting` CONFIDENCE일 때). M54 P는 1. 낮은 물체 STOP 요구에서 유도한다(설계 표 8). */
+    val obstacleRawWeight: Float = 1f,
+    /**
+     * O에서 원시가 없는 장애물 라벨 화소(M56 설계 3.7절). NONE이면 장애물 라벨 평활 점을 모두 버린다(지도·빈 곳 감쇠·track 점, 맞음과 빈 곳이 같은
+     * 센서 모형에서 나오게). SMOOTHED = M55 O.
+     */
+    val obstacleFill: ObstacleFill = ObstacleFill.SMOOTHED,
+    /** [movableDepth] RAW에서 쓰는 원시 점의 신뢰도 하한(M54 정답 비교: 사람 다리 1~29 틀림, 30~127 맞음). */
+    val movableRawMinConfidence: Int = 30,
+    /** 칸마다 라벨 표와 역할(M54). false = 기준선. */
+    val voxelLabels: Boolean = false,
+    /** 칸 역할에서 바닥류로 세는 라벨(M54 도로·보도·지형). M55 시험: 실내 누운 캐리어가 보도 87~100%라 보도를 빼면 장애물 역할이 된다. */
+    val floorishLabels: Set<SemanticLabel> = setOf(SemanticLabel.ROAD, SemanticLabel.SIDEWALK, SemanticLabel.TERRAIN),
+    /**
+     * 깊이 밖 사람 거리(M53, IMPROVE_SPEC §13 v0.4.32): 의미 영상의 [movingLabels] 덩어리 땅 쪽 끝(발 접점) ∩ 바닥면으로 재는 발 접점 track을 지금 추적과
+     * 따로 돌리고, 깊이의 움직이는 track이 그 사람을 내지 않을 때만 출력한다. false = 기준선.
+     */
+    val footContact: Boolean = false,
+    /** 영상 가장자리 이 화소 수 안에 닿은 덩어리는 버린다(발·몸이 잘림, 자체 선택). */
+    val footEdgePx: Int = 2,
+    /** 이보다 작은 덩어리는 라벨 점 잡음으로 버린다(설계 측정 foot.py와 같음). */
+    val footMinPx: Int = 20,
+    /** 카메라에서 이보다 먼 발 접점은 버린다(설계 측정의 가장 먼 정답 7.6 m 위 끝). */
+    val footMaxDistM: Float = 8f,
+    /** 측정 잡음 상수 항(걷는 발·정답 클릭, 설계 측정 맞춤). */
+    val footSigma0M: Float = 0.064f,
+    /** 마스크 끝 화소 잡음(px, 설계 측정 맞춤). */
+    val footSigmaPx: Float = 1.18f,
+    /** 바닥 높이 잡음(m): 카메라 높이 중앙값 바닥의 0.5 s 사이 변화 σ(T 7세션 합친 RMS, M53 0단계). */
+    val footFloorSigmaM: Float = 0.019f,
+    /** 카메라 높이(카메라 y − 앱 바닥) 중앙값의 과거 창(s, 설계 3.4절). */
+    val footHeightWindowS: Float = 8f,
+    /** 발 접점 출력 대표점의 바닥 위 높이(m, 몸 가운데, 자체 선택: 높이 분류에만 쓴다). */
+    val footBodyHeightM: Float = 0.9f,
+)
+
+enum class VisionLabelSource { NONE, SEMANTICS }
+
+/**
+ * ARCore `SemanticLabel`과 같은 이름. [pixel]은 의미 영상의 화소 값이다.
+ * VERIFY: 화소 값 = NDK `ArSemanticLabel` 번호(UNLABELED 0 … WATER 11)로 보았다. 0단계 재생 저장의 `semantic/fractions.csv`
+ * (ARCore `getSemanticLabelFraction`)와 PNG 화소 비율을 맞춰 확인한다.
+ */
+enum class SemanticLabel(val pixel: Int) {
+    UNLABELED(0), SKY(1), BUILDING(2), TREE(3), ROAD(4), SIDEWALK(5), TERRAIN(6), STRUCTURE(7), OBJECT(8), VEHICLE(9), PERSON(10), WATER(11);
+
+    companion object {
+        private val byPixel = entries.associateBy { it.pixel }
+        fun ofPixel(v: Int): SemanticLabel? = byPixel[v]
+    }
+}
 
 /**
  * 분석 도구용 정답 정렬 설정. 카메라가 [minTravelM]보다 적게 움직인 세션(정지 녹화)은 궤적 방향이 잡음이라

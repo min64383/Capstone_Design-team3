@@ -190,6 +190,39 @@ class SessionReader(private val dir: File) {
         }
     }
 
+    private val rowIndexOf: Map<Long, Int> by lazy { rows.withIndex().associate { (i, r) -> r.frameIndex to i } }
+
+    /** 행마다 그 행까지(포함) 원시 깊이 파일이 있는 마지막 행 번호(없으면 −1). */
+    private val lastRawRow: IntArray by lazy {
+        var last = -1
+        IntArray(rows.size) { i -> if (rows[i].rawDepthFile != null && rows[i].rawDepthTNs != null) last = i; last }
+    }
+    private var rawCacheRow = -1
+    private var rawCache: DepthFrame? = null
+
+    /**
+     * 프레임 [frameIndex]까지 받은 가장 최근 원시 깊이 장(M49 `track.measureFrom` RAW_MASK, 과거만). 깊이 원천 설정과 무관하게 원시 파일을 읽는다.
+     * 자세는 [events]와 같은 규칙(이미 받은 프레임 중 가장 가까운 시각). 없거나 읽을 수 없거나 추적 중이 아니면 null.
+     */
+    fun rawDepthAt(frameIndex: Long): DepthFrame? {
+        val i = rowIndexOf[frameIndex] ?: return null
+        val j = lastRawRow[i]
+        if (j < 0) return null
+        if (j == rawCacheRow) return rawCache
+        rawCacheRow = j
+        rawCache = null
+        val row = rows[j]
+        val tNs = row.rawDepthTNs!!
+        if (!File(dir, row.rawDepthFile!!).isFile) return null
+        val img = decodeOrNull(row.rawDepthFile, "raw ${row.frameIndex}") ?: return null
+        require(img.bitDepth == 16) { "${row.rawDepthFile}: expected 16-bit depth" }
+        val poseIdx = nearestPastPose(j, tNs)
+        if (rows[poseIdx].tracking != TrackingState.TRACKING) return null
+        val conf = row.confFile?.let { readConfidence(it, img.width, img.height) }
+        rawCache = DepthFrame(tNs, img.gray16!!, conf, depthIntrinsics(img.width, img.height), toPoseFrame(rows[poseIdx]).worldFromCam, "arcore_raw_depth")
+        return rawCache
+    }
+
     /** rows[0..arrival] 중 [tNs]에 가장 가까운 행. 시각이 단조 증가한다고 보고 뒤에서부터 찾는다. */
     private fun nearestPastPose(arrival: Int, tNs: Long): Int {
         var best = arrival

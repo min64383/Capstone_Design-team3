@@ -53,14 +53,15 @@ class MotionFilter(
      * 시각 [tNs]의 측정 [pW](수평만 씀)와 그 표준편차 [sigmaM]을 반영한다. 같은 시각 이하의 측정은 무시한다.
      * 준비된 뒤 혁신 χ²가 [gateChi2]를 넘으면 측정을 버리고 예측만 한다. 반영했으면 true.
      */
-    fun update(tNs: Long, pW: Vec3, sigmaM: Float, gateChi2: Float = Float.POSITIVE_INFINITY): Boolean {
+    fun update(tNs: Long, pW: Vec3, sigmaM: Float, gateChi2: Float = Float.POSITIVE_INFINITY, maxSpeedMps: Float = initMaxSpeedMps): Boolean {
         if (tNs <= this.tNs) return false
         val r = sigmaM.toDouble() * sigmaM
         val lm = lastMeas
-        if (initMaxSpeedMps > 0f && lm != null && nUpdates < initUpdates) {
+        // [maxSpeedMps]: 이 측정 대상의 최대 속도(M49: 라벨별, 기본은 생성 때의 값)
+        if (maxSpeedMps > 0f && lm != null && nUpdates < initUpdates) {
             val dt = (tNs - lm.first) / 1e9
             val d = Math.hypot((pW.x - lm.second.x).toDouble(), (pW.z - lm.second.z).toDouble())
-            if (d > initMaxSpeedMps * dt + initGateSigmas * Math.sqrt(lm.third + r)) {
+            if (d > maxSpeedMps * dt + initGateSigmas * Math.sqrt(lm.third + r)) {
                 first = Triple(tNs, pW, r)
                 x = null
                 z = null
@@ -107,6 +108,16 @@ class MotionFilter(
         return true
     }
 
+    /** 처음부터 다시 시작한다(M49: 측정 원천이 평활 칸에서 원시 점으로 바뀔 때. 원천마다 편향이 달라 섞으면 위치가 뛴다). 시작 게이트도 다시 건다. */
+    fun reset() {
+        first = null
+        x = null
+        z = null
+        tNs = Long.MIN_VALUE
+        nUpdates = 0
+        lastMeas = null
+    }
+
     /** 측정 없이 시각 [tNs]까지 예측한다(놓친 장). */
     fun predictTo(tNs: Long) {
         val ax = x ?: return
@@ -135,6 +146,37 @@ class MotionFilter(
         val q = accelSigmaMps2.toDouble() * accelSigmaMps2
         fun pp(a: Axis) = a.pp + 2 * dt * a.pv + dt * dt * a.vv + q * dt * dt * dt * dt / 4
         return Vec3((ax.p + ax.v * dt).toFloat(), 0f, (az.p + az.v * dt).toFloat()) to Math.sqrt((pp(ax) + pp(az)) / 2).toFloat()
+    }
+
+    /**
+     * 시각 [tNs]의 측정 [pW](표준편차 [sigmaM])의 혁신 χ²(자유도 2)를 상태를 바꾸지 않고 낸다([update]의 검증 게이트와 같은 계산, M59 덩어리 고르기).
+     * 준비 전이거나 [tNs]가 필터 시각보다 이르면 null.
+     */
+    fun innovationChi2(tNs: Long, pW: Vec3, sigmaM: Float): Float? {
+        val ax = x ?: return null
+        val az = z!!
+        if (tNs < this.tNs) return null
+        val dt = (tNs - this.tNs) / 1e9
+        val q = accelSigmaMps2.toDouble() * accelSigmaMps2
+        val r = sigmaM.toDouble() * sigmaM
+        fun s(a: Axis) = a.pp + 2 * dt * a.pv + dt * dt * a.vv + q * dt * dt * dt * dt / 4 + r
+        val ex = pW.x - (ax.p + ax.v * dt)
+        val ez = pW.z - (az.p + az.v * dt)
+        return (ex * ex / s(ax) + ez * ez / s(az)).toFloat()
+    }
+
+    /**
+     * 다른 필터와의 속도 차 χ²(자유도 2) = Σ축 (v_a − v_b)² / (var_a + var_b)(M59 합치기 속도 검정, 두 추정의 교차 공분산은 뺌).
+     * 둘 중 하나라도 준비 전이면 null.
+     */
+    fun velocityDiffChi2(other: MotionFilter): Float? {
+        val ax = x ?: return null
+        val bx = other.x ?: return null
+        val az = z!!
+        val bz = other.z!!
+        val dx = ax.v - bx.v
+        val dz = az.v - bz.v
+        return (dx * dx / (ax.vv + bx.vv) + dz * dz / (az.vv + bz.vv)).toFloat()
     }
 
     /** 위치 표준편차(두 축 분산 평균의 제곱근, m). */
