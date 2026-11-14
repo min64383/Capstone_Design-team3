@@ -81,7 +81,7 @@ class NearStopDetector(private val config: Config) {
                     val prior = it.obstacle
                     prior.id !in used && (fullWidth || it.fullWidth) &&
                         minOf(top, prior.aabbMaxW.y) > maxOf(bottom, prior.aabbMinW.y) &&
-                        (prior.repPointW - rep).horizontal().norm() <= config.track.matchRadiusM
+                        (prior.repPointW - rep).horizontal().norm() <= minOf(voxelM, config.track.matchRadiusM)
                 }?.obstacle
             } else null
             observeMatch?.let { observer ->
