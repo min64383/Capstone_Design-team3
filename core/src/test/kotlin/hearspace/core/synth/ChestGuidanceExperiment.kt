@@ -70,7 +70,7 @@ object ChestGuidanceExperiment {
         }
     }
     private val columns = listOf("caseId", "suite", "mode", "turnDeg", "turnS", "mountYawDeg", "actualFrontM", "usedFrontM", "slipDeg", "noiseSeed", "sideM", "phase", "ticks", "eligibleTicks", "stopTicks", "stopCoverage", "maxMissRunMs", "azimuthFrameP95Deg", "headP95M", "activeFraction", "firstEligibleS", "firstStopDelayMs", "resets", "anyStopTicks", "hasTarget", "roomHalfWidthM", "targetStopIds")
-    private fun run(id: Int, c: Case, base: Config, trace: Appendable, timing: Appendable, widthConfig: NearStopConfig = nearConfig): List<Map<String, Any>> {
+    private fun run(id: Int, c: Case, base: Config, trace: Appendable, timing: Appendable, widthConfig: NearStopConfig = nearConfig, matchTrace: Appendable? = null): List<Map<String, Any>> {
         val usedFront = if (c.mode == "CALIBRATED_MEASURED" || c.mode in listOf("PRODUCTION_CHEST", "NEAR_CHEST")) c.frontM else .39f
         val cfg = base.copy(heading = if (c.mode == "FUSED") base.heading.copy(cameraSigmaDeg = 2.3f) else base.heading,
             head = base.head.copy(offsetFromCameraM = Vec3(0f, .5f, if (c.mode in listOf("PRODUCTION_CHEST", "NEAR_CHEST")) -.39f else -usedFront)))
@@ -82,6 +82,16 @@ object ChestGuidanceExperiment {
         var calibrated = fwd(0f)
         val fast = FastPath(effectiveCfg, if (c.mode.startsWith("CALIBRATED")) { _ -> calibrated } else null)
         val slow = SlowPath(effectiveCfg)
+        if (matchTrace != null) {
+            slow.nearStop?.observeMatch = { time, rep, nearest, matched, radius ->
+                val prior = nearest?.repPointW
+                val delta = prior?.let { rep - it }
+                val distance = delta?.norm()
+                matchTrace.appendLine(listOf((time - T0_NS) / 1e9, rep.x, rep.y, rep.z,
+                    prior?.x, prior?.y, prior?.z, nearest?.id, matched?.id, distance, radius,
+                    distance?.minus(radius)).joinToString(",") { it?.toString().orEmpty() })
+            }
+        }
         var evidence: hearspace.core.guidance.NearStopDetector.FrameEvidence? = null
         val groupEvidence = mutableListOf<String>()
         val compareGroups = c.suite == "TURN_HOLD" && c.mode == "NEAR_CHEST" &&
@@ -159,6 +169,15 @@ object ChestGuidanceExperiment {
             File(System.getProperty("hearspace.runtimeOverride")).readText(),
             File(System.getProperty("hearspace.nearStopOverride")).readText())).policy.nearStop!!
         val out = File(args.firstOrNull() ?: "core/build/chest-guidance-experiment").also { it.mkdirs() }
+        if (System.getenv("HEARSPACE_ROTATION_MATCH_TRACE") == "1") {
+            File(out, "match_104.csv").bufferedWriter().use { log ->
+                log.appendLine("tS,x,y,z,prevX,prevY,prevZ,nearestId,matchedId,distanceM,radiusM,distanceMinusRadiusM")
+                val scene = Case("TURN_HOLD", "NEAR_CHEST", 90f, .5f, noiseSeed = 104)
+                run(0, scene, cfg, java.io.Writer.nullWriter(), java.io.Writer.nullWriter(),
+                    nearConfig.copy(confirmMinLateralSpanM = nearConfig.minLateralSpanM), log)
+            }
+            return
+        }
         if (System.getenv("HEARSPACE_ROTATION_FAST_TRACE") == "1") {
             val baseline = nearConfig.copy(confirmMinLateralSpanM = nearConfig.minLateralSpanM)
             File(out, "fast_trace.csv").bufferedWriter().use { trace ->
