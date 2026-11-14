@@ -83,7 +83,7 @@ tasks.register<JavaExec>("replay") {
     systemProperty("hearspace.replayOut", layout.buildDirectory.dir("replay").get().asFile.absolutePath)
     systemProperty("hearspace.gitHash", gitHash)
     val paths = setOf("session", "out", "slowFrom", "overridesFile", "alignFrom")
-    args = listOf("session", "out", "slowMs", "slowFrom", "overrides", "overridesFile", "substitute", "alignFrom", "depthNoisePerM", "rgbFrom", "depthFrom", "depthFromDelayMs", "movingFrom").mapNotNull { k ->
+    args = listOf("session", "out", "slowMs", "slowFrom", "overrides", "overridesFile", "substitute", "alignFrom", "depthNoisePerM", "rgbFrom", "depthFrom", "depthFromDelayMs", "movingFrom", "nearStopHeightOverlap").mapNotNull { k ->
         (project.findProperty(k) as String?)?.let { v -> "$k=${if (k in paths) rootProject.file(v).absolutePath else v}" }
     }
 }

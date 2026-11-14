@@ -96,6 +96,7 @@ class OfflineReplay(
     private val movingOracle: ((Long, List<hearspace.core.geometry.Vec3>) -> Boolean?)? = null,
     /** 움직임 정답의 출처(`replay_info.json` 기록용, 예: clicks). */
     private val movingFrom: String? = null,
+    private val nearStopHeightOverlap: Boolean = false,
 ) {
 
     /** 마지막 [run]에서 세션을 읽으며 건너뛴 항목(없는·손상된 파일, 잘린 마지막 줄 등, [SessionReader.warnings]). */
@@ -109,7 +110,7 @@ class OfflineReplay(
      */
     fun run(session: File, outDir: File, overridesJson: String = "{}", slowPathNote: String = "") {
         val depthFromJson = depthFrom?.let { "{ \"variant\": \"$it\", \"delayMs\": ${depthFromDelayNs / 1_000_000.0} }" }
-        RunLogWriter(outDir, session, overridesJson, slowPathNote, substitution?.infoJson(alignFrom), rgbSource.name, depthFromJson, movingFrom).use { log ->
+        RunLogWriter(outDir, session, overridesJson, slowPathNote, substitution?.infoJson(alignFrom), rgbSource.name, depthFromJson, movingFrom, nearStopHeightOverlap).use { log ->
             val truth = File(session, "annotations/obstacles.json").isFile
             run(session, if (truth) MapEvalWriter(ClusterEvalWriter(log, outDir, session, config, substitution?.align), outDir, session, config, align = substitution?.align, alignFile = alignFrom.takeIf { it.isNotBlank() }?.let(::File)) else log)
         }
@@ -129,6 +130,10 @@ class OfflineReplay(
 
         val fast = FastPath(config, substitution?.headingSnap())
         val slow = SlowPath(config, substitution?.fixedMap(config.map.voxelSizeM), floorOverrideY = substitution?.floorY(), movingOracle = movingOracle)
+        if (nearStopHeightOverlap) {
+            requireNotNull(slow.nearStop) { "nearStopHeightOverlap requires policy.nearStop and a live map in replay" }
+                .experimentHeightOverlap = true
+        }
         var pose: PoseFrame? = null
         var snapshot: ObstacleSnapshot? = null
         var heading: Vec3? = null

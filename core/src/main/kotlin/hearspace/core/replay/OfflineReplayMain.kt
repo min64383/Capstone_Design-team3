@@ -26,9 +26,10 @@ fun main(args: Array<String>) {
     val config = ConfigLoader.load(base, overrides)
     val slowMs = opts["slowMs"]?.takeIf { it.isNotBlank() }?.toFloat() ?: 10f
     val slowFrom = opts["slowFrom"]?.takeIf { it.isNotBlank() }?.let(::File)
+    val heightOverlap = opts["nearStopHeightOverlap"]?.toBooleanStrict() ?: false
     val tag = if (overrides == "{}") "default" else overrides.replace(Regex("[^A-Za-z0-9.]+"), "_").trim('_').take(60)
     val out = opts["out"]?.takeIf { it.isNotBlank() }?.let(::File)
-        ?: File(System.getProperty("hearspace.replayOut"), "${session.name}/$tag")
+        ?: File(System.getProperty("hearspace.replayOut"), "${session.name}/$tag" + if (heightOverlap) "_height_overlap" else "")
     val slow = slowFrom?.let { OfflineReplay.recorded(it, slowMs) } ?: OfflineReplay.fixed(slowMs)
     val note = slowFrom?.let { "recorded:${it.path.replace('\\', '/')}" } ?: "fixed:${slowMs}ms"
     // alignFrom만 있으면 대입 없이 그 정렬만 기록한다(M18: 바닥 규칙을 바꾼 변형도 기준 재생과 같은 정답을 쓴다)
@@ -58,7 +59,7 @@ fun main(args: Array<String>) {
             ?: { _: Long, _: List<hearspace.core.geometry.Vec3> -> null as Boolean? } // 클릭 정답이 없으면 움직이는 물체도 없다
         else -> error("movingFrom must be clicks: $movingFrom")
     }
-    val replay = OfflineReplay(config, slow, sub?.second, sub?.first?.path ?: "", rgbSource, depthFrom, delayNs, oracle, movingFrom)
+    val replay = OfflineReplay(config, slow, sub?.second, sub?.first?.path ?: "", rgbSource, depthFrom, delayNs, oracle, movingFrom, nearStopHeightOverlap = heightOverlap)
     replay.run(session, out, overrides, note)
     // 끊긴 녹화(잘린 줄·손상된 PNG)는 건너뛰고 끝까지 돈다: 건너뛴 것을 알린다
     if (replay.warnings.isNotEmpty()) System.err.println("session warnings ${replay.warnings.size}: ${replay.warnings.take(3).joinToString("; ")}")

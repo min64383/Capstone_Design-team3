@@ -28,6 +28,7 @@ class RunLogWriter(
     depthFromJson: String? = null,
     /** 움직임 정답의 출처(M48 평가 전용, 예: clicks). 없으면 null(기록하지 않음). */
     movingFrom: String? = null,
+    nearStopHeightOverlap: Boolean = false,
 ) : ReplayListener, Closeable {
     private val slowOut: Writer
     private val guidOut: Writer
@@ -48,6 +49,7 @@ class RunLogWriter(
                 "  \"rgbSource\": \"$rgbSource\",\n" +
                 // 재생한 코드 판(M41, Gradle이 넘김: git 커밋 짧은 해시, 바뀐 작업 트리면 -dirty). 없으면 unknown
                 "  \"gitHash\": \"${System.getProperty("hearspace.gitHash") ?: "unknown"}\",\n" +
+                "  \"nearStopHeightOverlap\": $nearStopHeightOverlap,\n" +
                 "  \"configOverrides\": $overridesJson" + (substitutionJson?.let { ",\n  \"substitution\": $it" } ?: "") +
                 (depthFromJson?.let { ",\n  \"depthFrom\": $it" } ?: "") + (movingFrom?.let { ",\n  \"movingFrom\": \"$it\"" } ?: "") + "\n}\n",
         )
