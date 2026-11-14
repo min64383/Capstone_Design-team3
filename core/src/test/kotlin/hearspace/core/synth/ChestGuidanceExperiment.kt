@@ -70,13 +70,13 @@ object ChestGuidanceExperiment {
         }
     }
     private val columns = listOf("caseId", "suite", "mode", "turnDeg", "turnS", "mountYawDeg", "actualFrontM", "usedFrontM", "slipDeg", "noiseSeed", "sideM", "phase", "ticks", "eligibleTicks", "stopTicks", "stopCoverage", "maxMissRunMs", "azimuthFrameP95Deg", "headP95M", "activeFraction", "firstEligibleS", "firstStopDelayMs", "resets", "anyStopTicks", "hasTarget", "roomHalfWidthM", "targetStopIds")
-    private fun run(id: Int, c: Case, base: Config, trace: Appendable, timing: Appendable): List<Map<String, Any>> {
+    private fun run(id: Int, c: Case, base: Config, trace: Appendable, timing: Appendable, widthConfig: NearStopConfig = nearConfig): List<Map<String, Any>> {
         val usedFront = if (c.mode == "CALIBRATED_MEASURED" || c.mode in listOf("PRODUCTION_CHEST", "NEAR_CHEST")) c.frontM else .39f
         val cfg = base.copy(heading = if (c.mode == "FUSED") base.heading.copy(cameraSigmaDeg = 2.3f) else base.heading,
             head = base.head.copy(offsetFromCameraM = Vec3(0f, .5f, if (c.mode in listOf("PRODUCTION_CHEST", "NEAR_CHEST")) -.39f else -usedFront)))
         val effectiveCfg = if (c.mode in listOf("PRODUCTION_CHEST", "NEAR_CHEST")) cfg.copy(heading = cfg.heading.copy(
             chestMount = ChestMountConfig(c.mountYawDeg, Vec3(0f, .5f, -c.frontM), .1f)),
-            policy = cfg.policy.copy(nearStop = if (c.mode == "NEAR_CHEST") nearConfig else null)) else cfg
+            policy = cfg.policy.copy(nearStop = if (c.mode == "NEAR_CHEST") widthConfig else null)) else cfg
         val first = pose(c, 0).pose.worldFromCam
         val forwardC = first.rigidInverse().transformDir(fwd(0f)) // exact initial alignment, first frame only
         var calibrated = fwd(0f)
@@ -85,7 +85,7 @@ object ChestGuidanceExperiment {
         var evidence: hearspace.core.guidance.NearStopDetector.FrameEvidence? = null
         val groupEvidence = mutableListOf<String>()
         val compareGroups = c.suite == "TURN_HOLD" && c.mode == "NEAR_CHEST" &&
-            abs(c.turnDeg) == 90f && c.turnS == 1f && c.noiseSeed == 0
+            abs(c.turnDeg) == 90f && (c.turnS == .5f || c.noiseSeed == 0)
         if (compareGroups) {
             slow.nearStop?.observeGroup = { cells, height, width, gate ->
                 groupEvidence += "$cells/$height/$width/$gate"
@@ -159,6 +159,29 @@ object ChestGuidanceExperiment {
             File(System.getProperty("hearspace.runtimeOverride")).readText(),
             File(System.getProperty("hearspace.nearStopOverride")).readText())).policy.nearStop!!
         val out = File(args.firstOrNull() ?: "core/build/chest-guidance-experiment").also { it.mkdirs() }
+        if (System.getenv("HEARSPACE_ROTATION_WIDTH_SWEEP") == "1") {
+            check(nearConfig.minLateralSpanM == .08f && nearConfig.confirmMinLateralSpanM == .079f)
+            val cases = buildList {
+                for (seed in 101..120) for (angle in listOf(-90f, 90f)) for (duration in listOf(.5f, 1f)) {
+                    add(Case("TURN_HOLD", "NEAR_CHEST", angle, duration, noiseSeed = seed))
+                    add(Case("EMPTY_ROOM", "NEAR_CHEST", angle, duration, noiseSeed = seed, hasTarget = false))
+                }
+                for (seed in 101..120) for (width in listOf(.45f, .55f, .8f))
+                    add(Case("SIDE_WALL", "NEAR_CHEST", 0f, noiseSeed = seed, hasTarget = false, roomHalfWidthM = width))
+            }
+            File(out, "width_pairs.csv").bufferedWriter().use { csv ->
+                csv.appendLine("confirmWidthM," + columns.joinToString(","))
+                for ((id, scene) in cases.withIndex()) {
+                    for (width in listOf(nearConfig.minLateralSpanM, nearConfig.confirmMinLateralSpanM)) {
+                        val rows = run(id, scene, cfg, java.io.Writer.nullWriter(), java.io.Writer.nullWriter(),
+                            nearConfig.copy(confirmMinLateralSpanM = width))
+                        for (row in rows) csv.appendLine(width.toString() + "," + columns.joinToString(",") { row[it].toString() })
+                    }
+                    println("paired scene ${id + 1}/${cases.size}")
+                }
+            }
+            return
+        }
         val referenceCases = buildList {
             for (a in listOf(-180f, -90f, 90f, 180f)) for (s in listOf(.5f, 1f)) for (mode in listOf("CURRENT", "FUSED", "CALIBRATED"))
                 for (seed in listOf(0, 7)) add(Case("TURN_HOLD", mode, a, s, noiseSeed = seed))
