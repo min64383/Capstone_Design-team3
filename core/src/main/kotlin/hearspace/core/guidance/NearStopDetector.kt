@@ -17,6 +17,7 @@ import kotlin.math.floor
 class NearStopDetector(private val config: Config) {
     internal data class FrameEvidence(val roiPoints: Int, val cells: Int, val sizeCandidates: Int,
         val maxObservations: Int, val published: Int)
+    internal var experimentHeightOverlap = false
     internal var observeMatch: ((Long, Vec3, Obstacle?, Obstacle?, Float) -> Unit)? = null
     internal var observeGroup: ((cells: Int, heightM: Float, widthM: Float, firstFailedGate: String) -> Unit)? = null
     internal var observeFrame: ((FrameEvidence) -> Unit)? = null
@@ -70,9 +71,19 @@ class NearStopDetector(private val config: Config) {
             val fullWidth = width >= cfg.minLateralSpanM
             val reps = RepPoint.candidates(group, corridor, voxelM, config.repPoint.bandM, config.repPoint.stableTies)
             val rep = reps.getValue(config.repPoint.strategy)
-            val old = previous.filter { it.obstacle.id !in used && (fullWidth || it.fullWidth) &&
+            val spatialMatch = previous.filter { it.obstacle.id !in used && (fullWidth || it.fullWidth) &&
                 (it.obstacle.repPointW - rep).norm() <= config.track.matchRadiusM }
                 .minByOrNull { (it.obstacle.repPointW - rep).norm() }?.obstacle
+            val old = spatialMatch ?: if (experimentHeightOverlap) {
+                val bottom = group.minOf { it.y }
+                val top = group.maxOf { it.y }
+                previous.singleOrNull {
+                    val prior = it.obstacle
+                    prior.id !in used && (fullWidth || it.fullWidth) &&
+                        minOf(top, prior.aabbMaxW.y) > maxOf(bottom, prior.aabbMinW.y) &&
+                        (prior.repPointW - rep).horizontal().norm() <= config.track.matchRadiusM
+                }?.obstacle
+            } else null
             observeMatch?.let { observer ->
                 val nearest = previous.minByOrNull { (it.obstacle.repPointW - rep).norm() }?.obstacle
                 observer(tNs, rep, nearest, old, config.track.matchRadiusM)
