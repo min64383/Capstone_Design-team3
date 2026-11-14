@@ -17,6 +17,7 @@ import kotlin.math.floor
 class NearStopDetector(private val config: Config) {
     internal data class FrameEvidence(val roiPoints: Int, val cells: Int, val sizeCandidates: Int,
         val maxObservations: Int, val published: Int)
+    internal var observeMatch: ((Long, Vec3, Obstacle?, Obstacle?, Float) -> Unit)? = null
     internal var observeGroup: ((cells: Int, heightM: Float, widthM: Float, firstFailedGate: String) -> Unit)? = null
     internal var observeFrame: ((FrameEvidence) -> Unit)? = null
 
@@ -72,6 +73,10 @@ class NearStopDetector(private val config: Config) {
             val old = previous.filter { it.obstacle.id !in used && (fullWidth || it.fullWidth) &&
                 (it.obstacle.repPointW - rep).norm() <= config.track.matchRadiusM }
                 .minByOrNull { (it.obstacle.repPointW - rep).norm() }?.obstacle
+            observeMatch?.let { observer ->
+                val nearest = previous.minByOrNull { (it.obstacle.repPointW - rep).norm() }?.obstacle
+                observer(tNs, rep, nearest, old, config.track.matchRadiusM)
+            }
             if (!fullWidth && old == null) {
                 observeGroup?.invoke(indices.size, height, width, "width")
                 continue
