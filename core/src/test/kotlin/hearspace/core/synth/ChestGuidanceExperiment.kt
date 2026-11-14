@@ -159,6 +159,23 @@ object ChestGuidanceExperiment {
             File(System.getProperty("hearspace.runtimeOverride")).readText(),
             File(System.getProperty("hearspace.nearStopOverride")).readText())).policy.nearStop!!
         val out = File(args.firstOrNull() ?: "core/build/chest-guidance-experiment").also { it.mkdirs() }
+        if (System.getenv("HEARSPACE_ROTATION_FAST_TRACE") == "1") {
+            val baseline = nearConfig.copy(confirmMinLateralSpanM = nearConfig.minLateralSpanM)
+            File(out, "fast_trace.csv").bufferedWriter().use { trace ->
+                trace.appendLine("caseId,phase,tS,eligible,targetStop,state,headingErrorDeg,headErrorM,targetCommands,azimuthFrameMaxDeg,obstacles,targetCenterAzimuthDeg,earlyCommands,anyStop,nearRoiPoints,nearCells,nearSizeCandidates,nearMaxObservations,nearPublished,nearGroups_cells_heightM_widthM_firstGate,noiseSeed,turnDeg")
+                var id = 0
+                for (seed in 101..120) for (angle in listOf(-90f, 90f)) {
+                    val frames = StringBuilder()
+                    val scene = Case("TURN_HOLD", "NEAR_CHEST", angle, .5f, noiseSeed = seed)
+                    run(id++, scene, cfg, frames, java.io.Writer.nullWriter(), baseline)
+                    for (line in frames.lineSequence().filter { it.isNotBlank() }) {
+                        trace.appendLine("$line,$seed,$angle")
+                    }
+                }
+            }
+            println("Fast rotation trace complete: 40 scenes")
+            return
+        }
         if (System.getenv("HEARSPACE_ROTATION_WIDTH_SWEEP") == "1") {
             check(nearConfig.minLateralSpanM == .08f && nearConfig.confirmMinLateralSpanM == .079f)
             val cases = buildList {
