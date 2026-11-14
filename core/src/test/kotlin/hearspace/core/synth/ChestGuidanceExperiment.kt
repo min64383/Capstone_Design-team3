@@ -70,7 +70,7 @@ object ChestGuidanceExperiment {
         }
     }
     private val columns = listOf("caseId", "suite", "mode", "turnDeg", "turnS", "mountYawDeg", "actualFrontM", "usedFrontM", "slipDeg", "noiseSeed", "sideM", "phase", "ticks", "eligibleTicks", "stopTicks", "stopCoverage", "maxMissRunMs", "azimuthFrameP95Deg", "headP95M", "activeFraction", "firstEligibleS", "firstStopDelayMs", "resets", "anyStopTicks", "hasTarget", "roomHalfWidthM", "targetStopIds")
-    private fun run(id: Int, c: Case, base: Config, trace: Appendable, timing: Appendable, widthConfig: NearStopConfig = nearConfig, matchTrace: Appendable? = null): List<Map<String, Any>> {
+    private fun run(id: Int, c: Case, base: Config, trace: Appendable, timing: Appendable, widthConfig: NearStopConfig = nearConfig, matchTrace: Appendable? = null, heightOverlap: Boolean = false): List<Map<String, Any>> {
         val usedFront = if (c.mode == "CALIBRATED_MEASURED" || c.mode in listOf("PRODUCTION_CHEST", "NEAR_CHEST")) c.frontM else .39f
         val cfg = base.copy(heading = if (c.mode == "FUSED") base.heading.copy(cameraSigmaDeg = 2.3f) else base.heading,
             head = base.head.copy(offsetFromCameraM = Vec3(0f, .5f, if (c.mode in listOf("PRODUCTION_CHEST", "NEAR_CHEST")) -.39f else -usedFront)))
@@ -82,6 +82,7 @@ object ChestGuidanceExperiment {
         var calibrated = fwd(0f)
         val fast = FastPath(effectiveCfg, if (c.mode.startsWith("CALIBRATED")) { _ -> calibrated } else null)
         val slow = SlowPath(effectiveCfg)
+        slow.nearStop?.experimentHeightOverlap = heightOverlap
         if (matchTrace != null) {
             slow.nearStop?.observeMatch = { time, rep, nearest, matched, radius ->
                 val prior = nearest?.repPointW
@@ -169,6 +170,36 @@ object ChestGuidanceExperiment {
             File(System.getProperty("hearspace.runtimeOverride")).readText(),
             File(System.getProperty("hearspace.nearStopOverride")).readText())).policy.nearStop!!
         val out = File(args.firstOrNull() ?: "core/build/chest-guidance-experiment").also { it.mkdirs() }
+        if (System.getenv("HEARSPACE_HEIGHT_OVERLAP") == "1") {
+            val baseline = nearConfig.copy(confirmMinLateralSpanM = nearConfig.minLateralSpanM)
+            val detector = hearspace.core.guidance.NearStopDetector(cfg.copy(policy = cfg.policy.copy(nearStop = baseline)))
+            detector.experimentHeightOverlap = true
+            val corridor = hearspace.core.guidance.Corridor(Vec3(0f, 0f, 0f), Vec3(0f, 0f, -1f), 0f, cfg.corridor)
+            fun patch(bottom: Float) = buildList {
+                for (x in -3..3) for (y in 0..5) add(Vec3(x * .055f, bottom + y * .055f, -.7f))
+            }
+            val lower = patch(.25f)
+            val upper = patch(.95f)
+            fun sample(points: List<Vec3>, frame: Int) =
+                detector.update(points, T0_NS + frame * 33_333_333L, corridor, emptyList())
+            check(sample(lower, 0).isEmpty() && sample(lower, 1).isNotEmpty())
+            check(sample(upper, 2).isEmpty() && sample(upper, 3).isNotEmpty()) { "Stacked object control failed" }
+            File(out, "overlap_pairs.csv").bufferedWriter().use { csv ->
+                csv.appendLine("heightOverlap," + columns.joinToString(","))
+                var id = 0
+                for (seed in 101..120) for (angle in listOf(-90f, 90f)) {
+                    val scene = Case("TURN_HOLD", "NEAR_CHEST", angle, .5f, noiseSeed = seed)
+                    for (enabled in listOf(false, true)) {
+                        val rows = run(id, scene, cfg, java.io.Writer.nullWriter(), java.io.Writer.nullWriter(),
+                            baseline, heightOverlap = enabled)
+                        for (row in rows) csv.appendLine(enabled.toString() + "," + columns.joinToString(",") { row[it].toString() })
+                    }
+                    id++
+                }
+            }
+            println("Height overlap complete: 40 paired scenes and stacked object control")
+            return
+        }
         if (System.getenv("HEARSPACE_ROTATION_MATCH_TRACE") == "1") {
             File(out, "match_104.csv").bufferedWriter().use { log ->
                 log.appendLine("tS,x,y,z,prevX,prevY,prevZ,nearestId,matchedId,distanceM,radiusM,distanceMinusRadiusM")
