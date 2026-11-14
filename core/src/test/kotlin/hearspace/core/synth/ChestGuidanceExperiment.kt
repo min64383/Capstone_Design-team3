@@ -170,6 +170,33 @@ object ChestGuidanceExperiment {
             File(System.getProperty("hearspace.runtimeOverride")).readText(),
             File(System.getProperty("hearspace.nearStopOverride")).readText())).policy.nearStop!!
         val out = File(args.firstOrNull() ?: "core/build/chest-guidance-experiment").also { it.mkdirs() }
+        if (System.getenv("HEARSPACE_ADJACENT_CONTROL") == "1") {
+            val baseline = nearConfig.copy(confirmMinLateralSpanM = nearConfig.minLateralSpanM)
+            val cfgTest = cfg.copy(policy = cfg.policy.copy(nearStop = baseline))
+            val corridor = hearspace.core.guidance.Corridor(Vec3(0f, 0f, 0f), Vec3(0f, 0f, -1f), 0f, cfg.corridor)
+            fun points(center: Float, bottom: Float) = buildList {
+                for (x in -1..1) for (y in 0..5) add(Vec3(center + x * .055f, bottom + y * .055f, -.7f))
+            }
+            File(out, "adjacent_control.csv").bufferedWriter().use { log ->
+                log.appendLine("spacingM,bottomDiffM,heightOverlap,aId,bFirstId,bSecondId,wrongTransfer")
+                for (spacing in listOf(.24f, .28f, .32f)) for (rise in listOf(0f, .22f, .40f)) {
+                    for (enabled in listOf(false, true)) {
+                        val detector = hearspace.core.guidance.NearStopDetector(cfgTest)
+                        detector.experimentHeightOverlap = enabled
+                        val a = points(-spacing / 2, .35f)
+                        val b = points(spacing / 2, .35f + rise)
+                        fun sample(points: List<Vec3>, frame: Int) =
+                            detector.update(points, T0_NS + frame * 33_333_333L, corridor, emptyList()).singleOrNull()?.id
+                        check(sample(a, 0) == null)
+                        val aId = checkNotNull(sample(a, 1)) { "First object did not confirm" }
+                        val bFirst = sample(b, 2)
+                        val bSecond = checkNotNull(sample(b, 3)) { "Second object did not confirm" }
+                        log.appendLine(listOf(spacing, rise, enabled, aId, bFirst, bSecond, bFirst == aId).joinToString(",") { it?.toString().orEmpty() })
+                    }
+                }
+            }
+            return
+        }
         if (System.getenv("HEARSPACE_HEIGHT_OVERLAP") == "1") {
             val baseline = nearConfig.copy(confirmMinLateralSpanM = nearConfig.minLateralSpanM)
             val detector = hearspace.core.guidance.NearStopDetector(cfg.copy(policy = cfg.policy.copy(nearStop = baseline)))
