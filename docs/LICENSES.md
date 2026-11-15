@@ -35,10 +35,13 @@ M37 학습형 깊이(재생 전용, 앱에 들어가지 않음). 가중치·코�
 
 PC 실행 환경 `.venv-learned`(tools/analysis/requirements-learned.txt): PyTorch 2.15.0+cpu·torchvision 0.29.2(BSD-3), timm 1.0.30(Apache-2.0), OpenCV 5.0.0.93 headless(Apache-2.0), SciPy 1.18.1(BSD-3), Pillow 13.0.0, PyAV 19.0.2, NumPy 2.5.4, matplotlib 3.11.2(ZipDepth 코드가 가져옴). 기기 시간 측정용 TFLite 변환(onnx 1.23.2·onnx2tf 1.28.8·TensorFlow 2.21.0, Apache-2.0·MIT)과 Google TFLite `benchmark_model`(Apache-2.0)은 작업 폴더에서만 쓰고 저장소에 넣지 않았다.
 
+M50 노면 분할(승인 2026-11-15, M50 설계): LR-ASPP MobileNetV3-Large, torchvision 구현(BSD-3, 위 `.venv-learned`)과 ImageNet 사전학습 백본 가중치. 사전학습 가중치에 걸린 ImageNet 조건은 확인하지 못했다. AI Hub 인도보행 영상으로 학습한 가중치는 `data/models/`(저장소 밖)에 두고, 배포 조항을 확인하기 전에는 수업 밖으로 배포하지 않는다. 학습·변환 후 파일 해시와 커밋을 이 절에 적는다.
+
 ## 데이터 (HRTF·데이터셋)
 
 | 이름 | 사용 부분 | 라이선스 | 조건 | 승인 |
 |---|---|---|---|---|
 | SADIE II Database, subject D1 (Neumann KU100), University of York | `D1_48K_24bit_256tap_FIR_SOFA.sofa`의 수평면(고도 0°) 400개 방위각 → `app/src/main/assets/hrtf/sadie2_d1_48k.hrir` | Apache License 2.0 (Copyright 2018, University of York) | 라이선스 사본 첨부(`assets/hrtf/LICENSE-Apache-2.0.txt`), 변경 고지·출처(`assets/hrtf/NOTICE.txt`), 학술 사용 시 DOI 10.3390/app8112029 인용 | 2026-09-29 (M6) |
+| AI Hub 인도보행 영상(SideGuide, 한국지능정보사회진흥원·㈜테스트웍스 외, 2019, v1.1 2021) | Surface Masking 51,318장의 노면 다각형 → 8종 마스크(M50 노면 분할 학습·검증). 원본은 `data/`(저장소 밖) | AI Hub 이용정책 | 내국인만 신청·승인 뒤 내려받기, AI 학습용으로만, 원본 재배포·제3자 제공 금지, NIA 사업 결과임을 밝힘(2차 저작물 포함), 국외 반출은 별도 합의. 학습 가중치 배포 조항은 확인 못 함 | 사용자 2026-11-15(M50 설계 승인), 신청은 사용자 |
 
 원본 SOFA는 `data/hrtf/`(git 제외)에 둔다. 다운로드: https://zenodo.org/records/12092466/files/D1_HRIR_SOFA.zip
