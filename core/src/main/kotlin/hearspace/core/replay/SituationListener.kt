@@ -60,7 +60,7 @@ class SurfaceFrames(private val dir: File, private val reader: SessionReader, pr
  * 반영된 느린 경로 결과마다 그 시각까지 쓸 수 있는 노면 영상으로 [Situations]를 한 차례 돌린다.
  */
 class SituationRunner(config: Config, session: File) {
-    private val situations = Situations(config.situation, config.corridor.widthM, config.vision.footHeightWindowS, (config.policy.maxInfoAgeMs * 1e6).toLong())
+    private val situations = Situations(config.situation, config.corridor.widthM, config.corridor.heightM, config.vision.footHeightWindowS, (config.policy.maxInfoAgeMs * 1e6).toLong())
     private val surface = SurfaceFrames(session, SessionReader(session), config.situation.surfaceDelayMs * 1_000_000L)
     private var lastOutput: GuidanceOutput? = null
 
@@ -90,7 +90,7 @@ class SituationListener(
     private val runner = SituationRunner(config, session)
     private val speechOut: Writer = File(outDir, SPEECH_FILE).bufferedWriter().apply { write("tNs,priority,key,text,ageMs,interrupted\n") }
     private val stateOut: Writer = File(outDir, STATE_FILE).bufferedWriter().apply {
-        write("tNs,env,envCandidate,nLines,followAngleDeg,lateralM,blockYawDeg,endAheadM,stairsAheadM,stairsDir,nCells\n")
+        write("tNs,env,envCandidate,nLines,followAngleDeg,lateralM,blockYawDeg,endAheadM,stairsAheadM,stairsDir,nCells,dropAheadM,ceiling\n")
     }
 
     override fun onSlowStep(step: SlowStep) {
@@ -101,7 +101,7 @@ class SituationListener(
             speechOut.write("${u.tNs},${u.priority},${u.key},$text,${String.format(java.util.Locale.ROOT, "%.1f", u.ageMs)},${if (u.interrupted) 1 else 0}\n")
         }
         with(rec) {
-            stateOut.write("$tNs,$env,$envCandidate,$nLines,${f(followAngleDeg)},${f(lateralM)},${f(blockYawDeg)},${f(endAheadM)},${f(stairsAheadM)},$stairsDir,$nCells\n")
+            stateOut.write("$tNs,$env,$envCandidate,$nLines,${f(followAngleDeg)},${f(lateralM)},${f(blockYawDeg)},${f(endAheadM)},${f(stairsAheadM)},$stairsDir,$nCells,${f(dropAheadM)},${if (ceiling) 1 else 0}\n")
         }
     }
 

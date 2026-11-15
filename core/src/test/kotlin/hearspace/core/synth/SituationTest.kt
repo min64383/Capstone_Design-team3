@@ -32,7 +32,7 @@ import kotlin.math.cos
 import kotlin.math.sin
 
 /**
- * M50 합성 시험 SP-1~SP-9(설계 표 11). 카메라는 높이 1.3 m, 아래로 9° 숙인 세로 영상, 진행 방향 −Z. 노면 영상과 깊이 장은 월드 장면에서 직접 그린다.
+ * M50 합성 시험 SP-1~SP-9(설계 표 11)와 첫 평가 뒤 고침의 SP-10~SP-12. 카메라는 높이 1.3 m, 아래로 9° 숙인 세로 영상, 진행 방향 −Z. 노면 영상과 깊이 장은 월드 장면에서 직접 그린다.
  */
 class SituationTest {
     private val base = File(System.getProperty("hearspace.defaultConfig")).readText()
@@ -65,15 +65,19 @@ class SituationTest {
         return LabelImage(tNs, px, kS, w)
     }
 
-    /** 깊이 장: 앞 거리(−z) [edgeM]부터 바닥이 [dropM] 낮다(null이면 평평). */
-    private fun depth(tNs: Long, w: Mat4, edgeM: Float? = null, dropM: Float = 0f, labels: LabelImage? = null): DepthFrame {
+    /** 깊이 장: 앞 거리(−z) [edgeM]부터 바닥이 [dropM] 낮다(null이면 평평). [ceilingM]이 있으면 그 높이에 천장. */
+    private fun depth(tNs: Long, w: Mat4, edgeM: Float? = null, dropM: Float = 0f, labels: LabelImage? = null, ceilingM: Float? = null): DepthFrame {
         val o = w.translation()
         val inv = w.rigidInverse()
         val mm = ShortArray(kD.width * kD.height) { i ->
             val u = i % kD.width
             val v = i / kD.width
             val d = w.transformDir(Vec3((u + 0.5f - kD.cx) / kD.fx, (v + 0.5f - kD.cy) / kD.fy, 1f))
-            if (d.y >= -1e-4f) return@ShortArray 0
+            if (d.y >= -1e-4f) {
+                if (ceilingM == null || d.y <= 1e-4f) return@ShortArray 0
+                val z = inv.transformPoint(o + d * ((ceilingM - o.y) / d.y)).z
+                return@ShortArray if (z > 30f) 0 else (z * 1000f).toInt().toShort()
+            }
             var p = o + d * (-o.y / d.y)
             if (edgeM != null && -p.z >= edgeM) p = o + d * ((-dropM - o.y) / d.y)
             val z = inv.transformPoint(p).z
@@ -92,17 +96,18 @@ class SituationTest {
     private fun run(
         n: Int,
         userX: (Int) -> Float = { 0f },
+        userZ: (Int) -> Float = { 0f },
         cls: (Float, Float) -> Int,
         depthOf: (Long, Mat4) -> DepthFrame = { t, w -> depth(t, w) },
         obstacles: List<Obstacle> = emptyList(),
         sc: hearspace.core.types.SituationConfig = config.situation,
     ): List<Utterance> {
-        val sit = Situations(sc, config.corridor.widthM, config.vision.footHeightWindowS, 500_000_000L)
+        val sit = Situations(sc, config.corridor.widthM, config.corridor.heightM, config.vision.footHeightWindowS, 500_000_000L)
         val out = ArrayList<Utterance>()
         var surf: LabelImage? = null
         for (i in 0 until n) {
             val t = 1_000_000_000L + i * stepNs
-            val w = pose(userX(i))
+            val w = pose(userX(i), userZ(i))
             if (i % 2 == 0) surf = surface(t, w, cls)
             val snap = ObstacleSnapshot(t, obstacles, 0f, MapHealth.OK)
             val (u, _) = sit.step(SituationInput(t + 30_000_000L, depthOf(t, w), snap, obstacles.map { cmd(it) }, heading, surf))
@@ -198,5 +203,30 @@ class SituationTest {
         assertEquals(listOf("블록 오른쪽", "블록 오른쪽"), drift.map { it.text }, said.toString())
         assertTrue(drift[0].tNs in 1_000_000_000L + 30 * stepNs..1_000_000_000L + 40 * stepNs + 30_000_000L, drift.toString())
         assertTrue(drift[1].tNs >= 1_000_000_000L + 80 * stepNs)
+    }
+
+    @Test
+    fun `SP-10 with drop speech on, a drop deeper than the threshold is spoken with its distance, a curb is not`() {
+        val on = config.situation.copy(dropEnabled = true)
+        val deep = run(40, cls = { _, _ -> S }, depthOf = { t, w -> depth(t, w, edgeM = 2.0f, dropM = 1.0f) }, sc = on)
+        assertTrue(deep.any { it.text == "내려가는 곳, 2미터" && it.priority == 1 }, deep.toString())
+        val curb = run(40, cls = { _, _ -> S }, depthOf = { t, w -> depth(t, w, edgeM = 2.0f, dropM = 0.25f) }, sc = on)
+        assertTrue(run(40, cls = { _, _ -> S }, depthOf = { t, w -> depth(t, w, edgeM = 2.0f, dropM = 1.0f) }).none { it.text.startsWith("내려가는") }, "default off")
+        assertTrue(curb.none { it.text.startsWith("내려가는") }, curb.toString())
+    }
+
+    @Test
+    fun `SP-11 a ceiling overhead keeps the environment unknown`() {
+        val open = run(60, cls = { _, _ -> S })
+        assertTrue(open.any { it.text == "인도" }, open.toString())
+        val indoor = run(60, cls = { _, _ -> S }, depthOf = { t, w -> depth(t, w, ceilingM = 2.6f) })
+        assertTrue(indoor.none { it.key.startsWith("env:") }, indoor.toString())
+    }
+
+    @Test
+    fun `SP-12 one long speed bump area is spoken once while walking along it`() {
+        val bump: (Float, Float) -> Int = { _, z -> if (-z in 2f..30f) SurfaceClass.BUMP.pixel else S }
+        val said = run(100, userZ = { -0.12f * it }, cls = bump)
+        assertEquals(1, said.count { it.text == "방지턱" }, said.toString())
     }
 }

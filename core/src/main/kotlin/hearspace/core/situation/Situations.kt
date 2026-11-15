@@ -1,5 +1,6 @@
 package hearspace.core.situation
 
+import hearspace.core.geometry.Projection
 import hearspace.core.geometry.Vec3
 import hearspace.core.types.AudioCmd
 import hearspace.core.types.DepthFrame
@@ -9,6 +10,7 @@ import hearspace.core.types.SemanticLabel
 import hearspace.core.types.SituationConfig
 import kotlin.math.abs
 import kotlin.math.acos
+import kotlin.math.cos
 import kotlin.math.roundToInt
 
 /** 걷는 환경(M50 설계 표 5). UNKNOWN은 말하지 않는다. */
@@ -44,13 +46,25 @@ data class SituationRecord(
     val stairsAheadM: Float,
     val stairsDir: String,
     val nCells: Int,
+    /** 낙차 앞 거리(M50 고침), 머리 위 천장을 봤는지(실내 고침). */
+    val dropAheadM: Float = Float.NaN,
+    val ceiling: Boolean = false,
 )
 
 /**
  * 보행상황 규칙(M50 설계 3.5절, 표 5). 지금 출력(장애물·움직이는 물체·통로)과 노면 격자를 읽기만 하고 말 요청을 낸다.
- * 관측한 것만 말한다: 블록 끝은 끝 너머를 블록 아닌 노면으로 봤을 때만, 내려가는 계단은 깊이가 바닥면보다 멀 때만.
+ * 관측한 것만 말한다: 블록 끝은 끝 너머를 블록 아닌 노면으로 봤을 때만, 내려가는 계단·낙차는 깊이가 바닥면보다 멀 때만.
+ * 말 열쇠는 상황 종류(계단·방지턱·꺾임·끝·낙차)다. 자리(1 m 칸)를 열쇠에 넣으면 걸으며 가장 가까운 칸이 바뀔 때마다 같은 말이
+ * 되풀이됐다(M50 첫 평가, T01 방지턱 19회).
  */
-class Situations(private val cfg: SituationConfig, private val corridorWidthM: Float, private val heightWindowS: Float, maxInfoAgeNs: Long) {
+class Situations(
+    private val cfg: SituationConfig,
+    private val corridorWidthM: Float,
+    /** 통로 높이(corridor.heightM). 이보다 높은 아래 향한 면을 천장으로 본다. */
+    private val corridorHeightM: Float,
+    private val heightWindowS: Float,
+    maxInfoAgeNs: Long,
+) {
     val grid = SurfaceGrid(cfg)
     val speech = Speech(cfg, maxInfoAgeNs)
 
@@ -87,8 +101,9 @@ class Situations(private val cfg: SituationConfig, private val corridorWidthM: F
             val right = BlockLine.rightOf(h)
             val lines = BlockLines.fit(memory.values.filter { it.major == SurfaceClass.BLOCK.pixel }.map { it.centerW }, cfg.lineInlierM, cfg.lineMinLengthM, cfg.gridCellM)
                 .map { if (it.dir dot h < 0f) it.flipped() else it }
-            rec = rec.copy(nLines = lines.size)
-            updateEnvironment(tNs, grid.cells(tNs, cfg.envWindowS), lines, user, h, right)
+            val ceiling = heights.isNotEmpty() && ceilingSeen(inp.depth, user, h, right, camW.y - medianHeight())
+            rec = rec.copy(nLines = lines.size, ceiling = ceiling)
+            updateEnvironment(tNs, grid.cells(tNs, cfg.envWindowS), lines, user, h, right, ceiling)
             rec = rec.copy(env = env, envCandidate = candidate)
             env.text?.let { req.add(SpeechRequest("env:$env", it, env.priority, lastSurfaceNs)) }
 
@@ -104,7 +119,9 @@ class Situations(private val cfg: SituationConfig, private val corridorWidthM: F
                 driftOverSinceNs = Long.MIN_VALUE
             }
             val (stairsAhead, dir) = stairs(inp, memory, user, h, right, req)
-            rec = rec.copy(stairsAheadM = stairsAhead, stairsDir = dir)
+            val dropM = dropAhead(inp.depth, user, h, right)
+            if (cfg.dropEnabled && !dropM.isNaN() && dir != "down") req.add(SpeechRequest("drop", "내려가는 곳, ${meters(dropM)}미터", 1, minOf(lastSurfaceNs, inp.depth.tCaptureNs)))
+            rec = rec.copy(stairsAheadM = stairsAhead, stairsDir = dir, dropAheadM = dropM)
             bump(memory, user, h, right, req)
             vehicles(inp, user, req)
         }
@@ -126,8 +143,8 @@ class Situations(private val cfg: SituationConfig, private val corridorWidthM: F
         return if (hs.size % 2 == 1) hs[hs.size / 2] else (hs[hs.size / 2 - 1] + hs[hs.size / 2]) / 2f
     }
 
-    /** 앞 띠의 관측된 노면 다수결(블록은 인도에 셈), [SituationConfig.envHoldS] 이어진 뒤에 바꾼다. */
-    private fun updateEnvironment(tNs: Long, window: Map<Long, SurfaceCell>, lines: List<BlockLine>, user: Vec3, h: Vec3, right: Vec3) {
+    /** 앞 띠의 관측된 노면 다수결(블록은 인도에 셈), [SituationConfig.envHoldS] 이어진 뒤에 바꾼다. 머리 위 천장이 보이면 모름(실내). */
+    private fun updateEnvironment(tNs: Long, window: Map<Long, SurfaceCell>, lines: List<BlockLine>, user: Vec3, h: Vec3, right: Vec3, ceiling: Boolean) {
         var side = 0; var alley = 0; var road = 0
         for (c in window.values) {
             val rel = c.centerW - user
@@ -143,6 +160,7 @@ class Situations(private val cfg: SituationConfig, private val corridorWidthM: F
         val cellArea = cfg.gridCellM * cfg.gridCellM
         val top = maxOf(side, alley, road)
         val now = when {
+            ceiling -> Environment.UNKNOWN
             total * cellArea < cfg.envMinAreaM2 || top <= cfg.envMajority * total -> Environment.UNKNOWN
             top == side -> if (lines.any { inBand(it, user, h) }) Environment.BLOCK_SIDEWALK else Environment.SIDEWALK
             top == alley -> Environment.ALLEY
@@ -209,7 +227,7 @@ class Situations(private val cfg: SituationConfig, private val corridorWidthM: F
                 else -> "블록 왼쪽으로 꺾임"
             }
             if (atEnd) turnAtEnd = true
-            req.add(SpeechRequest("turn@${loc(x)}", text, 2, lastSurfaceNs))
+            req.add(SpeechRequest("turn", text, 2, lastSurfaceNs))
         }
         if (turnAtEnd || endAhead < cfg.endMinM || endAhead > cfg.endMaxM) return if (endAhead in cfg.endMinM..cfg.endMaxM) endAhead else Float.NaN
         var t = cfg.gridCellM
@@ -218,7 +236,7 @@ class Situations(private val cfg: SituationConfig, private val corridorWidthM: F
             if (c.major !in SurfaceClass.WALKABLE || c.major == SurfaceClass.BLOCK.pixel || c.frames[SurfaceClass.BLOCK.pixel] > 0) return Float.NaN
             t += cfg.gridCellM
         }
-        req.add(SpeechRequest("end@${loc(endP)}", "블록 끝, ${meters(endAhead)}미터", 2, lastSurfaceNs))
+        req.add(SpeechRequest("end", "블록 끝, ${meters(endAhead)}미터", 2, lastSurfaceNs))
         return endAhead
     }
 
@@ -233,7 +251,7 @@ class Situations(private val cfg: SituationConfig, private val corridorWidthM: F
         val ahead = (nearest.centerW - user) dot h
         val up = inp.snapshot.obstacles.any { o -> cells.any { c -> c.centerW.x in o.aabbMinW.x - cfg.gridCellM..o.aabbMaxW.x + cfg.gridCellM && c.centerW.z in o.aabbMinW.z - cfg.gridCellM..o.aabbMaxW.z + cfg.gridCellM } }
         val down = !up && downEvidence(inp.depth, user, h, ahead)
-        val key = "stairs@${loc(nearest.centerW)}"
+        val key = "stairs"
         when {
             down -> req.add(SpeechRequest(key, "내려가는 계단, ${meters(ahead)}미터", 1, inp.depth.tCaptureNs, level = 2))
             up -> req.add(SpeechRequest(key, "올라가는 계단", 3, lastSurfaceNs, level = 1))
@@ -262,9 +280,80 @@ class Situations(private val cfg: SituationConfig, private val corridorWidthM: F
         return valid >= cfg.stairsMinPoints && far > cfg.stairsDepthFraction * valid
     }
 
+    /**
+     * 1e 낙차(M50 고침 한 번, 2026-11-16): 노면 모델이 위에서 내려다본 계단을 계단으로 칠하지 않아(O04) 계단 라벨 없이 깊이로 본다.
+     * 마지막 노면 영상의 통로 안 노면 점(바닥면 투영)마다, 그 점으로 가는 광선의 깊이가 바닥 교점보다 멀면 실제 면은 바닥보다
+     * 카메라 높이 × (깊이 / 교점 깊이 − 1)만큼 낮다. [SituationConfig.dropMinM] 넘게 낮은 점이 그보다 먼 깊이 있는 점의
+     * [SituationConfig.stairsDepthFraction] 넘고 [SituationConfig.stairsMinPoints]개 이상인 가장 가까운 앞 거리(0.1 m 칸 시작, 가까운 쪽). 없으면 NaN.
+     */
+    private fun dropAhead(depth: DepthFrame, user: Vec3, h: Vec3, right: Vec3): Float {
+        if (heights.isEmpty()) return Float.NaN
+        val camH = medianHeight()
+        val camFromWorld = depth.worldFromCam.rigidInverse()
+        val k = depth.K
+        val nb = (cfg.envAheadMaxM / cfg.gridCellM).toInt() + 1
+        val valid = IntArray(nb + 1)
+        val low = IntArray(nb + 1)
+        for (sp in grid.lastPoints) {
+            if (sp.cls !in SurfaceClass.WALKABLE && sp.cls != SurfaceClass.STAIRS.pixel) continue
+            val rel = sp.pW - user
+            val a = rel dot h
+            if (a <= 0f || a > cfg.envAheadMaxM || abs(rel dot right) > corridorWidthM / 2f) continue
+            val c = camFromWorld.transformPoint(sp.pW)
+            if (c.z <= 0f) continue
+            val u = (k.fx * c.x / c.z + k.cx).toInt()
+            val v = (k.fy * c.y / c.z + k.cy).toInt()
+            if (u < 0 || v < 0 || u >= k.width || v >= k.height) continue
+            val zM = (depth.depthMm[v * k.width + u].toInt() and 0xFFFF) / 1000f
+            if (zM <= 0f) continue
+            val b = (a / cfg.gridCellM).toInt()
+            valid[b]++
+            if (camH * (zM / c.z - 1f) > cfg.dropMinM) low[b]++
+        }
+        for (b in nb - 1 downTo 0) {
+            valid[b] += valid[b + 1]
+            low[b] += low[b + 1]
+        }
+        for (b in 0 until nb) {
+            if (low[b] > low[b + 1] && low[b] >= cfg.stairsMinPoints && low[b] > cfg.stairsDepthFraction * valid[b]) return b * cfg.gridCellM
+        }
+        return Float.NaN
+    }
+
+    /**
+     * 실내 고침(M50 설계 5.2절 미리 정한 후보 "머리 위 천장 점유가 있으면 환경을 모름으로"): 깊이 화소의 월드 점이 바닥에서 통로 높이
+     * 넘게 위이고 환경 띠 안이며, 면 법선(이웃 화소 차의 외적)이 수직에서 [SituationConfig.ceilingMaxTiltDeg] 안인 점의 수평 칸 넓이가
+     * [SituationConfig.envMinAreaM2] 이상. 법선을 보는 까닭은 골목의 옆 벽·앞 벽(법선이 수평)을 천장으로 잡지 않으려는 것이다.
+     */
+    private fun ceilingSeen(depth: DepthFrame, user: Vec3, h: Vec3, right: Vec3, floorY: Float): Boolean {
+        val k = depth.K
+        val w = depth.worldFromCam
+        val cosTilt = cos(Math.toRadians(cfg.ceilingMaxTiltDeg.toDouble())).toFloat()
+        fun z(u: Int, v: Int) = (depth.depthMm[v * k.width + u].toInt() and 0xFFFF) / 1000f
+        val cells = HashSet<Long>()
+        for (v in 0 until k.height - 1) for (u in 0 until k.width - 1) {
+            val zc = z(u, v)
+            if (zc <= 0f) continue
+            val c = Projection.backproject(u.toFloat(), v.toFloat(), zc, k)
+            val p = w.transformPoint(c)
+            if (p.y - floorY <= corridorHeightM) continue
+            val rel = p - user
+            val a = rel dot h
+            if (a < 0f || a > cfg.envAheadMaxM || abs(rel dot right) > cfg.envHalfWidthM) continue
+            val zr = z(u + 1, v)
+            val zd = z(u, v + 1)
+            if (zr <= 0f || zd <= 0f) continue
+            val n = w.transformDir((Projection.backproject(u + 1f, v.toFloat(), zr, k) - c) cross (Projection.backproject(u.toFloat(), v + 1f, zd, k) - c))
+            val nn = n.norm()
+            if (nn <= 0f || abs(n.y) < cosTilt * nn) continue
+            cells.add(grid.keyAt(p))
+        }
+        return cells.size * cfg.gridCellM * cfg.gridCellM >= cfg.envMinAreaM2
+    }
+
     private fun bump(memory: Map<Long, SurfaceCell>, user: Vec3, h: Vec3, right: Vec3, req: MutableList<SpeechRequest>) {
         val nearest = inCorridor(memory, SurfaceClass.BUMP, user, h, right).minByOrNull { (it.centerW - user) dot h } ?: return
-        req.add(SpeechRequest("bump@${loc(nearest.centerW)}", "방지턱", 3, lastSurfaceNs))
+        req.add(SpeechRequest("bump", "방지턱", 3, lastSurfaceNs))
     }
 
     private fun inCorridor(memory: Map<Long, SurfaceCell>, cls: SurfaceClass, user: Vec3, h: Vec3, right: Vec3): List<SurfaceCell> =
@@ -310,8 +399,6 @@ class Situations(private val cfg: SituationConfig, private val corridorWidthM: F
         /** 말할 거리: 1 m 단위 반올림, 1 m 아래로 내리지 않는다. */
         fun meters(m: Float): Int = maxOf(1, m.roundToInt())
 
-        /** 같은 자리를 가리키는 열쇠(1 m 칸). */
-        fun loc(p: Vec3): String = "${kotlin.math.floor(p.x).toInt()}_${kotlin.math.floor(p.z).toInt()}"
 
         private fun intersect(a: BlockLine, b: BlockLine): Vec3? {
             val den = a.dir.x * b.dir.z - a.dir.z * b.dir.x

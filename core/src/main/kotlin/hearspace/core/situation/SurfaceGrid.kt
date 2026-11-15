@@ -27,7 +27,7 @@ class SurfaceCell(val ix: Int, val iz: Int, val centerW: Vec3) {
     val major: Int get() = frames.indices.maxBy { frames[it] }
 }
 
-/** 바닥면에 투영한 노면 화소 하나(계단 내리막 증거에 쓴다). */
+/** 바닥면에 투영한 노면 화소 하나(계단 내리막·낙차 증거에 쓴다). */
 class SurfacePoint(val pW: Vec3, val cls: Int)
 
 /**
@@ -40,7 +40,7 @@ class SurfaceGrid(private val cfg: SituationConfig) {
 
     private val frames = ArrayDeque<FrameObs>()
 
-    /** 마지막으로 넣은 영상의 투영 점(계단·방지턱만, 다른 클래스는 칸으로만 남긴다). */
+    /** 마지막으로 넣은 영상의 투영 점(배경 뺀 노면, 계단 내리막·낙차 증거에 쓴다). */
     var lastPoints: List<SurfacePoint> = emptyList()
         private set
 
@@ -66,7 +66,7 @@ class SurfaceGrid(private val cfg: SituationConfig) {
                             val dz = p.z - o.z
                             if (dx * dx + dz * dz <= maxD2) {
                                 counts.getOrPut(key(index(p.x), index(p.z))) { IntArray(SurfaceClass.COUNT) }[c]++
-                                if (c == SurfaceClass.STAIRS.pixel || c == SurfaceClass.BUMP.pixel) points.add(SurfacePoint(p, c))
+                                if (c != SurfaceClass.BACKGROUND.pixel) points.add(SurfacePoint(p, c))
                             }
                         }
                     }
