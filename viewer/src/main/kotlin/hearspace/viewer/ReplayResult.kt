@@ -122,8 +122,14 @@ class ReplayResult(
     val label: String = "",
     val objectCues: List<ObjectCueEvent> = emptyList(),
     val objectCueSettings: ObjectCueSettings? = null,
+    /** 상황 판단이 낸 말(M50, `situation.enabled`일 때만). */
+    val speech: List<hearspace.core.situation.Utterance> = emptyList(),
 ) {
     val sampleRate = config.audio.sampleRate
+
+    /** 시각 [tNs]에서 [holdS] 안에 낸 마지막 말(말 띠 표시용). */
+    fun speechAt(tNs: Long, holdS: Double = 3.0): hearspace.core.situation.Utterance? =
+        speech.lastOrNull { it.tNs <= tNs }?.takeIf { tNs - it.tNs <= (holdS * 1e9).toLong() }
     val blockSize = config.audio.blockSize
     val t0Ns: Long = blocks.first().tNs
     val durationS: Double = blocks.size.toDouble() * blockSize / sampleRate
@@ -296,6 +302,8 @@ object ReplayRunner {
         val blocks = ArrayList<BlockRec>()
         val slow = ArrayList<SlowRec>()
         val chunks = ArrayList<FloatArray>()
+        val situation = if (config.situation.enabled) hearspace.core.replay.SituationRunner(config, session) else null
+        val speech = ArrayList<hearspace.core.situation.Utterance>()
         val listener = object : ReplayListener {
             override val captureVoxels = true
 
@@ -308,10 +316,12 @@ object ReplayRunner {
                 val labels = if (roles != null) ByteArray(v.size) { v[it].label.toByte() } else null
                 val moving = step.movingVoxels?.let { m -> FloatArray(m.size * 3).also { a -> m.forEachIndexed { i, c -> a[3 * i] = c.centerW.x; a[3 * i + 1] = c.centerW.y; a[3 * i + 2] = c.centerW.z } } }
                 slow += SlowRec(step.doneNs, step.snapshot, xyz, step.applied, step.stageNs, step.mapUpdate.planes, step.mapUpdate.segments, step.depth, step.mapDepthMm, free, step.mapUpdate.geometry, roles, labels, moving)
+                situation?.onSlowStep(step)?.let { speech += it.first }
             }
 
             override fun onBlock(tNs: Long, pose: PoseFrame, snapshot: ObstacleSnapshot?, g: GuidanceOutput) {
                 blocks += BlockRec(tNs, pose, snapshot?.tCaptureNs, g)
+                situation?.onBlock(g)
                 val out = FloatArray(2 * n)
                 export?.begin(g)
                 renderer.render(g, out)
@@ -344,7 +354,7 @@ object ReplayRunner {
         require(blocks.isNotEmpty()) { "no audio blocks: session has no tracked pose" }
         val audio = FloatArray(chunks.size * 2 * n)
         chunks.forEachIndexed { i, c -> c.copyInto(audio, i * 2 * n) }
-        return ReplayResult(session, reader, config, overridesJson, blocks, slow, audio, (System.nanoTime() - start) / 1_000_000, substitution?.align, label, cueEvents, objectCueSettings)
+        return ReplayResult(session, reader, config, overridesJson, blocks, slow, audio, (System.nanoTime() - start) / 1_000_000, substitution?.align, label, cueEvents, objectCueSettings, speech)
     }
 
     fun loadHrtf(): Hrtf = Hrtf.parse(Repo.hrtf.readBytes())
