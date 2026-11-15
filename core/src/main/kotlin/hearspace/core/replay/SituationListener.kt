@@ -79,7 +79,10 @@ class SituationListener(
         val (said, rec) = situations.step(
             SituationInput(step.doneNs, step.depth, step.snapshot, g?.commands.orEmpty(), heading, surface.at(step.depth.tCaptureNs)),
         )
-        for (u in said) speechOut.write("${u.tNs},${u.priority},${u.key},${u.text.replace(',', ' ')},${String.format(java.util.Locale.ROOT, "%.1f", u.ageMs)},${if (u.interrupted) 1 else 0}\n")
+        for (u in said) {
+            val text = "\"" + u.text.replace("\"", "") + "\""
+            speechOut.write("${u.tNs},${u.priority},${u.key},$text,${String.format(java.util.Locale.ROOT, "%.1f", u.ageMs)},${if (u.interrupted) 1 else 0}\n")
+        }
         with(rec) {
             stateOut.write("$tNs,$env,$envCandidate,$nLines,${f(followAngleDeg)},${f(lateralM)},${f(blockYawDeg)},${f(endAheadM)},${f(stairsAheadM)},$stairsDir,$nCells\n")
         }
