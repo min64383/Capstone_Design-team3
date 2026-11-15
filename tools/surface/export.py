@@ -31,6 +31,23 @@ def build(arch: str, pretrained_backbone: bool = False) -> torch.nn.Module:
     return LRASPP(body, backbone[low].out_channels, backbone[high].out_channels, N_CLASSES)
 
 
+class HardSigmoid6(torch.nn.Module):
+    """hard-sigmoid와 같은 값 relu6(x + 3) / 6. onnx2tf는 HardSigmoid를 RELU_0_TO_1로 바꾸는데 S10 GPU 대리자가 이를 못 받아
+    그래프의 3/4가 CPU로 떨어졌다(M50 측정). RELU6는 GPU에서 돈다."""
+
+    def forward(self, x):
+        return torch.nn.functional.relu6(x + 3.0) / 6.0
+
+
+def gpu_friendly(m: torch.nn.Module) -> torch.nn.Module:
+    for name, child in m.named_children():
+        if isinstance(child, torch.nn.Hardsigmoid):
+            setattr(m, name, HardSigmoid6())
+        else:
+            gpu_friendly(child)
+    return m
+
+
 class FourChannel(torch.nn.Module):
     """첫 합성곱에 무게 0인 넷째 입력 채널을 더한다(결과는 3채널과 같음). 입력을 자르는 연산은 onnx2tf가 축을 잘못 옮겨 쓰지 않는다."""
 
@@ -40,7 +57,7 @@ class FourChannel(torch.nn.Module):
         w = conv.weight.data
         conv.weight = torch.nn.Parameter(torch.cat([w, torch.zeros_like(w[:, :1])], dim=1))
         conv.in_channels = 4
-        self.net = net
+        self.net = gpu_friendly(net)
 
     def forward(self, x):
         return self.net(x)["out"]
