@@ -27,6 +27,7 @@ data class Config(
     val sonify: SonifyConfig,
     val slowPath: SlowPathConfig,
     val vision: VisionConfig,
+    val situation: SituationConfig,
 ) {
     /** All live/replay/viewer geometry uses the same measured chest offset when enabled. */
     val headOffsetFromCameraM: Vec3 get() = heading.chestMount?.headOffsetBodyM ?: head.offsetFromCameraM
@@ -939,6 +940,64 @@ data class VisionConfig(
 )
 
 enum class VisionLabelSource { NONE, SEMANTICS }
+
+/**
+ * 보행상황 인지·음성 안내(M50 설계 표 5·6, IMPROVE_SPEC §13 v0.4.36). 지금 소리 경로는 읽기만 하고 말([hearspace.core.situation.Speech])만 더한다.
+ * 노면 영상은 노면 분할 모델 출력(화소 값 = [hearspace.core.situation.SurfaceClass] 번호, 255 = 계산 안 함). 거리·폭은 m, 시간은 s.
+ * 출처: 블록 0.3 m = 편의증진법 시행규칙 별표 1 표준, 몸 폭 0.8 m = 지금 통로 폭, 22.5° = NavCog3 약간 회전 하한, 30 s = Soundscape 반복 금지,
+ * 0.1 m(계단 깊이 초과) ≈ 1.5~2 m 깊이 바닥 σ 3 cm × 3. 그 밖은 설계의 자체 선택.
+ */
+data class SituationConfig(
+    val enabled: Boolean,
+    /** 노면 모델 처리 시간(ms): 영상 촬영 시각 + 이 값 ≤ 깊이 장 시각인 영상만 쓴다(과거만, 기기 측정 전 가정). */
+    val surfaceDelayMs: Int,
+    /** 노면 격자 칸(m)과 기억(s): 이 시간 안에 본 칸만 "관측됨". */
+    val gridCellM: Float,
+    val gridMemoryS: Float,
+    /** 바닥 투영 최대 수평 거리(m). */
+    val gridMaxDistM: Float,
+    val envAheadMinM: Float,
+    val envAheadMaxM: Float,
+    val envHalfWidthM: Float,
+    val envWindowS: Float,
+    val envHoldS: Float,
+    /** 가장 많은 노면의 몫이 이보다 커야 환경을 정한다. */
+    val envMajority: Float,
+    /** 환경을 정하는 데 필요한 관측된 걸을 수 있는 노면 넓이(m², 자체 선택: 칸 몇 개로 정하지 않게). */
+    val envMinAreaM2: Float,
+    /** 블록 선: RANSAC 안쪽 거리(블록 폭 절반), 관측 길이 하한, 따라가는 블록의 진행 방향과의 각 상한. */
+    val lineInlierM: Float,
+    val lineMinLengthM: Float,
+    val lineMaxAngleDeg: Float,
+    /** 1a 벗어남: 횡 거리 > [driftOnM]이 [driftHoldS] 이어지면 말하고 < [driftOffM]이면 푼다. */
+    val driftOnM: Float,
+    val driftOffM: Float,
+    val driftHoldS: Float,
+    /** 1c 블록 위 물체: 장애물 출력 대표점과 블록 선의 거리 상한(블록 절반 + 몸 절반). */
+    val onBlockBandM: Float,
+    /** 1d 끝: 먼 끝이 이 거리 구간에서 보이고, 너머 [endBeyondM]이 블록 아닌 노면으로 관측돼야 한다. */
+    val endMinM: Float,
+    val endMaxM: Float,
+    val endBeyondM: Float,
+    /** 1d 꺾임·갈림: 끝에서 [turnJoinM] 안에 시작하는 다른 선이 [turnMinDeg] 넘게 꺾임. */
+    val turnJoinM: Float,
+    val turnMinDeg: Float,
+    /** 1e 계단·방지턱: 서로 다른 노면 영상 수, 내리막 증거를 볼 계단 화소(가장 가까운 칸보다 이만큼 먼), 깊이 초과(광선 방향), 화소 몫. */
+    val confirmFrames: Int,
+    val stairsBeyondM: Float,
+    val stairsDepthExcessM: Float,
+    val stairsDepthFraction: Float,
+    /** 내리막 판정에 필요한 깊이 있는 계단 화소 수 하한(자체 선택). */
+    val stairsMinPoints: Int,
+    /** 1g: 차량 라벨 움직이는 출력의 다가오는 속도 하한(m/s, M48 움직임 판정 문턱). */
+    val vehicleApproachMps: Float,
+    /** 같은 말을 되풀이하지 않는 시간, 우선순위 2·3 말 사이 간격, 재생에서 말하는 중을 흉내 낼 초당 음절 수(가정, M61에서 기기 측정). */
+    val repeatS: Float,
+    val gapS: Float,
+    val syllablesPerS: Float,
+    /** 우선순위 3(정보) 말을 낼지. */
+    val infoSpeech: Boolean,
+)
 
 /**
  * ARCore `SemanticLabel`과 같은 이름. [pixel]은 의미 영상의 화소 값이다.

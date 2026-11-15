@@ -129,7 +129,9 @@ class OfflineReplay(
         val depthFromJson = depthFrom?.let { "{ \"variant\": \"$it\", \"delayMs\": ${depthFromDelayNs / 1_000_000.0} }" }
         RunLogWriter(outDir, session, overridesJson, slowPathNote, substitution?.infoJson(alignFrom), rgbSource.name, depthFromJson, movingFrom).use { log ->
             val truth = File(session, "annotations/obstacles.json").isFile
-            run(session, if (truth) MapEvalWriter(ClusterEvalWriter(log, outDir, session, config, substitution?.align), outDir, session, config, align = substitution?.align, alignFile = alignFrom.takeIf { it.isNotBlank() }?.let(::File)) else log)
+            val base = if (truth) MapEvalWriter(ClusterEvalWriter(log, outDir, session, config, substitution?.align), outDir, session, config, align = substitution?.align, alignFile = alignFrom.takeIf { it.isNotBlank() }?.let(::File)) else log
+            // M50: 상황 가지는 결과를 읽기만 하고 speech.csv·situation.csv를 따로 쓴다(실행 로그는 그대로)
+            run(session, if (config.situation.enabled) SituationListener(base, config, session, outDir) else base)
         }
         markDone(outDir)
     }
