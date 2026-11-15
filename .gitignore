@@ -19,6 +19,7 @@ keystore.properties
 __pycache__/
 .venv/
 .venv-learned/
+.venv-surface/
 *.pyc
 
 # OS
