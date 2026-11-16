@@ -3,9 +3,16 @@ package hearspace.core.replay
 import hearspace.core.session.Png16
 import hearspace.core.session.SessionFormat
 import hearspace.core.session.SessionReader
+import hearspace.core.types.Config
 import hearspace.core.types.DepthFrame
+import hearspace.core.types.FloorModel
+import hearspace.core.types.FloorWeighting
+import hearspace.core.types.HitWeighting
 import hearspace.core.types.Intrinsics
 import hearspace.core.types.LabelImage
+import hearspace.core.types.MeasureFrom
+import hearspace.core.types.MovableDepth
+import hearspace.core.types.VisionLabelSource
 import java.io.File
 import kotlin.math.abs
 
@@ -71,12 +78,21 @@ class VisionFrames(private val dir: File, private val reader: SessionReader, pri
      * 의미 영상의 내부 파라미터. VERIFY: ARCore 문서는 폭 256, 높이는 화면 비율이라고만 적었다. 가로세로 비가 GPU 텍스처(16:9)에 가까우면
      * 텍스처 K, CPU 영상(4:3)에 가까우면 CPU 영상 K를 비례로 줄인다(깊이 영상 K = 텍스처 K 비례와 같은 방식). 둘 다 2% 넘게 다르면 멈춘다.
      */
-    private fun intrinsicsFor(w: Int, h: Int): Intrinsics {
-        val cam = reader.meta.camera
-        val aspect = w.toFloat() / h
-        val options = listOf(cam.textureIntrinsics, cam.imageIntrinsics)
-        val k = options.minBy { abs(it.width.toFloat() / it.height - aspect) }
-        require(abs(k.width.toFloat() / k.height - aspect) <= 0.02f * aspect) { "semantic ${w}x$h matches neither texture nor CPU image aspect" }
-        return SessionReader.scaleTextureK(k, w, h)
+    private fun intrinsicsFor(w: Int, h: Int): Intrinsics = labelIntrinsics(reader.meta.camera.textureIntrinsics, reader.meta.camera.imageIntrinsics, w, h)
+
+    companion object {
+        /** 깊이 장에 의미 영상·원시 깊이를 붙여야 하는 설정인지. 재생과 앱(ArFeeder)이 같은 조건을 쓴다. */
+        fun needed(config: Config): Boolean = config.vision.label == VisionLabelSource.SEMANTICS || config.vision.movableDepth == MovableDepth.RAW ||
+            config.vision.obstacleDepth == MovableDepth.RAW || config.frontend.labelBandPx > 0 || config.map.hitWeighting == HitWeighting.CONFIDENCE ||
+            config.floor.weighting == FloorWeighting.CONFIDENCE || config.vision.voxelLabels || config.track.measureFrom == MeasureFrom.RAW_MASK ||
+            config.floor.model == FloorModel.PLANE_RAW || config.vision.footContact
+
+        /** 텍스처 K와 CPU 영상 K 중 의미 영상 가로세로 비에 맞는 쪽을 [w]×[h]로 줄인다. 재생과 앱이 같이 쓴다. */
+        fun labelIntrinsics(texture: Intrinsics, image: Intrinsics, w: Int, h: Int): Intrinsics {
+            val aspect = w.toFloat() / h
+            val k = listOf(texture, image).minBy { abs(it.width.toFloat() / it.height - aspect) }
+            require(abs(k.width.toFloat() / k.height - aspect) <= 0.02f * aspect) { "semantic ${w}x$h matches neither texture nor CPU image aspect" }
+            return SessionReader.scaleTextureK(k, w, h)
+        }
     }
 }

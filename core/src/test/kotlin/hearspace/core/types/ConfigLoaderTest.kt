@@ -17,6 +17,17 @@ class ConfigLoaderTest {
 
     private fun load(override: String? = null) = ConfigLoader.load(defaultJson, override)
 
+    @Test
+    fun `app asset overrides load in app order and turn on the semantic combo`() {
+        val assets = File(System.getProperty("hearspace.defaultConfig")).parentFile
+        if (!File(assets, "semantic-combo.override.json").isFile) return // -PtestOverrides 합친 설정에서는 자산 폴더가 아니다
+        val c = ConfigLoader.load(defaultJson, listOf("risk-continuous.override.json", "semantic-combo.override.json").map { File(assets, it).readText() })
+        assertEquals(VisionLabelSource.SEMANTICS, c.vision.label)
+        assertEquals(true, c.vision.semantics)
+        assertEquals(MeasureFrom.RAW_MASK, c.track.measureFrom)
+        assertEquals(HitWeighting.CONFIDENCE, c.map.hitWeighting)
+    }
+
     private fun assertConfigError(expectedPath: String, override: String) {
         val e = assertThrows<ConfigException> { load(override) }
         assertEquals(expectedPath, e.path, e.message)
