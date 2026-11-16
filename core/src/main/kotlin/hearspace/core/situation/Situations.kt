@@ -105,7 +105,7 @@ class Situations(
             rec = rec.copy(nLines = lines.size, ceiling = ceiling)
             updateEnvironment(tNs, grid.cells(tNs, cfg.envWindowS), lines, user, h, right, ceiling)
             rec = rec.copy(env = env, envCandidate = candidate)
-            env.text?.let { req.add(SpeechRequest("env:$env", it, env.priority, lastSurfaceNs)) }
+            if (cfg.envSpeech) env.text?.let { req.add(SpeechRequest("env:$env", it, env.priority, lastSurfaceNs)) }
 
             val follow = lines.filter { angleDeg(it.dir, h) <= cfg.lineMaxAngleDeg && abs(it.lateral(user)) <= cfg.envHalfWidthM }
                 .minByOrNull { abs(it.lateral(user)) }

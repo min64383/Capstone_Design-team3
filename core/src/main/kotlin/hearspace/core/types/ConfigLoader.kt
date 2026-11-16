@@ -479,6 +479,7 @@ object ConfigLoader {
                     gapS = nonNegative("gapS"),
                     syllablesPerS = positive("syllablesPerS"),
                     infoSpeech = boolean("infoSpeech"),
+                    envSpeech = boolean("envSpeech"),
                 ).also {
                     if (it.envAheadMaxM <= it.envAheadMinM) throw ConfigException("situation.envAheadMaxM", "must be > envAheadMinM")
                     if (it.driftOffM >= it.driftOnM) throw ConfigException("situation.driftOffM", "must be < driftOnM")

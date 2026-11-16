@@ -1006,6 +1006,8 @@ data class SituationConfig(
     val syllablesPerS: Float,
     /** 우선순위 3(정보) 말을 낼지. */
     val infoSpeech: Boolean,
+    /** 환경 말("점자블록 인도"·"골목길, 차 조심" 등)을 낼지. 기본 꺼짐(M50 결과 검토, 사용자 "지금 환경은 말할 필요 없어"). 환경 판정은 끄더라도 기록한다. */
+    val envSpeech: Boolean,
 )
 
 /**

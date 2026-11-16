@@ -217,9 +217,11 @@ class SituationTest {
 
     @Test
     fun `SP-11 a ceiling overhead keeps the environment unknown`() {
-        val open = run(60, cls = { _, _ -> S })
+        val envOn = config.situation.copy(envSpeech = true)
+        val open = run(60, cls = { _, _ -> S }, sc = envOn)
         assertTrue(open.any { it.text == "인도" }, open.toString())
-        val indoor = run(60, cls = { _, _ -> S }, depthOf = { t, w -> depth(t, w, ceilingM = 2.6f) })
+        assertTrue(run(60, cls = { _, _ -> S }).none { it.key.startsWith("env:") }, "environment speech default off")
+        val indoor = run(60, cls = { _, _ -> S }, depthOf = { t, w -> depth(t, w, ceilingM = 2.6f) }, sc = envOn)
         assertTrue(indoor.none { it.key.startsWith("env:") }, indoor.toString())
     }
 
