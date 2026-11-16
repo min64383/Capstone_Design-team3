@@ -185,9 +185,9 @@ class ConfigLoaderTest {
     }
 
     @Test
-    fun `vision labels are off by default and label lists are validated`() {
+    fun `semantic mode is on by default, labels are off and label lists are validated`() {
         val c = load()
-        assertEquals(false, c.vision.semantics)
+        assertEquals(true, c.vision.semantics)
         assertEquals(VisionLabelSource.NONE, c.vision.label)
         assertEquals(setOf(SemanticLabel.PERSON, SemanticLabel.VEHICLE), c.vision.movingLabels)
         assertEquals(SemanticLabel.PERSON, SemanticLabel.ofPixel(10))
