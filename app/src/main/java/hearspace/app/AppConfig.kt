@@ -14,8 +14,6 @@ import hearspace.core.types.ConfigLoader
 object AppConfig {
     private const val CONFIG_ASSET = "config/default.json"
     private const val SONIFY_OVERRIDE_ASSET = "config/risk-continuous.override.json"
-    /** 앱 기본 안내 조합 = M53 조합(뷰어 변형 44, 의미 라벨 사용). 시험·재생·뷰어의 기준선은 default.json 그대로다(2026-11-16 사용자 지시). */
-    private const val COMBO_OVERRIDE_ASSET = "config/semantic-combo.override.json"
     /** `/sdcard/Android/data/<패키지>/files/config.override.json`. */
     const val DEVICE_OVERRIDE_FILE = "config.override.json"
 
@@ -33,10 +31,9 @@ object AppConfig {
         cached.getOrPut(deviceOverride) {
             val base = context.assets.open(CONFIG_ASSET).bufferedReader().use { it.readText() }
             val override = context.assets.open(SONIFY_OVERRIDE_ASSET).bufferedReader().use { it.readText() }
-            val combo = context.assets.open(COMBO_OVERRIDE_ASSET).bufferedReader().use { it.readText() }
             val device = if (deviceOverride && deviceOverrideAllowed) deviceOverrideFile(context)?.takeIf { it.isFile }?.readText() else null
             if (device != null) android.util.Log.i(TAG, "device config override: $device")
-            ConfigLoader.load(base, listOfNotNull(override, combo, device))
+            ConfigLoader.load(base, listOfNotNull(override, device))
         }
     }
 
