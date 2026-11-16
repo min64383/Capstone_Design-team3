@@ -228,7 +228,8 @@ class SituationTest {
     @Test
     fun `SP-12 one long speed bump area is spoken once while walking along it`() {
         val bump: (Float, Float) -> Int = { _, z -> if (-z in 2f..30f) SurfaceClass.BUMP.pixel else S }
-        val said = run(100, userZ = { -0.12f * it }, cls = bump)
+        val said = run(100, userZ = { -0.12f * it }, cls = bump, sc = config.situation.copy(bumpSpeech = true))
         assertEquals(1, said.count { it.text == "방지턱" }, said.toString())
+        assertTrue(run(100, userZ = { -0.12f * it }, cls = bump).none { it.text == "방지턱" }, "bump speech default off")
     }
 }

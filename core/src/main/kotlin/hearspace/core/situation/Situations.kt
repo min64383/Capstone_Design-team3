@@ -122,7 +122,7 @@ class Situations(
             val dropM = dropAhead(inp.depth, user, h, right)
             if (cfg.dropEnabled && !dropM.isNaN() && dir != "down") req.add(SpeechRequest("drop", "내려가는 곳, ${meters(dropM)}미터", 1, minOf(lastSurfaceNs, inp.depth.tCaptureNs)))
             rec = rec.copy(stairsAheadM = stairsAhead, stairsDir = dir, dropAheadM = dropM)
-            bump(memory, user, h, right, req)
+            if (cfg.bumpSpeech) bump(memory, user, h, right, req)
             vehicles(inp, user, req)
         }
         return speech.tick(inp.nowNs, req) to rec
