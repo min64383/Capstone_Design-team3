@@ -17,8 +17,8 @@ object AppConfig {
     /** `/sdcard/Android/data/<패키지>/files/config.override.json`. */
     const val DEVICE_OVERRIDE_FILE = "config.override.json"
 
-    /** 기기 덮어쓰기 파일을 읽는 빌드인지(디버그만). */
-    val deviceOverrideAllowed: Boolean get() = BuildConfig.DEBUG
+    /** 기기 덮어쓰기 파일을 읽는 빌드인지(개발 도구가 있는 debug·bench, M61). */
+    val deviceOverrideAllowed: Boolean get() = BuildConfig.DEV_TOOLS
 
     /** 기기 덮어쓰기를 쓴 설정(true)과 앱 자산만의 설정(false). */
     private val cached = HashMap<Boolean, Config>()
