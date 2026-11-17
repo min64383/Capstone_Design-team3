@@ -8,12 +8,14 @@ import hearspace.core.types.ConfigLoader
 /**
  * 기본 설정과 연속음 선택 설정을 병합해 한 번 읽어 둔다. 앱 전용 외부 폴더에 [DEVICE_OVERRIDE_FILE]이 있으면 그 위에 덮어쓴다
  * (M13.4 기기 측정·녹화 설정을 다시 설치 없이 `adb push`로 바꾸기 위해. 팀 기본값은 그대로).
- * 덮어쓰기는 **디버그 빌드에서만** 읽는다(사용자 결정 2026-10-31, A1 감사 G2): 배포 빌드를 쓰는 사용자 폰은 측정에서 남은 파일이 있어도
+ * 덮어쓰기는 **개발 도구 빌드(debug·bench, M61)에서만** 읽는다(사용자 결정 2026-10-31, A1 감사 G2): 배포 빌드를 쓰는 사용자 폰은 측정에서 남은 파일이 있어도
  * 정확히 기본 설정으로 안내한다. 기기 측정은 개발자가 설치한 디버그 빌드로 한다.
  */
 object AppConfig {
     private const val CONFIG_ASSET = "config/default.json"
     private const val SONIFY_OVERRIDE_ASSET = "config/risk-continuous.override.json"
+    /** 하네스 착용 실측(M61, 사용자 줄자 2026-11-17: 카메라가 머리 중심보다 앞 0.10·아래 0.20 m). PC 재생 기준선(default.json, 손 파지 실측)은 그대로. */
+    private const val HARNESS_OVERRIDE_ASSET = "config/harness.override.json"
     /** `/sdcard/Android/data/<패키지>/files/config.override.json`. */
     const val DEVICE_OVERRIDE_FILE = "config.override.json"
 
@@ -31,9 +33,10 @@ object AppConfig {
         cached.getOrPut(deviceOverride) {
             val base = context.assets.open(CONFIG_ASSET).bufferedReader().use { it.readText() }
             val override = context.assets.open(SONIFY_OVERRIDE_ASSET).bufferedReader().use { it.readText() }
+            val harness = context.assets.open(HARNESS_OVERRIDE_ASSET).bufferedReader().use { it.readText() }
             val device = if (deviceOverride && deviceOverrideAllowed) deviceOverrideFile(context)?.takeIf { it.isFile }?.readText() else null
             if (device != null) android.util.Log.i(TAG, "device config override: $device")
-            ConfigLoader.load(base, listOfNotNull(override, device))
+            ConfigLoader.load(base, listOfNotNull(override, harness, device))
         }
     }
 
