@@ -440,6 +440,53 @@ object ConfigLoader {
                     footBodyHeightM = positive("footBodyHeightM"),
                 )
             },
+            situation = root.section("situation") {
+                SituationConfig(
+                    enabled = boolean("enabled"),
+                    surfaceDelayMs = intIn("surfaceDelayMs", 0, 5000),
+                    gridCellM = positive("gridCellM"),
+                    gridMemoryS = positive("gridMemoryS"),
+                    gridMaxDistM = positive("gridMaxDistM"),
+                    envAheadMinM = nonNegative("envAheadMinM"),
+                    envAheadMaxM = positive("envAheadMaxM"),
+                    envHalfWidthM = positive("envHalfWidthM"),
+                    envWindowS = positive("envWindowS"),
+                    envHoldS = nonNegative("envHoldS"),
+                    envMajority = unit("envMajority"),
+                    envMinAreaM2 = positive("envMinAreaM2"),
+                    lineInlierM = positive("lineInlierM"),
+                    lineMinLengthM = positive("lineMinLengthM"),
+                    lineMaxAngleDeg = positive("lineMaxAngleDeg"),
+                    driftOnM = positive("driftOnM"),
+                    driftOffM = nonNegative("driftOffM"),
+                    driftHoldS = nonNegative("driftHoldS"),
+                    onBlockBandM = positive("onBlockBandM"),
+                    endMinM = nonNegative("endMinM"),
+                    endMaxM = positive("endMaxM"),
+                    endBeyondM = positive("endBeyondM"),
+                    turnJoinM = positive("turnJoinM"),
+                    turnMinDeg = positive("turnMinDeg"),
+                    confirmFrames = atLeast1("confirmFrames"),
+                    stairsBeyondM = nonNegative("stairsBeyondM"),
+                    stairsDepthExcessM = positive("stairsDepthExcessM"),
+                    stairsDepthFraction = unit("stairsDepthFraction"),
+                    stairsMinPoints = atLeast1("stairsMinPoints"),
+                    dropMinM = positive("dropMinM"),
+                    dropEnabled = boolean("dropEnabled"),
+                    ceilingMaxTiltDeg = positive("ceilingMaxTiltDeg"),
+                    vehicleApproachMps = positive("vehicleApproachMps"),
+                    repeatS = nonNegative("repeatS"),
+                    gapS = nonNegative("gapS"),
+                    syllablesPerS = positive("syllablesPerS"),
+                    infoSpeech = boolean("infoSpeech"),
+                    envSpeech = boolean("envSpeech"),
+                    bumpSpeech = boolean("bumpSpeech"),
+                ).also {
+                    if (it.envAheadMaxM <= it.envAheadMinM) throw ConfigException("situation.envAheadMaxM", "must be > envAheadMinM")
+                    if (it.driftOffM >= it.driftOnM) throw ConfigException("situation.driftOffM", "must be < driftOnM")
+                    if (it.endMaxM <= it.endMinM) throw ConfigException("situation.endMaxM", "must be > endMinM")
+                }
+            },
             sonify = root.section("sonify") {
                 SonifyConfig(
                     mode = enumValue<SonifyMode>("mode"),

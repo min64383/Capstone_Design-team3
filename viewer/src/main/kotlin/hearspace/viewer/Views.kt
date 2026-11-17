@@ -633,6 +633,11 @@ class TopView(private val model: ViewerModel, private val compare: Boolean = fal
             g.fillOval(sx(head.x).toInt() - 5, sy(head.z).toInt() - 5, 10, 10)
             g.color = Palette.text
             g.drawString("${if (r.label.isEmpty()) "" else r.label + "  "}${b.g.state}  ${"%.2f".format(r.secondsOf(t))} s  물체 ${slow?.snapshot?.obstacles?.size ?: 0}  음원 ${b.g.commands.size}", 8, 16)
+            // M50 말 띠: 3 s 안에 낸 마지막 말(우선순위 1은 빨강)
+            r.speechAt(t)?.let { u ->
+                g.color = if (u.priority == 1) Color(230, 60, 60) else Color(120, 200, 255)
+                g.drawString("말: ${u.text}", 8, height - 28)
+            }
         }
         drawGeometry(g, r)
     }

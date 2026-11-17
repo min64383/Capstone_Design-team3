@@ -118,7 +118,7 @@ class UserModeActivity : Activity(), GLSurfaceView.Renderer {
         }
         overrideNotice = AppConfig.overrideNotice(this)
         hrtf = loadHrtf(this)
-        ar = ArSessionManager(this, sensorUsage = config.depth.sensorUsage)
+        ar = ArSessionManager(this, sensorUsage = config.depth.sensorUsage, semantics = config.vision.semantics)
         feeder = ArFeeder(config, replay = false, drawCamera = false)
         thermal = ThermalMonitor(this)
         haptics = Haptics(this, config.haptics)

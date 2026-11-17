@@ -129,7 +129,9 @@ class OfflineReplay(
         val depthFromJson = depthFrom?.let { "{ \"variant\": \"$it\", \"delayMs\": ${depthFromDelayNs / 1_000_000.0} }" }
         RunLogWriter(outDir, session, overridesJson, slowPathNote, substitution?.infoJson(alignFrom), rgbSource.name, depthFromJson, movingFrom).use { log ->
             val truth = File(session, "annotations/obstacles.json").isFile
-            run(session, if (truth) MapEvalWriter(ClusterEvalWriter(log, outDir, session, config, substitution?.align), outDir, session, config, align = substitution?.align, alignFile = alignFrom.takeIf { it.isNotBlank() }?.let(::File)) else log)
+            val base = if (truth) MapEvalWriter(ClusterEvalWriter(log, outDir, session, config, substitution?.align), outDir, session, config, align = substitution?.align, alignFile = alignFrom.takeIf { it.isNotBlank() }?.let(::File)) else log
+            // M50: 상황 가지는 결과를 읽기만 하고 speech.csv·situation.csv를 따로 쓴다(실행 로그는 그대로)
+            run(session, if (config.situation.enabled) SituationListener(base, config, session, outDir) else base)
         }
         markDone(outDir)
     }
@@ -146,13 +148,7 @@ class OfflineReplay(
         }
 
         // M49: 라벨 판정이나 RAW_MASK 측정을 켜면 깊이 장마다 그 프레임까지 받은 의미 영상·원시 깊이를 붙인다
-        val vision = if (config.vision.label == hearspace.core.types.VisionLabelSource.SEMANTICS || config.vision.movableDepth == hearspace.core.types.MovableDepth.RAW ||
-            config.vision.obstacleDepth == hearspace.core.types.MovableDepth.RAW ||
-            config.frontend.labelBandPx > 0 || config.map.hitWeighting == hearspace.core.types.HitWeighting.CONFIDENCE ||
-            config.floor.weighting == hearspace.core.types.FloorWeighting.CONFIDENCE || config.vision.voxelLabels ||
-            config.track.measureFrom == hearspace.core.types.MeasureFrom.RAW_MASK || cellTraceOut != null ||
-            config.floor.model == hearspace.core.types.FloorModel.PLANE_RAW || config.vision.footContact
-        ) VisionFrames(session, reader, labelRemap) else null
+        val vision = if (VisionFrames.needed(config) || cellTraceOut != null) VisionFrames(session, reader, labelRemap) else null
         val fast = FastPath(config, substitution?.headingSnap())
         val slow = SlowPath(config, substitution?.fixedMap(config.map.voxelSizeM), floorOverrideY = substitution?.floorY(), movingOracle = movingOracle)
         slow.map.collectInserted = mapInserts
