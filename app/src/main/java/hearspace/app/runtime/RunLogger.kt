@@ -31,6 +31,8 @@ class RunLogger(val dir: File) : AutoCloseable {
         CLUSTERS(RunLog.CLUSTER_DEBUG_FILE, ClusterDebugCsv.HEADER),
         GEOMETRY(RunLog.GEOMETRY_FILE, RunLog.header(RunLog.GEOMETRY_HEADER)),
         DEVICE(SessionFormat.DEVICE_FILE, DeviceCsv.headerLine()),
+        STAGE(RunLog.STAGE_TIMING_FILE, RunLog.header(RunLog.STAGE_TIMING_HEADER)),
+        INPUT(RunLog.INPUT_TIMING_FILE, RunLog.header(RunLog.INPUT_TIMING_HEADER)),
     }
 
     private val queue = ConcurrentLinkedQueue<Pair<Kind, () -> List<String>>>()
@@ -56,6 +58,11 @@ class RunLogger(val dir: File) : AutoCloseable {
     fun obstacles(lines: List<String>) = put(Kind.OBSTACLES) { lines }
     fun clusters(items: List<ClusterDebug>) = put(Kind.CLUSTERS) { RunLog.clusterDebugLines(items) }
     fun device(line: String) = put(Kind.DEVICE) { listOf(line) }
+    fun stageTiming(line: String) = put(Kind.STAGE) { listOf(line) }
+
+    /** GL 스레드: 입력 하나(M61). 줄 만들기는 쓰기 스레드에서 한다. */
+    fun input(frameTNs: Long, appNs: Long, kind: String, imageTNs: Long?, copyNs: Long, result: String, tracking: String?) =
+        put(Kind.INPUT) { listOf(RunLog.inputTimingLine(frameTNs, appNs, kind, imageTNs, copyNs, result, tracking)) }
 
     private fun put(k: Kind, lines: () -> List<String>) {
         if (failed || pending.get() >= MAX_PENDING) {

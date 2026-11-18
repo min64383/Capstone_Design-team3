@@ -20,7 +20,7 @@ mkdir -p "$OUT"
 log() { echo "[$(date +%H:%M:%S)] $*" | tee -a "$OUT/step0.log"; }
 temp() { adb shell dumpsys battery | grep -m1 temperature | tr -dc 0-9; }
 wait_cool() { while [ "$(temp)" -gt "$MAX_TEMP" ]; do log "temp $(temp) > $MAX_TEMP, waiting"; sleep 30; done; }
-start() { adb logcat -c; adb shell am start -n $APP/.ui.dev.DevHomeActivity --es autoStart "$1" > /dev/null; }
+start() { adb logcat -c; adb shell am start -n $APP/.ui.dev.DevHomeActivity --es autoStart "$1" ${2:-} > /dev/null; }
 stop() { adb shell am force-stop $APP; }
 resumed() { adb shell dumpsys activity top | grep -q "mResumed=true"; }
 
@@ -31,7 +31,7 @@ if [[ " $STEPS " == *" 0b "* ]]; then
   adb push tools/device/m49_semantics.json $ROOT/config.override.json > /dev/null
   for s in $SESSIONS; do
     stop
-    start "$s"
+    start "$s" "--ez saveSemantic true" # M61: 저장은 이 인자가 있을 때만
     sleep 5
     resumed || log "WARN $s: screen not resumed (locked?)"
     for _ in $(seq 240); do adb logcat -d -s HEARSPACE | grep -q "semantic saved" && break; sleep 1; done

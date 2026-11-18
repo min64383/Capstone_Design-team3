@@ -18,7 +18,7 @@
 
 ## 명령 (PowerShell)
 - core 테스트: `./gradlew :core:test`
-- 앱 설치: `./gradlew :app:installDebug`
+- 앱 설치: `./gradlew :app:installDebug` (처리 시간 측정·데모는 디버깅을 끈 `./gradlew :app:installBench`, M61)
 - 평가 GUI: `./gradlew :viewer:run -Psession=<세션ID 또는 그 일부>` (testdata/sessions → data/sessions 순으로 찾음)
 - 로그: `adb logcat -s HEARSPACE`
 

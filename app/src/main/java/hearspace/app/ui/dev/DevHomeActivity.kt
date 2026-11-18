@@ -31,11 +31,12 @@ class DevHomeActivity : Activity() {
             false
         }
 
-        // 기기 자동화(M49 0단계, 디버그 빌드만): `am start -n hearspace.app/.ui.dev.DevHomeActivity --es autoStart live|<세션ID>`로
-        // 실시간 또는 그 세션의 재생 화면을 바로 연다(화면을 누르지 않고 adb로 돌리기 위해. LiveScreen은 내보내지 않는다)
-        if (configOk && hearspace.app.BuildConfig.DEBUG) intent.getStringExtra(EXTRA_AUTO_START)?.let { target ->
+        // 기기 자동화(M49 0단계, 개발 도구 빌드 debug·bench만): `am start -n hearspace.app/.ui.dev.DevHomeActivity --es autoStart live|<세션ID>`로
+        // 실시간 또는 그 세션의 재생 화면을 바로 연다(화면을 누르지 않고 adb로 돌리기 위해. LiveScreen은 내보내지 않는다).
+        // `--ez saveSemantic true`면 재생하며 의미 영상을 세션 폴더에 저장한다(M61: 없으면 저장하지 않고 라벨을 core에 넘김)
+        if (configOk && hearspace.app.BuildConfig.DEV_TOOLS) intent.getStringExtra(EXTRA_AUTO_START)?.let { target ->
             val dir = if (target == "live") null else java.io.File(RecordScreen.sessionsRoot(this), target)
-            if (dir == null || dir.isDirectory) startActivity(LiveScreen.intent(this, dir)) else Log.e(TAG, "autoStart: no session $target")
+            if (dir == null || dir.isDirectory) startActivity(LiveScreen.intent(this, dir, intent.getBooleanExtra("saveSemantic", false))) else Log.e(TAG, "autoStart: no session $target")
             finish()
             return
         }

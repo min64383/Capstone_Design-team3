@@ -65,11 +65,15 @@ class LiveScreen : Activity(), GLSurfaceView.Renderer {
     private var slowHz = 0f
     private var lastDeviceMs = 0L
 
+    /** 재생 모드에서 의미 영상을 세션 폴더에 저장할지(자동 시작 인자 `saveSemantic`, M61). 저장 중에는 라벨이 core로 가지 않는다. */
+    private var saveSemantic = false
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         config = AppConfig.get(this)
         hrtf = loadHrtf(this)
         sessionDir = intent.getStringExtra(EXTRA_SESSION_DIR)?.let(::File)
+        saveSemantic = intent.getBooleanExtra(EXTRA_SAVE_SEMANTIC, false)
         ar = ArSessionManager(this, sessionDir?.let { File(it, SessionFormat.MP4_FILE) }, config.depth.sensorUsage, config.vision.semantics)
         feeder = ArFeeder(config, replay, drawCamera = true)
         thermal = ThermalMonitor(this)
@@ -128,8 +132,9 @@ class LiveScreen : Activity(), GLSurfaceView.Renderer {
         val dir = sessionDir?.let { File(it, "run_log/$stamp") } ?: File(runs, stamp)
         feeder.resetClock()
         run = RunSession(config, hrtf, dir, feeder::nowNs).also { feeder.pipeline = it.pipeline }
-        // 재생 모드 "의미 영상 저장"(M49 0단계 0b): 의미 모드가 켜졌으면 재생 세션 폴더의 semantic/에 쓴다(같은 세션을 다시 재생하면 덮어씀)
-        if (replay && ar.depthSupport?.semanticEnabled == true) feeder.semanticSaver = SemanticSaver(sessionDir!!)
+        // 재생 모드 "의미 영상 저장"(M49 0단계 0b): 자동 시작 인자로 요청했고 의미 모드가 켜졌으면 재생 세션 폴더의 semantic/에 쓴다
+        // (같은 세션을 다시 재생하면 덮어씀). M61: 요청 없이 켜면 저장이 라벨을 가로채 의미 모드 재생 시험이 라벨 없이 돌았다
+        if (replay && saveSemantic && ar.depthSupport?.semanticEnabled == true) feeder.semanticSaver = SemanticSaver(sessionDir!!)
         if (sessionDir == null) thread(name = "RunsTrim") { RunSession.trimRuns(runs, config.record.maxRuns) }
     }
 
@@ -226,11 +231,13 @@ class LiveScreen : Activity(), GLSurfaceView.Renderer {
 
     companion object {
         private const val EXTRA_SESSION_DIR = "sessionDir"
+        private const val EXTRA_SAVE_SEMANTIC = "saveSemantic"
         private const val UI_REFRESH_MS = 100L
 
-        /** 실시간 모드([sessionDir] = null) 또는 세션 재생 모드로 연다. */
-        fun intent(context: Context, sessionDir: File?) = Intent(context, LiveScreen::class.java).apply {
+        /** 실시간 모드([sessionDir] = null) 또는 세션 재생 모드로 연다. [saveSemantic]이면 재생하며 의미 영상을 세션 폴더에 저장한다. */
+        fun intent(context: Context, sessionDir: File?, saveSemantic: Boolean = false) = Intent(context, LiveScreen::class.java).apply {
             sessionDir?.let { putExtra(EXTRA_SESSION_DIR, it.absolutePath) }
+            if (saveSemantic) putExtra(EXTRA_SAVE_SEMANTIC, true)
         }
     }
 }

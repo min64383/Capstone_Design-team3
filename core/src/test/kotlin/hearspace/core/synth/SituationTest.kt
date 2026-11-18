@@ -161,6 +161,23 @@ class SituationTest {
     }
 
     @Test
+    fun `SP-13 a situation back after the repeat time is spoken once free even if blocked on its first tick`() {
+        val sp = Speech(config.situation, 500_000_000L)
+        val s = 1_000_000_000L
+        fun end(t: Long) = SpeechRequest("end", "블록 끝, 3미터", 2, t)
+        assertEquals(1, sp.tick(1 * s, listOf(end(1 * s))).size)
+        assertTrue(sp.tick(2 * s, emptyList()).isEmpty())
+        // 10 s 뒤 다시 와서 이어지면 되풀이 시간 안이라 말하지 않는다
+        assertTrue(sp.tick(11 * s, listOf(end(11 * s))).isEmpty())
+        assertTrue(sp.tick(42 * s, listOf(end(42 * s))).isEmpty())
+        assertTrue(sp.tick(43 * s, emptyList()).isEmpty())
+        // 마지막 말에서 30 s 넘게 지나 다시 온 첫 차례에 차 다가옴이 먼저 나가도, 그 말이 끝나면 블록 끝을 말한다
+        val t = 74 * s
+        assertEquals(listOf("차 다가옴"), sp.tick(t, listOf(SpeechRequest("veh#1", "차 다가옴", 1, t), end(t))).map { it.text })
+        assertEquals(listOf("블록 끝, 3미터"), sp.tick(t + s, listOf(end(t + s))).map { it.text })
+    }
+
+    @Test
     fun `SP-5 no block end when the ground beyond is unobserved`() {
         val said = run(100, cls = { x, z -> if (-z > 3.5f) 255 else blockLine()(x, z) })
         assertEquals(0, said.count { it.text.startsWith("블록 끝") }, said.toString())

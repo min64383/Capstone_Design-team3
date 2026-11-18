@@ -93,15 +93,23 @@ object FrameAdapter {
         image.use { return Nv21Copy(it.timestamp, it.width, it.height, toNv21(it)) }
     }
 
+    /** 마지막 영상 획득이 null을 돌려준 이유(ARCore 예외 이름), 받았으면 null. GL 스레드 전용, 읽기 함수를 부른 바로 뒤에 읽는다(M61 깊이 끊김 기록). */
+    var lastFailure: String? = null
+        private set
+
     private inline fun acquireOrNull(acquire: () -> Image): Image? = try {
-        acquire()
-    } catch (_: NotYetAvailableException) {
+        acquire().also { lastFailure = null }
+    } catch (e: NotYetAvailableException) {
+        lastFailure = e.javaClass.simpleName
         null
-    } catch (_: NotTrackingException) {
+    } catch (e: NotTrackingException) {
+        lastFailure = e.javaClass.simpleName
         null
-    } catch (_: ResourceExhaustedException) {
+    } catch (e: ResourceExhaustedException) {
+        lastFailure = e.javaClass.simpleName
         null
-    } catch (_: DeadlineExceededException) {
+    } catch (e: DeadlineExceededException) {
+        lastFailure = e.javaClass.simpleName
         null
     }
 

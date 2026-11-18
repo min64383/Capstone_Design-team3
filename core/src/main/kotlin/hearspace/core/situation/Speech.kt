@@ -24,6 +24,8 @@ class Speech(private val cfg: SituationConfig, private val maxInfoAgeNs: Long) {
 
     private val spoken = HashMap<String, Spoken>()
     private var active = emptySet<String>()
+    /** 다시 나타날 때 [SituationConfig.repeatS]가 지나 이번에 말할 차례가 된 상황. 말하거나 사라질 때까지 남는다(첫 차례에 막혀도 이어지는 동안 말함). */
+    private val owed = HashSet<String>()
     private var busyUntilNs = Long.MIN_VALUE
     private var busyPriority = 0
     private var lowEndNs = Long.MIN_VALUE
@@ -32,12 +34,16 @@ class Speech(private val cfg: SituationConfig, private val maxInfoAgeNs: Long) {
     fun tick(nowNs: Long, requests: List<SpeechRequest>): List<Utterance> {
         val prevActive = active
         active = requests.map { it.key }.toSet()
+        owed.retainAll(active)
+        for (r in requests) {
+            val s = spoken[r.key] ?: continue
+            if (r.key !in prevActive && nowNs - s.tNs >= (cfg.repeatS * 1e9).toLong()) owed.add(r.key)
+        }
         val eligible = requests.filter { r ->
             if (r.priority == 3 && !cfg.infoSpeech) return@filter false
             if (nowNs - r.evidenceNs > maxInfoAgeNs) return@filter false
             val s = spoken[r.key] ?: return@filter true
-            if (r.level > s.level) return@filter true
-            r.key !in prevActive && nowNs - s.tNs >= (cfg.repeatS * 1e9).toLong()
+            r.level > s.level || r.key in owed
         }
         val out = ArrayList<Utterance>()
         val busy = nowNs < busyUntilNs
@@ -58,6 +64,7 @@ class Speech(private val cfg: SituationConfig, private val maxInfoAgeNs: Long) {
 
     private fun say(nowNs: Long, r: SpeechRequest, interrupted: Boolean): Utterance {
         spoken[r.key] = Spoken(nowNs, r.level)
+        owed.remove(r.key)
         busyUntilNs = nowNs + (syllables(r.text) / cfg.syllablesPerS * 1e9).toLong()
         busyPriority = r.priority
         return Utterance(nowNs, r.key, r.text, r.priority, (nowNs - r.evidenceNs) / 1e6f, interrupted)
