@@ -843,6 +843,10 @@ data class AudioConfig(
     val limiterCeiling: Float,
     /** `AudioTrack` 버퍼 크기(블록 수). 작을수록 출력 지연이 짧고 끊김 위험이 크다(M7 S10: 4 → 끊김, 8 → 약 52 ms·끊김 0). */
     val bufferBlocks: Int,
+    /** 기기의 안내 음량에 곱할 Android TTS 이득. 옛 설정에는 중립값을 쓴다. */
+    val ttsVolume: Float = 1f,
+    /** 발화 중 장애물 소리에 곱하는 이득. 옛 설정과 PC 재생은 기존 음량을 유지한다. */
+    val ttsObstacleGain: Float = 1f,
 )
 
 /** 상태 전이별 진동 길이(ms, §9.3, 가설 — 사용자 평가에서 조정). */

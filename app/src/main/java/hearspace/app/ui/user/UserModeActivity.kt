@@ -41,6 +41,7 @@ import hearspace.app.ar.ArFeeder
 import hearspace.app.ar.ArSessionManager
 import hearspace.app.ar.displayRotationCompat
 import hearspace.app.loadHrtf
+import hearspace.app.runtime.AndroidTts
 import hearspace.app.runtime.AudioFocus
 import hearspace.app.runtime.Haptics
 import hearspace.app.runtime.RunSession
@@ -91,6 +92,8 @@ class UserModeActivity : Activity(), GLSurfaceView.Renderer {
 
     private val ui = Handler(Looper.getMainLooper())
     private var run: RunSession? = null
+    private var tts: AndroidTts? = null
+    private var announceLaunch = false
     private var lastDeviceMs = 0L
 
     /** 안내 중이 아닐 때 보일 알림(시작 실패·중단). 다음 시작에서 지운다. */
@@ -127,7 +130,8 @@ class UserModeActivity : Activity(), GLSurfaceView.Renderer {
         window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
         buildLayout()
         render()
-        if (savedInstanceState == null) holdSplash()
+        announceLaunch = savedInstanceState == null
+        if (announceLaunch) holdSplash()
     }
 
     /**
@@ -147,6 +151,17 @@ class UserModeActivity : Activity(), GLSurfaceView.Renderer {
                 return true
             }
         })
+    }
+
+    override fun onResume() {
+        super.onResume()
+        tts = AndroidTts(this, config, onDuckingChanged = { active ->
+            run?.pipeline?.speechActive = active
+        })
+        if (announceLaunch) {
+            announceLaunch = false
+            tts?.speak("앱이 시작했습니다")
+        }
     }
 
     private fun buildLayout() {
@@ -263,7 +278,12 @@ class UserModeActivity : Activity(), GLSurfaceView.Renderer {
         when (cmd) {
             UserCommand.TOGGLE -> {
                 val r = run
-                if (r == null) start() else r.pipeline.paused = !r.pipeline.paused
+                if (r == null) {
+                    start()
+                } else {
+                    r.pipeline.paused = !r.pipeline.paused
+                    if (r.pipeline.paused) tts?.stop()
+                }
             }
             UserCommand.EXIT -> {
                 // 안내만 끝내고 앱에 남는다(시작 화면으로). 시작 전에는 할 일이 없다. 앱은 시스템 뒤로·홈으로 나간다(사용자 요청 2026-10-30)
@@ -305,6 +325,7 @@ class UserModeActivity : Activity(), GLSurfaceView.Renderer {
         }
         thread(name = "RunsTrim") { RunSession.trimRuns(runs, config.record.maxRuns) }
         run = r.also {
+            it.pipeline.speechActive = tts?.isDucked == true
             it.pipeline.onAlert = { kind ->
                 // 오디오 스레드에서 불린다: 진동(바인더 호출)·로그는 UI 스레드로 넘긴다(A1 CO5)
                 ui.post {
@@ -330,6 +351,7 @@ class UserModeActivity : Activity(), GLSurfaceView.Renderer {
     }
 
     private fun stop() {
+        tts?.stop()
         ui.removeCallbacks(uiTick)
         feeder.pipeline = null
         run?.close()
@@ -341,6 +363,8 @@ class UserModeActivity : Activity(), GLSurfaceView.Renderer {
 
     override fun onPause() {
         super.onPause()
+        tts?.close()
+        tts = null
         // 앱을 떠나면(화면 잠금·전화) 안내를 멈춘다. 돌아오면 다시 두 번 탭으로 시작. 설정 화면은 안내 중이 아닐 때만 열린다
         // VERIFY: 화면이 꺼지는 중(onPause)에도 진동이 전달되는지(Android 13+ 백그라운드 진동 제한) 기기에서 확인
         if (run != null) stopWithNotice("화면을 떠나 안내를 멈췄습니다", haptics::exit) else stop()
@@ -348,6 +372,8 @@ class UserModeActivity : Activity(), GLSurfaceView.Renderer {
     }
 
     override fun onDestroy() {
+        tts?.close()
+        tts = null
         ar.close()
         feeder.session = null
         super.onDestroy()
