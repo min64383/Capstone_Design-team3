@@ -7,6 +7,7 @@ on:
       - 'app/**'
       - 'core/**'
       - 'gradle/**'
+      - 'tools/tts-tests/**'
       - '*.gradle.kts'
       - '.github/workflows/tts.yml'
   workflow_dispatch:
@@ -15,6 +16,30 @@ permissions:
   contents: read
 
 jobs:
+  policy:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: '21'
+      - name: SDK-independent policy tests
+        shell: bash
+        run: |
+          chmod +x gradlew
+          set +e
+          ./gradlew -p tools/tts-tests test --no-daemon > policy-tests.log 2>&1
+          status=$?
+          cat policy-tests.log
+          if [ "$status" -ne 0 ]; then
+            detail=$(tail -40 policy-tests.log)
+            detail="${detail//'%'/'%25'}"
+            detail="${detail//$'\n'/'%0A'}"
+            echo "::error title=TTS policy tests::$detail"
+          fi
+          exit "$status"
   android:
     runs-on: ubuntu-latest
     timeout-minutes: 30
@@ -25,8 +50,31 @@ jobs:
           distribution: temurin
           java-version: '21'
       - name: Install compile SDK
-        run: '"$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" "platforms;android-37"'
+        shell: bash
+        run: |
+          set +e
+          "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" "platforms;android-37" > sdk-install.log 2>&1
+          status=$?
+          cat sdk-install.log
+          if [ "$status" -ne 0 ]; then
+            detail=$(tail -15 sdk-install.log)
+            detail="${detail//'%'/'%25'}"
+            detail="${detail//$'\n'/'%0A'}"
+            echo "::error title=Android SDK installation::$detail"
+          fi
+          exit "$status"
       - name: Unit tests and debug build
+        shell: bash
         run: |
           chmod +x gradlew
-          ./gradlew :app:testDebugUnitTest :app:assembleDebug --no-daemon
+          set +e
+          ./gradlew :app:testDebugUnitTest :app:assembleDebug --no-daemon > android-build.log 2>&1
+          status=$?
+          cat android-build.log
+          if [ "$status" -ne 0 ]; then
+            detail=$(tail -40 android-build.log)
+            detail="${detail//'%'/'%25'}"
+            detail="${detail//$'\n'/'%0A'}"
+            echo "::error title=Android build::$detail"
+          fi
+          exit "$status"
