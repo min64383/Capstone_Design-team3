@@ -14,12 +14,13 @@ import hearspace.app.TAG
 import hearspace.core.types.Config
 import java.util.Locale
 
-/** UI 스레드에서 만들고 speak/stop/close를 호출한다. 두 콜백도 UI 스레드에서 전달한다. */
+/** UI 스레드 전용. 콜백도 UI로 전달하며, 이전 발화의 늦은 콜백은 ID로 버린다. */
 class AndroidTts(
     context: Context,
     config: Config,
     private val onDuckingChanged: (Boolean) -> Unit,
     private val onEvent: (Event) -> Unit = {},
+    private val safety: TtsSafetyConfig = TtsSafetyConfig(),
 ) : AutoCloseable {
     enum class State(val label: String) {
         STARTED("읽는 중"), COMPLETED("읽기 완료"), INTERRUPTED("중단"), ERROR("오류")
@@ -28,7 +29,10 @@ class AndroidTts(
     data class Event(val id: String, val text: String, val state: State, val detail: String?)
 
     private enum class EngineState { LOADING, READY, FAILED, CLOSED }
-    private class Line(val id: String, val text: String, val urgent: Boolean, val evidenceNs: Long?) {
+    private class Line(
+        val id: String, val text: String, val urgent: Boolean,
+        val evidenceNs: Long?, val requestedMs: Long,
+    ) {
         var submitted = false
         var started = false
     }
@@ -36,111 +40,135 @@ class AndroidTts(
     private val main = Handler(Looper.getMainLooper())
     private val maxAgeNs = (config.policy.maxInfoAgeMs * 1_000_000.0).toLong()
     private val voiceVolume = config.audio.ttsVolume
-    private val params = Bundle().apply {
-        putFloat(TextToSpeech.Engine.KEY_PARAM_VOLUME, voiceVolume)
-    }
-    private val engine: TextToSpeech
+    private val params = Bundle().apply { putFloat(TextToSpeech.Engine.KEY_PARAM_VOLUME, voiceVolume) }
+    private var engine: TextToSpeech? = null
     private var engineState = EngineState.LOADING
     private var current: Line? = null
     private var serial = 0L
+    private var pendingTimeout: Runnable? = null
+    private var completionTimeout: Runnable? = null
+    private val initTimeout = Runnable {
+        if (engineState == EngineState.LOADING) failInit("TTS 초기화 시간 초과")
+    }
 
     var isDucked = false
         private set
 
-    // TTS 엔진이 시작하기를 기다리는 사이 관측이 만료되면 제출했던 발화도 취소한다.
-    private val expiry = Runnable {
-        val line = current ?: return@Runnable
-        if (!line.started) {
-            if (fresh(line)) armExpiry(line) else interrupt("관측 만료")
-        }
-    }
+    /** 초기화/발화 타임아웃은 구분한다. 일시적 발화 실패 뒤에는 다음 요청을 받을 수 있다. */
+    val isAvailable: Boolean get() = engineState == EngineState.LOADING || engineState == EngineState.READY
 
     init {
         checkMain()
-        engine = TextToSpeech(context.applicationContext) { status ->
-            // 생성 중 초기화 콜백이 와도 engine이 할당된 다음에 쓴다.
-            main.post { initialized(status) }
+        main.postDelayed(initTimeout, safety.initTimeoutMs)
+        try {
+            engine = TextToSpeech(context.applicationContext) { status ->
+                // 생성자 안의 동기 콜백도 engine 할당 뒤 처리한다.
+                main.post { initialized(status) }
+            }
+        } catch (_: RuntimeException) {
+            main.post { if (engineState == EngineState.LOADING) failInit("TTS 엔진 연결 실패") }
         }
     }
 
-    /** evidenceNs는 실시간 관측의 elapsedRealtimeNanos 기준 시각. 시작 문장과 수동 시험은 생략한다.
-     * 재생 요청을 받으면 true. 초기화 중에는 한 문장만 보관하며, 최종 결과는 onEvent로 보낸다. */
-    fun speak(text: String, urgent: Boolean = false, evidenceNs: Long? = null): Boolean {
+    /**
+     * evidenceNs는 elapsedRealtimeNanos 기준 관측 시각. 상태 안내에는 생략한다.
+     * replaceCurrent는 최신 상태 안내용: 이전 상태를 줄 세우지 않고 교체한다.
+     * true는 요청 접수이지 실제 발화 성공이 아니다(최종 결과는 onEvent).
+     */
+    fun speak(
+        text: String, urgent: Boolean = false, evidenceNs: Long? = null,
+        replaceCurrent: Boolean = false,
+    ): Boolean {
         checkMain()
         if (engineState == EngineState.CLOSED) return false
-        val line = Line((++serial).toString(), text, urgent, evidenceNs)
+        val line = Line((++serial).toString(), text, urgent, evidenceNs, SystemClock.elapsedRealtime())
         val problem = when {
             text.isBlank() || text.length > TextToSpeech.getMaxSpeechInputLength() -> "문장 길이 오류"
-            engineState == EngineState.FAILED -> "한국어 TTS를 사용할 수 없습니다"
+            engineState == EngineState.FAILED -> "오프라인 한국어 TTS를 사용할 수 없습니다"
             else -> null
         }
-        if (problem != null) {
-            emit(line, State.ERROR, problem)
-            return false
-        }
+        if (problem != null) { emit(line, State.ERROR, problem); return false }
         if (!fresh(line)) return false
-        current?.let { if (!it.started && !fresh(it)) interrupt("관측 만료") }
-        if (engineState == EngineState.CLOSED) return false
         val previous = current
-        if (previous != null && (!urgent || previous.urgent)) return false
-
+        if (previous != null && !replaceCurrent && (!urgent || previous.urgent)) return false
         current = line
-        main.removeCallbacks(expiry)
+        clearLineTimers()
         if (previous != null) {
-            if (previous.submitted) engine.stop()
-            // 긴급 문장이 시작하거나 실패할 때까지 기존 감쇠를 유지한다.
-            emit(previous, State.INTERRUPTED, "긴급 안내로 교체")
+            if (previous.submitted) stopEngine()
+            duck(false)
+            emit(previous, State.INTERRUPTED, "새 안내로 교체")
         }
-        if (current !== line) return false
-        armExpiry(line)
+        // 외부 콜백이 stop/close/speak를 재진입한 경우 새 상태를 덮어쓰지 않는다.
+        if (current !== line || engineState == EngineState.CLOSED) return false
+        armPending(line)
         return engineState == EngineState.LOADING || submit(line)
     }
 
     private fun initialized(status: Int) {
         if (engineState != EngineState.LOADING) return
-        if (status != TextToSpeech.SUCCESS) {
-            failInit("TTS 초기화 실패 ($status)")
-            return
+        if (status != TextToSpeech.SUCCESS) { failInit("TTS 초기화 실패 ($status)"); return }
+        val tts = engine ?: run { failInit("TTS 엔진이 없습니다"); return }
+        try {
+            if (tts.setLanguage(Locale.KOREAN) < TextToSpeech.LANG_AVAILABLE) {
+                failInit("한국어 음성 데이터를 설치해 주세요"); return
+            }
+            // 네트워크 음성으로 조용히 대체하지 않는다. 엔진은 OS에 설치된 제3자 서비스일 수 있다.
+            fun offlineKorean(v: Voice) =
+                v.locale.language == Locale.KOREAN.language && !v.isNetworkConnectionRequired &&
+                    TextToSpeech.Engine.KEY_FEATURE_NOT_INSTALLED !in v.features.orEmpty()
+            if (tts.voice?.let(::offlineKorean) != true) {
+                val voice = tts.voices.orEmpty().filter(::offlineKorean).sortedBy { it.name }.firstOrNull()
+                if (voice == null || tts.setVoice(voice) != TextToSpeech.SUCCESS) {
+                    failInit("오프라인 한국어 음성을 설치하고 선택해 주세요"); return
+                }
+            }
+            if (tts.voice?.let(::offlineKorean) != true) {
+                failInit("오프라인 한국어 음성을 확인할 수 없습니다"); return
+            }
+            val attributes = AudioAttributes.Builder()
+                .setUsage(AudioAttributes.USAGE_ASSISTANCE_NAVIGATION_GUIDANCE)
+                .setContentType(AudioAttributes.CONTENT_TYPE_SPEECH).build()
+            if (tts.setSpeechRate(1f) != TextToSpeech.SUCCESS ||
+                tts.setPitch(1f) != TextToSpeech.SUCCESS ||
+                tts.setAudioAttributes(attributes) != TextToSpeech.SUCCESS ||
+                tts.setOnUtteranceProgressListener(listener) != TextToSpeech.SUCCESS) {
+                failInit("TTS 출력 설정 실패"); return
+            }
+            main.removeCallbacks(initTimeout)
+            engineState = EngineState.READY
+            current?.let { submit(it) }
+        } catch (_: RuntimeException) {
+            failInit("TTS 설정 중 엔진 연결 실패")
         }
-        if (engine.setLanguage(Locale.KOREAN) < TextToSpeech.LANG_AVAILABLE) {
-            failInit("한국어 음성 데이터를 확인해 주세요")
-            return
-        }
-        // 기기가 선택한 한국어 음성을 우선하고, 네트워크가 필요하면 설치된 오프라인 음성을 찾는다.
-        fun offlineKorean(v: Voice) =
-            v.locale.language == Locale.KOREAN.language && !v.isNetworkConnectionRequired &&
-                TextToSpeech.Engine.KEY_FEATURE_NOT_INSTALLED !in v.features.orEmpty()
-        if (engine.voice?.let(::offlineKorean) != true) {
-            engine.voices?.firstOrNull(::offlineKorean)?.let { engine.setVoice(it) }
-        }
-        engine.setSpeechRate(1f)
-        engine.setPitch(1f)
-        engine.setAudioAttributes(AudioAttributes.Builder()
-            .setUsage(AudioAttributes.USAGE_ASSISTANCE_NAVIGATION_GUIDANCE)
-            .setContentType(AudioAttributes.CONTENT_TYPE_SPEECH)
-            .build())
-        if (engine.setOnUtteranceProgressListener(listener) != TextToSpeech.SUCCESS) {
-            failInit("발화 상태 리스너 등록 실패")
-            return
-        }
-        engineState = EngineState.READY
-        current?.let { submit(it) }
     }
 
     private fun failInit(detail: String) {
+        if (engineState == EngineState.CLOSED || engineState == EngineState.FAILED) return
         engineState = EngineState.FAILED
-        Log.e(TAG, detail)
-        current?.let { finish(it, State.ERROR, detail) }
+        main.removeCallbacks(initTimeout)
+        val failedLine = current
+        stopEngine()
+        runCatching { engine?.shutdown() }
+        engine = null
+        if (failedLine != null) finish(failedLine, State.ERROR, detail)
+        else {
+            clearLineTimers()
+            duck(false)
+            // 요청이 없어도 사용자 화면에 초기화 실패를 알린다.
+            onEvent(Event("engine", "", State.ERROR, detail))
+        }
     }
 
     private fun submit(line: Line): Boolean {
-        if (!fresh(line)) {
-            finish(line, State.INTERRUPTED, "관측 만료")
-            return false
-        }
+        if (current !== line || engineState != EngineState.READY) return false
+        if (!fresh(line)) { finish(line, State.INTERRUPTED, "대기 또는 관측 만료"); return false }
         line.submitted = true
-        val result = engine.speak(line.text, TextToSpeech.QUEUE_FLUSH, params, line.id)
+        armPending(line)
+        val result = try {
+            engine?.speak(line.text, TextToSpeech.QUEUE_FLUSH, params, line.id) ?: TextToSpeech.ERROR
+        } catch (_: RuntimeException) { TextToSpeech.ERROR }
         if (result == TextToSpeech.SUCCESS) return true
+        stopEngine()
         finish(line, State.ERROR, "재생 요청 실패 ($result)")
         return false
     }
@@ -150,53 +178,81 @@ class AndroidTts(
             main.post {
                 val line = current ?: return@post
                 if (line.id != utteranceId || line.started) return@post
-                if (!fresh(line)) {
-                    interrupt("관측 만료")
-                    return@post
-                }
-                main.removeCallbacks(expiry)
+                if (!fresh(line)) { interrupt("대기 또는 관측 만료"); return@post }
+                pendingTimeout?.let { main.removeCallbacks(it) }
+                pendingTimeout = null
                 line.started = true
+                val timeout = Runnable {
+                    if (current === line) {
+                        stopEngine()
+                        finish(line, State.ERROR, "발화 완료 시간 초과")
+                    }
+                }
+                completionTimeout = timeout
+                val waitMs = (safety.completionBaseMs + line.text.length.toLong() * safety.completionPerCharMs)
+                    .coerceAtMost(safety.maxCompletionMs)
+                main.postDelayed(timeout, waitMs)
                 if (voiceVolume > 0f) duck(true)
                 if (current === line) emit(line, State.STARTED)
             }
         }
-
         override fun onDone(utteranceId: String) = end(utteranceId, State.COMPLETED)
         override fun onStop(utteranceId: String, interrupted: Boolean) = end(utteranceId, State.INTERRUPTED)
         @Deprecated("Android 이전 오류 콜백")
         override fun onError(utteranceId: String) = end(utteranceId, State.ERROR, "합성 또는 출력 실패")
         override fun onError(utteranceId: String, errorCode: Int) = end(utteranceId, State.ERROR, "오류 코드 $errorCode")
-
         private fun end(id: String, state: State, detail: String? = null) {
-            main.post {
-                // 교체된 문장의 늦은 onDone/onStop이 새 문장의 음량을 바꾸지 않게 한다.
-                current?.takeIf { it.id == id }?.let { finish(it, state, detail) }
-            }
+            main.post { current?.takeIf { it.id == id }?.let { finish(it, state, detail) } }
         }
     }
 
     private fun fresh(line: Line): Boolean {
+        val waitMs = SystemClock.elapsedRealtime() - line.requestedMs
+        if (!line.started && waitMs !in 0..safety.maxQueueWaitMs) return false
         val observed = line.evidenceNs ?: return true
         return SystemClock.elapsedRealtimeNanos() - observed in 0L..maxAgeNs
     }
 
-    private fun armExpiry(line: Line) {
-        val observed = line.evidenceNs ?: return
-        val remaining = maxAgeNs - (SystemClock.elapsedRealtimeNanos() - observed)
-        main.postDelayed(expiry, remaining.coerceAtLeast(0L) / 1_000_000L + 1L)
+    private fun armPending(line: Line) {
+        pendingTimeout?.let { main.removeCallbacks(it) }
+        val queueRemaining = safety.maxQueueWaitMs - (SystemClock.elapsedRealtime() - line.requestedMs)
+        val evidenceRemainingMs = line.evidenceNs?.let {
+            ((maxAgeNs - (SystemClock.elapsedRealtimeNanos() - it)).coerceAtLeast(0L) / 1_000_000L) + 1
+        } ?: Long.MAX_VALUE
+        val engineWaitMs = if (line.submitted) safety.startTimeoutMs else safety.initTimeoutMs
+        val timeout = Runnable {
+            if (current === line && !line.started) {
+                stopEngine()
+                val expiredEvidence = line.evidenceNs?.let {
+                    SystemClock.elapsedRealtimeNanos() - it !in 0L..maxAgeNs
+                } == true
+                finish(line, if (expiredEvidence) State.INTERRUPTED else State.ERROR,
+                    if (expiredEvidence) "관측 만료" else "발화 시작 대기 시간 초과")
+            }
+        }
+        pendingTimeout = timeout
+        main.postDelayed(timeout, minOf(queueRemaining + 1, evidenceRemainingMs, engineWaitMs).coerceAtLeast(1))
+    }
+
+    private fun clearLineTimers() {
+        pendingTimeout?.let { main.removeCallbacks(it) }
+        completionTimeout?.let { main.removeCallbacks(it) }
+        pendingTimeout = null
+        completionTimeout = null
     }
 
     private fun finish(line: Line, state: State, detail: String? = null) {
+        if (current !== line) return
         current = null
-        main.removeCallbacks(expiry)
+        clearLineTimers()
         duck(false)
         emit(line, state, detail)
     }
 
     private fun emit(line: Line, state: State, detail: String? = null) {
-        val event = Event(line.id, line.text, state, detail)
-        Log.i(TAG, "tts $event")
-        onEvent(event)
+        // 원문/관측 시각을 logcat에 기록하지 않는다. 원문은 화면 콜백 메모리로만 전달한다.
+        Log.i(TAG, "tts id=${line.id} state=$state")
+        onEvent(Event(line.id, line.text, state, detail))
     }
 
     private fun duck(value: Boolean) {
@@ -205,24 +261,25 @@ class AndroidTts(
         onDuckingChanged(value)
     }
 
+    private fun stopEngine() { runCatching { engine?.stop() } }
+
     private fun interrupt(reason: String) {
-        val line = current ?: return
-        if (line.submitted) engine.stop()
-        finish(line, State.INTERRUPTED, reason)
+        val line = current
+        stopEngine()
+        if (line != null) finish(line, State.INTERRUPTED, reason)
+        else { clearLineTimers(); duck(false) }
     }
 
-    fun stop() {
-        checkMain()
-        interrupt("안내 취소")
-    }
+    fun stop() { checkMain(); interrupt("안내 취소") }
 
     override fun close() {
         checkMain()
         if (engineState == EngineState.CLOSED) return
         engineState = EngineState.CLOSED
-        interrupt("화면 이탈")
         main.removeCallbacksAndMessages(null)
-        engine.shutdown()
+        interrupt("화면 이탈")
+        runCatching { engine?.shutdown() }
+        engine = null
     }
 
     private fun checkMain() = check(Looper.myLooper() == Looper.getMainLooper()) {
