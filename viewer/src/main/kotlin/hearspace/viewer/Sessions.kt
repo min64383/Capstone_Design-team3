@@ -50,7 +50,7 @@ object Sessions {
      * ID 일부(예: `130815`)가 한 세션에만 맞으면 그 세션. 못 찾거나 여럿에 맞으면 [IllegalArgumentException].
      */
     fun resolve(arg: String): File {
-        val a = arg.trim().trimEnd('/', '\\')
+        val a = arg.trim().replace('\\', '/').trimEnd('/')
         require(a.isNotEmpty()) { "세션이 비었다" }
         val direct = File(a).let { if (it.isAbsolute) it else File(Repo.root, a) }
         if (direct.isDirectory && isSession(direct)) return direct.canonicalFile
