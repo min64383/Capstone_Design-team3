@@ -73,6 +73,10 @@ class DevHomeActivity : Activity() {
                 )
             )
         }
+        button("가상 장애물·TTS 테스트", enabled = true) {
+            startActivity(Intent(this, VirtualScenarioTestActivity::class.java))
+        }
         setContentView(root)
     }
 }
+

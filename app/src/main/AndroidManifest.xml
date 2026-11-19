@@ -85,6 +85,11 @@
         <activity
             android:name=".ui.dev.SessionList"
             android:exported="false" />
+        <activity
+            android:name=".ui.dev.VirtualScenarioTestActivity"
+            android:exported="false"
+            android:label="가상 장애물 TTS 테스트" />
+
         <!-- 오디오 테스트 -->
         <activity
             android:name=".ui.dev.AudioTestActivity"
@@ -92,3 +97,4 @@
 
     </application>
 </manifest>
+

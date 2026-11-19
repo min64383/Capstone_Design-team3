@@ -6,11 +6,15 @@ kotlin {
     sourceSets {
         main {
             kotlin.srcDir("../../app/src/main/java")
+            kotlin.srcDir("../../core/src/main/kotlin")
             kotlin.include("hearspace/app/ui/user/StatusSpeechPolicy.kt", "hearspace/app/runtime/TtsSafetyConfig.kt")
+            kotlin.include("hearspace/core/audio/VirtualScenario.kt", "hearspace/core/types/MiniJson.kt")
         }
         test {
             kotlin.srcDir("../../app/src/test/java")
+            kotlin.srcDir("../../core/src/test/kotlin")
             kotlin.include("hearspace/app/ui/user/StatusSpeechPolicyTest.kt", "hearspace/app/runtime/TtsSafetyConfigTest.kt")
+            kotlin.include("hearspace/core/synth/VirtualScenarioPolicyTest.kt")
         }
     }
 }
@@ -20,4 +24,10 @@ dependencies {
     testImplementation(libs.junit.jupiter)
     testRuntimeOnly(libs.junit.platform.launcher)
 }
-tasks.test { useJUnitPlatform() }
+tasks.test {
+    useJUnitPlatform()
+    val scenarioConfig = file("../../app/src/main/assets/config/virtual-scenario.json")
+    inputs.file(scenarioConfig)
+    systemProperty("hearspace.virtualScenarioConfig", scenarioConfig.absolutePath)
+}
+

@@ -1,0 +1,20 @@
+{
+  "durationS": 18,
+  "farM": 3,
+  "warnM": 2,
+  "stopM": 1,
+  "approachStartS": 2,
+  "warnReachS": 6,
+  "warnHoldEndS": 9,
+  "stopReachS": 13,
+  "repeatAmplitudeM": 0.08,
+  "repeatAngularSpeedRadps": 2,
+  "normalConfirmMs": 400,
+  "urgentConfirmMs": 200,
+  "tickMs": 100,
+  "retryMs": 750,
+  "maxFrameAgeMs": 400,
+  "bodyHeightDeltaM": -0.8,
+  "headHeightDeltaM": 0.2,
+  "comparisonHoldS": 20
+}
