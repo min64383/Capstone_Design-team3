@@ -42,7 +42,7 @@ jobs:
         shell: bash
         run: |
           set +e
-          "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" --verbose "platforms;android-37" > sdk-install.log 2>&1
+          "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" --verbose "platforms;android-37.0" > sdk-install.log 2>&1
           status=$?
           cat sdk-install.log
           if [ "$status" -ne 0 ]; then
