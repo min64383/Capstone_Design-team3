@@ -20,6 +20,7 @@ import hearspace.app.runtime.AndroidTts
 import hearspace.app.runtime.AudioFocus
 import hearspace.app.runtime.BinauralOutput
 import hearspace.core.audio.BinauralRenderer
+import hearspace.core.audio.SpeechCollisionTest
 import hearspace.core.audio.VirtualScenario
 import hearspace.core.audio.VirtualScenarioConfig
 import hearspace.core.types.AudioCmd
@@ -36,6 +37,9 @@ import java.util.concurrent.atomic.AtomicReference
 class VirtualScenarioTestActivity : Activity() {
     private lateinit var config: Config
     private lateinit var testConfig: VirtualScenarioConfig
+    private lateinit var collisionConfig: SpeechCollisionTest.Config
+    private var collisionTest: SpeechCollisionTest? = null
+    private var protectUrgent = true
     private lateinit var renderer: BinauralRenderer
     private lateinit var focus: AudioFocus
     private var output: BinauralOutput? = null
@@ -60,11 +64,14 @@ class VirtualScenarioTestActivity : Activity() {
         testConfig = assets.open("config/virtual-scenario.json").bufferedReader().use {
             VirtualScenarioConfig.parse(it.readText())
         }
+        collisionConfig = assets.open("config/speech-collision-test.json").bufferedReader().use {
+            SpeechCollisionTest.Config.parse(it.readText())
+        }
         // 이 화면에서만 연속음·높이 매핑을 사용한다. 저장된 설정은 바꾸지 않는다.
         config = base.copy(sonify = base.sonify.copy(
             mode = SonifyMode.RISK_CONTINUOUS,
             mapping = SonifyMapping.DISTANCE_HEIGHT,
-            onceS = maxOf(base.sonify.onceS, testConfig.comparisonHoldS),
+            onceS = maxOf(base.sonify.onceS, testConfig.comparisonHoldS, collisionConfig.timeoutMs / 1000f),
         ))
         focus = AudioFocus(this)
         val root = LinearLayout(this).apply {
@@ -94,9 +101,12 @@ class VirtualScenarioTestActivity : Activity() {
         option("비언어음 재생", true) { audioEnabled = it }
         option("TTS 재생", true) {
             ttsEnabled = it
-            if (!it) tts?.stop()
+            if (!it) {
+                if (collisionTest != null) stopScenario() else tts?.stop()
+            }
         }
         option("TTS 중 비언어음 감쇠", true) { duckEnabled = it }
+        option("긴급 발화 보호 (충돌 시험 시작 시 적용)", true) { protectUrgent = it }
         fun button(label: String, action: () -> Unit) {
             root.addView(Button(this).apply {
                 text = label
@@ -106,6 +116,8 @@ class VirtualScenarioTestActivity : Activity() {
         }
         button("접근 테스트: ${testConfig.farM}m → ${testConfig.warnM}m → ${testConfig.stopM}m") { startScenario(false) }
         button("반복 방지 테스트: ${testConfig.warnM}m 부근 왕복") { startScenario(true) }
+        button("긴급 끼어들기 테스트") { startCollision(SpeechCollisionTest.Mode.INTERRUPT) }
+        button("상태 안내 충돌 테스트") { startCollision(SpeechCollisionTest.Mode.STATUS_COLLISION) }
         button("정지") { stopScenario() }
         status = TextView(this).apply { textSize = 18f; text = "대기 중" }
         events = TextView(this).apply { textSize = 15f }
@@ -124,6 +136,12 @@ class VirtualScenarioTestActivity : Activity() {
             onDuckingChanged = { speaking = it },
             onEvent = { event ->
                 log("${event.state.label}: ${event.text} ${event.detail.orEmpty()}")
+                collisionTest?.onEvent(event.id, event.text, when (event.state) {
+                    AndroidTts.State.STARTED -> SpeechCollisionTest.Event.STARTED
+                    AndroidTts.State.COMPLETED -> SpeechCollisionTest.Event.COMPLETED
+                    AndroidTts.State.INTERRUPTED -> SpeechCollisionTest.Event.INTERRUPTED
+                    AndroidTts.State.ERROR -> SpeechCollisionTest.Event.ERROR
+                }, SystemClock.elapsedRealtime())
                 if (event.state == AndroidTts.State.ERROR ||
                     event.state == AndroidTts.State.INTERRUPTED) {
                     scenario?.onFailed(event.text)
@@ -142,18 +160,66 @@ class VirtualScenarioTestActivity : Activity() {
         main.post(tick)
     }
 
+    private fun startCollision(mode: SpeechCollisionTest.Mode) {
+        if (!ttsEnabled) {
+            log("TTS 재생을 켠 다음 시험해 주세요")
+            return
+        }
+        startScenario(false)
+        // 충돌 시험은 정면 몸통의 비교음으로 고정한다.
+        target.setSelection(0)
+        scenario = VirtualScenario(testConfig, false, VirtualScenario.Target.BODY)
+        collisionTest = SpeechCollisionTest(collisionConfig, mode,
+            SystemClock.elapsedRealtime(), protectUrgent)
+        log("${mode.name} / 긴급 보호 ${if (protectUrgent) "ON" else "OFF"}")
+    }
+
+    private fun collisionStep(test: SpeechCollisionTest, nowNs: Long) {
+        val nowMs = SystemClock.elapsedRealtime()
+        test.next(nowMs)?.let { attempt ->
+            val line = attempt.line
+            if (!attempt.allowed) {
+                log("정책 차단: ${line.text} / 긴급 경고 유지")
+                test.onAdmission(attempt, false)
+            } else {
+                log("발화 요청: ${line.role} / ${line.text}")
+                val evidenceNs = if (line.urgent) {
+                    scenario?.sample(testConfig.stopReachS, nowNs)?.also { latest.set(it) }?.observedNs
+                } else null
+                val accepted = tts?.speak(
+                    text = line.text,
+                    urgent = line.urgent,
+                    // 첫 시험 문장은 초기화 대기를 허용한다. 긴급 요청은 최신 가상 관측을 쓴다.
+                    evidenceNs = evidenceNs,
+                    replaceCurrent = line.replaceCurrent,
+                ) == true
+                test.onAdmission(attempt, accepted)
+                if (!accepted) log("엔진 요청 미접수")
+            }
+        }
+        test.result?.let { result ->
+            log("${if (result.passed) "PASS" else "FAIL"}: ${result.detail}")
+            stopScenario()
+            status.text = "${if (result.passed) "PASS" else "FAIL"}\n${result.detail}"
+        }
+    }
+
     private val tick = object : Runnable {
         override fun run() {
             val test = scenario ?: return
             val now = SystemClock.elapsedRealtimeNanos()
             val elapsed = (now - startedNs) / 1e9f
-            if (elapsed >= test.durationS) {
+            val collision = collisionTest
+            if (collision == null && elapsed >= test.durationS) {
                 stopScenario()
                 return
             }
-            val frame = test.sample(elapsed, now)
+            val sceneTimeS = if (collision != null) {
+                if (collision.urgentIssued) testConfig.stopReachS else testConfig.warnReachS
+            } else elapsed
+            val frame = test.sample(sceneTimeS, now)
             latest.set(frame)
-            val cue = test.nextCue(frame, now)
+            val cue = if (collision == null) test.nextCue(frame, now) else null
             if (ttsEnabled && cue != null && now - lastAttemptNs >= testConfig.retryMs * 1_000_000L) {
                 lastAttemptNs = now
                 log("발화 요청: ${cue.text}")
@@ -171,6 +237,10 @@ class VirtualScenarioTestActivity : Activity() {
                 log("오디오 출력 중단됨: 화면에 다시 들어와 재시도하세요")
                 stopScenario()
                 return
+            }
+            if (collision != null) {
+                collisionStep(collision, now)
+                if (scenario == null) return
             }
             main.postDelayed(this, testConfig.tickMs)
         }
@@ -205,6 +275,10 @@ class VirtualScenarioTestActivity : Activity() {
     }
 
     private fun stopScenario() {
+        collisionTest?.let {
+            if (it.result == null) { it.cancel(); log("시험 중단 / PASS 판정 없음") }
+        }
+        collisionTest = null
         scenario = null
         main.removeCallbacks(tick)
         latest.set(null)
@@ -217,7 +291,7 @@ class VirtualScenarioTestActivity : Activity() {
         val elapsed = if (startedNs == 0L) 0f
             else (SystemClock.elapsedRealtimeNanos() - startedNs) / 1e9f
         lines.add(String.format(Locale.KOREA, "%.1fs  %s", elapsed, text))
-        if (lines.size > 12) lines.removeAt(0)
+        if (lines.size > 32) lines.removeAt(0)
         events.text = lines.joinToString("\n")
     }
 
@@ -231,3 +305,4 @@ class VirtualScenarioTestActivity : Activity() {
         super.onPause()
     }
 }
+

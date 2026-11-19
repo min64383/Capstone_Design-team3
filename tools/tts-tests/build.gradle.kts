@@ -9,12 +9,14 @@ kotlin {
             kotlin.srcDir("../../core/src/main/kotlin")
             kotlin.include("hearspace/app/ui/user/StatusSpeechPolicy.kt", "hearspace/app/runtime/TtsSafetyConfig.kt")
             kotlin.include("hearspace/core/audio/VirtualScenario.kt", "hearspace/core/types/MiniJson.kt")
+            kotlin.include("hearspace/core/audio/SpeechCollisionTest.kt")
         }
         test {
             kotlin.srcDir("../../app/src/test/java")
             kotlin.srcDir("../../core/src/test/kotlin")
             kotlin.include("hearspace/app/ui/user/StatusSpeechPolicyTest.kt", "hearspace/app/runtime/TtsSafetyConfigTest.kt")
             kotlin.include("hearspace/core/synth/VirtualScenarioPolicyTest.kt")
+            kotlin.include("hearspace/core/synth/SpeechCollisionTestTest.kt")
         }
     }
 }
@@ -29,5 +31,9 @@ tasks.test {
     val scenarioConfig = file("../../app/src/main/assets/config/virtual-scenario.json")
     inputs.file(scenarioConfig)
     systemProperty("hearspace.virtualScenarioConfig", scenarioConfig.absolutePath)
+    val collisionConfig = file("../../app/src/main/assets/config/speech-collision-test.json")
+    inputs.file(collisionConfig)
+    systemProperty("hearspace.collisionConfig", collisionConfig.absolutePath)
 }
+
 
