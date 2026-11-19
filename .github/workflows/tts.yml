@@ -26,20 +26,9 @@ jobs:
           distribution: temurin
           java-version: '21'
       - name: SDK-independent policy tests
-        shell: bash
         run: |
           chmod +x gradlew
-          set +e
-          ./gradlew -p tools/tts-tests test --no-daemon > policy-tests.log 2>&1
-          status=$?
-          cat policy-tests.log
-          if [ "$status" -ne 0 ]; then
-            detail=$(tail -40 policy-tests.log)
-            detail="${detail//'%'/'%25'}"
-            detail="${detail//$'\n'/'%0A'}"
-            echo "::error title=TTS policy tests::$detail"
-          fi
-          exit "$status"
+          ./gradlew -p tools/tts-tests test --no-daemon
   android:
     runs-on: ubuntu-latest
     timeout-minutes: 30
@@ -53,14 +42,16 @@ jobs:
         shell: bash
         run: |
           set +e
-          "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" "platforms;android-37" > sdk-install.log 2>&1
+          "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" --verbose "platforms;android-37" > sdk-install.log 2>&1
           status=$?
           cat sdk-install.log
           if [ "$status" -ne 0 ]; then
-            detail=$(tail -15 sdk-install.log)
-            detail="${detail//'%'/'%25'}"
-            detail="${detail//$'\n'/'%0A'}"
-            echo "::error title=Android SDK installation::$detail"
+            python3 - <<'PY'
+          from pathlib import Path
+          text = Path('sdk-install.log').read_text(errors='replace')[-24000:]
+          text = text.replace('%', '%25').replace('\r', '%0D').replace('\n', '%0A')
+          print('::error title=Android SDK installation::' + text)
+          PY
           fi
           exit "$status"
       - name: Unit tests and debug build
@@ -68,13 +59,25 @@ jobs:
         run: |
           chmod +x gradlew
           set +e
-          ./gradlew :app:testDebugUnitTest :app:assembleDebug --no-daemon > android-build.log 2>&1
+          ./gradlew :app:testDebugUnitTest :app:assembleDebug --no-daemon --console=plain > android-build.log 2>&1
           status=$?
           cat android-build.log
           if [ "$status" -ne 0 ]; then
-            detail=$(tail -40 android-build.log)
-            detail="${detail//'%'/'%25'}"
-            detail="${detail//$'\n'/'%0A'}"
-            echo "::error title=Android build::$detail"
+            python3 - <<'PY'
+          from pathlib import Path
+          text = Path('android-build.log').read_text(errors='replace')[-24000:]
+          text = text.replace('%', '%25').replace('\r', '%0D').replace('\n', '%0A')
+          print('::error title=Android build::' + text)
+          PY
           fi
           exit "$status"
+      - name: Save build diagnostics and test reports
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: tts-android-diagnostics
+          path: |
+            sdk-install.log
+            android-build.log
+            app/build/test-results/**
+          retention-days: 7
