@@ -11,6 +11,9 @@ import hearspace.core.guidance.MapAction
 import hearspace.core.pipeline.FastPath
 import hearspace.core.pipeline.SlowPath
 import hearspace.core.session.RunLog
+import hearspace.core.situation.SituationInput
+import hearspace.core.situation.Situations
+import hearspace.core.situation.Utterance
 import hearspace.core.types.AlertKind
 import hearspace.core.types.Config
 import hearspace.core.types.DepthFrame
@@ -19,6 +22,7 @@ import hearspace.core.types.GuidanceState
 import hearspace.core.types.ObstacleSnapshot
 import hearspace.core.types.PoseFrame
 import java.util.concurrent.Semaphore
+import java.util.concurrent.atomic.AtomicInteger
 import java.util.concurrent.atomic.AtomicLong
 import java.util.concurrent.atomic.AtomicReference
 
@@ -27,6 +31,9 @@ import java.util.concurrent.atomic.AtomicReference
  * - GL 스레드: [publishPose], [publishDepth]
  * - 느린 경로 워커(이 클래스가 소유): 최신 깊이 → `SlowPath.process` → [snapshot]
  * - 오디오 스레드: [renderBlock]이 블록마다 최신 자세·스냅샷으로 `FastPath.compute` → `BinauralRenderer`
+ * - 상황 판단 스레드(M65, 설정이 켰을 때): 느린 경로가 처리마다 그 결과를 최신 값으로 넘기면 [surface]의 가장 최근 노면 영상으로 한 차례 돌리고,
+ *   낸 말은 [onSpeech]로 넘긴다. 앱에서 지금 말하는 중인 등급은 [speechLevel]로 받는다(말 내보내기가 쓴다).
+ *   느린 경로 스레드에서 돌리면 기기에서 한 차례 수십~수백 ms가 걸려 깊이 처리를 막았다(M65 E2: T01 처리 29.6 → 7.9 Hz).
  * 예외 하나: 맵 명령(RESET/SCALE)은 덮어쓰면 RESET이 사라질 수 있어 강한 쪽을 남기도록 합친다.
  * [clockNs]는 자세 시각과 같은 시계의 현재 시각이다(실시간·재생 모드가 다름, [LiveScreen] 참고).
  */
@@ -40,6 +47,28 @@ class LivePipeline(
     private val fast = FastPath(config)
     private val slow = SlowPath(config)
     private val renderer = BinauralRenderer(config, hrtf)
+    private val situations = if (config.situation.enabled) Situations(
+        config.situation, config.corridor.widthM, config.corridor.heightM, config.vision.footHeightWindowS, (config.policy.maxInfoAgeMs * 1e6).toLong(),
+    ) else null
+
+    /** 노면 모델(M65, [RunSession]이 만든다). 없으면 상황 판단은 노면 영상 없이 돈다. */
+    @Volatile
+    var surface: SurfaceModel? = null
+
+    /** 앱에서 지금 말하는 중인 줄의 등급(0 = 쉼, 1~3). 말 내보내기가 줄을 받은 때부터 끝날 때까지. */
+    val speechLevel = AtomicInteger(0)
+
+    /** 상황 판단이 낸 말(느린 경로 스레드에서 부른다, 가볍게: UI 스레드로 넘긴다). */
+    @Volatile
+    var onSpeech: ((List<Utterance>) -> Unit)? = null
+
+    /** 소리가 나지 않은 상황 말의 열쇠(UI 스레드가 넣고, 느린 경로가 다음 처리 차례에 말하기 규칙에 되돌린다). 잃으면 안 되는 사건이라 집합에 모은다. */
+    private val unsaid: MutableSet<String> = java.util.concurrent.ConcurrentHashMap.newKeySet()
+
+    /** UI 스레드: 앱이 소리를 내지 못한 상황 말을 되돌린다(상황이 이어지면 새 근거로 다시 낸다). */
+    fun unsay(key: String) {
+        unsaid.add(key)
+    }
 
     private val pose = AtomicReference<PoseFrame?>(null)
     private val depth = AtomicReference<DepthFrame?>(null)
@@ -62,6 +91,10 @@ class LivePipeline(
     @Volatile
     var paused = false
 
+    /** UI 스레드가 TTS 발화 상태를 쓰고 오디오 스레드가 블록마다 읽는다. */
+    @Volatile
+    var speechActive = false
+
     /** 알림(상태 전이·요청한 알림)이 날 때 오디오 스레드에서 부른다(진동·화면 갱신용, 가볍게). */
     @Volatile
     var onAlert: ((AlertKind) -> Unit)? = null
@@ -77,6 +110,13 @@ class LivePipeline(
     @Volatile
     private var running = true
     private val worker = Thread(::slowLoop, "SlowPath").apply { start() }
+
+    /** 상황 판단 한 차례의 입력(느린 경로 → 상황 판단 스레드, 최신 값 하나). */
+    private class SitJob(val depth: DepthFrame, val snapshot: ObstacleSnapshot, val resetMark: Long)
+
+    private val sitJob = AtomicReference<SitJob?>(null)
+    private val sitReset = java.util.concurrent.atomic.AtomicBoolean(false)
+    private val sitWorker = situations?.let { Thread(::situationLoop, "Situation").apply { start() } }
 
     // ---- GL 스레드 ----
 
@@ -101,7 +141,7 @@ class LivePipeline(
         }
         val p = pose.get()
         if (p == null) { // 카메라 시작 전: 알림음만(음원 없음)
-            renderer.render(GuidanceOutput(clockNs(), GuidanceState.UNKNOWN, emptyList(), Float.NaN, null), out)
+            renderer.renderWithSpeech(GuidanceOutput(clockNs(), GuidanceState.UNKNOWN, emptyList(), Float.NaN, null), out, speechActive)
             return
         }
         val snap = snapshot.get()
@@ -122,7 +162,7 @@ class LivePipeline(
             }
         }
         fast.headingW?.let { headingW.set(it) }
-        renderer.render(g, out)
+        renderer.renderWithSpeech(g, out, speechActive)
         lastOutput.set(g)
         lastHead.set(fast.head)
         // 블록마다 로그 한 건(약 190건/초). 문자열은 로그 스레드가 만든다(A1 CO5)
@@ -141,6 +181,7 @@ class LivePipeline(
             val action = mapAction.getAndSet(MapAction.NONE)
             if (action != MapAction.NONE) {
                 slow.apply(action)
+                if (action == MapAction.RESET) sitReset.set(true) // 상황 판단 스레드가 다음 차례 전에 비운다
                 Log.i(TAG, "map action $action")
             }
             // M13.4 주기 상한: 지난 시작에서 1/maxRateHz가 지나야 꺼낸다(기다리는 동안 온 깊이는 최신 값으로 교체된다)
@@ -166,6 +207,43 @@ class LivePipeline(
             logger?.obstacles(RunLog.obstacleLines(s))
             logger?.clusters(slow.lastClusterDebug)
             slow.lastMapUpdate?.geometry?.let { logger?.geometry(s.tCaptureNs, it) }
+            if (sitWorker != null && !paused && resetAfterNs.get() == resetMark) {
+                sitJob.set(SitJob(d, s, resetMark))
+                java.util.concurrent.locks.LockSupport.unpark(sitWorker)
+            }
+        }
+    }
+
+    // ---- 상황 판단 스레드 ----
+
+    private fun situationLoop() {
+        Process.setThreadPriority(BACKGROUND_WORK_PRIORITY)
+        val sit = situations ?: return
+        while (running) {
+            val job = sitJob.getAndSet(null)
+            if (job == null) {
+                java.util.concurrent.locks.LockSupport.park(this)
+                continue
+            }
+            if (sitReset.getAndSet(false)) sit.reset()
+            if (paused || resetAfterNs.get() != job.resetMark) continue // 처리 뒤 RESET이 왔으면 이전 월드 좌표의 결과다
+            val g = lastOutput.get()
+            // RESET 전 월드 좌표의 노면 영상은 쓰지 않는다
+            val surf = surface?.latest?.get()?.takeIf { it.tCaptureNs >= job.resetMark }
+            if (!sit.due(job.depth.tCaptureNs, surf?.tCaptureNs)) continue
+            for (k in unsaid.toList()) { unsaid.remove(k); sit.speech.unsay(k) }
+            // 말 내보내기가 붙어 있을 때만 앱의 실제 등급을 넘긴다. 없으면(개발 화면) PC 재생처럼 음절 수 어림
+            val consumer = onSpeech
+            val level = if (consumer != null) speechLevel.get() else null
+            val t0 = System.nanoTime()
+            val (said, rec) = sit.step(SituationInput(clockNs(), job.depth, job.snapshot, g?.commands.orEmpty(), Situations.headingOf(g), surf, level))
+            logger?.situationTiming(rec.tNs, System.nanoTime() - t0)
+            logger?.situation(said, rec)
+            if (said.isNotEmpty() && consumer != null) {
+                // 넘기는 순간부터 말하는 중으로 둔다(말 내보내기가 받으면 실제 등급으로, 받지 않으면 되돌린다)
+                speechLevel.set(said.minOf { it.priority })
+                consumer(said)
+            }
         }
     }
 
@@ -173,5 +251,14 @@ class LivePipeline(
         running = false
         wake.release()
         worker.join(2000)
+        sitWorker?.let { java.util.concurrent.locks.LockSupport.unpark(it); it.join(2000) }
+    }
+
+    companion object {
+        /**
+         * 상황 판단·노면 모델 스레드의 nice 값(M65 E2: 같은 기기에서 느린 경로와 다퉈 처리 p95가 늘었다). 느린 경로(DISPLAY, −4)보다 몫이 작게.
+         * VERIFY: Android는 10(BACKGROUND) 이상이면 스레드를 background 그룹(작은 코어 위주)으로 옮긴다고 알려져 5로 둔다(문서 확인 못 함).
+         */
+        const val BACKGROUND_WORK_PRIORITY = 5
     }
 }

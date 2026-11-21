@@ -7,10 +7,13 @@ import android.util.Log
 import android.view.ViewGroup.LayoutParams.MATCH_PARENT
 import android.view.ViewGroup.LayoutParams.WRAP_CONTENT
 import android.widget.Button
+import android.widget.CheckBox
 import android.widget.LinearLayout
+import android.widget.TextView
 import hearspace.app.AppConfig
 import hearspace.app.TAG
 import hearspace.app.loadHrtf
+import hearspace.app.runtime.AndroidTts
 import hearspace.app.runtime.AudioFocus
 import hearspace.app.runtime.BinauralOutput
 import hearspace.core.audio.BinauralRenderer
@@ -34,6 +37,12 @@ class HeadphoneCheckActivity : Activity() {
     private lateinit var renderer: BinauralRenderer
     private lateinit var focus: AudioFocus
     private var output: BinauralOutput? = null
+    private var tts: AndroidTts? = null
+    private lateinit var status: TextView
+    private lateinit var referenceToggle: CheckBox
+    private lateinit var referenceCmd: AudioCmd
+    @Volatile private var referenceOn = false
+    @Volatile private var speechActive = false
 
     /** 지금 들려줄 방향과 시작 시각(ns). UI가 쓰고 오디오 스레드가 읽는다(큐가 아니라 최신 값 교체). */
     private val playing = AtomicReference<Pair<Float, Long>?>(null)
@@ -63,10 +72,33 @@ class HeadphoneCheckActivity : Activity() {
                 setOnClickListener { playing.set(az to System.nanoTime()) }
             }, LinearLayout.LayoutParams(MATCH_PARENT, WRAP_CONTENT).apply { setMargins(dp(20), dp(6), dp(20), dp(6)) })
         }
+        body.section("음성 안내 시험")
+        // 고정된 WARN은 잠깐만 울린다. 시험 소리는 단추를 끌 때까지 유지되는 통로 안 STOP을 사용한다.
+        referenceCmd = AudioCmd(
+            obstacleId = 1, azimuthDeg = 0f, distanceM = config.policy.stopM,
+            band = Band.STOP, sound = SoundKind.FLOOR_PULSE, infoAgeMs = 0f,
+        )
+        referenceToggle = CheckBox(this).apply {
+            text = "비교용 장애물 소리 계속 듣기"
+            setOnCheckedChangeListener { _, checked -> referenceOn = checked }
+        }
+        body.addView(referenceToggle)
+        val normal = "블록 위 물체, 2미터. 일반 안내 음성을 시험하고 있습니다."
+        val urgent = "내려가는 계단, 1미터"
+        body.item("일반 안내 듣기", normal) { tts?.speak(normal) }
+        body.item("긴급 안내 듣기", urgent) { tts?.speak(urgent, urgent = true) }
+        status = TextView(this).apply { setPadding(dp(20), dp(8), dp(20), dp(12)) }
+        body.addView(status)
     }
 
     override fun onResume() {
         super.onResume()
+        tts = AndroidTts(this, config,
+            onDuckingChanged = { speechActive = it },
+            onEvent = { event ->
+                status.text = listOfNotNull(event.state.label, event.text, event.detail).joinToString(" · ")
+            },
+        )
         focus.request()
         output = runCatching { BinauralOutput(config.audio, ::render).also { it.start() } }
             .onFailure { Log.e(TAG, "headphone check: audio output failed", it) }
@@ -75,6 +107,9 @@ class HeadphoneCheckActivity : Activity() {
 
     override fun onPause() {
         super.onPause()
+        tts?.close()
+        tts = null
+        referenceToggle.isChecked = false
         playing.set(null)
         output?.close()
         output = null
@@ -90,8 +125,8 @@ class HeadphoneCheckActivity : Activity() {
             val far = config.sonify.farM
             val mid = (config.sonify.farM + config.sonify.nearM) / 2
             AudioCmd(obstacleId = 1, azimuthDeg = az, distanceM = far + (mid - far) * f, band = Band.WARN, sound = SoundKind.FLOOR_PULSE, infoAgeMs = 0f)
-        }
-        renderer.render(GuidanceOutput(now, GuidanceState.NORMAL, listOfNotNull(cmd), 0f, null), buf)
+        } ?: referenceCmd.takeIf { referenceOn }
+        renderer.renderWithSpeech(GuidanceOutput(now, GuidanceState.NORMAL, listOfNotNull(cmd), 0f, null), buf, speechActive)
     }
 
     companion object {
