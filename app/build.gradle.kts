@@ -22,6 +22,20 @@ android {
         buildConfig = true
     }
 
+    // M61: 기기 처리 시간은 디버깅을 끈 빌드로 잰다(디버그 빌드는 느린 경로 시간의 약 절반이 ART 인터프리터·해석 경로였다, simpleperf).
+    // bench = 디버그 서명·디버깅 끔. 개발 도구(자동 시작·기기 설정 덮어쓰기)는 DEV_TOOLS로 켠다(release는 끔).
+    buildTypes {
+        getByName("debug") { buildConfigField("boolean", "DEV_TOOLS", "true") }
+        getByName("release") { buildConfigField("boolean", "DEV_TOOLS", "false") }
+        create("bench") {
+            initWith(getByName("debug"))
+            isDebuggable = false
+            signingConfig = signingConfigs.getByName("debug")
+            matchingFallbacks += listOf("debug")
+            buildConfigField("boolean", "DEV_TOOLS", "true")
+        }
+    }
+
     compileOptions {
         sourceCompatibility = JavaVersion.VERSION_17
         targetCompatibility = JavaVersion.VERSION_17

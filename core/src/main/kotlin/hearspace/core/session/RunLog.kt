@@ -41,6 +41,19 @@ object RunLog {
 
     val STAGE_TIMING_HEADER = listOf("tCaptureNs", "mapNs", "clusterNs", "trackNs")
 
+    /**
+     * 앱 입력 기록(M61, 앱 전용). 깊이(DEPTH)는 카메라 프레임마다 한 줄로 결과를 남기고, 원시 깊이(RAW)·의미 영상(LABEL)은 새 영상일 때만 남긴다.
+     * frameTNs = 그 영상이 보인 카메라 프레임 시각, appNs = 그때 앱 시계(실시간은 frameTNs와 같은 시계라 차이 = 프레임 지연),
+     * imageTNs = 영상 촬영 시각, copyNs = 읽기·복사 시간. result: PUBLISHED(느린 경로로 넘김) | NEW(원시·라벨 새 영상) | SAME(같은 시각 되풀이) |
+     * NOT_TRACKING(그 시각 자세가 추적 중 아님) | NO_PIXELS | ARCore 예외 이름(새 영상을 받지 못함). tracking = 프레임의 추적 상태[:실패 이유].
+     */
+    const val INPUT_TIMING_FILE = "input_timing.csv"
+
+    val INPUT_TIMING_HEADER = listOf("frameTNs", "appNs", "kind", "imageTNs", "copyNs", "result", "tracking")
+
+    fun inputTimingLine(frameTNs: Long, appNs: Long, kind: String, imageTNs: Long?, copyNs: Long, result: String, tracking: String?): String =
+        row(frameTNs, appNs, kind, imageTNs, copyNs, result, tracking)
+
     /** 평면 추출 결과(M13.1c, `frontend.planes`가 RANSAC일 때만). 벽은 `x0:z0:x1:z1:점수`를 `;`로 이은 칸. 바닥이 없으면 floorY가 빈 칸. */
     const val PLANES_FILE = "planes.csv"
 

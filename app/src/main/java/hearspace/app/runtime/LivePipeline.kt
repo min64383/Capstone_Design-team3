@@ -103,6 +103,10 @@ class LivePipeline(
         wake.release()
     }
 
+    /** 입력 기록(M61, `input_timing.csv`). 로그가 없으면 아무것도 하지 않는다. */
+    fun logInput(frameTNs: Long, kind: String, imageTNs: Long?, copyNs: Long, result: String, tracking: String?) =
+        logger?.input(frameTNs, clockNs(), kind, imageTNs, copyNs, result, tracking)
+
     // ---- 오디오 스레드 ----
 
     /** 블록 하나를 [out](2 × blockSize, L R 교차)에 렌더한다. 자세가 아직 없으면 알림음만. */
@@ -178,6 +182,7 @@ class LivePipeline(
             voxelCentersW.set(slow.map.voxels.occupied().map { it.centerW })
             nSlow.incrementAndGet()
             logger?.slowPath(RunLog.slowPathLine(slow.lastMapUpdate!!, t0, t1, s))
+            logger?.stageTiming(RunLog.stageTimingLine(s.tCaptureNs, slow.lastStageNs))
             logger?.obstacles(RunLog.obstacleLines(s))
             logger?.clusters(slow.lastClusterDebug)
             slow.lastMapUpdate?.geometry?.let { logger?.geometry(s.tCaptureNs, it) }

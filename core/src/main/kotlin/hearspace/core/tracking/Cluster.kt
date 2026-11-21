@@ -47,22 +47,47 @@ object Cluster {
             return out
         }
 
+        // M61(결과 같음, 시간만 줄임): 이웃 목록은 점의 (x, z)와 라벨 조건에만 달려 있다. 복셀 중심은 같은 기둥에 높이만 다른 점이
+        // 많아(조합의 0.3 m 격자 칸에 수백~수천 점) 같은 열쇠는 한 번만 계산해 나눠 쓴다.
+        val cache = HashMap<NbKey, Neighbors>()
+        fun nbOf(i: Int): Neighbors {
+            val p = pointsW[i]
+            val lab = if (same && labels!![i] > 0) labels[i] else 0
+            return cache.getOrPut(NbKey(p.x, p.z, lab)) { Neighbors(neighbors(i)) }
+        }
+
+        // 대기열에는 점을 한 번만 넣는다. 예전처럼 같은 점을 여러 번 넣어도 두 번째부터는 꺼낼 때 아무 일도 하지 않으므로(첫 꺼냄에서 라벨이
+        // 정해진다) 처음 들어간 순서만 지키면 군집과 구성원 순서가 같다. 한 번 넣은 점은 군집이 바뀌어도 다시 넣을 일이 없다(라벨이 이미 정해짐).
+        val queued = BooleanArray(pointsW.size)
+        val queue = IntArray(pointsW.size)
+        var tail = 0
+        fun enqueue(nb: Neighbors) {
+            if (nb.enqueued) return // 이 목록의 점은 모두 이미 넣었다
+            for (j in nb.idx) if (!queued[j]) {
+                queued[j] = true
+                queue[tail++] = j
+            }
+            nb.enqueued = true
+        }
+
         val label = IntArray(pointsW.size) { UNVISITED }
         val clusters = ArrayList<List<Int>>()
+        var head = 0
         for (i in pointsW.indices) {
             if (label[i] != UNVISITED) continue
-            val nb = neighbors(i)
-            if (nb.size < minSamples || canExpand?.get(i) == false) {
+            val nb = nbOf(i)
+            if (nb.idx.size < minSamples || canExpand?.get(i) == false) {
                 label[i] = NOISE
                 continue
             }
             val id = clusters.size
             val members = ArrayList<Int>()
-            val queue = ArrayDeque(nb)
             label[i] = id
             members += i
-            while (queue.isNotEmpty()) {
-                val j = queue.removeFirst()
+            queued[i] = true
+            enqueue(nb)
+            while (head < tail) {
+                val j = queue[head++]
                 if (label[j] == NOISE) {
                     label[j] = id // 경계점
                     members += j
@@ -70,12 +95,18 @@ object Cluster {
                 if (label[j] != UNVISITED) continue
                 label[j] = id
                 members += j
-                val nb2 = neighbors(j)
-                if (nb2.size >= minSamples && canExpand?.get(j) != false) queue.addAll(nb2)
+                val nb2 = nbOf(j)
+                if (nb2.idx.size >= minSamples && canExpand?.get(j) != false) enqueue(nb2)
             }
             clusters += members
         }
         return clusters
+    }
+
+    private data class NbKey(val x: Float, val z: Float, val label: Int)
+
+    private class Neighbors(val idx: List<Int>) {
+        var enqueued = false
     }
 
     private const val UNVISITED = -2

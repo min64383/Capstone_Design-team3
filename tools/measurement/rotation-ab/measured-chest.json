@@ -1,0 +1,10 @@
+{
+  "heading": {
+    "cameraSigmaDeg": 0,
+    "chestMount": {
+      "yawOffsetDeg": 0,
+      "headOffsetBodyM": [0.0, 0.2, -0.1],
+      "minHorizontalNorm": 0.1
+    }
+  }
+}

@@ -17,6 +17,15 @@ class ConfigLoaderTest {
 
     private fun load(override: String? = null) = ConfigLoader.load(defaultJson, override)
 
+    @Test
+    fun `app asset overrides load in app order with the harness head offset`() {
+        val assets = File(System.getProperty("hearspace.defaultConfig")).parentFile
+        if (!File(assets, "harness.override.json").isFile) return // -PtestOverrides 합친 설정에서는 자산 폴더가 아니다
+        val c = ConfigLoader.load(defaultJson, listOf("risk-continuous.override.json", "harness.override.json").map { File(assets, it).readText() })
+        assertEquals(Vec3(0f, 0.2f, -0.1f), c.headOffsetFromCameraM) // M61 하네스 실측(앱만, PC 재생 기준선은 손 파지)
+        assertEquals(Vec3(0f, 0.5f, -0.39f), load().headOffsetFromCameraM)
+    }
+
     private fun assertConfigError(expectedPath: String, override: String) {
         val e = assertThrows<ConfigException> { load(override) }
         assertEquals(expectedPath, e.path, e.message)

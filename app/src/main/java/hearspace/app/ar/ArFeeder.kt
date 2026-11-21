@@ -144,15 +144,29 @@ class ArFeeder(private val config: Config, private val replay: Boolean, private 
         if (semanticOn) readSemantic(frame, camera)
         val p = pipeline ?: return camera
         p.publishPose(pose)
-        if (vision) readRaw(frame, camera)
+        if (vision) readRaw(frame, camera, p)
 
+        // M61: 깊이는 프레임마다 결과를 남긴다(깊이가 느린 경로로 넘어가지 않은 구간의 이유)
+        val trk = if (camera.trackingState == com.google.ar.core.TrackingState.TRACKING) "TRACKING" else "${camera.trackingState.name}:${camera.trackingFailureReason.name}"
         val raw = config.depth.source == DepthSource.RAW
-        val d = FrameAdapter.readDepth(frame, raw) { it != lastDepthTNs } ?: return camera
-        val mm = d.mm ?: return camera
+        val t0 = System.nanoTime()
+        val d = FrameAdapter.readDepth(frame, raw) { it != lastDepthTNs }
+        if (d == null) {
+            p.logInput(frame.timestamp, "DEPTH", null, System.nanoTime() - t0, FrameAdapter.lastFailure ?: "NULL", trk)
+            return camera
+        }
+        val mm = d.mm
+        if (mm == null) {
+            p.logInput(frame.timestamp, "DEPTH", d.tNs, System.nanoTime() - t0, "SAME", trk)
+            return camera
+        }
         lastDepthTNs = d.tNs
         // 깊이 시각에 가장 가까운, 이미 받은 자세(미래 자세 없음, SessionReader와 같은 규칙)
         val dp = recentPoses.minBy { abs(it.tCaptureNs - d.tNs) }
-        if (dp.tracking != TrackingState.TRACKING) return camera
+        if (dp.tracking != TrackingState.TRACKING) {
+            p.logInput(frame.timestamp, "DEPTH", d.tNs, System.nanoTime() - t0, "NOT_TRACKING", trk)
+            return camera
+        }
         val conf = if (raw) FrameAdapter.readConfidence(frame)?.values?.takeIf { it.size == mm.size } else null
         p.publishDepth(
             DepthFrame(
@@ -167,13 +181,16 @@ class ArFeeder(private val config: Config, private val replay: Boolean, private 
                 raw = if (vision) lastRaw else null,
             ),
         )
+        p.logInput(frame.timestamp, "DEPTH", d.tNs, System.nanoTime() - t0, "PUBLISHED", trk)
         return camera
     }
 
     /** 새 의미 영상이면 복사해 [lastLabels]로 둔다. 자세는 영상 촬영 시각에 가장 가까운, 이미 받은 프레임의 것(VisionFrames와 같은 규칙). */
     private fun readSemantic(frame: com.google.ar.core.Frame, camera: Camera) {
         semanticSaver?.let { it.onFrame(frame); return }
+        val t0 = System.nanoTime()
         val c = FrameAdapter.readSemantic(frame) { t -> (t != lastSemanticTNs).also { lastSemanticTNs = t } } ?: return
+        pipeline?.logInput(frame.timestamp, "LABEL", c.tNs, System.nanoTime() - t0, "NEW", null)
         nSemantic++
         semanticSize = "${c.width}x${c.height}"
         if (!useSemanticLabels) return
@@ -184,11 +201,13 @@ class ArFeeder(private val config: Config, private val replay: Boolean, private 
     }
 
     /** 새 원시 깊이 장이면 신뢰도와 함께 복사해 [lastRaw]로 둔다. 그 시각 자세가 추적 중이 아니면 비운다(SessionReader.rawDepthAt과 같은 규칙). */
-    private fun readRaw(frame: com.google.ar.core.Frame, camera: Camera) {
+    private fun readRaw(frame: com.google.ar.core.Frame, camera: Camera, p: LivePipeline) {
+        val t0 = System.nanoTime()
         val d = FrameAdapter.readDepth(frame, raw = true) { it != lastRawTNs } ?: return
         val mm = d.mm ?: return
         lastRawTNs = d.tNs
         val dp = recentPoses.minBy { abs(it.tCaptureNs - d.tNs) }
+        p.logInput(frame.timestamp, "RAW", d.tNs, System.nanoTime() - t0, if (dp.tracking != TrackingState.TRACKING) "NOT_TRACKING" else "NEW", null)
         lastRaw = if (dp.tracking != TrackingState.TRACKING) null else DepthFrame(
             tCaptureNs = d.tNs,
             depthMm = mm,

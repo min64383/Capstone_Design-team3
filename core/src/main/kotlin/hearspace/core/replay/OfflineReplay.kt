@@ -116,6 +116,9 @@ class OfflineReplay(
     private val movingFrom: String? = null,
 ) {
 
+    /** 근거리 STOP 진단(평가 전용): 느린 경로 장마다 근거리 후보 단계별 수(ROI 점·칸·크기 통과·누적 관측·출력). */
+    internal var nearStopFrameObserver: ((Long, hearspace.core.guidance.NearStopDetector.FrameEvidence) -> Unit)? = null
+
     /** 마지막 [run]에서 세션을 읽으며 건너뛴 항목(없는·손상된 파일, 잘린 마지막 줄 등, [SessionReader.warnings]). */
     var warnings: List<String> = emptyList()
         private set
@@ -180,6 +183,9 @@ class OfflineReplay(
             if (d.tCaptureNs < resetAfterNs) return
             lastStartNs = atNs
             val stepIndex = startedSteps++
+            nearStopFrameObserver?.let { observer ->
+                slow.nearStop?.observeFrame = { observer(d.tCaptureNs, it) }
+            }
             val s = slow.process(d, h)
             slow.map.cellTrace?.let { cellTraceOut!!.write(it.drain()) }
             labelDumpOut?.let { w ->
