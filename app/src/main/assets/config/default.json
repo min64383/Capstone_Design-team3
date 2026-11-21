@@ -269,6 +269,8 @@
     "sampleRate": 48000,
     "blockSize": 256,
     "masterGainDb": -12,
+    "ttsVolume": 0.7,
+    "ttsObstacleGain": 0.35,
     "toneHz": 880,
     "beepOnMs": 70,
     "nearPeriodMs": 180,

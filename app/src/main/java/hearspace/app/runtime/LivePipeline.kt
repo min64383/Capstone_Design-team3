@@ -82,6 +82,10 @@ class LivePipeline(
     @Volatile
     var paused = false
 
+    /** UI 스레드가 TTS 발화 상태를 쓰고 오디오 스레드가 블록마다 읽는다. */
+    @Volatile
+    var speechActive = false
+
     /** 알림(상태 전이·요청한 알림)이 날 때 오디오 스레드에서 부른다(진동·화면 갱신용, 가볍게). */
     @Volatile
     var onAlert: ((AlertKind) -> Unit)? = null
@@ -121,7 +125,7 @@ class LivePipeline(
         }
         val p = pose.get()
         if (p == null) { // 카메라 시작 전: 알림음만(음원 없음)
-            renderer.render(GuidanceOutput(clockNs(), GuidanceState.UNKNOWN, emptyList(), Float.NaN, null), out)
+            renderer.renderWithSpeech(GuidanceOutput(clockNs(), GuidanceState.UNKNOWN, emptyList(), Float.NaN, null), out, speechActive)
             return
         }
         val snap = snapshot.get()
@@ -142,7 +146,7 @@ class LivePipeline(
             }
         }
         fast.headingW?.let { headingW.set(it) }
-        renderer.render(g, out)
+        renderer.renderWithSpeech(g, out, speechActive)
         lastOutput.set(g)
         lastHead.set(fast.head)
         // 블록마다 로그 한 건(약 190건/초). 문자열은 로그 스레드가 만든다(A1 CO5)

@@ -1,0 +1,10 @@
+{
+  "urgentAfterStartMs": 250,
+  "statusAfterUrgentStartMs": 250,
+  "recoveryListenMs": 1500,
+  "timeoutMs": 30000,
+  "normalText": "정면 2미터에 장애물이 있습니다. 일반 안내를 읽는 도중 긴급 경고가 끼어드는지 확인하는 테스트입니다.",
+  "startStatusText": "안내를 시작합니다. 상태 안내를 읽는 도중 장애물 경고가 끼어드는지 확인하는 테스트입니다.",
+  "urgentText": "정면 장애물, 1미터. 잠시 멈춰 주세요.",
+  "recoveryStatusText": "안내를 재개합니다."
+}

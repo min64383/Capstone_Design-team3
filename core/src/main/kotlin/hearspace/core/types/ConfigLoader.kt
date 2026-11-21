@@ -387,6 +387,8 @@ object ConfigLoader {
                     alertGainDb = float("alertGainDb"),
                     limiterCeiling = unit("limiterCeiling"),
                     bufferBlocks = atLeast1("bufferBlocks"),
+                    ttsVolume = unitOrUnity("ttsVolume"),
+                    ttsObstacleGain = unitOrUnity("ttsObstacleGain"),
                 )
             },
             haptics = root.section("haptics") {
@@ -691,6 +693,9 @@ object ConfigLoader {
 
         fun nonNegative(key: String): Float =
             float(key).also { if (it < 0f) throw ConfigException(path(key), "must be >= 0, got $it") }
+
+        // TTS 키가 없던 녹화 설정은 소리의 원래 이득(1)으로 읽는다.
+        fun unitOrUnity(key: String): Float = if (key in obj.fields) unit(key) else 1f
 
         fun unit(key: String): Float =
             float(key).also { if (it < 0f || it > 1f) throw ConfigException(path(key), "must be in [0, 1], got $it") }

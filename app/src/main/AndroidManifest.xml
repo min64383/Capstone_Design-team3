@@ -12,6 +12,9 @@
     <!-- meta.json에 설치된 ARCore(Google Play 서비스(AR)) 버전을 기록하기 위해 조회 -->
     <queries>
         <package android:name="com.google.ar.core" />
+        <intent>
+            <action android:name="android.intent.action.TTS_SERVICE" />
+        </intent>
     </queries>
 
     <application
@@ -82,6 +85,11 @@
         <activity
             android:name=".ui.dev.SessionList"
             android:exported="false" />
+        <activity
+            android:name=".ui.dev.VirtualScenarioTestActivity"
+            android:exported="false"
+            android:label="가상 장애물 TTS 테스트" />
+
         <!-- 오디오 테스트 -->
         <activity
             android:name=".ui.dev.AudioTestActivity"
@@ -89,3 +97,4 @@
 
     </application>
 </manifest>
+

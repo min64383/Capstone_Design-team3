@@ -41,6 +41,7 @@ import hearspace.app.ar.ArFeeder
 import hearspace.app.ar.ArSessionManager
 import hearspace.app.ar.displayRotationCompat
 import hearspace.app.loadHrtf
+import hearspace.app.runtime.AndroidTts
 import hearspace.app.runtime.AudioFocus
 import hearspace.app.runtime.Haptics
 import hearspace.app.runtime.RunSession
@@ -49,6 +50,8 @@ import hearspace.core.audio.Hrtf
 import hearspace.core.types.AlertKind
 import hearspace.core.types.Config
 import hearspace.core.types.ConfigException
+import hearspace.core.types.GuidanceState
+import hearspace.core.types.MapHealth
 import java.io.File
 import java.text.SimpleDateFormat
 import java.util.Date
@@ -91,6 +94,14 @@ class UserModeActivity : Activity(), GLSurfaceView.Renderer {
 
     private val ui = Handler(Looper.getMainLooper())
     private var run: RunSession? = null
+    private var tts: AndroidTts? = null
+    private var announceLaunch = false
+    private val speechPolicy = StatusSpeechPolicy()
+    private var lastSpeechStatus: StatusSpeechPolicy.Status? = null
+    private var foreground = false
+    private var endedByUser = false
+    private var ttsFailure: String? = null
+    private var screenReaderActive = false
     private var lastDeviceMs = 0L
 
     /** 안내 중이 아닐 때 보일 알림(시작 실패·중단). 다음 시작에서 지운다. */
@@ -127,7 +138,8 @@ class UserModeActivity : Activity(), GLSurfaceView.Renderer {
         window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
         buildLayout()
         render()
-        if (savedInstanceState == null) holdSplash()
+        announceLaunch = savedInstanceState == null
+        if (announceLaunch) holdSplash()
     }
 
     /**
@@ -147,6 +159,43 @@ class UserModeActivity : Activity(), GLSurfaceView.Renderer {
                 return true
             }
         })
+    }
+
+    override fun onResume() {
+        super.onResume()
+        foreground = true
+        ttsFailure = null
+        speechPolicy.reset()
+        lastSpeechStatus = null
+        endedByUser = false
+        screenReaderActive = a11y.isTouchExplorationEnabled
+        shown = null
+        spokenLine = null
+        tts = AndroidTts(this, config, onDuckingChanged = { active ->
+            run?.pipeline?.speechActive = active
+        }, onEvent = { event ->
+            if (foreground && event.state == AndroidTts.State.STARTED && ttsFailure != null) {
+                ttsFailure = null
+                shown = null
+                spokenLine = null
+                ui.post { if (foreground) render() }
+            }
+            if (foreground && event.state == AndroidTts.State.ERROR && ttsFailure == null) {
+                // TTS 자체로 오류를 읽으려 하지 않는다. 화면/TalkBack/진동은 계속 제공한다.
+                ttsFailure = "음성 안내 오류가 발생했습니다. 반복되면 오프라인 한국어 음성 설정을 확인해 주세요."
+                haptics.on(AlertKind.UNKNOWN)
+                shown = null
+                spokenLine = null
+                ui.post { if (foreground) render() }
+            }
+        })
+        if (announceLaunch) {
+            announceLaunch = false
+            if (!screenReaderActive) tts?.speak("앱이 시작했습니다")
+        }
+        render()
+        ui.removeCallbacks(uiTick)
+        ui.post(uiTick)
     }
 
     private fun buildLayout() {
@@ -263,13 +312,19 @@ class UserModeActivity : Activity(), GLSurfaceView.Renderer {
         when (cmd) {
             UserCommand.TOGGLE -> {
                 val r = run
-                if (r == null) start() else r.pipeline.paused = !r.pipeline.paused
+                if (r == null) {
+                    start()
+                } else {
+                    r.pipeline.paused = !r.pipeline.paused
+                    if (r.pipeline.paused) tts?.stop()
+                }
             }
             UserCommand.EXIT -> {
                 // 안내만 끝내고 앱에 남는다(시작 화면으로). 시작 전에는 할 일이 없다. 앱은 시스템 뒤로·홈으로 나간다(사용자 요청 2026-10-30)
                 if (run == null) return
                 haptics.exit()
                 stop()
+                endedByUser = true
             }
         }
         render()
@@ -277,6 +332,9 @@ class UserModeActivity : Activity(), GLSurfaceView.Renderer {
 
     private fun start() {
         notice = null
+        endedByUser = false
+        speechPolicy.reset()
+        lastSpeechStatus = null
         val reason = try {
             ar.resume()
         } catch (e: Exception) {
@@ -305,6 +363,7 @@ class UserModeActivity : Activity(), GLSurfaceView.Renderer {
         }
         thread(name = "RunsTrim") { RunSession.trimRuns(runs, config.record.maxRuns) }
         run = r.also {
+            it.pipeline.speechActive = tts?.isDucked == true
             it.pipeline.onAlert = { kind ->
                 // 오디오 스레드에서 불린다: 진동(바인더 호출)·로그는 UI 스레드로 넘긴다(A1 CO5)
                 ui.post {
@@ -319,6 +378,7 @@ class UserModeActivity : Activity(), GLSurfaceView.Renderer {
         }
         prefs.edit().putBoolean(PREF_NOTICE_READ, true).apply()
         glView.onResume()
+        ui.removeCallbacks(uiTick)
         ui.post(uiTick)
     }
 
@@ -331,6 +391,7 @@ class UserModeActivity : Activity(), GLSurfaceView.Renderer {
     }
 
     private fun stop() {
+        tts?.stop()
         ui.removeCallbacks(uiTick)
         feeder.pipeline = null
         feeder.surface = null
@@ -342,7 +403,11 @@ class UserModeActivity : Activity(), GLSurfaceView.Renderer {
     }
 
     override fun onPause() {
+        foreground = false
+        ui.removeCallbacks(uiTick)
         super.onPause()
+        tts?.close()
+        tts = null
         // 앱을 떠나면(화면 잠금·전화) 안내를 멈춘다. 돌아오면 다시 두 번 탭으로 시작. 설정 화면은 안내 중이 아닐 때만 열린다
         // VERIFY: 화면이 꺼지는 중(onPause)에도 진동이 전달되는지(Android 13+ 백그라운드 진동 제한) 기기에서 확인
         if (run != null) stopWithNotice("화면을 떠나 안내를 멈췄습니다", haptics::exit) else stop()
@@ -350,6 +415,8 @@ class UserModeActivity : Activity(), GLSurfaceView.Renderer {
     }
 
     override fun onDestroy() {
+        tts?.close()
+        tts = null
         ar.close()
         feeder.session = null
         super.onDestroy()
@@ -373,6 +440,17 @@ class UserModeActivity : Activity(), GLSurfaceView.Renderer {
         val r = run
         val g = r?.pipeline?.lastOutput?.get()
         val cmd = g?.commands?.firstOrNull()
+        val speechStatus = when {
+            r == null && notice != null -> if (notice?.title == "시작하지 못했어요")
+                StatusSpeechPolicy.Status.START_FAILED else StatusSpeechPolicy.Status.STOPPED
+            r == null -> if (endedByUser) StatusSpeechPolicy.Status.ENDED else StatusSpeechPolicy.Status.IDLE
+            r.pipeline.paused || g?.state == GuidanceState.PAUSED -> StatusSpeechPolicy.Status.PAUSED
+            g == null || feeder.nowNs() - g.tBlockNs !in 0L..(config.policy.maxInfoAgeMs * 1_000_000.0).toLong() ||
+                g.state == GuidanceState.UNKNOWN -> StatusSpeechPolicy.Status.PREPARING
+            r.pipeline.snapshot.get()?.mapHealth == MapHealth.DEGRADED -> StatusSpeechPolicy.Status.FLOOR_CHECK
+            else -> StatusSpeechPolicy.Status.GUIDING
+        }
+        announceStatus(speechStatus)
         val s = UserScreen.of(
             running = r != null,
             notice = notice,
@@ -390,9 +468,32 @@ class UserModeActivity : Activity(), GLSurfaceView.Renderer {
                 overrideNotice,
                 UserTexts.ARCORE_NOTICE.takeIf { r == null && !prefs.getBoolean(PREF_NOTICE_READ, false) },
             ).joinToString("") { "$it. " }
-            root.contentDescription = "HEARSPACE, ${s.spoken}. $read$hint"
+            val voiceNotice = ttsFailure?.let { "$it. " }.orEmpty()
+            root.contentDescription = "HEARSPACE, ${s.spoken}. $voiceNotice$read$hint"
         }
         if (s != shown) show(s)
+    }
+
+    /** TalkBack이 터치 탐색을 쓰면 자동 상태 낭독은 TalkBack에 맡긴다. 설명/액션은 보존한다. */
+    private fun announceStatus(status: StatusSpeechPolicy.Status) {
+        if (!foreground) return
+        val reader = a11y.isTouchExplorationEnabled
+        if (reader != screenReaderActive) {
+            screenReaderActive = reader
+            tts?.stop()
+            speechPolicy.reset()
+            lastSpeechStatus = null
+        }
+        root.accessibilityLiveRegion = if (reader) View.ACCESSIBILITY_LIVE_REGION_POLITE else View.ACCESSIBILITY_LIVE_REGION_NONE
+        if (lastSpeechStatus != status) {
+            // 첫 IDLE은 시작 문장을 유지한다. 이후 변화는 안정화 대기 중에도 이전 발화를 취소한다.
+            if (lastSpeechStatus != null) tts?.stop()
+            lastSpeechStatus = status
+        }
+        val announcement = speechPolicy.update(status, SystemClock.elapsedRealtime()) ?: return
+        if (!reader && tts?.isAvailable == true) {
+            tts?.speak(announcement.text, urgent = announcement.urgent, replaceCurrent = true)
+        }
     }
 
     private fun show(s: UserScreen) {
@@ -401,8 +502,9 @@ class UserModeActivity : Activity(), GLSurfaceView.Renderer {
         titleText.text = s.title
         titleText.setTextColor(getColor(if (s.titleTone == UserScreen.Tone.CAUTION) R.color.run_caution else R.color.run_text))
         titleText.setCompoundDrawablesRelativeWithIntrinsicBounds(if (s.titleTone == UserScreen.Tone.GUIDE) guideDot else null, null, null, null)
-        subText.visibility = if (s.sub == null) View.GONE else View.VISIBLE
-        subText.text = s.sub
+        val detail = listOfNotNull(s.sub, ttsFailure).joinToString("\n")
+        subText.visibility = if (detail.isEmpty()) View.GONE else View.VISIBLE
+        subText.text = detail
         guide.visual = s.visual
         // 그림 칸: 시안의 가장 큰 그림(화살표 230 dp)이 들어가는 높이, 시작 전 로고(150 dp)는 글자와 가깝게
         val guideHeight = dp(if (s.visual == UserScreen.Visual.Logo) LOGO_DP else GUIDE_DP)
@@ -446,6 +548,7 @@ class UserModeActivity : Activity(), GLSurfaceView.Renderer {
 
     private val uiTick = object : Runnable {
         override fun run() {
+            if (!foreground) return
             if (run?.output?.failed == true) { // 오디오 출력이 죽음(다시 만들기도 실패): 소리 없이 "안내 중"으로 남지 않는다(A1 TR2)
                 stopWithNotice("소리 출력이 멈춰 안내를 멈췄습니다") { haptics.on(AlertKind.UNKNOWN) }
                 return

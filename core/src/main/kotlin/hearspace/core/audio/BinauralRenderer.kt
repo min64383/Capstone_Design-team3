@@ -49,6 +49,7 @@ class BinauralRenderer(private val config: Config, private val hrtf: Hrtf,
     private val alerts = ArrayDeque<FloatArray>()
     private var alertPos = 0
     private var limiterGain = 1f
+    private var previousObstacleGain = 1f
 
     // 블록 작업 버퍼(할당 없이 재사용)
     private val mono = FloatArray(n)
@@ -67,7 +68,10 @@ class BinauralRenderer(private val config: Config, private val hrtf: Hrtf,
     }
 
     /** 한 블록을 [out](길이 2 × blockSize, L R 교차)에 쓴다. */
-    fun render(g: GuidanceOutput, out: FloatArray) {
+    fun render(g: GuidanceOutput, out: FloatArray) = renderWithSpeech(g, out, speechActive = false)
+
+    /** 기기 TTS의 실제 발화 상태를 함께 반영하는 한 블록. */
+    fun renderWithSpeech(g: GuidanceOutput, out: FloatArray, speechActive: Boolean) {
         require(out.size == 2 * n) { "out must be 2 × blockSize" }
         out.fill(0f)
         g.alert?.let { alerts.addLast(sounds.alert(it)) }
@@ -80,7 +84,10 @@ class BinauralRenderer(private val config: Config, private val hrtf: Hrtf,
         if (continuous) {
             if (g.state != GuidanceState.NORMAL && g.state != GuidanceState.DEGRADED) {
                 sources.clear()
-                mixAlerts(out); limit(out); return
+                previousObstacleGain = if (speechActive) audio.ttsObstacleGain else 1f
+                mixAlerts(out)
+                limit(out)
+                return
             }
             // 만료 명령은 release/합성곱 꼬리까지 즉시 버린다. 만료 정보로 계속 울리지 않는다.
             for (c in g.commands) if (c !in cmds) sources.remove(c.obstacleId)
@@ -98,8 +105,25 @@ class BinauralRenderer(private val config: Config, private val hrtf: Hrtf,
             renderSource(s, null, out, g.tBlockNs, 1f, id)
             if (s.quietBlocks * n > taps) it.remove()
         }
+        applySpeechGain(out, if (speechActive) audio.ttsObstacleGain else 1f)
         mixAlerts(out)
         limit(out)
+    }
+
+    /** 상태 알림음을 섞기 전에 공간음만 조절한다. 양쪽 채널에 같은 이득을 적용한다. */
+    private fun applySpeechGain(out: FloatArray, target: Float) {
+        val from = previousObstacleGain
+        if (from == 1f && target == 1f) return
+        if (from == target) {
+            for (i in out.indices) out[i] *= target
+        } else {
+            for (frame in 0 until n) {
+                val gain = from + (target - from) * (frame + 1f) / n
+                out[2 * frame] *= gain
+                out[2 * frame + 1] *= gain
+            }
+        }
+        previousObstacleGain = target
     }
 
     private fun renderSource(s: Source, c: AudioCmd?, out: FloatArray, timeNs: Long, duckGain: Float, id: Int) {
