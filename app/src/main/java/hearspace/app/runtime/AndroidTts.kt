@@ -57,6 +57,7 @@ class AndroidTts(
 
     /** 초기화/발화 타임아웃은 구분한다. 일시적 발화 실패 뒤에는 다음 요청을 받을 수 있다. */
     val isAvailable: Boolean get() = engineState == EngineState.LOADING || engineState == EngineState.READY
+    val hasRequest: Boolean get() = current != null
     val currentRequestKey: String? get() = current?.requestKey
     val hasUrgentRequest: Boolean get() = current?.urgent == true
 

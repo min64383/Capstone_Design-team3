@@ -17,11 +17,17 @@ data class ObjectSpeechFrame(val output: GuidanceOutput, val snapshot: ObstacleS
 
 class ObjectSpeechPolicy(private val config: ObjectSpeechConfig, private val maxInfoAgeNs: Long) {
     data class Signature(val obstacleId: Int, val name: String, val direction: String, val urgent: Boolean)
-    data class Request(val key: String, val signature: Signature, val text: String, val evidenceNs: Long) {
+    data class Request(
+        val key: String,
+        val signature: Signature,
+        val text: String,
+        val evidenceNs: Long,
+        val distanceText: String,
+    ) {
         val urgent: Boolean get() = signature.urgent
     }
     data class Decision(val cancelKey: String? = null, val request: Request? = null)
-    private data class Candidate(val signature: Signature, val text: String, val evidenceNs: Long, val distanceM: Float)
+    private data class Candidate(val signature: Signature, val text: String, val evidenceNs: Long, val distanceM: Float, val distanceText: String)
     private data class Spoken(val request: Request, val startedNs: Long)
 
     private var active: Request? = null
@@ -83,7 +89,7 @@ class ObjectSpeechPolicy(private val config: ObjectSpeechConfig, private val max
         val confirmMs = if (next.signature.urgent) config.urgentConfirmMs else config.normalConfirmMs
         if (next.evidenceNs - pendingSinceNs < confirmMs * 1_000_000L ||
             (nowNs < nextAllowedNs && !next.signature.urgent)) return Decision(cancelKey)
-        return Decision(cancelKey, Request("object-" + ++serial, next.signature, next.text, next.evidenceNs))
+        return Decision(cancelKey, Request("object-" + ++serial, next.signature, next.text, next.evidenceNs, next.distanceText))
     }
 
     /** 엔진이 요청을 접수했을 때만 현재 발화로 보관한다. */
@@ -160,7 +166,7 @@ class ObjectSpeechPolicy(private val config: ObjectSpeechConfig, private val max
         val text = "$direction, $name, $distance." + if (urgent) " 잠시 멈춰 주세요." else ""
         val evidenceNs = minOf(snapshot.tCaptureNs, obstacle.lastSeenNs,
             classification?.observedNs ?: snapshot.tCaptureNs)
-        return Candidate(Signature(obstacle.id, name, direction, urgent), text, evidenceNs, command.distanceM)
+        return Candidate(Signature(obstacle.id, name, direction, urgent), text, evidenceNs, command.distanceM, distance)
     }
 
     private fun fresh(observedNs: Long, nowNs: Long) = nowNs - observedNs in 0L..maxInfoAgeNs

@@ -7,7 +7,14 @@ import hearspace.core.types.SituationConfig
  * [key]는 상황 하나(같은 물체·같은 자리)를 가리킨다. [level]이 오르면(예: 계단 → 내려가는 계단) 더 위험해진 것이다.
  * [evidenceNs]는 근거 관측의 촬영 시각이다.
  */
-data class SpeechRequest(val key: String, val text: String, val priority: Int, val evidenceNs: Long, val level: Int = 0)
+data class SpeechRequest(
+    val key: String,
+    val text: String,
+    val priority: Int,
+    val evidenceNs: Long,
+    val level: Int = 0,
+    val onBlockObstacleId: Int? = null,
+)
 
 /** 실제로 낸 말. [interrupted]는 말하던 것을 끊었는지. */
 data class Utterance(val tNs: Long, val key: String, val text: String, val priority: Int, val ageMs: Float, val interrupted: Boolean)

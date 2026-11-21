@@ -80,6 +80,12 @@ class Situations(
 
     /** 한 차례: 노면 영상을 격자에 넣고 규칙을 돌려 낸 말과 상태 기록. */
     fun step(inp: SituationInput): Pair<List<Utterance>, SituationRecord> {
+        val (requests, record) = detect(inp)
+        return speech.tick(inp.nowNs, requests) to record
+    }
+
+    /** Live use submits these candidates to the same arbiter as status and obstacle speech. */
+    fun detect(inp: SituationInput): Pair<List<SpeechRequest>, SituationRecord> {
         val camW = inp.depth.worldFromCam.translation()
         val tNs = inp.depth.tCaptureNs
         inp.snapshot.floorY?.let { f ->
@@ -125,7 +131,7 @@ class Situations(
             if (cfg.bumpSpeech) bump(memory, user, h, right, req)
             vehicles(inp, user, req)
         }
-        return speech.tick(inp.nowNs, req) to rec
+        return req to rec
     }
 
     fun reset() {
@@ -202,7 +208,8 @@ class Situations(
             if (!cmd.inCorridor) continue
             val o = byId[cmd.obstacleId] ?: continue
             if (((o.repPointW - user).horizontal() dot h) <= 0f || abs(line.lateral(o.repPointW)) > cfg.onBlockBandM) continue
-            req.add(SpeechRequest("obj#${o.id}", "블록 위 물체, ${meters(cmd.distanceM)}미터", 2, inp.snapshot.tCaptureNs))
+            req.add(SpeechRequest("obj#${o.id}", "블록 위 물체, ${meters(cmd.distanceM)}미터", 2,
+                inp.snapshot.tCaptureNs, onBlockObstacleId = o.id))
         }
     }
 

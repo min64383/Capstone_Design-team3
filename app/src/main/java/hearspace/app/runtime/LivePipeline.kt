@@ -14,11 +14,17 @@ import hearspace.core.guidance.MapAction
 import hearspace.core.pipeline.FastPath
 import hearspace.core.pipeline.SlowPath
 import hearspace.core.session.RunLog
+import hearspace.core.situation.SituationInput
+import hearspace.core.situation.SituationSpeechFrame
+import hearspace.core.situation.Situations
 import hearspace.core.types.AlertKind
+import hearspace.core.types.Band
 import hearspace.core.types.Config
 import hearspace.core.types.DepthFrame
 import hearspace.core.types.GuidanceOutput
 import hearspace.core.types.GuidanceState
+import hearspace.core.types.LabelImage
+import hearspace.core.types.MapHealth
 import hearspace.core.types.ObstacleSnapshot
 import hearspace.core.types.PoseFrame
 import java.util.concurrent.Semaphore
@@ -50,6 +56,14 @@ class LivePipeline(
         }
     }
     private val renderer = BinauralRenderer(config, hrtf)
+    private val maxInfoAgeNs = (config.policy.maxInfoAgeMs * 1e6).toLong()
+    private val situations = if (config.situation.enabled) {
+        Situations(config.situation, config.corridor.widthM, config.corridor.heightM,
+            config.vision.footHeightWindowS, maxInfoAgeNs)
+    } else null
+    private val latestSurface = AtomicReference<LabelImage?>(null)
+    private var appliedSurface: LabelImage? = null // SlowPath worker only
+    val lastSituationSpeech = AtomicReference<SituationSpeechFrame?>(null)
 
     private val pose = AtomicReference<PoseFrame?>(null)
     private val depth = AtomicReference<DepthFrame?>(null)
@@ -73,6 +87,10 @@ class LivePipeline(
     /** 사용자 일시정지(§7.5 PAUSED, UI 스레드가 쓴다). */
     @Volatile
     var paused = false
+        set(value) {
+            field = value
+            if (value) lastSituationSpeech.set(null)
+        }
 
     /** UI 스레드가 TTS 발화 상태를 쓰고 오디오 스레드가 블록마다 읽는다. */
     @Volatile
@@ -101,6 +119,19 @@ class LivePipeline(
     fun publishDepth(d: DepthFrame) {
         depth.set(d)
         wake.release()
+    }
+
+    /**
+     * Hand off a completed M50 model result. Its pixels use SurfaceClass, not ARCore SemanticLabel.
+     * The producer transfers ownership of labels and uses the RGB capture pose and live clock.
+     */
+    fun publishSurface(surface: LabelImage) {
+        if (!running || situations == null || surface.tCaptureNs <= resetAfterNs.get() ||
+            surface.tCaptureNs > clockNs() || surface.K.width <= 0 || surface.K.height <= 0 ||
+            surface.labels.size.toLong() != surface.K.width.toLong() * surface.K.height) return
+        latestSurface.getAndUpdate { previous ->
+            if (previous == null || surface.tCaptureNs > previous.tCaptureNs) surface else previous
+        }
     }
 
     /** 입력 기록(M61, `input_timing.csv`). 로그가 없으면 아무것도 하지 않는다. */
@@ -161,6 +192,11 @@ class LivePipeline(
             val action = mapAction.getAndSet(MapAction.NONE)
             if (action != MapAction.NONE) {
                 slow.apply(action)
+                if (action == MapAction.RESET) {
+                    situations?.reset()
+                    appliedSurface = null
+                    lastSituationSpeech.set(null)
+                }
                 Log.i(TAG, "map action $action")
             }
             // M13.4 주기 상한: 지난 시작에서 1/maxRateHz가 지나야 꺼낸다(기다리는 동안 온 깊이는 최신 값으로 교체된다)
@@ -178,7 +214,10 @@ class LivePipeline(
             val s = slow.process(d, h)
             val t1 = clockNs()
             // 처리 중 RESET이 왔으면 이 결과는 이전 월드 좌표의 것이다
-            if (resetAfterNs.get() == resetMark) snapshot.set(s)
+            if (resetAfterNs.get() == resetMark) {
+                snapshot.set(s)
+                updateSituationSpeech(d, s, h, resetMark)
+            }
             voxelCentersW.set(slow.map.voxels.occupied().map { it.centerW })
             nSlow.incrementAndGet()
             logger?.slowPath(RunLog.slowPathLine(slow.lastMapUpdate!!, t0, t1, s))
@@ -186,6 +225,37 @@ class LivePipeline(
             logger?.obstacles(RunLog.obstacleLines(s))
             logger?.clusters(slow.lastClusterDebug)
             slow.lastMapUpdate?.geometry?.let { logger?.geometry(s.tCaptureNs, it) }
+        }
+    }
+
+    private fun updateSituationSpeech(d: DepthFrame, s: ObstacleSnapshot, heading: Vec3, epochNs: Long) {
+        val detector = situations ?: return
+        val nowNs = clockNs()
+        if (paused || s.mapHealth != MapHealth.OK || s.floorY == null ||
+            nowNs - d.tCaptureNs !in 0L..maxInfoAgeNs) {
+            lastSituationSpeech.set(null)
+            return
+        }
+        val surface = latestSurface.get()?.takeIf { it.tCaptureNs <= d.tCaptureNs } ?: appliedSurface
+        if (surface == null || surface.tCaptureNs <= epochNs || surface.tCaptureNs > d.tCaptureNs ||
+            nowNs - surface.tCaptureNs !in 0L..maxInfoAgeNs) {
+            lastSituationSpeech.set(null)
+            return
+        }
+        appliedSurface = surface
+
+        val commands = lastObjectSpeech.get()?.takeIf {
+            it.epochNs == epochNs && it.output.state == GuidanceState.NORMAL &&
+                nowNs - it.output.tBlockNs in 0L..maxInfoAgeNs
+        }?.output?.commands.orEmpty().filter {
+            it.band != Band.SILENT && it.infoAgeMs.isFinite() && it.infoAgeMs >= 0f &&
+                it.infoAgeMs * 1e6 <= maxInfoAgeNs
+        }
+        val (requests, _) = detector.detect(SituationInput(nowNs, d, s, commands, heading, surface))
+        val timed = requests.map { it.copy(evidenceNs = minOf(it.evidenceNs, surface.tCaptureNs)) }
+        // Recheck after detection: a reset can swap the world while the worker computes.
+        if (!paused && resetAfterNs.get() == epochNs) {
+            lastSituationSpeech.set(SituationSpeechFrame(epochNs, timed))
         }
     }
 

@@ -49,7 +49,13 @@ import hearspace.app.runtime.RunSession
 import hearspace.app.runtime.ThermalMonitor
 import hearspace.core.audio.Hrtf
 import hearspace.core.audio.ObjectSpeechConfig
+import hearspace.core.audio.ObjectSpeechFrame
 import hearspace.core.audio.ObjectSpeechPolicy
+import hearspace.core.situation.LiveSituationSpeech
+import hearspace.core.situation.SpeechPriority
+import hearspace.core.situation.SpeechRequest
+import hearspace.core.situation.chooseSpeech
+import hearspace.core.situation.obstacleSpeechLine
 import hearspace.core.types.AlertKind
 import hearspace.core.types.Config
 import hearspace.core.types.ConfigException
@@ -109,6 +115,21 @@ class UserModeActivity : Activity(), GLSurfaceView.Renderer {
     private val speechVisual = SpeechVisualState()
     private var announceLaunch = false
     private val speechPolicy = StatusSpeechPolicy()
+    private lateinit var walkingSpeech: LiveSituationSpeech
+    private var pendingStatus: StatusSpeechPolicy.Announcement? = null
+    private var activeSpeech: SpokenLine? = null
+    private var speechSerial = 0L
+    private data class SpokenLine(
+        val key: String,
+        val text: String,
+        val priority: SpeechPriority,
+        val evidenceNs: Long? = null,
+        val walking: SpeechRequest? = null,
+        val epochNs: Long? = null,
+        val obstacle: ObjectSpeechPolicy.Request? = null,
+        val status: Boolean = false,
+    )
+
     private var lastSpeechStatus: StatusSpeechPolicy.Status? = null
     private var foreground = false
     private var endedByUser = false
@@ -147,6 +168,8 @@ class UserModeActivity : Activity(), GLSurfaceView.Renderer {
             config = config.copy(vision = config.vision.copy(semantics = true))
         }
         objectSpeech = ObjectSpeechPolicy(objectSpeechConfig,
+            (config.policy.maxInfoAgeMs * 1_000_000.0).toLong())
+        walkingSpeech = LiveSituationSpeech(config.situation,
             (config.policy.maxInfoAgeMs * 1_000_000.0).toLong())
         spatialConfig = assets.open("config/spatial-ui.json").bufferedReader().use {
             SpatialUiConfig.parse(it.readText())
@@ -190,6 +213,9 @@ class UserModeActivity : Activity(), GLSurfaceView.Renderer {
         super.onResume()
         foreground = true
         objectSpeech.reset()
+        walkingSpeech.reset()
+        pendingStatus = null
+        activeSpeech = null
         spatialFeedback.reset()
         speechVisual.clear()
         ttsFailure = null
@@ -209,6 +235,14 @@ class UserModeActivity : Activity(), GLSurfaceView.Renderer {
             }
             event.requestKey?.let { key ->
                 val nowNs = feeder.nowNs()
+                val active = activeSpeech?.takeIf { it.key == key }
+                if (active != null && event.state != AndroidTts.State.STARTED) {
+                    activeSpeech = null
+                    active.walking?.let {
+                        walkingSpeech.finished(it, nowNs, event.state == AndroidTts.State.COMPLETED,
+                            event.state == AndroidTts.State.ERROR)
+                    }
+                }
                 when (event.state) {
                     AndroidTts.State.STARTED -> objectSpeech.onStarted(key, nowNs)
                     AndroidTts.State.COMPLETED -> objectSpeech.onFinished(key, nowNs, completed = true)
@@ -422,6 +456,9 @@ class UserModeActivity : Activity(), GLSurfaceView.Renderer {
         endedByUser = false
         speechPolicy.reset()
         objectSpeech.reset()
+        walkingSpeech.reset()
+        pendingStatus = null
+        activeSpeech = null
         spatialFeedback.reset()
         lastSpeechStatus = null
         val reason = try {
@@ -481,6 +518,9 @@ class UserModeActivity : Activity(), GLSurfaceView.Renderer {
     private fun stop() {
         tts?.stop()
         objectSpeech.reset()
+        walkingSpeech.reset()
+        pendingStatus = null
+        activeSpeech = null
         spatialFeedback.reset()
         speechVisual.clear()
         renderSpeech()
@@ -549,8 +589,7 @@ class UserModeActivity : Activity(), GLSurfaceView.Renderer {
             frame?.snapshot?.mapHealth == MapHealth.DEGRADED -> StatusSpeechPolicy.Status.FLOOR_CHECK
             else -> StatusSpeechPolicy.Status.GUIDING
         }
-        announceStatus(speechStatus)
-        announceObject()
+        announce(speechStatus, frame, nowNs)
         val s = UserScreen.of(
             running = r != null,
             notice = notice,
@@ -576,8 +615,8 @@ class UserModeActivity : Activity(), GLSurfaceView.Renderer {
         renderSpeech()
     }
 
-    /** TalkBack이 터치 탐색을 쓰면 자동 상태 낭독은 TalkBack에 맡긴다. 설명/액션은 보존한다. */
-    private fun announceStatus(status: StatusSpeechPolicy.Status) {
+    /** Select one line across status, obstacle and walking situation candidates. */
+    private fun announce(status: StatusSpeechPolicy.Status, frame: ObjectSpeechFrame?, nowNs: Long) {
         if (!foreground) return
         val reader = a11y.isTouchExplorationEnabled
         if (reader != screenReaderActive) {
@@ -585,34 +624,66 @@ class UserModeActivity : Activity(), GLSurfaceView.Renderer {
             tts?.stop()
             speechPolicy.reset()
             objectSpeech.reset()
+            walkingSpeech.reset()
+            pendingStatus = null
             lastSpeechStatus = null
         }
         root.accessibilityLiveRegion = if (reader) View.ACCESSIBILITY_LIVE_REGION_POLITE else View.ACCESSIBILITY_LIVE_REGION_NONE
+        val player = tts ?: return
+        if (reader || !player.isAvailable) return
+
+        val guiding = status == StatusSpeechPolicy.Status.GUIDING
         if (lastSpeechStatus != status) {
-            // 첫 IDLE은 시작 문장을 유지한다. 이후 변화는 안정화 대기 중에도 이전 발화를 취소한다.
-            if (lastSpeechStatus != null &&
-                (status != StatusSpeechPolicy.Status.GUIDING || tts?.hasUrgentRequest != true)) tts?.stop()
+            if (lastSpeechStatus != null && (!guiding || activeSpeech?.status == true)) player.stop()
+            pendingStatus = null
             lastSpeechStatus = status
         }
-        if (status == StatusSpeechPolicy.Status.GUIDING && tts?.hasUrgentRequest == true) return
-        val announcement = speechPolicy.update(status, SystemClock.elapsedRealtime()) ?: return
-        if (!reader && tts?.isAvailable == true) {
-            tts?.speak(announcement.text, urgent = announcement.urgent, replaceCurrent = true)
-        }
-    }
+        speechPolicy.update(status, SystemClock.elapsedRealtime())?.let { pendingStatus = it }
 
-    /** 사용자 모드의 실제 안내 출력과 분류 결과를 기존 TTS 한 인스턴스에 전달한다. */
-    private fun announceObject() {
-        val player = tts ?: return
-        if (!foreground || screenReaderActive || !player.isAvailable) return
-        val decision = objectSpeech.update(run?.pipeline?.lastObjectSpeech?.get(), feeder.nowNs())
-        if (decision.cancelKey != null && player.currentRequestKey == decision.cancelKey) player.stop()
-        val request = decision.request ?: return
-        if (player.speak(request.text, urgent = request.urgent, evidenceNs = request.evidenceNs,
-                requestKey = request.key)) {
-            objectSpeech.onAccepted(request)
+        val situations = run?.pipeline?.lastSituationSpeech?.get().takeIf { guiding }
+        val currentWalking = walkingSpeech.observe(situations, frame?.epochNs, nowNs)
+        val speaking = activeSpeech
+        speaking?.walking?.let { active ->
+            if (speaking.epochNs != frame?.epochNs ||
+                currentWalking.none { it.key == active.key && it.level == active.level }) player.stop()
+        }
+
+        val objectDecision = objectSpeech.update(frame.takeIf { guiding }, nowNs)
+        if (objectDecision.cancelKey != null && player.currentRequestKey == objectDecision.cancelKey) player.stop()
+
+        val candidates = buildList {
+            pendingStatus?.let {
+                add(SpokenLine("status-${++speechSerial}", it.text,
+                    if (it.urgent) SpeechPriority.UNAVAILABLE else SpeechPriority.STATUS, status = true))
+            }
+            objectDecision.request?.let { request ->
+                val line = obstacleSpeechLine(request, currentWalking)
+                add(SpokenLine(request.key, line.text,
+                    if (request.urgent) SpeechPriority.IMMEDIATE else SpeechPriority.OBSTACLE,
+                    line.evidenceNs, obstacle = request))
+            }
+            walkingSpeech.next(currentWalking, objectSpeechConfig.enabled, nowNs)?.let { request ->
+                val priority = when (request.priority) {
+                    1 -> SpeechPriority.IMMEDIATE
+                    2 -> SpeechPriority.ROUTE
+                    else -> SpeechPriority.INFORMATION
+                }
+                val text = if (request.priority == 1) "멈추세요. ${request.text}." else request.text
+                add(SpokenLine("walking-${++speechSerial}", text, priority, request.evidenceNs,
+                    walking = request, epochNs = frame?.epochNs))
+            }
+        }
+        val active = if (player.hasRequest) activeSpeech?.priority ?: SpeechPriority.STATUS else null
+        val next = chooseSpeech(active, candidates) { it.priority } ?: return
+        if (next.status) pendingStatus = null
+        val accepted = player.speak(next.text, urgent = next.priority <= SpeechPriority.IMMEDIATE,
+            evidenceNs = next.evidenceNs, replaceCurrent = true, requestKey = next.key)
+        if (accepted) {
+            activeSpeech = next
+            next.obstacle?.let(objectSpeech::onAccepted)
         } else {
-            objectSpeech.onRejected(request, feeder.nowNs())
+            next.obstacle?.let { objectSpeech.onRejected(it, nowNs) }
+            next.walking?.let { walkingSpeech.finished(it, nowNs, completed = false, failed = true) }
         }
     }
 
