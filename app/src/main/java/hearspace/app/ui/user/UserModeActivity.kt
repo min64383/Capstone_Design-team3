@@ -197,7 +197,7 @@ class UserModeActivity : Activity(), GLSurfaceView.Renderer {
                 spokenLine = null
                 ui.post { if (foreground) render() }
             }
-        })
+        }, onFirstAudio = { id -> bench?.onFirstAudio(id) })
         speechOut = tts?.let { SpeechOut(it, feeder::nowNs) }
         if (announceLaunch) {
             announceLaunch = false

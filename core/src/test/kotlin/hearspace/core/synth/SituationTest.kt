@@ -231,6 +231,27 @@ class SituationTest {
     }
 
     @Test
+    fun `SP-17 situation steps on a new surface image at once and otherwise every step interval of depth time`() {
+        val sc = config.situation.copy(stepIntervalMs = 100)
+        val sit = Situations(sc, config.corridor.widthM, config.corridor.heightM, config.vision.footHeightWindowS, 500_000_000L)
+        val ms = 1_000_000L
+        val stepped = ArrayList<Long>()
+        for (i in 0 until 30) { // 깊이 장 33 ms마다, 노면 영상 200 ms마다
+            val t = i * 33 * ms
+            val surfT = (t / (200 * ms)) * 200 * ms
+            if (sit.due(t, surfT)) {
+                stepped.add(t / ms)
+                sit.step(SituationInput(t, depth(t, pose(0f)), ObstacleSnapshot(t, emptyList(), -1.3f, MapHealth.OK), emptyList(), null, surface(surfT, pose(0f)) { _, _ -> S }))
+            }
+        }
+        // 새 노면 영상이 처음 보이는 깊이 장(231·429·627·825 ms)에서는 바로, 그 사이에는 지난 판단에서 100 ms가 지난 깊이 장(132·363·…)에서: 약 10 Hz
+        assertEquals(listOf(0L, 132L, 231L, 363L, 429L, 561L, 627L, 759L, 825L, 957L), stepped)
+        val every = config.situation.copy(stepIntervalMs = 0)
+        val all = Situations(every, config.corridor.widthM, config.corridor.heightM, config.vision.footHeightWindowS, 500_000_000L)
+        assertTrue((0 until 30).all { all.due(it * 33 * ms, null) })
+    }
+
+    @Test
     fun `SP-5 no block end when the ground beyond is unobserved`() {
         val said = run(100, cls = { x, z -> if (-z > 3.5f) 255 else blockLine()(x, z) })
         assertEquals(0, said.count { it.text.startsWith("블록 끝") }, said.toString())

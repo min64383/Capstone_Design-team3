@@ -81,19 +81,54 @@ class SurfaceGrid(private val cfg: SituationConfig) {
         while (frames.isNotEmpty() && frames.first().tNs < img.tCaptureNs - keepNs) frames.removeFirst()
     }
 
-    /** [nowNs]에서 지난 [windowS] 안의 영상을 모은 칸들. */
+    /**
+     * [nowNs]에서 지난 [windowS] 안의 영상을 모은 칸들.
+     * 칸 열쇠 `(ix << 32) | iz`의 `Long` 해시는 `ix xor iz`로 접혀 이웃 칸끼리 크게 겹친다(M65 PC 프로파일: 재생 시간의 76%가 여기의 해시 표 찾기,
+     * 기기에서 상황 판단 한 차례 p50 96·p95 516 ms). 찾기는 섞은 열쇠의 색인으로 하고, 돌려주는 표는 예전과 같은 순서로 채워
+     * 칸을 도는 순서(그래서 판단 결과)를 그대로 둔다.
+     */
     fun cells(nowNs: Long, windowS: Float): Map<Long, SurfaceCell> {
         val fromNs = nowNs - (windowS * 1e9).toLong()
-        val out = HashMap<Long, SurfaceCell>()
+        // 창 안 영상이 지난번(같은 창 길이)과 같으면 같은 결과를 다시 쓴다(M65: 판단은 약 10 Hz, 창 안 영상은 노면 영상이 들어오거나 빠질 때만 바뀜)
+        var first = Long.MIN_VALUE
+        var last = Long.MIN_VALUE
+        var n = 0
+        for (f in frames) {
+            if (f.tNs < fromNs || f.tNs > nowNs) continue
+            if (n == 0) first = f.tNs
+            last = f.tNs
+            n++
+        }
+        val sig = Triple(first, last, n)
+        cache[windowS]?.let { (s, m) -> if (s == sig) return m }
+        val ordered = HashMap<Long, SurfaceCell>()
+        val index = HashMap<Long, SurfaceCell>()
         for (f in frames) {
             if (f.tNs < fromNs || f.tNs > nowNs) continue
             for ((key, c) in f.cells) {
-                val cell = out.getOrPut(key) { cellOf(key) }
+                val m = mix(key)
+                var cell = index[m]
+                if (cell == null) {
+                    cell = cellOf(key)
+                    index[m] = cell
+                    ordered[key] = cell
+                }
                 cell.frames[c]++
                 if (f.tNs > cell.lastNs) cell.lastNs = f.tNs
             }
         }
-        return out
+        return CellMap(ordered, index).also { cache[windowS] = sig to it }
+    }
+
+    /** 창 길이마다 (창 안 영상의 첫·끝 시각·수, 결과). 칸은 [cells] 밖에서 바꾸지 않는다. */
+    private val cache = HashMap<Float, Pair<Triple<Long, Long, Int>, Map<Long, SurfaceCell>>>()
+
+    /** 도는 순서는 [ordered](예전 표와 같은 넣는 순서), 찾기는 [index](섞은 열쇠). */
+    private class CellMap(private val ordered: HashMap<Long, SurfaceCell>, private val index: HashMap<Long, SurfaceCell>) : AbstractMap<Long, SurfaceCell>() {
+        override val entries: Set<Map.Entry<Long, SurfaceCell>> get() = ordered.entries
+        override val size: Int get() = ordered.size
+        override fun get(key: Long): SurfaceCell? = index[mix(key)]
+        override fun containsKey(key: Long): Boolean = index.containsKey(mix(key))
     }
 
     /** 월드 점 [pW]가 든 칸의 열쇠. */
@@ -101,6 +136,7 @@ class SurfaceGrid(private val cfg: SituationConfig) {
 
     fun reset() {
         frames.clear()
+        cache.clear()
         lastPoints = emptyList()
     }
 
@@ -113,4 +149,14 @@ class SurfaceGrid(private val cfg: SituationConfig) {
     }
 
     private fun key(ix: Int, iz: Int): Long = (ix.toLong() shl 32) or (iz.toLong() and 0xFFFFFFFFL)
+
+    private companion object {
+        /** splitmix64 끝 섞기(일대일): 섞은 값의 `Long` 해시가 고르게 퍼진다. */
+        fun mix(k: Long): Long {
+            var z = k
+            z = (z xor (z ushr 30)) * -0x40a7b892e31b1a47L
+            z = (z xor (z ushr 27)) * -0x6b2fb644ecceee15L
+            return z xor (z ushr 31)
+        }
+    }
 }

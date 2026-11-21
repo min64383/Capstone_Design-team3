@@ -66,11 +66,13 @@ class SituationRunner(config: Config, session: File) {
         lastOutput = g
     }
 
-    /** 반영되지 않은 결과(처리 중 RESET)는 null. */
+    /** 반영되지 않은 결과(처리 중 RESET)와 판단할 차례가 아닌 결과([Situations.due])는 null. */
     fun onSlowStep(step: SlowStep): Pair<List<Utterance>, SituationRecord>? {
         if (!step.applied) return null
         val g = lastOutput
-        return situations.step(SituationInput(step.doneNs, step.depth, step.snapshot, g?.commands.orEmpty(), Situations.headingOf(g), surface.at(step.depth.tCaptureNs)))
+        val surf = surface.at(step.depth.tCaptureNs)
+        if (!situations.due(step.depth.tCaptureNs, surf?.tCaptureNs)) return null
+        return situations.step(SituationInput(step.doneNs, step.depth, step.snapshot, g?.commands.orEmpty(), Situations.headingOf(g), surf))
     }
 }
 

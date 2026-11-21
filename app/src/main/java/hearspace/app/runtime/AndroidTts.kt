@@ -21,6 +21,8 @@ class AndroidTts(
     private val onDuckingChanged: (Boolean) -> Unit,
     private val onEvent: (Event) -> Unit = {},
     private val safety: TtsSafetyConfig = TtsSafetyConfig(),
+    /** 줄마다 엔진이 첫 소리 조각을 내놓은 때(UI 스레드, M65 시작 지연 측정). onStart는 엔진에 따라 합성 시작 때 불린다. */
+    private val onFirstAudio: (String) -> Unit = {},
 ) : AutoCloseable {
     enum class State(val label: String) {
         STARTED("읽는 중"), COMPLETED("읽기 완료"), INTERRUPTED("중단"), ERROR("오류")
@@ -204,6 +206,12 @@ class AndroidTts(
                 if (voiceVolume > 0f) duck(true)
                 if (current === line) emit(line, State.STARTED)
             }
+        }
+        private var firstAudioId: String? = null // 바인더 스레드 전용
+        override fun onAudioAvailable(utteranceId: String, audio: ByteArray) {
+            if (utteranceId == firstAudioId) return
+            firstAudioId = utteranceId
+            main.post { onFirstAudio(utteranceId) }
         }
         override fun onDone(utteranceId: String) = end(utteranceId, State.COMPLETED)
         override fun onStop(utteranceId: String, interrupted: Boolean) = end(utteranceId, State.INTERRUPTED)

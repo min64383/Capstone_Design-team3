@@ -27,6 +27,12 @@ class TtsBench(
 
     fun start() = next()
 
+    /** 팀원 어댑터의 첫 소리 조각(onAudioAvailable 첫 호출). */
+    fun onFirstAudio(id: String) {
+        if (id != currentId) return
+        logger.tts(RunLog.ttsLine(requestNs, "BENCH", text, 0, "AUDIO", (clockNs() - requestNs) / 1e6f, null, null))
+    }
+
     /** 팀원 어댑터의 이벤트. */
     fun onEvent(e: AndroidTts.Event) {
         if (e.id != currentId) return

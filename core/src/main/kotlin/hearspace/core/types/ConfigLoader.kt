@@ -453,6 +453,7 @@ object ConfigLoader {
                     surfaceOutW = atLeast1("surfaceOutW"),
                     surfaceOutH = atLeast1("surfaceOutH"),
                     surfaceSaveS = nonNegative("surfaceSaveS"),
+                    stepIntervalMs = intIn("stepIntervalMs", 0, 5000),
                     gridCellM = positive("gridCellM"),
                     gridMemoryS = positive("gridMemoryS"),
                     gridMaxDistM = positive("gridMaxDistM"),

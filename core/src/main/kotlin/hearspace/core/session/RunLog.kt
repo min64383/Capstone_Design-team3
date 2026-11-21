@@ -83,15 +83,15 @@ object RunLog {
 
     /**
      * 앱 말 내보내기(M65, 앱 전용). 줄마다 하나의 결과: requestNs = 말 내보내기가 받은 앱 시계, kind = SITUATION·STATUS_SAFETY·STATUS_ACTION,
-     * key = 상황 열쇠 또는 상태 이름, rank = 등급, result = REJECTED(등급 표가 받지 않음)·STARTED·COMPLETED·INTERRUPTED·ERROR,
-     * startDelayMs = 받은 때부터 소리 시작(onStart)까지, ageAtStartMs = 소리 시작 때 근거 나이(상태 말은 빈 칸), detail = 엔진이 준 이유.
+     * key = 상황 열쇠·상태 이름·측정 문구(따옴표로 감쌈), rank = 등급, result = REJECTED(등급 표가 받지 않음)·STARTED·AUDIO(첫 소리 조각)·COMPLETED·INTERRUPTED·ERROR,
+     * startDelayMs = 받은 때부터 onStart(STARTED 줄) 또는 첫 소리 조각(AUDIO 줄)까지, ageAtStartMs = 소리 시작 때 근거 나이(상태 말은 빈 칸), detail = 엔진이 준 이유.
      */
     const val TTS_FILE = "tts.csv"
 
     val TTS_HEADER = listOf("requestNs", "kind", "key", "rank", "result", "startDelayMs", "ageAtStartMs", "detail")
 
     fun ttsLine(requestNs: Long, kind: String, key: String, rank: Int, result: String, startDelayMs: Float?, ageAtStartMs: Float?, detail: String?): String =
-        row(requestNs, kind, key, rank, result, startDelayMs?.let { String.format(java.util.Locale.ROOT, "%.1f", it) },
+        row(requestNs, kind, "\"${key.replace("\"", "")}\"", rank, result, startDelayMs?.let { String.format(java.util.Locale.ROOT, "%.1f", it) },
             ageAtStartMs?.let { String.format(java.util.Locale.ROOT, "%.1f", it) }, detail?.replace(",", ";"))
 
     /** 평면 추출 결과(M13.1c, `frontend.planes`가 RANSAC일 때만). 벽은 `x0:z0:x1:z1:점수`를 `;`로 이은 칸. 바닥이 없으면 floorY가 빈 칸. */

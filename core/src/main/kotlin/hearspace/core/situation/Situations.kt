@@ -72,6 +72,19 @@ class Situations(
 
     private val heights = ArrayDeque<Pair<Long, Float>>()
     private var lastSurfaceNs = Long.MIN_VALUE
+    private var lastStepDepthNs = Long.MIN_VALUE
+    private var lastStepSurfaceNs = Long.MIN_VALUE
+
+    /**
+     * 판단할 차례인지(M65, `situation.stepIntervalMs`): 지난 판단 뒤 새 노면 영상이 왔으면 바로, 아니면 깊이 장 시각으로 그 간격이 지났을 때.
+     * 노면 격자는 노면 영상(5 Hz)으로만 바뀌고 말은 같은 상황을 한 번·2 s 간격으로 내므로, 처리마다(약 30 Hz) 판단하면 같은 답을 되풀이한다.
+     * 깊이 장 시각 기준이라 PC 재생과 앱이 같은 차례에 판단한다. 0이면 늘(M50까지).
+     */
+    fun due(depthTNs: Long, surfaceTNs: Long?): Boolean {
+        if (cfg.stepIntervalMs <= 0) return true
+        if (surfaceTNs != null && surfaceTNs > lastStepSurfaceNs) return true
+        return lastStepDepthNs == Long.MIN_VALUE || depthTNs - lastStepDepthNs >= cfg.stepIntervalMs * 1_000_000L
+    }
     private var env = Environment.UNKNOWN
     private var candidate = Environment.UNKNOWN
     private var candidateSinceNs = Long.MIN_VALUE
@@ -82,6 +95,8 @@ class Situations(
 
     /** 한 차례: 노면 영상을 격자에 넣고 규칙을 돌려 낸 말과 상태 기록. */
     fun step(inp: SituationInput): Pair<List<Utterance>, SituationRecord> {
+        lastStepDepthNs = inp.depth.tCaptureNs
+        inp.surface?.let { lastStepSurfaceNs = maxOf(lastStepSurfaceNs, it.tCaptureNs) }
         val camW = inp.depth.worldFromCam.translation()
         val tNs = inp.depth.tCaptureNs
         inp.snapshot.floorY?.let { f ->
@@ -131,6 +146,8 @@ class Situations(
     }
 
     fun reset() {
+        lastStepDepthNs = Long.MIN_VALUE
+        lastStepSurfaceNs = Long.MIN_VALUE
         grid.reset()
         heights.clear()
         lastSurfaceNs = Long.MIN_VALUE

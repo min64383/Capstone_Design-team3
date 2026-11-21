@@ -77,7 +77,7 @@ class SurfaceModel(
     }
 
     private fun loop() {
-        Process.setThreadPriority(Process.THREAD_PRIORITY_DEFAULT)
+        Process.setThreadPriority(LivePipeline.BACKGROUND_WORK_PRIORITY)
         val interpreter = open() ?: return
         val delegateCleanup = interpreter.second
         try {

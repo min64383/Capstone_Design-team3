@@ -31,8 +31,9 @@ import java.util.concurrent.atomic.AtomicReference
  * - GL 스레드: [publishPose], [publishDepth]
  * - 느린 경로 워커(이 클래스가 소유): 최신 깊이 → `SlowPath.process` → [snapshot]
  * - 오디오 스레드: [renderBlock]이 블록마다 최신 자세·스냅샷으로 `FastPath.compute` → `BinauralRenderer`
- * - 상황 판단(M65, 설정이 켰을 때): 느린 경로 처리마다 [surface]의 가장 최근 노면 영상으로 한 차례 돌리고(PC 재생과 같은 자리),
+ * - 상황 판단 스레드(M65, 설정이 켰을 때): 느린 경로가 처리마다 그 결과를 최신 값으로 넘기면 [surface]의 가장 최근 노면 영상으로 한 차례 돌리고,
  *   낸 말은 [onSpeech]로 넘긴다. 앱에서 지금 말하는 중인 등급은 [speechLevel]로 받는다(말 내보내기가 쓴다).
+ *   느린 경로 스레드에서 돌리면 기기에서 한 차례 수십~수백 ms가 걸려 깊이 처리를 막았다(M65 E2: T01 처리 29.6 → 7.9 Hz).
  * 예외 하나: 맵 명령(RESET/SCALE)은 덮어쓰면 RESET이 사라질 수 있어 강한 쪽을 남기도록 합친다.
  * [clockNs]는 자세 시각과 같은 시계의 현재 시각이다(실시간·재생 모드가 다름, [LiveScreen] 참고).
  */
@@ -110,6 +111,13 @@ class LivePipeline(
     private var running = true
     private val worker = Thread(::slowLoop, "SlowPath").apply { start() }
 
+    /** 상황 판단 한 차례의 입력(느린 경로 → 상황 판단 스레드, 최신 값 하나). */
+    private class SitJob(val depth: DepthFrame, val snapshot: ObstacleSnapshot, val resetMark: Long)
+
+    private val sitJob = AtomicReference<SitJob?>(null)
+    private val sitReset = java.util.concurrent.atomic.AtomicBoolean(false)
+    private val sitWorker = situations?.let { Thread(::situationLoop, "Situation").apply { start() } }
+
     // ---- GL 스레드 ----
 
     fun publishPose(p: PoseFrame) = pose.set(p)
@@ -173,7 +181,7 @@ class LivePipeline(
             val action = mapAction.getAndSet(MapAction.NONE)
             if (action != MapAction.NONE) {
                 slow.apply(action)
-                if (action == MapAction.RESET) situations?.reset()
+                if (action == MapAction.RESET) sitReset.set(true) // 상황 판단 스레드가 다음 차례 전에 비운다
                 Log.i(TAG, "map action $action")
             }
             // M13.4 주기 상한: 지난 시작에서 1/maxRateHz가 지나야 꺼낸다(기다리는 동안 온 깊이는 최신 값으로 교체된다)
@@ -199,22 +207,42 @@ class LivePipeline(
             logger?.obstacles(RunLog.obstacleLines(s))
             logger?.clusters(slow.lastClusterDebug)
             slow.lastMapUpdate?.geometry?.let { logger?.geometry(s.tCaptureNs, it) }
-            val sit = situations
-            if (sit != null && !paused && resetAfterNs.get() == resetMark) {
-                val g = lastOutput.get()
-                // RESET 전 월드 좌표의 노면 영상은 쓰지 않는다
-                val surf = surface?.latest?.get()?.takeIf { it.tCaptureNs >= resetMark }
-                for (k in unsaid.toList()) { unsaid.remove(k); sit.speech.unsay(k) }
-                // 말 내보내기가 붙어 있을 때만 앱의 실제 등급을 넘긴다. 없으면(개발 화면) PC 재생처럼 음절 수 어림
-                val consumer = onSpeech
-                val level = if (consumer != null) speechLevel.get() else null
-                val (said, rec) = sit.step(SituationInput(clockNs(), d, s, g?.commands.orEmpty(), Situations.headingOf(g), surf, level))
-                logger?.situation(said, rec)
-                if (said.isNotEmpty() && consumer != null) {
-                    // 넘기는 순간부터 말하는 중으로 둔다(말 내보내기가 받으면 실제 등급으로, 받지 않으면 되돌린다)
-                    speechLevel.set(said.minOf { it.priority })
-                    consumer(said)
-                }
+            if (sitWorker != null && !paused && resetAfterNs.get() == resetMark) {
+                sitJob.set(SitJob(d, s, resetMark))
+                java.util.concurrent.locks.LockSupport.unpark(sitWorker)
+            }
+        }
+    }
+
+    // ---- 상황 판단 스레드 ----
+
+    private fun situationLoop() {
+        Process.setThreadPriority(BACKGROUND_WORK_PRIORITY)
+        val sit = situations ?: return
+        while (running) {
+            val job = sitJob.getAndSet(null)
+            if (job == null) {
+                java.util.concurrent.locks.LockSupport.park(this)
+                continue
+            }
+            if (sitReset.getAndSet(false)) sit.reset()
+            if (paused || resetAfterNs.get() != job.resetMark) continue // 처리 뒤 RESET이 왔으면 이전 월드 좌표의 결과다
+            val g = lastOutput.get()
+            // RESET 전 월드 좌표의 노면 영상은 쓰지 않는다
+            val surf = surface?.latest?.get()?.takeIf { it.tCaptureNs >= job.resetMark }
+            if (!sit.due(job.depth.tCaptureNs, surf?.tCaptureNs)) continue
+            for (k in unsaid.toList()) { unsaid.remove(k); sit.speech.unsay(k) }
+            // 말 내보내기가 붙어 있을 때만 앱의 실제 등급을 넘긴다. 없으면(개발 화면) PC 재생처럼 음절 수 어림
+            val consumer = onSpeech
+            val level = if (consumer != null) speechLevel.get() else null
+            val t0 = System.nanoTime()
+            val (said, rec) = sit.step(SituationInput(clockNs(), job.depth, job.snapshot, g?.commands.orEmpty(), Situations.headingOf(g), surf, level))
+            logger?.situationTiming(rec.tNs, System.nanoTime() - t0)
+            logger?.situation(said, rec)
+            if (said.isNotEmpty() && consumer != null) {
+                // 넘기는 순간부터 말하는 중으로 둔다(말 내보내기가 받으면 실제 등급으로, 받지 않으면 되돌린다)
+                speechLevel.set(said.minOf { it.priority })
+                consumer(said)
             }
         }
     }
@@ -223,5 +251,14 @@ class LivePipeline(
         running = false
         wake.release()
         worker.join(2000)
+        sitWorker?.let { java.util.concurrent.locks.LockSupport.unpark(it); it.join(2000) }
+    }
+
+    companion object {
+        /**
+         * 상황 판단·노면 모델 스레드의 nice 값(M65 E2: 같은 기기에서 느린 경로와 다퉈 처리 p95가 늘었다). 느린 경로(DISPLAY, −4)보다 몫이 작게.
+         * VERIFY: Android는 10(BACKGROUND) 이상이면 스레드를 background 그룹(작은 코어 위주)으로 옮긴다고 알려져 5로 둔다(문서 확인 못 함).
+         */
+        const val BACKGROUND_WORK_PRIORITY = 5
     }
 }
