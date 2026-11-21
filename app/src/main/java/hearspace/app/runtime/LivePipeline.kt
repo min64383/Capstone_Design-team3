@@ -5,6 +5,9 @@ import android.util.Log
 import hearspace.app.TAG
 import hearspace.core.audio.BinauralRenderer
 import hearspace.core.audio.Hrtf
+import hearspace.core.audio.ObjectLabels
+import hearspace.core.audio.ObjectSpeechConfig
+import hearspace.core.audio.ObjectSpeechFrame
 import hearspace.core.geometry.HeadPose
 import hearspace.core.geometry.Vec3
 import hearspace.core.guidance.MapAction
@@ -35,10 +38,17 @@ class LivePipeline(
     hrtf: Hrtf,
     private val logger: RunLogger?,
     private val clockNs: () -> Long,
+    objectSpeechConfig: ObjectSpeechConfig?,
 ) : AutoCloseable {
+    constructor(config: Config, hrtf: Hrtf, logger: RunLogger?, clockNs: () -> Long) :
+        this(config, hrtf, logger, clockNs, null)
 
     private val fast = FastPath(config)
-    private val slow = SlowPath(config)
+    private val slow = SlowPath(config).apply {
+        objectLabels = objectSpeechConfig?.takeIf { it.enabled && it.useSemanticLabels }?.let {
+            ObjectLabels(it, config.vision.maxLabelAgeMs * 1_000_000L)
+        }
+    }
     private val renderer = BinauralRenderer(config, hrtf)
 
     private val pose = AtomicReference<PoseFrame?>(null)
@@ -55,6 +65,8 @@ class LivePipeline(
 
     /** 오버레이용: 최신 안내 출력과 머리 자세, 복셀 중심(느린 경로마다 복사). */
     val lastOutput = AtomicReference<GuidanceOutput?>(null)
+    /** 문장 생성용 최신 입력. 출력과 그 출력에 쓰인 스냅샷을 함께 교체한다. */
+    val lastObjectSpeech = AtomicReference<ObjectSpeechFrame?>(null)
     val lastHead = AtomicReference<HeadPose?>(null)
     val voxelCentersW = AtomicReference<List<Vec3>>(emptyList())
 
@@ -101,6 +113,7 @@ class LivePipeline(
         }
         val p = pose.get()
         if (p == null) { // 카메라 시작 전: 알림음만(음원 없음)
+            lastObjectSpeech.set(null)
             renderer.renderWithSpeech(GuidanceOutput(clockNs(), GuidanceState.UNKNOWN, emptyList(), Float.NaN, null), out, speechActive)
             return
         }
@@ -124,6 +137,9 @@ class LivePipeline(
         fast.headingW?.let { headingW.set(it) }
         renderer.renderWithSpeech(g, out, speechActive)
         lastOutput.set(g)
+        lastObjectSpeech.set(ObjectSpeechFrame(g, snap?.takeIf {
+            it.tCaptureNs > resetAfterNs.get()
+        }, resetAfterNs.get()))
         lastHead.set(fast.head)
         // 블록마다 로그 한 건(약 190건/초). 문자열은 로그 스레드가 만든다(A1 CO5)
         logger?.guidance(g, p.tCaptureNs, snap?.tCaptureNs)

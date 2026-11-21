@@ -3,6 +3,7 @@ package hearspace.app.runtime
 import android.util.Log
 import hearspace.app.TAG
 import hearspace.core.audio.Hrtf
+import hearspace.core.audio.ObjectSpeechConfig
 import hearspace.core.session.DeviceCsv
 import hearspace.core.types.Config
 import java.io.File
@@ -12,9 +13,12 @@ import kotlin.concurrent.thread
  * 실행 하나: 실행 로그 + 파이프라인 + 오디오 출력. 만들면 시작하고 [close]로 오디오 → 파이프라인 → 로그 순으로 멈춘다.
  * 오디오 출력을 열지 못하면 이미 시작한 파이프라인·로그 스레드를 닫고 예외를 그대로 낸다(A1 FA3).
  */
-class RunSession(config: Config, hrtf: Hrtf, val dir: File, clockNs: () -> Long) : AutoCloseable {
+class RunSession(config: Config, hrtf: Hrtf, val dir: File, clockNs: () -> Long,
+    objectSpeechConfig: ObjectSpeechConfig?) : AutoCloseable {
+    constructor(config: Config, hrtf: Hrtf, dir: File, clockNs: () -> Long) :
+        this(config, hrtf, dir, clockNs, null)
     val logger = RunLogger(dir)
-    val pipeline = LivePipeline(config, hrtf, logger, clockNs)
+    val pipeline = LivePipeline(config, hrtf, logger, clockNs, objectSpeechConfig)
     val output = BinauralOutput(config.audio, pipeline::renderBlock)
 
     init {

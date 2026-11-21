@@ -77,7 +77,9 @@ class ArFeeder(private val config: Config, private val replay: Boolean, private 
     private var semanticOn = false
     /** 의미 영상·원시 깊이를 깊이 장에 붙이는 설정인지(재생과 같은 조건). */
     private val vision = VisionFrames.needed(config)
+    private val useSemanticLabels = vision || config.vision.semantics
     private var lastLabels: LabelImage? = null
+    private var previousLabels: LabelImage? = null
     private var lastRaw: DepthFrame? = null
     private var lastRawTNs = Long.MIN_VALUE
     private val recentPoses = ArrayDeque<PoseFrame>()
@@ -160,7 +162,8 @@ class ArFeeder(private val config: Config, private val replay: Boolean, private 
                 K = SessionReader.scaleTextureK(FrameAdapter.toIntrinsics(camera.textureIntrinsics), d.width, d.height),
                 worldFromCam = dp.worldFromCam,
                 source = if (raw) "arcore_raw_depth" else "arcore_depth",
-                labels = if (vision) lastLabels else null,
+                labels = if (useSemanticLabels) listOfNotNull(lastLabels, previousLabels)
+                    .filter { it.tCaptureNs <= d.tNs }.maxByOrNull { it.tCaptureNs } else null,
                 raw = if (vision) lastRaw else null,
             ),
         )
@@ -173,9 +176,10 @@ class ArFeeder(private val config: Config, private val replay: Boolean, private 
         val c = FrameAdapter.readSemantic(frame) { t -> (t != lastSemanticTNs).also { lastSemanticTNs = t } } ?: return
         nSemantic++
         semanticSize = "${c.width}x${c.height}"
-        if (!vision) return
+        if (!useSemanticLabels) return
         val pose = recentPoses.minBy { abs(it.tCaptureNs - c.tNs) }
         val k = VisionFrames.labelIntrinsics(FrameAdapter.toIntrinsics(camera.textureIntrinsics), FrameAdapter.toIntrinsics(camera.imageIntrinsics), c.width, c.height)
+        previousLabels = lastLabels
         lastLabels = LabelImage(c.tNs, c.labels, k, pose.worldFromCam)
     }
 

@@ -47,6 +47,8 @@ import hearspace.app.runtime.Haptics
 import hearspace.app.runtime.RunSession
 import hearspace.app.runtime.ThermalMonitor
 import hearspace.core.audio.Hrtf
+import hearspace.core.audio.ObjectSpeechConfig
+import hearspace.core.audio.ObjectSpeechPolicy
 import hearspace.core.types.AlertKind
 import hearspace.core.types.Config
 import hearspace.core.types.ConfigException
@@ -95,6 +97,8 @@ class UserModeActivity : Activity(), GLSurfaceView.Renderer {
     private val ui = Handler(Looper.getMainLooper())
     private var run: RunSession? = null
     private var tts: AndroidTts? = null
+    private lateinit var objectSpeechConfig: ObjectSpeechConfig
+    private lateinit var objectSpeech: ObjectSpeechPolicy
     private var announceLaunch = false
     private val speechPolicy = StatusSpeechPolicy()
     private var lastSpeechStatus: StatusSpeechPolicy.Status? = null
@@ -128,6 +132,14 @@ class UserModeActivity : Activity(), GLSurfaceView.Renderer {
             AppConfig.get(this, deviceOverride = false)
         }
         overrideNotice = AppConfig.overrideNotice(this)
+        objectSpeechConfig = assets.open("config/object-speech.json").bufferedReader().use {
+            ObjectSpeechConfig.parse(it.readText())
+        }
+        if (objectSpeechConfig.enabled && objectSpeechConfig.useSemanticLabels) {
+            config = config.copy(vision = config.vision.copy(semantics = true))
+        }
+        objectSpeech = ObjectSpeechPolicy(objectSpeechConfig,
+            (config.policy.maxInfoAgeMs * 1_000_000.0).toLong())
         hrtf = loadHrtf(this)
         ar = ArSessionManager(this, sensorUsage = config.depth.sensorUsage, semantics = config.vision.semantics)
         feeder = ArFeeder(config, replay = false, drawCamera = false)
@@ -164,6 +176,7 @@ class UserModeActivity : Activity(), GLSurfaceView.Renderer {
     override fun onResume() {
         super.onResume()
         foreground = true
+        objectSpeech.reset()
         ttsFailure = null
         speechPolicy.reset()
         lastSpeechStatus = null
@@ -174,6 +187,15 @@ class UserModeActivity : Activity(), GLSurfaceView.Renderer {
         tts = AndroidTts(this, config, onDuckingChanged = { active ->
             run?.pipeline?.speechActive = active
         }, onEvent = { event ->
+            event.requestKey?.let { key ->
+                val nowNs = feeder.nowNs()
+                when (event.state) {
+                    AndroidTts.State.STARTED -> objectSpeech.onStarted(key, nowNs)
+                    AndroidTts.State.COMPLETED -> objectSpeech.onFinished(key, nowNs, completed = true)
+                    AndroidTts.State.ERROR, AndroidTts.State.INTERRUPTED ->
+                        objectSpeech.onFinished(key, nowNs, completed = false)
+                }
+            }
             if (foreground && event.state == AndroidTts.State.STARTED && ttsFailure != null) {
                 ttsFailure = null
                 shown = null
@@ -334,6 +356,7 @@ class UserModeActivity : Activity(), GLSurfaceView.Renderer {
         notice = null
         endedByUser = false
         speechPolicy.reset()
+        objectSpeech.reset()
         lastSpeechStatus = null
         val reason = try {
             ar.resume()
@@ -353,7 +376,7 @@ class UserModeActivity : Activity(), GLSurfaceView.Renderer {
         val stamp = SimpleDateFormat("yyyyMMdd_HHmmss", Locale.US).format(Date())
         val runs = File(getExternalFilesDir(null), RunSession.RUNS_DIR)
         val r = try {
-            RunSession(config, hrtf, File(runs, stamp), feeder::nowNs)
+            RunSession(config, hrtf, File(runs, stamp), feeder::nowNs, objectSpeechConfig)
         } catch (e: Exception) {
             Log.e(TAG, "run start failed", e) // 오디오 출력을 열지 못함(A1 FA3)
             stop()
@@ -391,6 +414,7 @@ class UserModeActivity : Activity(), GLSurfaceView.Renderer {
 
     private fun stop() {
         tts?.stop()
+        objectSpeech.reset()
         ui.removeCallbacks(uiTick)
         feeder.pipeline = null
         run?.close()
@@ -449,6 +473,7 @@ class UserModeActivity : Activity(), GLSurfaceView.Renderer {
             else -> StatusSpeechPolicy.Status.GUIDING
         }
         announceStatus(speechStatus)
+        announceObject()
         val s = UserScreen.of(
             running = r != null,
             notice = notice,
@@ -480,17 +505,35 @@ class UserModeActivity : Activity(), GLSurfaceView.Renderer {
             screenReaderActive = reader
             tts?.stop()
             speechPolicy.reset()
+            objectSpeech.reset()
             lastSpeechStatus = null
         }
         root.accessibilityLiveRegion = if (reader) View.ACCESSIBILITY_LIVE_REGION_POLITE else View.ACCESSIBILITY_LIVE_REGION_NONE
         if (lastSpeechStatus != status) {
             // 첫 IDLE은 시작 문장을 유지한다. 이후 변화는 안정화 대기 중에도 이전 발화를 취소한다.
-            if (lastSpeechStatus != null) tts?.stop()
+            if (lastSpeechStatus != null &&
+                (status != StatusSpeechPolicy.Status.GUIDING || tts?.hasUrgentRequest != true)) tts?.stop()
             lastSpeechStatus = status
         }
+        if (status == StatusSpeechPolicy.Status.GUIDING && tts?.hasUrgentRequest == true) return
         val announcement = speechPolicy.update(status, SystemClock.elapsedRealtime()) ?: return
         if (!reader && tts?.isAvailable == true) {
             tts?.speak(announcement.text, urgent = announcement.urgent, replaceCurrent = true)
+        }
+    }
+
+    /** 사용자 모드의 실제 안내 출력과 분류 결과를 기존 TTS 한 인스턴스에 전달한다. */
+    private fun announceObject() {
+        val player = tts ?: return
+        if (!foreground || screenReaderActive || !player.isAvailable) return
+        val decision = objectSpeech.update(run?.pipeline?.lastObjectSpeech?.get(), feeder.nowNs())
+        if (decision.cancelKey != null && player.currentRequestKey == decision.cancelKey) player.stop()
+        val request = decision.request ?: return
+        if (player.speak(request.text, urgent = request.urgent, evidenceNs = request.evidenceNs,
+                requestKey = request.key)) {
+            objectSpeech.onAccepted(request)
+        } else {
+            objectSpeech.onRejected(request, feeder.nowNs())
         }
     }
 
