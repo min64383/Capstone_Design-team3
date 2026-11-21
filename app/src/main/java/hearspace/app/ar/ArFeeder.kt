@@ -131,7 +131,8 @@ class ArFeeder(private val config: Config, private val replay: Boolean, private 
         }
         if (drawCamera) background.draw(frame)
         if (replay && s.playbackStatus == PlaybackStatus.FINISHED) playbackFinished = true
-        if (frame.timestamp == lastFrameTNs) return null // 새 카메라 프레임이 아니다
+        // 새 카메라 프레임이 아니다. 시각 0은 아직 카메라 영상이 없는 프레임이다(재생 첫 update가 0을 주면 재생 시계가 세션 시각과 어긋났다, M65 E2)
+        if (frame.timestamp == 0L || frame.timestamp == lastFrameTNs) return null
         lastFrameTNs = frame.timestamp
         if (clockOffsetNs == null) clockOffsetNs = SystemClock.elapsedRealtimeNanos() - frame.timestamp
 

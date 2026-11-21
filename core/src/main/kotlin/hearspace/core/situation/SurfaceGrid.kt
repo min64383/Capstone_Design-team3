@@ -36,7 +36,12 @@ class SurfacePoint(val pW: Vec3, val cls: Int)
  * 지난 [SituationConfig.gridMemoryS] 안의 영상만 쓴다. 지금 시각 이후의 영상은 받지 않는다(부르는 쪽이 과거 영상만 넘긴다).
  */
 class SurfaceGrid(private val cfg: SituationConfig) {
-    private class FrameObs(val tNs: Long, val cells: Map<Long, Int>)
+    /** 영상 하나가 본 칸들: 칸 열쇠, 섞은 열쇠, 그 영상에서 가장 많은 클래스. */
+    private class FrameObs(val tNs: Long, val keys: LongArray, val mixed: LongArray, val cls: IntArray)
+
+    private class Tally(val key: Long) {
+        val n = IntArray(SurfaceClass.COUNT)
+    }
 
     private val frames = ArrayDeque<FrameObs>()
 
@@ -48,7 +53,7 @@ class SurfaceGrid(private val cfg: SituationConfig) {
     fun add(img: LabelImage, floorY: Float, stride: Int = 2) {
         val k = img.K
         val o = img.worldFromCam.translation()
-        val counts = HashMap<Long, IntArray>()
+        val counts = HashMap<Long, Tally>() // 섞은 열쇠로 찾는다(칸 열쇠 그대로면 이웃 칸끼리 해시가 겹친다, 아래 cells)
         val points = ArrayList<SurfacePoint>()
         val maxD2 = cfg.gridMaxDistM * cfg.gridMaxDistM
         var v = stride / 2
@@ -65,7 +70,8 @@ class SurfaceGrid(private val cfg: SituationConfig) {
                             val dx = p.x - o.x
                             val dz = p.z - o.z
                             if (dx * dx + dz * dz <= maxD2) {
-                                counts.getOrPut(key(index(p.x), index(p.z))) { IntArray(SurfaceClass.COUNT) }[c]++
+                                val kc = key(index(p.x), index(p.z))
+                                counts.getOrPut(mix(kc)) { Tally(kc) }.n[c]++
                                 if (c != SurfaceClass.BACKGROUND.pixel) points.add(SurfacePoint(p, c))
                             }
                         }
@@ -75,7 +81,15 @@ class SurfaceGrid(private val cfg: SituationConfig) {
             }
             v += stride
         }
-        frames.addLast(FrameObs(img.tCaptureNs, counts.mapValues { (_, n) -> n.indices.maxBy { n[it] } }))
+        val keys = LongArray(counts.size)
+        val mixed = LongArray(counts.size)
+        val cls = IntArray(counts.size)
+        var i = 0
+        for ((m, t) in counts) {
+            keys[i] = t.key; mixed[i] = m; cls[i] = t.n.indices.maxBy { t.n[it] }
+            i++
+        }
+        frames.addLast(FrameObs(img.tCaptureNs, keys, mixed, cls))
         lastPoints = points
         val keepNs = (cfg.gridMemoryS * 1e9).toLong()
         while (frames.isNotEmpty() && frames.first().tNs < img.tCaptureNs - keepNs) frames.removeFirst()
@@ -109,18 +123,19 @@ class SurfaceGrid(private val cfg: SituationConfig) {
         fun advance(nowNs: Long): Map<Long, SurfaceCell> {
             val fromNs = nowNs - lengthNs
             while (inside.isNotEmpty() && inside.first().tNs < fromNs) {
-                for ((k, c) in inside.removeFirst().cells) {
-                    val m = mix(k)
+                val f = inside.removeFirst()
+                for (i in f.keys.indices) {
+                    val m = f.mixed[i]
                     val cell = byMixed[m] ?: continue
-                    cell.frames[c]--
+                    cell.frames[f.cls[i]]--
                     if (cell.frames.all { it == 0 }) byMixed.remove(m)
                 }
             }
             for (f in frames) {
                 if (f.tNs <= lastAddedNs || f.tNs < fromNs || f.tNs > nowNs) continue
-                for ((k, c) in f.cells) {
-                    val cell = byMixed.getOrPut(mix(k)) { cellOf(k) }
-                    cell.frames[c]++
+                for (i in f.keys.indices) {
+                    val cell = byMixed.getOrPut(f.mixed[i]) { cellOf(f.keys[i]) }
+                    cell.frames[f.cls[i]]++
                     if (f.tNs > cell.lastNs) cell.lastNs = f.tNs
                 }
                 inside.addLast(f)
