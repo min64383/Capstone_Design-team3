@@ -54,6 +54,46 @@ object RunLog {
     fun inputTimingLine(frameTNs: Long, appNs: Long, kind: String, imageTNs: Long?, copyNs: Long, result: String, tracking: String?): String =
         row(frameTNs, appNs, kind, imageTNs, copyNs, result, tracking)
 
+    /** 상황 말(M50). PC 재생(`SituationListener`)과 앱(M65)이 같은 형식으로 쓴다. 시각은 판단 시계, ageMs는 그때의 근거 나이. */
+    const val SPEECH_FILE = "speech.csv"
+    const val SPEECH_HEADER_LINE = "tNs,priority,key,text,ageMs,interrupted"
+
+    fun speechLine(u: hearspace.core.situation.Utterance): String =
+        "${u.tNs},${u.priority},${u.key},\"${u.text.replace("\"", "")}\",${String.format(java.util.Locale.ROOT, "%.1f", u.ageMs)},${if (u.interrupted) 1 else 0}"
+
+    /** 상황 판단 한 차례의 상태(M50, `situation.csv`). 없는 값은 빈 칸. */
+    const val SITUATION_FILE = "situation.csv"
+    const val SITUATION_HEADER_LINE = "tNs,env,envCandidate,nLines,followAngleDeg,lateralM,blockYawDeg,endAheadM,stairsAheadM,stairsDir,nCells,dropAheadM,ceiling"
+
+    fun situationLine(r: hearspace.core.situation.SituationRecord): String = with(r) {
+        fun f(x: Float) = if (x.isNaN()) "" else String.format(java.util.Locale.ROOT, "%.3f", x)
+        "$tNs,$env,$envCandidate,$nLines,${f(followAngleDeg)},${f(lateralM)},${f(blockYawDeg)},${f(endAheadM)},${f(stairsAheadM)},$stairsDir,$nCells,${f(dropAheadM)},${if (ceiling) 1 else 0}"
+    }
+
+    /**
+     * 앱 노면 모델(M65, 앱 전용). 노면 영상마다: imageTNs = 카메라 영상 촬영 시각, offerNs·doneNs = 모델 스레드가 받은·끝낸 앱 시계
+     * (doneNs − imageTNs = 촬영부터 쓸 수 있을 때까지), rgbNs·preNs·inferNs·postNs = NV21 → RGB, 앞처리, 추론, 뒤처리 시간.
+     */
+    const val SURFACE_TIMING_FILE = "surface_timing.csv"
+
+    val SURFACE_TIMING_HEADER = listOf("imageTNs", "offerNs", "doneNs", "rgbNs", "preNs", "inferNs", "postNs")
+
+    fun surfaceTimingLine(imageTNs: Long, offerNs: Long, doneNs: Long, rgbNs: Long, preNs: Long, inferNs: Long, postNs: Long): String =
+        row(imageTNs, offerNs, doneNs, rgbNs, preNs, inferNs, postNs)
+
+    /**
+     * 앱 말 내보내기(M65, 앱 전용). 줄마다 하나의 결과: requestNs = 말 내보내기가 받은 앱 시계, kind = SITUATION·STATUS_SAFETY·STATUS_ACTION,
+     * key = 상황 열쇠 또는 상태 이름, rank = 등급, result = REJECTED(등급 표가 받지 않음)·STARTED·COMPLETED·INTERRUPTED·ERROR,
+     * startDelayMs = 받은 때부터 소리 시작(onStart)까지, ageAtStartMs = 소리 시작 때 근거 나이(상태 말은 빈 칸), detail = 엔진이 준 이유.
+     */
+    const val TTS_FILE = "tts.csv"
+
+    val TTS_HEADER = listOf("requestNs", "kind", "key", "rank", "result", "startDelayMs", "ageAtStartMs", "detail")
+
+    fun ttsLine(requestNs: Long, kind: String, key: String, rank: Int, result: String, startDelayMs: Float?, ageAtStartMs: Float?, detail: String?): String =
+        row(requestNs, kind, key, rank, result, startDelayMs?.let { String.format(java.util.Locale.ROOT, "%.1f", it) },
+            ageAtStartMs?.let { String.format(java.util.Locale.ROOT, "%.1f", it) }, detail?.replace(",", ";"))
+
     /** 평면 추출 결과(M13.1c, `frontend.planes`가 RANSAC일 때만). 벽은 `x0:z0:x1:z1:점수`를 `;`로 이은 칸. 바닥이 없으면 floorY가 빈 칸. */
     const val PLANES_FILE = "planes.csv"
 

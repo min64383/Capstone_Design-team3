@@ -10,6 +10,7 @@ import com.google.ar.core.exceptions.CameraNotAvailableException
 import hearspace.app.TAG
 import hearspace.app.render.BackgroundRenderer
 import hearspace.app.runtime.LivePipeline
+import hearspace.app.runtime.SurfaceModel
 import hearspace.core.replay.VisionFrames
 import hearspace.core.session.SessionReader
 import hearspace.core.types.Config
@@ -39,6 +40,10 @@ class ArFeeder(private val config: Config, private val replay: Boolean, private 
 
     @Volatile
     var pipeline: LivePipeline? = null
+
+    /** 노면 모델(M65). 있으면 추적 중일 때 그 차례의 CPU 영상을 복사해 넘긴다(복사만, 처리는 모델 스레드). */
+    @Volatile
+    var surface: SurfaceModel? = null
 
     @Volatile
     private var clockOffsetNs: Long? = null
@@ -143,6 +148,14 @@ class ArFeeder(private val config: Config, private val replay: Boolean, private 
         val p = pipeline ?: return camera
         p.publishPose(pose)
         if (vision) readRaw(frame, camera, p)
+        surface?.let { sm ->
+            if (camera.trackingState == com.google.ar.core.TrackingState.TRACKING && sm.wants(frame.timestamp)) {
+                val t0 = System.nanoTime()
+                val img = FrameAdapter.readCameraNv21(frame)
+                p.logInput(frame.timestamp, "CAMERA", img?.tNs, System.nanoTime() - t0, if (img == null) FrameAdapter.lastFailure ?: "NULL" else "NEW", null)
+                if (img != null) sm.offer(img, pose.worldFromCam, FrameAdapter.toIntrinsics(camera.imageIntrinsics))
+            }
+        }
 
         // M61: 깊이는 프레임마다 결과를 남긴다(깊이가 느린 경로로 넘어가지 않은 구간의 이유)
         val trk = if (camera.trackingState == com.google.ar.core.TrackingState.TRACKING) "TRACKING" else "${camera.trackingState.name}:${camera.trackingFailureReason.name}"

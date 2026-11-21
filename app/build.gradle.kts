@@ -41,6 +41,11 @@ android {
         targetCompatibility = JavaVersion.VERSION_17
     }
 
+    // M65: 노면 모델(AI Hub 학습 가중치)은 공개 저장소에 넣지 않는다(배포 조항 미확인, docs/LICENSES.md). git 밖 data/models/app/의
+    // surface.tflite가 있으면 빌드 때 자산으로 넣고, 없으면 앱이 상황 판단을 끈다. 메모리 맵으로 읽도록 압축하지 않는다.
+    sourceSets.getByName("main").assets.srcDir("$rootDir/data/models/app")
+    androidResources { noCompress += "tflite" }
+
     // M45: 화면 상태 변환(UserScreen)·안내 글의 JVM 단위 시험(JUnit 5, core와 같은 버전)
     testOptions {
         unitTests.all { it.useJUnitPlatform() }
@@ -50,6 +55,9 @@ android {
 dependencies {
     implementation(project(":core"))
     implementation(libs.arcore)
+    implementation(libs.litert)
+    implementation(libs.litert.gpu)
+    implementation(libs.litert.gpu.api)
     testImplementation(platform(libs.junit.bom))
     testImplementation(libs.junit.jupiter)
     testRuntimeOnly(libs.junit.platform.launcher)

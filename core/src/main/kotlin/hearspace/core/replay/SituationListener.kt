@@ -1,7 +1,7 @@
 package hearspace.core.replay
 
-import hearspace.core.geometry.Vec3
 import hearspace.core.session.Png16
+import hearspace.core.session.RunLog
 import hearspace.core.session.SessionReader
 import hearspace.core.situation.SituationInput
 import hearspace.core.situation.SituationRecord
@@ -14,8 +14,6 @@ import hearspace.core.types.ObstacleSnapshot
 import hearspace.core.types.PoseFrame
 import java.io.File
 import java.io.Writer
-import kotlin.math.cos
-import kotlin.math.sin
 
 /**
  * 재생의 노면 영상(M50, PC 재생 전용 읽기. 앱은 M61에서 모델 출력을 직접 넘긴다). 세션 `surface/index.csv`(frameTNs,imageTNs,width,height,file)와
@@ -72,8 +70,7 @@ class SituationRunner(config: Config, session: File) {
     fun onSlowStep(step: SlowStep): Pair<List<Utterance>, SituationRecord>? {
         if (!step.applied) return null
         val g = lastOutput
-        val heading = g?.headingDeg?.takeIf { it.isFinite() }?.let { Math.toRadians(it.toDouble()) }?.let { Vec3(sin(it).toFloat(), 0f, -cos(it).toFloat()) }
-        return situations.step(SituationInput(step.doneNs, step.depth, step.snapshot, g?.commands.orEmpty(), heading, surface.at(step.depth.tCaptureNs)))
+        return situations.step(SituationInput(step.doneNs, step.depth, step.snapshot, g?.commands.orEmpty(), Situations.headingOf(g), surface.at(step.depth.tCaptureNs)))
     }
 }
 
@@ -88,21 +85,14 @@ class SituationListener(
     outDir: File,
 ) : ReplayListener by inner {
     private val runner = SituationRunner(config, session)
-    private val speechOut: Writer = File(outDir, SPEECH_FILE).bufferedWriter().apply { write("tNs,priority,key,text,ageMs,interrupted\n") }
-    private val stateOut: Writer = File(outDir, STATE_FILE).bufferedWriter().apply {
-        write("tNs,env,envCandidate,nLines,followAngleDeg,lateralM,blockYawDeg,endAheadM,stairsAheadM,stairsDir,nCells,dropAheadM,ceiling\n")
-    }
+    private val speechOut: Writer = File(outDir, SPEECH_FILE).bufferedWriter().apply { write(RunLog.SPEECH_HEADER_LINE + "\n") }
+    private val stateOut: Writer = File(outDir, STATE_FILE).bufferedWriter().apply { write(RunLog.SITUATION_HEADER_LINE + "\n") }
 
     override fun onSlowStep(step: SlowStep) {
         inner.onSlowStep(step)
         val (said, rec) = runner.onSlowStep(step) ?: return
-        for (u in said) {
-            val text = "\"" + u.text.replace("\"", "") + "\""
-            speechOut.write("${u.tNs},${u.priority},${u.key},$text,${String.format(java.util.Locale.ROOT, "%.1f", u.ageMs)},${if (u.interrupted) 1 else 0}\n")
-        }
-        with(rec) {
-            stateOut.write("$tNs,$env,$envCandidate,$nLines,${f(followAngleDeg)},${f(lateralM)},${f(blockYawDeg)},${f(endAheadM)},${f(stairsAheadM)},$stairsDir,$nCells,${f(dropAheadM)},${if (ceiling) 1 else 0}\n")
-        }
+        for (u in said) speechOut.write(RunLog.speechLine(u) + "\n")
+        stateOut.write(RunLog.situationLine(rec) + "\n")
     }
 
     override fun onBlock(tNs: Long, pose: PoseFrame, snapshot: ObstacleSnapshot?, g: GuidanceOutput) {
@@ -116,10 +106,8 @@ class SituationListener(
         stateOut.close()
     }
 
-    private fun f(x: Float) = if (x.isNaN()) "" else String.format(java.util.Locale.ROOT, "%.3f", x)
-
     companion object {
-        const val SPEECH_FILE = "speech.csv"
-        const val STATE_FILE = "situation.csv"
+        const val SPEECH_FILE = RunLog.SPEECH_FILE
+        const val STATE_FILE = RunLog.SITUATION_FILE
     }
 }

@@ -11,6 +11,9 @@ import hearspace.core.guidance.MapAction
 import hearspace.core.pipeline.FastPath
 import hearspace.core.pipeline.SlowPath
 import hearspace.core.session.RunLog
+import hearspace.core.situation.SituationInput
+import hearspace.core.situation.Situations
+import hearspace.core.situation.Utterance
 import hearspace.core.types.AlertKind
 import hearspace.core.types.Config
 import hearspace.core.types.DepthFrame
@@ -19,6 +22,7 @@ import hearspace.core.types.GuidanceState
 import hearspace.core.types.ObstacleSnapshot
 import hearspace.core.types.PoseFrame
 import java.util.concurrent.Semaphore
+import java.util.concurrent.atomic.AtomicInteger
 import java.util.concurrent.atomic.AtomicLong
 import java.util.concurrent.atomic.AtomicReference
 
@@ -27,6 +31,8 @@ import java.util.concurrent.atomic.AtomicReference
  * - GL 스레드: [publishPose], [publishDepth]
  * - 느린 경로 워커(이 클래스가 소유): 최신 깊이 → `SlowPath.process` → [snapshot]
  * - 오디오 스레드: [renderBlock]이 블록마다 최신 자세·스냅샷으로 `FastPath.compute` → `BinauralRenderer`
+ * - 상황 판단(M65, 설정이 켰을 때): 느린 경로 처리마다 [surface]의 가장 최근 노면 영상으로 한 차례 돌리고(PC 재생과 같은 자리),
+ *   낸 말은 [onSpeech]로 넘긴다. 앱에서 지금 말하는 중인 등급은 [speechLevel]로 받는다(말 내보내기가 쓴다).
  * 예외 하나: 맵 명령(RESET/SCALE)은 덮어쓰면 RESET이 사라질 수 있어 강한 쪽을 남기도록 합친다.
  * [clockNs]는 자세 시각과 같은 시계의 현재 시각이다(실시간·재생 모드가 다름, [LiveScreen] 참고).
  */
@@ -40,6 +46,20 @@ class LivePipeline(
     private val fast = FastPath(config)
     private val slow = SlowPath(config)
     private val renderer = BinauralRenderer(config, hrtf)
+    private val situations = if (config.situation.enabled) Situations(
+        config.situation, config.corridor.widthM, config.corridor.heightM, config.vision.footHeightWindowS, (config.policy.maxInfoAgeMs * 1e6).toLong(),
+    ) else null
+
+    /** 노면 모델(M65, [RunSession]이 만든다). 없으면 상황 판단은 노면 영상 없이 돈다. */
+    @Volatile
+    var surface: SurfaceModel? = null
+
+    /** 앱에서 지금 말하는 중인 줄의 등급(0 = 쉼, 1~3). 말 내보내기가 줄을 받은 때부터 끝날 때까지. */
+    val speechLevel = AtomicInteger(0)
+
+    /** 상황 판단이 낸 말(느린 경로 스레드에서 부른다, 가볍게: UI 스레드로 넘긴다). */
+    @Volatile
+    var onSpeech: ((List<Utterance>) -> Unit)? = null
 
     private val pose = AtomicReference<PoseFrame?>(null)
     private val depth = AtomicReference<DepthFrame?>(null)
@@ -141,6 +161,7 @@ class LivePipeline(
             val action = mapAction.getAndSet(MapAction.NONE)
             if (action != MapAction.NONE) {
                 slow.apply(action)
+                if (action == MapAction.RESET) situations?.reset()
                 Log.i(TAG, "map action $action")
             }
             // M13.4 주기 상한: 지난 시작에서 1/maxRateHz가 지나야 꺼낸다(기다리는 동안 온 깊이는 최신 값으로 교체된다)
@@ -166,6 +187,15 @@ class LivePipeline(
             logger?.obstacles(RunLog.obstacleLines(s))
             logger?.clusters(slow.lastClusterDebug)
             slow.lastMapUpdate?.geometry?.let { logger?.geometry(s.tCaptureNs, it) }
+            val sit = situations
+            if (sit != null && !paused && resetAfterNs.get() == resetMark) {
+                val g = lastOutput.get()
+                // RESET 전 월드 좌표의 노면 영상은 쓰지 않는다
+                val surf = surface?.latest?.get()?.takeIf { it.tCaptureNs >= resetMark }
+                val (said, rec) = sit.step(SituationInput(clockNs(), d, s, g?.commands.orEmpty(), Situations.headingOf(g), surf, speechLevel.get()))
+                logger?.situation(said, rec)
+                if (said.isNotEmpty()) onSpeech?.invoke(said)
+            }
         }
     }
 

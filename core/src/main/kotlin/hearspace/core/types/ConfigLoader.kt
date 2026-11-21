@@ -444,6 +444,13 @@ object ConfigLoader {
                 SituationConfig(
                     enabled = boolean("enabled"),
                     surfaceDelayMs = intIn("surfaceDelayMs", 0, 5000),
+                    surfaceIntervalMs = intIn("surfaceIntervalMs", 1, 5000),
+                    surfaceCropTop = unit("surfaceCropTop"),
+                    surfaceInputW = atLeast1("surfaceInputW"),
+                    surfaceInputH = atLeast1("surfaceInputH"),
+                    surfaceOutW = atLeast1("surfaceOutW"),
+                    surfaceOutH = atLeast1("surfaceOutH"),
+                    surfaceSaveS = nonNegative("surfaceSaveS"),
                     gridCellM = positive("gridCellM"),
                     gridMemoryS = positive("gridMemoryS"),
                     gridMaxDistM = positive("gridMaxDistM"),

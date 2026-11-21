@@ -1,0 +1,17 @@
+# M65 노면 모델 TFLite 변환 환경(.venv-convert, git 밖). M50 시간 관문 때 쓴 임시 환경과 같은 버전.
+# 만들기: conda create -y -p .venv-convert -c conda-forge --override-channels python=3.12 (기본 채널은 약관 동의가 필요해 conda-forge)
+#         .venv-convert/python -m pip install -r tools/surface/requirements-convert.txt
+--extra-index-url https://download.pytorch.org/whl/cpu
+torch==2.15.0+cpu
+torchvision==0.29.2+cpu
+onnx==1.23.2
+onnx2tf==1.28.8
+onnx_graphsurgeon==0.6.1
+onnxruntime==1.32.0
+sng4onnx==2.0.1
+psutil==7.2.2
+tensorflow==2.21.0
+tf_keras==2.21.0
+ai_edge_litert==2.3.0
+numpy==2.5.4
+pillow==13.0.0

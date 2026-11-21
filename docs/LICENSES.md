@@ -17,6 +17,7 @@
 | h5py | 3.16.0 (requirements.txt 고정, M41) | tools/analysis: SOFA(HDF5) 읽기(extract_hrir.py) | BSD-3-Clause | 2026-09-29 (M6) |
 | Pillow | 12.3.0 (requirements.txt 고정, M41. 전에는 matplotlib 전이 의존성) | tools/analysis: PNG·JPEG 읽기(spike_check.py) | MIT-CMU (HPND) | 2026-09-26 (M1, 전이 의존성 사용) |
 | PyAV (`av`) | 18.1.0 (requirements.txt 고정, M41) | tools/analysis: ARCore 녹화 MP4의 H.264 영상 디코딩(mp4_rgb.py). 앱에는 들어가지 않음 | BSD-3-Clause. 휠에 FFmpeg 8.1.2 라이브러리 동봉: **LGPL v3 이상** 빌드(`--enable-version3`, GPL·nonfree 아님, `av._core.library_meta`로 확인) | 2026-10-10 (M19) |
+| LiteRT (`com.google.ai.edge.litert:litert`·`litert-gpu`·`litert-gpu-api`, Interpreter API) | 1.4.2 | app: M50 노면 분할 모델 실행(GPU 대리자, M65) | Apache-2.0(Maven POM `The Apache Software License, Version 2.0`, Google AI Edge Authors) | 2026-11-21 (M65 설계 승인) |
 
 ### ARCore 약관 메모
 
@@ -35,7 +36,7 @@ M37 학습형 깊이(재생 전용, 앱에 들어가지 않음). 가중치·코�
 
 PC 실행 환경 `.venv-learned`(tools/analysis/requirements-learned.txt): PyTorch 2.15.0+cpu·torchvision 0.29.2(BSD-3), timm 1.0.30(Apache-2.0), OpenCV 5.0.0.93 headless(Apache-2.0), SciPy 1.18.1(BSD-3), Pillow 13.0.0, PyAV 19.0.2, NumPy 2.5.4, matplotlib 3.11.2(ZipDepth 코드가 가져옴). 기기 시간 측정용 TFLite 변환(onnx 1.23.2·onnx2tf 1.28.8·TensorFlow 2.21.0, Apache-2.0·MIT)과 Google TFLite `benchmark_model`(Apache-2.0)은 작업 폴더에서만 쓰고 저장소에 넣지 않았다.
 
-M50 노면 분할(승인 2026-11-15, M50 설계): LR-ASPP MobileNetV3-Large, torchvision 구현(BSD-3, 위 `.venv-learned`)과 ImageNet 사전학습 백본 가중치. 사전학습 가중치에 걸린 ImageNet 조건은 확인하지 못했다. AI Hub 인도보행 영상으로 학습한 가중치는 `data/models/`(저장소 밖)에 두고, 배포 조항을 확인하기 전에는 수업 밖으로 배포하지 않는다. 학습·변환 후 파일 해시와 커밋을 이 절에 적는다. 학습(2026-11-16): `data/models/surface_large.pt`(sha256 57f74ca2b1409334, 30 epoch 중 검증 mIoU가 가장 높은 23번째), 학습 환경 `.venv-surface`(PyTorch 2.15.0+cu132·torchvision 0.29.2+cu132, BSD-3, NumPy·Pillow), 준비 스크립트 tools/surface/prepare_aihub.py.
+M50 노면 분할(승인 2026-11-15, M50 설계): LR-ASPP MobileNetV3-Large, torchvision 구현(BSD-3, 위 `.venv-learned`)과 ImageNet 사전학습 백본 가중치. 사전학습 가중치에 걸린 ImageNet 조건은 확인하지 못했다. AI Hub 인도보행 영상으로 학습한 가중치는 `data/models/`(저장소 밖)에 두고, 배포 조항을 확인하기 전에는 수업 밖으로 배포하지 않는다. 학습·변환 후 파일 해시와 커밋을 이 절에 적는다. 학습(2026-11-16): `data/models/surface_large.pt`(sha256 57f74ca2b1409334, 30 epoch 중 검증 mIoU가 가장 높은 23번째), 학습 환경 `.venv-surface`(PyTorch 2.15.0+cu132·torchvision 0.29.2+cu132, BSD-3, NumPy·Pillow), 준비 스크립트 tools/surface/prepare_aihub.py. 앱용 변환(2026-11-21, M65): `tools/surface/convert_tflite.py`로 ONNX(opset 17) → onnx2tf 1.28.8 → `data/models/app/surface.tflite`(float32, 12,876,028 바이트, sha256 d66d507a5006f346, 입력 1×256×320×4·출력 1×256×320×8 NHWC). 변환 환경 `.venv-convert`(저장소 안, git 밖, `tools/surface/requirements-convert.txt` 고정: TensorFlow 2.21.0·tf_keras 2.21.0·onnx 1.23.2·onnxruntime 1.32.0·onnx_graphsurgeon 0.6.1·sng4onnx 2.0.1·ai_edge_litert 2.3.0·PyTorch 2.15.0+cpu, conda-forge Python 3.12). 학습 가중치에서 나온 파일이라 공개 저장소에 넣지 않는다: 앱 빌드가 git 밖 `data/models/app/`을 자산 폴더로 읽는다(M65 설계 승인).
 
 ## 데이터 (HRTF·데이터셋)
 

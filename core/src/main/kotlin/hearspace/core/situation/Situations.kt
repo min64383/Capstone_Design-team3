@@ -31,6 +31,8 @@ class SituationInput(
     val headingW: Vec3?,
     /** 쓸 수 있는 가장 최근 노면 영상. 없으면 null. */
     val surface: LabelImage?,
+    /** 앱에서 지금 말하는 중인 줄의 등급(0 = 쉼, [Speech.tick]). PC 재생은 null(음절 수 어림). */
+    val outputPriority: Int? = null,
 )
 
 /** 한 차례의 상태 기록(`situation.csv`, 1b 블록 방향 값 포함). 없는 값은 NaN. */
@@ -125,7 +127,7 @@ class Situations(
             if (cfg.bumpSpeech) bump(memory, user, h, right, req)
             vehicles(inp, user, req)
         }
-        return speech.tick(inp.nowNs, req) to rec
+        return speech.tick(inp.nowNs, req, inp.outputPriority) to rec
     }
 
     fun reset() {
@@ -395,6 +397,10 @@ class Situations(
 
         /** [hearspace.core.guidance.Heading.toDeg]와 같은 방위(−Z가 0°, +X가 90°). */
         fun yawDeg(d: Vec3): Float = Math.toDegrees(kotlin.math.atan2(d.x, -d.z).toDouble()).toFloat()
+
+        /** 안내 출력의 진행 방위를 수평 단위 벡터로(모르면 null). PC 재생과 앱(M65)이 같이 쓴다. */
+        fun headingOf(g: hearspace.core.types.GuidanceOutput?): Vec3? =
+            g?.headingDeg?.takeIf { it.isFinite() }?.let { Math.toRadians(it.toDouble()) }?.let { Vec3(kotlin.math.sin(it).toFloat(), 0f, -cos(it).toFloat()) }
 
         /** 말할 거리: 1 m 단위 반올림, 1 m 아래로 내리지 않는다. */
         fun meters(m: Float): Int = maxOf(1, m.roundToInt())

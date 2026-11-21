@@ -8,6 +8,7 @@ import hearspace.core.session.RunLog
 import hearspace.core.situation.SituationInput
 import hearspace.core.situation.Situations
 import hearspace.core.situation.Speech
+import hearspace.core.situation.SpeechRank
 import hearspace.core.situation.SpeechRequest
 import hearspace.core.situation.SurfaceClass
 import hearspace.core.situation.Utterance
@@ -175,6 +176,58 @@ class SituationTest {
         val t = 74 * s
         assertEquals(listOf("차 다가옴"), sp.tick(t, listOf(SpeechRequest("veh#1", "차 다가옴", 1, t), end(t))).map { it.text })
         assertEquals(listOf("블록 끝, 3미터"), sp.tick(t + s, listOf(end(t + s))).map { it.text })
+    }
+
+    @Test
+    fun `SP-14 with the app speaking level 2 and 3 wait for the real end, 1 interrupts, and an unsounded line is spoken again`() {
+        val sp = Speech(config.situation, 500_000_000L)
+        val s = 1_000_000_000L
+        fun end(t: Long) = SpeechRequest("end", "블록 끝, 3미터", 2, t)
+        fun turn(t: Long) = SpeechRequest("turn", "블록 갈림", 2, t)
+        fun veh(id: Int, t: Long) = SpeechRequest("veh#$id", "차 다가옴", 1, t)
+        assertEquals(listOf("end"), sp.tick(1 * s, listOf(end(1 * s)), 0).map { it.key })
+        // 음절 어림(초당 6음절, 약 1 s)이 지나도 앱이 아직 말하면 다른 2순위는 기다린다
+        assertTrue(sp.tick(3 * s, listOf(turn(3 * s)), 2).isEmpty())
+        // 1순위는 2순위를 끊고, 1순위를 말하는 중에는 다른 1순위도 기다린다
+        assertEquals(listOf(true), sp.tick(3 * s + s / 10, listOf(veh(1, 3 * s), turn(3 * s)), 2).map { it.interrupted })
+        assertTrue(sp.tick(3 * s + s / 5, listOf(veh(2, 3 * s + s / 5), turn(3 * s + s / 5)), 1).isEmpty())
+        // 앱이 쉬게 된 차례부터 간격 2 s를 센다
+        assertEquals(listOf("veh#2"), sp.tick(6 * s, listOf(veh(2, 6 * s), turn(6 * s)), 0).map { it.key })
+        assertTrue(sp.tick(7 * s, listOf(turn(7 * s)), 0).isEmpty())
+        assertTrue(sp.tick(7 * s + 9 * s / 10, listOf(turn(7 * s + 9 * s / 10)), 0).isEmpty())
+        val t = 8 * s + s / 2
+        assertEquals(listOf("turn"), sp.tick(t, listOf(turn(t)), 0).map { it.key })
+        // 앱이 소리를 내지 못하면(시작 전 나이 초과) 되돌리고, 이어지는 상황은 간격 없이 새 근거로 다시 낸다
+        sp.unsay("turn")
+        assertEquals(listOf("turn"), sp.tick(t + s / 20, listOf(turn(t + s / 20)), 0).map { it.key })
+        // 앱 값이 없으면(PC 재생) 음절 어림 그대로
+        val pc = Speech(config.situation, 500_000_000L)
+        assertEquals(1, pc.tick(1 * s, listOf(end(1 * s))).size)
+        assertTrue(pc.tick(1 * s + s / 2, listOf(turn(1 * s + s / 2))).isEmpty())
+    }
+
+    @Test
+    fun `SP-16 rank table keeps danger lines from being cut and lets user action answers cut guidance`() {
+        val sit = SpeechRank.Kind.SITUATION
+        val safety = SpeechRank.Kind.STATUS_SAFETY
+        val action = SpeechRank.Kind.STATUS_ACTION
+        assertEquals(1, SpeechRank.rank(safety))
+        assertEquals(2, SpeechRank.rank(action))
+        assertEquals(3, SpeechRank.rank(sit, 3))
+        // 쉬면 무엇이든 받는다
+        assertTrue(SpeechRank.admits(0, sit, 3))
+        // 위험 말(1)을 말하는 중에는 상태 말도 다른 위험 말도 받지 않는다
+        assertFalse(SpeechRank.admits(1, action, 2))
+        assertFalse(SpeechRank.admits(1, safety, 1))
+        assertFalse(SpeechRank.admits(1, sit, 1))
+        // 1은 2·3을 끊는다
+        assertTrue(SpeechRank.admits(2, safety, 1))
+        assertTrue(SpeechRank.admits(3, sit, 1))
+        // 조작 답은 2·3을 끊고, 길 안내·정보 말은 아무것도 끊지 않는다
+        assertTrue(SpeechRank.admits(2, action, 2))
+        assertTrue(SpeechRank.admits(3, action, 2))
+        assertFalse(SpeechRank.admits(3, sit, 2))
+        assertFalse(SpeechRank.admits(2, sit, 2))
     }
 
     @Test

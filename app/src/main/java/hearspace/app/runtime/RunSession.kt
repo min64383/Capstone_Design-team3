@@ -1,5 +1,6 @@
 package hearspace.app.runtime
 
+import android.content.Context
 import android.util.Log
 import hearspace.app.TAG
 import hearspace.core.audio.Hrtf
@@ -9,12 +10,14 @@ import java.io.File
 import kotlin.concurrent.thread
 
 /**
- * 실행 하나: 실행 로그 + 파이프라인 + 오디오 출력. 만들면 시작하고 [close]로 오디오 → 파이프라인 → 로그 순으로 멈춘다.
+ * 실행 하나: 실행 로그 + 파이프라인 + 오디오 출력(+ 상황 판단이 켜졌으면 노면 모델 스레드, M65).
+ * 만들면 시작하고 [close]로 오디오 → 파이프라인 → 노면 모델 → 로그 순으로 멈춘다.
  * 오디오 출력을 열지 못하면 이미 시작한 파이프라인·로그 스레드를 닫고 예외를 그대로 낸다(A1 FA3).
  */
-class RunSession(config: Config, hrtf: Hrtf, val dir: File, clockNs: () -> Long) : AutoCloseable {
+class RunSession(context: Context, config: Config, hrtf: Hrtf, val dir: File, clockNs: () -> Long) : AutoCloseable {
     val logger = RunLogger(dir)
-    val pipeline = LivePipeline(config, hrtf, logger, clockNs)
+    val surface = if (config.situation.enabled) SurfaceModel(context.applicationContext, config, logger, clockNs) else null
+    val pipeline = LivePipeline(config, hrtf, logger, clockNs).also { it.surface = surface }
     val output = BinauralOutput(config.audio, pipeline::renderBlock)
 
     init {
@@ -22,6 +25,7 @@ class RunSession(config: Config, hrtf: Hrtf, val dir: File, clockNs: () -> Long)
             output.start()
         } catch (e: Exception) {
             pipeline.close()
+            surface?.close()
             logger.close()
             throw e
         }
@@ -38,6 +42,7 @@ class RunSession(config: Config, hrtf: Hrtf, val dir: File, clockNs: () -> Long)
         output.close()
         thread(name = "RunClose") {
             pipeline.close()
+            surface?.close()
             logger.close()
             Log.i(TAG, "run log: $dir")
         }

@@ -295,7 +295,7 @@ class UserModeActivity : Activity(), GLSurfaceView.Renderer {
         val stamp = SimpleDateFormat("yyyyMMdd_HHmmss", Locale.US).format(Date())
         val runs = File(getExternalFilesDir(null), RunSession.RUNS_DIR)
         val r = try {
-            RunSession(config, hrtf, File(runs, stamp), feeder::nowNs)
+            RunSession(this, config, hrtf, File(runs, stamp), feeder::nowNs)
         } catch (e: Exception) {
             Log.e(TAG, "run start failed", e) // 오디오 출력을 열지 못함(A1 FA3)
             stop()
@@ -315,6 +315,7 @@ class UserModeActivity : Activity(), GLSurfaceView.Renderer {
             }
             it.pipeline.requestAlert(AlertKind.START)
             feeder.pipeline = it.pipeline
+            feeder.surface = it.surface
         }
         prefs.edit().putBoolean(PREF_NOTICE_READ, true).apply()
         glView.onResume()
@@ -332,6 +333,7 @@ class UserModeActivity : Activity(), GLSurfaceView.Renderer {
     private fun stop() {
         ui.removeCallbacks(uiTick)
         feeder.pipeline = null
+        feeder.surface = null
         run?.close()
         run = null
         focus.abandon()
