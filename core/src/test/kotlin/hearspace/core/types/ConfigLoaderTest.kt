@@ -15,14 +15,26 @@ class ConfigLoaderTest {
         File(path).readText()
     }
 
-    private fun load(override: String? = null) = ConfigLoader.load(defaultJson, override)
+    private fun load(override: String? = null) =
+        ConfigLoader.load(defaultJson, override)
 
     @Test
     fun `app asset overrides load in app order with the harness head offset`() {
         val assets = File(System.getProperty("hearspace.defaultConfig")).parentFile
-        if (!File(assets, "harness.override.json").isFile) return // -PtestOverrides 합친 설정에서는 자산 폴더가 아니다
-        val c = ConfigLoader.load(defaultJson, listOf("risk-continuous.override.json", "harness.override.json").map { File(assets, it).readText() })
-        assertEquals(Vec3(0f, 0.2f, -0.1f), c.headOffsetFromCameraM) // M61 하네스 실측(앱만, PC 재생 기준선은 손 파지)
+
+        // -PtestOverrides 합친 설정에서는 자산 폴더가 아니다.
+        if (!File(assets, "harness.override.json").isFile) return
+
+        val c = ConfigLoader.load(
+            defaultJson,
+            listOf(
+                "risk-continuous.override.json",
+                "harness.override.json",
+            ).map { File(assets, it).readText() },
+        )
+
+        // M61 하네스 실측: 앱만 적용, PC 재생 기준선은 손 파지.
+        assertEquals(Vec3(0f, 0.2f, -0.1f), c.headOffsetFromCameraM)
         assertEquals(Vec3(0f, 0.5f, -0.39f), load().headOffsetFromCameraM)
     }
 
@@ -34,23 +46,143 @@ class ConfigLoaderTest {
     @Test
     fun `default json matches spec section 12 table`() {
         val c = load()
-        assertEquals(Vec3(0f, 0.5f, -0.39f), c.head.offsetFromCameraM)
-        assertEquals(HeadingConfig(2.0f, 0.15f, swayM = 0.016f, cameraSigmaDeg = 0f), c.heading) // M42: 결합 값은 측정값, 끔(cameraSigmaDeg 0)
-        assertEquals(CorridorConfig(0.8f, 2.0f, 3.5f, 0.2f, 0.25f, 0.8f, 0f, false), c.corridor)
-        assertEquals(DepthConfig(2, DepthSource.SMOOTHED, 0, 0.0057f, 0.0091f, -0.002f, 0.0101f, 0f, 0f, 0f, 0f, 0f, 0f), c.depth)
-        assertEquals(FrontendConfig(false, 6, 0.1f, 0.05f, 0.02f, 0.05f, 0.02f, 0.15f, PlaneMode.NONE, 0.03f, 0.02f, 0.08f, 0.3f, 150, 0.12f, 0.6f, 3.0f, -0.03f, 0.35f, 0.2f, 0.1f, 0.5f, 2.0f, 0.9f, 0.8f, 80, 0.8f, 0.2f, 0.3f, 3, 120, RgbGuideMode.NONE, 3, 12f, 20f, 25, SegmentMode.NONE), c.frontend)
-        assertEquals(MapConfig(0.05f, 0.2f, 6, 0.1f, 0.15f, 0.3f, 1.0f, 10f, 5.0f, MapMode.HITS, 0.847f, -0.405f, -1.992f, 3.476f, 1.7f, 2.0f, 0.03f, HitWeighting.DISTANCE, 0.1f, 0.05f, 12f, 0.1f, false, 0f, false, 2.0f, 1.0f, false, TriWeight.SIGMA, false, 0f, 0f, TriFree.RAY, true, TriFreeRule.NOT_OCCUPIED, 0f, 0.25f, 40f), c.map)
-        assertEquals(FloorConfig(0.5f, 0.05f, 0.08f, 0.02f, 0.2f, 200, 0.1f, 10, 0.8f, FloorSource.HISTOGRAM, holdWhenLost = true), c.floor)
-        assertEquals(ClusterConfig(0.15f, 5, 1.2f, 0.5f, false, 0.5f, 1.0f), c.cluster)
-        assertEquals(GeometryConfig(false, 0.20f, 6, 0.12f, 2, 6.0f, 0.40f, 0.65f), c.geometry)
+
         assertEquals(
-            FalsePositiveFilterConfig(false, 500, 0.60f, 0.80f, 1.00f, 1.40f, 0.20f, 1.70f),
+            Vec3(0f, 0.5f, -0.39f),
+            c.head.offsetFromCameraM,
+        )
+
+        // M42: 결합 값은 측정값, 끔(cameraSigmaDeg 0).
+        assertEquals(
+            HeadingConfig(
+                2.0f,
+                0.15f,
+                swayM = 0.016f,
+                cameraSigmaDeg = 0f,
+            ),
+            c.heading,
+        )
+
+        assertEquals(
+            CorridorConfig(
+                0.8f, 2.0f, 3.5f, 0.2f,
+                0.25f, 0.8f, 0f, false,
+            ),
+            c.corridor,
+        )
+
+        assertEquals(
+            DepthConfig(
+                2, DepthSource.SMOOTHED, 0,
+                0.0057f, 0.0091f, -0.002f, 0.0101f,
+                0f, 0f, 0f, 0f, 0f, 0f,
+            ),
+            c.depth,
+        )
+
+        assertEquals(
+            FrontendConfig(
+                false, 6, 0.1f, 0.05f, 0.02f,
+                0.05f, 0.02f, 0.15f,
+                PlaneMode.NONE,
+                0.03f, 0.02f, 0.08f, 0.3f,
+                150, 0.12f, 0.6f, 3.0f,
+                -0.03f, 0.35f, 0.2f, 0.1f,
+                0.5f, 2.0f, 0.9f, 0.8f,
+                80, 0.8f, 0.2f, 0.3f, 3, 120,
+                RgbGuideMode.NONE,
+                3, 12f, 20f, 25,
+                SegmentMode.NONE,
+            ),
+            c.frontend,
+        )
+
+        assertEquals(
+            MapConfig(
+                0.05f, 0.2f, 6, 0.1f, 0.15f,
+                0.3f, 1.0f, 10f, 5.0f,
+                MapMode.HITS,
+                0.847f, -0.405f, -1.992f, 3.476f,
+                1.7f, 2.0f, 0.03f,
+                HitWeighting.DISTANCE,
+                0.1f, 0.05f, 12f, 0.1f,
+                false, 0f, false, 2.0f, 1.0f, false,
+                TriWeight.SIGMA,
+                false, 0f, 0f,
+                TriFree.RAY,
+                true,
+                TriFreeRule.NOT_OCCUPIED,
+                0f, 0.25f, 40f,
+            ),
+            c.map,
+        )
+
+        assertEquals(
+            FloorConfig(
+                0.5f, 0.05f, 0.08f, 0.02f, 0.2f,
+                200, 0.1f, 10, 0.8f,
+                FloorSource.HISTOGRAM,
+                holdWhenLost = true,
+            ),
+            c.floor,
+        )
+
+        assertEquals(
+            ClusterConfig(
+                0.15f, 5, 1.2f, 0.5f,
+                false, 0.5f, 1.0f,
+            ),
+            c.cluster,
+        )
+
+        assertEquals(
+            GeometryConfig(
+                false, 0.20f, 6, 0.12f,
+                2, 6.0f, 0.40f, 0.65f,
+            ),
+            c.geometry,
+        )
+
+        assertEquals(
+            FalsePositiveFilterConfig(
+                false, 500, 0.60f, 0.80f,
+                1.00f, 1.40f, 0.20f, 1.70f,
+            ),
             c.falsePositiveFilter,
         )
-        assertEquals(TrackConfig(0.3f, 0.3f, 2, 3, 2, 0f, 0.3f, true, false, 0), c.track)
-        assertEquals(RepPointConfig(RepStrategy.CORRIDOR_BAND, 0.20f), c.repPoint)
-        assertEquals(PolicyConfig(1.0f, 2.5f, 3.0f, 0.15f, 1, 500f), c.policy) // 정보 나이 한도: M32 350 → 2026-10-30 500 ms(사용자 결정, 기기 처리 지연)
-        assertEquals(StateConfig(10, 0.5f, 3.0f, 15.0f, 600f), c.state)
+
+        assertEquals(
+            TrackConfig(
+                0.3f, 0.3f, 2, 3, 2,
+                0f, 0.3f, true, false, 0,
+            ),
+            c.track,
+        )
+
+        assertEquals(
+            RepPointConfig(
+                RepStrategy.CORRIDOR_BAND,
+                0.20f,
+            ),
+            c.repPoint,
+        )
+
+        // 정보 나이 한도: M32 350 → 2026-10-30 500 ms.
+        // 사용자 결정: 기기 처리 지연을 반영.
+        assertEquals(
+            PolicyConfig(
+                1.0f, 2.5f, 3.0f, 0.15f, 1, 500f,
+            ),
+            c.policy,
+        )
+
+        assertEquals(
+            StateConfig(
+                10, 0.5f, 3.0f, 15.0f, 600f,
+            ),
+            c.state,
+        )
+
         assertEquals(
             AudioConfig(
                 sampleRate = 48000,
@@ -71,139 +203,400 @@ class ConfigLoaderTest {
                 alertGainDb = -6f,
                 limiterCeiling = 0.9f,
                 bufferBlocks = 8,
+                ttsVolume = 0.7f,
+                ttsObstacleGain = 0.35f,
             ),
             c.audio,
         )
-        assertEquals(HapticsConfig(40, 40, 80, 400, 600), c.haptics)
-        assertEquals(RecordConfig(1, 3, 1.0f, 20), c.record)
-        assertEquals(AlignConfig(2.0f, 0.5f, 3.0f), c.align)
-        assertEquals(SlowPathConfig(0f), c.slowPath)
+
+        assertEquals(
+            HapticsConfig(40, 40, 80, 400, 600),
+            c.haptics,
+        )
+        assertEquals(
+            RecordConfig(1, 3, 1.0f, 20),
+            c.record,
+        )
+        assertEquals(
+            AlignConfig(2.0f, 0.5f, 3.0f),
+            c.align,
+        )
+        assertEquals(
+            SlowPathConfig(0f),
+            c.slowPath,
+        )
     }
 
     @Test
     fun `geometry mode is explicit and experimental parameters are validated`() {
         assertEquals(FloorMode.SINGLE, load().floor.mode)
-        assertEquals(FloorMode.ELEVATION, load("""{"floor":{"mode":"ELEVATION"}}""").floor.mode)
-        assertConfigError("floor.mode", """{"floor":{"mode":"INVALID"}}""")
-        assertConfigError("geometry.enabled", """{"geometry":{"enabled":true}}""")
-        assertConfigError("geometry.maxDistanceM", """{"geometry":{"maxDistanceM":0}}""")
-        assertConfigError("geometry.stepConfidence", """{"geometry":{"stepConfidence":1.1}}""")
-        assertConfigError("geometry.minSlopeBins", """{"geometry":{"minSlopeBins":2}}""")
+
+        assertEquals(
+            FloorMode.ELEVATION,
+            load("""{"floor":{"mode":"ELEVATION"}}""").floor.mode,
+        )
+
+        assertConfigError(
+            "floor.mode",
+            """{"floor":{"mode":"INVALID"}}""",
+        )
+        assertConfigError(
+            "geometry.enabled",
+            """{"geometry":{"enabled":true}}""",
+        )
+        assertConfigError(
+            "geometry.maxDistanceM",
+            """{"geometry":{"maxDistanceM":0}}""",
+        )
+        assertConfigError(
+            "geometry.stepConfidence",
+            """{"geometry":{"stepConfidence":1.1}}""",
+        )
+        assertConfigError(
+            "geometry.minSlopeBins",
+            """{"geometry":{"minSlopeBins":2}}""",
+        )
     }
 
     @Test
     fun `partial override changes only the given keys`() {
         val base = load()
-        val c = load("""{ "corridor": { "widthM": 1.0 }, "repPoint": { "strategy": "NEAREST" } }""")
-        assertEquals(base.corridor.copy(widthM = 1.0f), c.corridor)
-        assertEquals(RepStrategy.NEAREST, c.repPoint.strategy)
-        assertEquals(base.copy(corridor = c.corridor, repPoint = c.repPoint), c)
+
+        val c = load(
+            """
+            {
+                "corridor": {"widthM": 1.0},
+                "repPoint": {"strategy": "NEAREST"}
+            }
+            """.trimIndent(),
+        )
+
+        assertEquals(
+            base.corridor.copy(widthM = 1.0f),
+            c.corridor,
+        )
+        assertEquals(
+            RepStrategy.NEAREST,
+            c.repPoint.strategy,
+        )
+        assertEquals(
+            base.copy(
+                corridor = c.corridor,
+                repPoint = c.repPoint,
+            ),
+            c,
+        )
     }
 
     @Test
     fun `stable representative ties are opt in and only change their own setting`() {
         val base = load()
+
         assertEquals(false, base.repPoint.stableTies)
-        val c = load("""{"repPoint":{"stableTies":true}}""")
-        assertEquals(base.copy(repPoint = base.repPoint.copy(stableTies = true)), c)
-        assertConfigError("repPoint.stableTies", """{"repPoint":{"stableTies":"true"}}""")
+
+        val c = load(
+            """{"repPoint":{"stableTies":true}}""",
+        )
+
+        assertEquals(
+            base.copy(
+                repPoint = base.repPoint.copy(stableTies = true),
+            ),
+            c,
+        )
+
+        assertConfigError(
+            "repPoint.stableTies",
+            """{"repPoint":{"stableTies":"true"}}""",
+        )
     }
 
     @Test
     fun `missing key is rejected`() {
-        val json = defaultJson.replace(""""minHits": 6,""", "")
-        val e = assertThrows<ConfigException> { ConfigLoader.load(json) }
+        val json = defaultJson.replace(
+            """"minHits": 6,""",
+            "",
+        )
+
+        val e = assertThrows<ConfigException> {
+            ConfigLoader.load(json)
+        }
+
         assertEquals("map.minHits", e.path)
     }
 
     @Test
     fun `missing section is rejected`() {
-        val json = defaultJson.replace(""""align": { "fitLengthM": 2.0, "minTravelM": 0.5, "headingWindowS": 3.0 }""", """"unused": {}""")
-        assertThrows<ConfigException> { ConfigLoader.load(json) }
+        val json = defaultJson.replace(
+            """"align": { "fitLengthM": 2.0, "minTravelM": 0.5, "headingWindowS": 3.0 }""",
+            """"unused": {}""",
+        )
+
+        assertThrows<ConfigException> {
+            ConfigLoader.load(json)
+        }
     }
 
     @Test
     fun `unknown keys are rejected`() {
-        assertConfigError("map.voxelSize", """{ "map": { "voxelSize": 0.1 } }""")
-        assertConfigError("typo", """{ "typo": 1 }""")
+        assertConfigError(
+            "map.voxelSize",
+            """{ "map": { "voxelSize": 0.1 } }""",
+        )
+        assertConfigError(
+            "typo",
+            """{ "typo": 1 }""",
+        )
     }
 
     @Test
     fun `type mismatches are rejected`() {
-        assertConfigError("map.voxelSizeM", """{ "map": { "voxelSizeM": "0.05" } }""")
-        assertConfigError("depth.subsample", """{ "depth": { "subsample": 1.5 } }""")
-        assertConfigError("head.offsetFromCameraM", """{ "head": { "offsetFromCameraM": [0, 0] } }""")
-        assertConfigError("repPoint.strategy", """{ "repPoint": { "strategy": "MIDDLE" } }""")
-        assertConfigError("repPoint.bandM", """{ "repPoint": { "bandM": 0 } }""")
-        assertConfigError("corridor", """{ "corridor": 1 }""")
+        assertConfigError(
+            "map.voxelSizeM",
+            """{ "map": { "voxelSizeM": "0.05" } }""",
+        )
+        assertConfigError(
+            "depth.subsample",
+            """{ "depth": { "subsample": 1.5 } }""",
+        )
+        assertConfigError(
+            "head.offsetFromCameraM",
+            """{ "head": { "offsetFromCameraM": [0, 0] } }""",
+        )
+        assertConfigError(
+            "repPoint.strategy",
+            """{ "repPoint": { "strategy": "MIDDLE" } }""",
+        )
+        assertConfigError(
+            "repPoint.bandM",
+            """{ "repPoint": { "bandM": 0 } }""",
+        )
+        assertConfigError(
+            "corridor",
+            """{ "corridor": 1 }""",
+        )
     }
 
     @Test
     fun `out of range values are rejected`() {
-        assertConfigError("map.voxelSizeM", """{ "map": { "voxelSizeM": 0 } }""")
-        assertConfigError("track.emaAlpha", """{ "track": { "emaAlpha": 1.5 } }""")
-        assertConfigError("track.minConfirmObservations", """{ "track": { "minConfirmObservations": 0 } }""")
-        assertConfigError("track.maxMissedUpdates", """{ "track": { "maxMissedUpdates": -1 } }""")
-        assertConfigError("track.minConfirmConfidence", """{ "track": { "minConfirmConfidence": 1.5 } }""")
-        assertConfigError("track", """{ "track": { "suspiciousConfirmObservations": 1 } }""")
-        assertConfigError("track", """{ "track": { "maxConfirmCentroidJumpM": 0.4 } }""")
-        assertConfigError("falsePositiveFilter.minVoxels", """{ "falsePositiveFilter": { "minVoxels": 0 } }""")
-        assertConfigError("policy.maxSources", """{ "policy": { "maxSources": 0 } }""")
-        assertConfigError("policy", """{ "policy": { "warnMaxM": 3.5 } }""")
-        assertConfigError("cluster", """{ "cluster": { "bodyMinM": 1.3 } }""")
-        assertConfigError("depth.minConfidence", """{ "depth": { "minConfidence": 256 } }""")
-        assertConfigError("depth.source", """{ "depth": { "source": "TOF" } }""")
-        assertConfigError("floor", """{ "floor": { "belowMarginM": 0.04 } }""")
-        assertConfigError("corridor", """{ "corridor": { "edgeInnerM": 0.4 } }""")
+        assertConfigError(
+            "map.voxelSizeM",
+            """{ "map": { "voxelSizeM": 0 } }""",
+        )
+        assertConfigError(
+            "track.emaAlpha",
+            """{ "track": { "emaAlpha": 1.5 } }""",
+        )
+        assertConfigError(
+            "track.minConfirmObservations",
+            """{ "track": { "minConfirmObservations": 0 } }""",
+        )
+        assertConfigError(
+            "track.maxMissedUpdates",
+            """{ "track": { "maxMissedUpdates": -1 } }""",
+        )
+        assertConfigError(
+            "track.minConfirmConfidence",
+            """{ "track": { "minConfirmConfidence": 1.5 } }""",
+        )
+        assertConfigError(
+            "track",
+            """{ "track": { "suspiciousConfirmObservations": 1 } }""",
+        )
+        assertConfigError(
+            "track",
+            """{ "track": { "maxConfirmCentroidJumpM": 0.4 } }""",
+        )
+        assertConfigError(
+            "falsePositiveFilter.minVoxels",
+            """{ "falsePositiveFilter": { "minVoxels": 0 } }""",
+        )
+        assertConfigError(
+            "policy.maxSources",
+            """{ "policy": { "maxSources": 0 } }""",
+        )
+        assertConfigError(
+            "policy",
+            """{ "policy": { "warnMaxM": 3.5 } }""",
+        )
+        assertConfigError(
+            "cluster",
+            """{ "cluster": { "bodyMinM": 1.3 } }""",
+        )
+        assertConfigError(
+            "depth.minConfidence",
+            """{ "depth": { "minConfidence": 256 } }""",
+        )
+        assertConfigError(
+            "depth.source",
+            """{ "depth": { "source": "TOF" } }""",
+        )
+        assertConfigError(
+            "floor",
+            """{ "floor": { "belowMarginM": 0.04 } }""",
+        )
+        assertConfigError(
+            "corridor",
+            """{ "corridor": { "edgeInnerM": 0.4 } }""",
+        )
     }
 
     @Test
     fun `safety keys cannot silence guidance or accept stale information (M40)`() {
-        assertConfigError("policy.maxInfoAgeMs", """{ "policy": { "maxInfoAgeMs": 100000 } }""")
-        assertConfigError("policy.maxInfoAgeMs", """{ "policy": { "maxInfoAgeMs": 1000 } }""") // 1 m/s × 1 s = stopM 1.0
-        assertConfigError("slowPath.maxRateHz", """{ "slowPath": { "maxRateHz": 2 } }""") // 500 ms ≥ 350 ms
-        assertConfigError("audio.limiterCeiling", """{ "audio": { "limiterCeiling": 0 } }""")
-        assertConfigError("audio.masterGainDb", """{ "audio": { "masterGainDb": -200 } }""")
-        load("""{ "policy": { "maxInfoAgeMs": 400 }, "slowPath": { "maxRateHz": 10 } }""") // M10 후보·M13.4 상한은 그대로 통과
+        assertConfigError(
+            "policy.maxInfoAgeMs",
+            """{ "policy": { "maxInfoAgeMs": 100000 } }""",
+        )
+
+        // 1 m/s × 1 s = stopM 1.0.
+        assertConfigError(
+            "policy.maxInfoAgeMs",
+            """{ "policy": { "maxInfoAgeMs": 1000 } }""",
+        )
+
+        assertConfigError(
+            "slowPath.maxRateHz",
+            """{ "slowPath": { "maxRateHz": 2 } }""",
+        )
+        assertConfigError(
+            "audio.limiterCeiling",
+            """{ "audio": { "limiterCeiling": 0 } }""",
+        )
+        assertConfigError(
+            "audio.masterGainDb",
+            """{ "audio": { "masterGainDb": -200 } }""",
+        )
+
+        // M10 후보·M13.4 상한은 그대로 통과.
+        load(
+            """
+            {
+                "policy": {"maxInfoAgeMs": 400},
+                "slowPath": {"maxRateHz": 10}
+            }
+            """.trimIndent(),
+        )
     }
 
     @Test
     fun `malformed json is reported as config error`() {
-        val e = assertThrows<ConfigException> { load("""{ "map": """) }
+        val e = assertThrows<ConfigException> {
+            load("""{ "map": """)
+        }
+
         assertTrue(e.path == "<override>")
     }
 
     @Test
     fun `sonify defaults preserve baseline and risk preset opts in`() {
-        assertEquals(SonifyMode.PULSE, load().sonify.mode)
-        assertEquals(false, load().policy.prioritizeStop)
-        val c = load("""{"sonify":{"mode":"RISK_CONTINUOUS"},"policy":{"maxSources":2,"prioritizeStop":true}}""")
-        assertEquals(SonifyMode.RISK_CONTINUOUS, c.sonify.mode)
-        assertEquals(2, c.policy.maxSources)
-        assertEquals(true, c.policy.prioritizeStop)
+        assertEquals(
+            SonifyMode.PULSE,
+            load().sonify.mode,
+        )
+        assertEquals(
+            false,
+            load().policy.prioritizeStop,
+        )
+
+        val c = load(
+            """
+            {
+                "sonify": {"mode": "RISK_CONTINUOUS"},
+                "policy": {
+                    "maxSources": 2,
+                    "prioritizeStop": true
+                }
+            }
+            """.trimIndent(),
+        )
+
+        assertEquals(
+            SonifyMode.RISK_CONTINUOUS,
+            c.sonify.mode,
+        )
+        assertEquals(
+            2,
+            c.policy.maxSources,
+        )
+        assertEquals(
+            true,
+            c.policy.prioritizeStop,
+        )
     }
 
     @Test
     fun `invalid risk configuration is rejected`() {
-        assertConfigError("sonify.mode", """{"sonify":{"mode":"UNKNOWN"}}""")
-        assertConfigError("sonify", """{"sonify":{"minHistoryS":0.8}}""")
-        assertConfigError("sonify", """{"sonify":{"approachOffMps":0.2}}""")
-        assertConfigError("sonify", """{"sonify":{"maxHz":20000}}""")
-        assertConfigError("sonify.duckDb", """{"sonify":{"duckDb":3}}""")
-        assertConfigError("sonify.prototypeGain", """{"sonify":{"prototypeGain":2}}""")
+        assertConfigError(
+            "sonify.mode",
+            """{"sonify":{"mode":"UNKNOWN"}}""",
+        )
+        assertConfigError(
+            "sonify",
+            """{"sonify":{"minHistoryS":0.8}}""",
+        )
+        assertConfigError(
+            "sonify",
+            """{"sonify":{"approachOffMps":0.2}}""",
+        )
+        assertConfigError(
+            "sonify",
+            """{"sonify":{"maxHz":20000}}""",
+        )
+        assertConfigError(
+            "sonify.duckDb",
+            """{"sonify":{"duckDb":3}}""",
+        )
+        assertConfigError(
+            "sonify.prototypeGain",
+            """{"sonify":{"prototypeGain":2}}""",
+        )
     }
 
     @Test
     fun `vision labels are off by default and label lists are validated`() {
         val c = load()
+
         assertEquals(false, c.vision.semantics)
-        assertEquals(VisionLabelSource.NONE, c.vision.label)
-        assertEquals(setOf(SemanticLabel.PERSON, SemanticLabel.VEHICLE), c.vision.movingLabels)
-        assertEquals(SemanticLabel.PERSON, SemanticLabel.ofPixel(10))
-        assertConfigError("vision.movingLabels", """{"vision":{"movingLabels":["PERSON","CAT"]}}""")
-        assertConfigError("vision.movingLabels", """{"vision":{"movingLabels":"PERSON"}}""")
-        assertEquals(mapOf(SemanticLabel.PERSON to 2.5f, SemanticLabel.VEHICLE to 6.9f), c.vision.maxSpeedMps)
-        assertConfigError("vision.maxSpeedMps", """{"vision":{"movingLabels":["PERSON","OBJECT"]}}""")
-        assertConfigError("vision.maxSpeedMps.CAT", """{"vision":{"maxSpeedMps":{"CAT":1}}}""")
+        assertEquals(
+            VisionLabelSource.NONE,
+            c.vision.label,
+        )
+        assertEquals(
+            setOf(
+                SemanticLabel.PERSON,
+                SemanticLabel.VEHICLE,
+            ),
+            c.vision.movingLabels,
+        )
+        assertEquals(
+            SemanticLabel.PERSON,
+            SemanticLabel.ofPixel(10),
+        )
+
+        assertConfigError(
+            "vision.movingLabels",
+            """{"vision":{"movingLabels":["PERSON","CAT"]}}""",
+        )
+        assertConfigError(
+            "vision.movingLabels",
+            """{"vision":{"movingLabels":"PERSON"}}""",
+        )
+
+        assertEquals(
+            mapOf(
+                SemanticLabel.PERSON to 2.5f,
+                SemanticLabel.VEHICLE to 6.9f,
+            ),
+            c.vision.maxSpeedMps,
+        )
+
+        assertConfigError(
+            "vision.maxSpeedMps",
+            """{"vision":{"movingLabels":["PERSON","OBJECT"]}}""",
+        )
+        assertConfigError(
+            "vision.maxSpeedMps.CAT",
+            """{"vision":{"maxSpeedMps":{"CAT":1}}}""",
+        )
     }
 }

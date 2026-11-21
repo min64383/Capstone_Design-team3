@@ -1,0 +1,10 @@
+{
+  "enabled": true,
+  "nearM": 1.0,
+  "middleM": 2.0,
+  "hysteresisM": 0.15,
+  "frontHalfAngleDeg": 22.5,
+  "pulsePeriodMs": 1400,
+  "frameIntervalMs": 50,
+  "colorTransitionMs": 200
+}

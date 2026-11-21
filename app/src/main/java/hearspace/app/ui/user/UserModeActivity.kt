@@ -15,6 +15,7 @@ import android.os.Looper
 import android.os.SystemClock
 import android.text.SpannableStringBuilder
 import android.text.Spanned
+import android.text.TextUtils
 import android.text.style.ForegroundColorSpan
 import android.text.style.StyleSpan
 import android.util.Log
@@ -90,6 +91,10 @@ class UserModeActivity : Activity(), GLSurfaceView.Renderer {
     private lateinit var subText: TextView
     private lateinit var guide: GuideView
     private lateinit var labelText: TextView
+    private lateinit var spatialDetailText: TextView
+    private lateinit var speechPanel: LinearLayout
+    private lateinit var speechCaptionText: TextView
+    private lateinit var speechWave: SpeechWaveView
     private lateinit var hintText: TextView
     private lateinit var noticeText: TextView
     private lateinit var settingsButton: ImageButton
@@ -99,6 +104,9 @@ class UserModeActivity : Activity(), GLSurfaceView.Renderer {
     private var tts: AndroidTts? = null
     private lateinit var objectSpeechConfig: ObjectSpeechConfig
     private lateinit var objectSpeech: ObjectSpeechPolicy
+    private lateinit var spatialConfig: SpatialUiConfig
+    private lateinit var spatialFeedback: SpatialFeedback
+    private val speechVisual = SpeechVisualState()
     private var announceLaunch = false
     private val speechPolicy = StatusSpeechPolicy()
     private var lastSpeechStatus: StatusSpeechPolicy.Status? = null
@@ -140,6 +148,11 @@ class UserModeActivity : Activity(), GLSurfaceView.Renderer {
         }
         objectSpeech = ObjectSpeechPolicy(objectSpeechConfig,
             (config.policy.maxInfoAgeMs * 1_000_000.0).toLong())
+        spatialConfig = assets.open("config/spatial-ui.json").bufferedReader().use {
+            SpatialUiConfig.parse(it.readText())
+        }
+        spatialFeedback = SpatialFeedback(spatialConfig,
+            (config.policy.maxInfoAgeMs * 1_000_000.0).toLong(), objectSpeechConfig.minLabelFraction)
         hrtf = loadHrtf(this)
         ar = ArSessionManager(this, sensorUsage = config.depth.sensorUsage, semantics = config.vision.semantics)
         feeder = ArFeeder(config, replay = false, drawCamera = false)
@@ -177,6 +190,8 @@ class UserModeActivity : Activity(), GLSurfaceView.Renderer {
         super.onResume()
         foreground = true
         objectSpeech.reset()
+        spatialFeedback.reset()
+        speechVisual.clear()
         ttsFailure = null
         speechPolicy.reset()
         lastSpeechStatus = null
@@ -187,6 +202,11 @@ class UserModeActivity : Activity(), GLSurfaceView.Renderer {
         tts = AndroidTts(this, config, onDuckingChanged = { active ->
             run?.pipeline?.speechActive = active
         }, onEvent = { event ->
+            if (foreground) {
+                if (event.state == AndroidTts.State.STARTED) speechVisual.started(event.id, event.text)
+                else speechVisual.finished(event.id)
+                renderSpeech()
+            }
             event.requestKey?.let { key ->
                 val nowNs = feeder.nowNs()
                 when (event.state) {
@@ -246,12 +266,55 @@ class UserModeActivity : Activity(), GLSurfaceView.Renderer {
             setPadding(dp(28), dp(6), dp(28), 0)
             importantForAccessibility = View.IMPORTANT_FOR_ACCESSIBILITY_NO
         }
-        guide = GuideView(this).apply { importantForAccessibility = View.IMPORTANT_FOR_ACCESSIBILITY_NO }
+        guide = GuideView(this).apply {
+            spatialConfig = this@UserModeActivity.spatialConfig
+            importantForAccessibility = View.IMPORTANT_FOR_ACCESSIBILITY_NO
+        }
         labelText = TextView(this).apply {
             typeface = Typeface.DEFAULT_BOLD
             gravity = Gravity.CENTER
             setLineSpacing(0f, 1.1f)
             importantForAccessibility = View.IMPORTANT_FOR_ACCESSIBILITY_NO
+        }
+        spatialDetailText = TextView(this).apply {
+            textSize = 26f
+            setTextColor(white)
+            gravity = Gravity.CENTER
+            setPadding(dp(12), dp(4), dp(12), dp(4))
+            importantForAccessibility = View.IMPORTANT_FOR_ACCESSIBILITY_NO
+            visibility = View.GONE
+        }
+        speechWave = SpeechWaveView(this).apply {
+            config = spatialConfig
+            importantForAccessibility = View.IMPORTANT_FOR_ACCESSIBILITY_NO
+        }
+        val speechTitle = TextView(this).apply {
+            text = "음성 안내 중"
+            textSize = 18f
+            setTextColor(white)
+            gravity = Gravity.CENTER_VERTICAL
+            importantForAccessibility = View.IMPORTANT_FOR_ACCESSIBILITY_NO
+        }
+        speechCaptionText = TextView(this).apply {
+            textSize = 18f
+            setTextColor(white)
+            gravity = Gravity.CENTER
+            maxLines = 2
+            ellipsize = TextUtils.TruncateAt.END
+            importantForAccessibility = View.IMPORTANT_FOR_ACCESSIBILITY_NO
+        }
+        speechPanel = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            gravity = Gravity.CENTER_HORIZONTAL
+            setPadding(dp(18), dp(8), dp(18), dp(4))
+            importantForAccessibility = View.IMPORTANT_FOR_ACCESSIBILITY_NO_HIDE_DESCENDANTS
+            visibility = View.GONE
+            addView(LinearLayout(context).apply {
+                gravity = Gravity.CENTER
+                addView(speechWave, LinearLayout.LayoutParams(dp(40), dp(28)).apply { rightMargin = dp(10) })
+                addView(speechTitle, LinearLayout.LayoutParams(WRAP_CONTENT, WRAP_CONTENT))
+            }, LinearLayout.LayoutParams(MATCH_PARENT, WRAP_CONTENT))
+            addView(speechCaptionText, LinearLayout.LayoutParams(MATCH_PARENT, WRAP_CONTENT).apply { topMargin = dp(4) })
         }
         hintText = TextView(this).apply {
             textSize = 18f
@@ -289,6 +352,8 @@ class UserModeActivity : Activity(), GLSurfaceView.Renderer {
             addView(Space(context), LinearLayout.LayoutParams(MATCH_PARENT, 0, 1f))
             addView(guide, LinearLayout.LayoutParams(MATCH_PARENT, dp(GUIDE_DP)))
             addView(labelText, LinearLayout.LayoutParams(MATCH_PARENT, WRAP_CONTENT))
+            addView(spatialDetailText, LinearLayout.LayoutParams(MATCH_PARENT, WRAP_CONTENT))
+            addView(speechPanel, LinearLayout.LayoutParams(MATCH_PARENT, WRAP_CONTENT))
             addView(Space(context), LinearLayout.LayoutParams(MATCH_PARENT, 0, 1f))
             addView(hintText, LinearLayout.LayoutParams(MATCH_PARENT, WRAP_CONTENT))
             addView(noticeText, LinearLayout.LayoutParams(MATCH_PARENT, WRAP_CONTENT))
@@ -357,6 +422,7 @@ class UserModeActivity : Activity(), GLSurfaceView.Renderer {
         endedByUser = false
         speechPolicy.reset()
         objectSpeech.reset()
+        spatialFeedback.reset()
         lastSpeechStatus = null
         val reason = try {
             ar.resume()
@@ -415,6 +481,9 @@ class UserModeActivity : Activity(), GLSurfaceView.Renderer {
     private fun stop() {
         tts?.stop()
         objectSpeech.reset()
+        spatialFeedback.reset()
+        speechVisual.clear()
+        renderSpeech()
         ui.removeCallbacks(uiTick)
         feeder.pipeline = null
         run?.close()
@@ -426,6 +495,8 @@ class UserModeActivity : Activity(), GLSurfaceView.Renderer {
 
     override fun onPause() {
         foreground = false
+        speechVisual.clear()
+        renderSpeech()
         ui.removeCallbacks(uiTick)
         super.onPause()
         tts?.close()
@@ -460,8 +531,14 @@ class UserModeActivity : Activity(), GLSurfaceView.Renderer {
     /** 지금 상태를 화면([UserScreen])으로 바꿔 그리고, 버튼 설명(TalkBack이 읽는 문장)을 갱신한다. */
     private fun render() {
         val r = run
-        val g = r?.pipeline?.lastOutput?.get()
-        val cmd = g?.commands?.firstOrNull()
+        val nowNs = feeder.nowNs()
+        // 같은 블록에서 사용한 출력과 스냅샷을 함께 읽는다.
+        val frame = r?.pipeline?.lastObjectSpeech?.get()
+        val g = frame?.output?.takeIf {
+            nowNs - it.tBlockNs in 0L..(config.policy.maxInfoAgeMs * 1_000_000.0).toLong()
+        }
+        val cue = if (foreground && r != null && !r.pipeline.paused) spatialFeedback.update(frame, nowNs)
+            else { spatialFeedback.reset(); null }
         val speechStatus = when {
             r == null && notice != null -> if (notice?.title == "시작하지 못했어요")
                 StatusSpeechPolicy.Status.START_FAILED else StatusSpeechPolicy.Status.STOPPED
@@ -469,7 +546,7 @@ class UserModeActivity : Activity(), GLSurfaceView.Renderer {
             r.pipeline.paused || g?.state == GuidanceState.PAUSED -> StatusSpeechPolicy.Status.PAUSED
             g == null || feeder.nowNs() - g.tBlockNs !in 0L..(config.policy.maxInfoAgeMs * 1_000_000.0).toLong() ||
                 g.state == GuidanceState.UNKNOWN -> StatusSpeechPolicy.Status.PREPARING
-            r.pipeline.snapshot.get()?.mapHealth == MapHealth.DEGRADED -> StatusSpeechPolicy.Status.FLOOR_CHECK
+            frame?.snapshot?.mapHealth == MapHealth.DEGRADED -> StatusSpeechPolicy.Status.FLOOR_CHECK
             else -> StatusSpeechPolicy.Status.GUIDING
         }
         announceStatus(speechStatus)
@@ -479,9 +556,10 @@ class UserModeActivity : Activity(), GLSurfaceView.Renderer {
             notice = notice,
             paused = r?.pipeline?.paused == true,
             state = g?.state,
-            mapHealth = r?.pipeline?.snapshot?.get()?.mapHealth,
-            band = cmd?.band,
-            azimuthDeg = cmd?.azimuthDeg,
+            mapHealth = frame?.snapshot?.mapHealth,
+            band = cue?.band,
+            azimuthDeg = cue?.azimuthDeg,
+            spatial = cue?.takeIf { spatialConfig.enabled },
         )
         if (s.spoken != spokenLine) {
             spokenLine = s.spoken
@@ -495,6 +573,7 @@ class UserModeActivity : Activity(), GLSurfaceView.Renderer {
             root.contentDescription = "HEARSPACE, ${s.spoken}. $voiceNotice$read$hint"
         }
         if (s != shown) show(s)
+        renderSpeech()
     }
 
     /** TalkBack이 터치 탐색을 쓰면 자동 상태 낭독은 TalkBack에 맡긴다. 설명/액션은 보존한다. */
@@ -547,8 +626,16 @@ class UserModeActivity : Activity(), GLSurfaceView.Renderer {
         subText.visibility = if (detail.isEmpty()) View.GONE else View.VISIBLE
         subText.text = detail
         guide.visual = s.visual
+        val cue = (s.visual as? UserScreen.Visual.Arrow)?.spatial
+        spatialDetailText.visibility = if (cue == null) View.GONE else View.VISIBLE
+        spatialDetailText.text = cue?.detailText.orEmpty()
         // 그림 칸: 시안의 가장 큰 그림(화살표 230 dp)이 들어가는 높이, 시작 전 로고(150 dp)는 글자와 가깝게
-        val guideHeight = dp(if (s.visual == UserScreen.Visual.Logo) LOGO_DP else GUIDE_DP)
+        val guideHeight = dp(when {
+            s.visual == UserScreen.Visual.Logo -> LOGO_DP
+            spatialConfig.enabled -> (resources.configuration.screenHeightDp * 0.30f /
+                resources.configuration.fontScale.coerceAtLeast(1f)).toInt().coerceIn(140, GUIDE_DP)
+            else -> GUIDE_DP
+        })
         if (guide.layoutParams.height != guideHeight) guide.layoutParams = guide.layoutParams.apply { height = guideHeight }
         labelText.visibility = if (s.label == null) View.GONE else View.VISIBLE
         labelText.text = s.label
@@ -557,7 +644,7 @@ class UserModeActivity : Activity(), GLSurfaceView.Renderer {
             UserScreen.Tone.CAUTION -> 30f
             else -> 34f
         }
-        labelText.setTextColor(getColor(when {
+        labelText.setTextColor(if (cue != null) spatialColor(this, cue.tint) else getColor(when {
             s.label == null || s.visual !is UserScreen.Visual.Arrow -> R.color.run_text
             s.labelTone == UserScreen.Tone.STOP -> R.color.run_stop
             else -> R.color.run_caution
@@ -576,6 +663,13 @@ class UserModeActivity : Activity(), GLSurfaceView.Renderer {
         }
         settingsButton.visibility = if (s.idle) View.VISIBLE else View.GONE
         noticeText.visibility = if (s.idle && s.visual == UserScreen.Visual.Logo) View.VISIBLE else View.GONE
+    }
+
+    private fun renderSpeech() {
+        val line = speechVisual.line?.takeIf { foreground && spatialConfig.enabled && !screenReaderActive }
+        speechPanel.visibility = if (line == null) View.GONE else View.VISIBLE
+        speechCaptionText.text = line?.text.orEmpty()
+        speechWave.active = line != null
     }
 
     /** "안내 중" 앞의 청록 점(앱이 동작 중임만 보인다). */

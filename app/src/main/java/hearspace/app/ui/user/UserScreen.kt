@@ -34,7 +34,7 @@ data class UserScreen(
         data object None : Visual
         data object Paused : Visual
         data object Notice : Visual
-        data class Arrow(val azimuthDeg: Float, val stop: Boolean) : Visual
+        data class Arrow(val azimuthDeg: Float, val stop: Boolean, val spatial: SpatialCue? = null) : Visual
     }
 
     /** 안내 중이 아닐 때의 알림: 제목과 사유(사유는 TalkBack이 읽는다). */
@@ -53,7 +53,7 @@ data class UserScreen(
          * [running]: 안내 세션이 있음, [paused]: 사용자가 일시정지함, [state]: 마지막 안내 출력의 상태(없으면 null),
          * [mapHealth]: 마지막 지도 상태, [band]·[azimuthDeg]: 가장 가까운 음원의 구간과 방위(오른쪽 +).
          */
-        fun of(running: Boolean, notice: Notice?, paused: Boolean, state: GuidanceState?, mapHealth: MapHealth?, band: Band?, azimuthDeg: Float?): UserScreen {
+        fun of(running: Boolean, notice: Notice?, paused: Boolean, state: GuidanceState?, mapHealth: MapHealth?, band: Band?, azimuthDeg: Float?, spatial: SpatialCue? = null): UserScreen {
             if (!running) {
                 return if (notice != null) {
                     UserScreen(notice.title, notice.reason, Tone.PLAIN, Visual.Notice, null, Tone.PLAIN,
@@ -69,7 +69,7 @@ data class UserScreen(
             if (state == null || state == GuidanceState.UNKNOWN) {
                 return UserScreen("준비 중", "주변을 확인하고 있어요", Tone.PLAIN, Visual.Preparing, null, Tone.PLAIN, GUIDING, idle = false, spoken = "준비 중")
             }
-            val arrow = azimuthDeg?.takeIf { band == Band.WARN || band == Band.STOP }?.let { Visual.Arrow(it, band == Band.STOP) }
+            val arrow = azimuthDeg?.takeIf { band == Band.WARN || band == Band.STOP }?.let { Visual.Arrow(it, band == Band.STOP, spatial) }
             val label = arrow?.let { if (it.stop) "멈춤" else "주의" }
             val labelTone = if (arrow?.stop == true) Tone.STOP else Tone.CAUTION
             return if (mapHealth == MapHealth.DEGRADED) {
