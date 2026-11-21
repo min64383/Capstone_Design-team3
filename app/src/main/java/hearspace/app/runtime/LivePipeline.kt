@@ -61,6 +61,14 @@ class LivePipeline(
     @Volatile
     var onSpeech: ((List<Utterance>) -> Unit)? = null
 
+    /** 소리가 나지 않은 상황 말의 열쇠(UI 스레드가 넣고, 느린 경로가 다음 처리 차례에 말하기 규칙에 되돌린다). 잃으면 안 되는 사건이라 집합에 모은다. */
+    private val unsaid: MutableSet<String> = java.util.concurrent.ConcurrentHashMap.newKeySet()
+
+    /** UI 스레드: 앱이 소리를 내지 못한 상황 말을 되돌린다(상황이 이어지면 새 근거로 다시 낸다). */
+    fun unsay(key: String) {
+        unsaid.add(key)
+    }
+
     private val pose = AtomicReference<PoseFrame?>(null)
     private val depth = AtomicReference<DepthFrame?>(null)
     private val headingW = AtomicReference<Vec3?>(null)
@@ -196,9 +204,17 @@ class LivePipeline(
                 val g = lastOutput.get()
                 // RESET 전 월드 좌표의 노면 영상은 쓰지 않는다
                 val surf = surface?.latest?.get()?.takeIf { it.tCaptureNs >= resetMark }
-                val (said, rec) = sit.step(SituationInput(clockNs(), d, s, g?.commands.orEmpty(), Situations.headingOf(g), surf, speechLevel.get()))
+                for (k in unsaid.toList()) { unsaid.remove(k); sit.speech.unsay(k) }
+                // 말 내보내기가 붙어 있을 때만 앱의 실제 등급을 넘긴다. 없으면(개발 화면) PC 재생처럼 음절 수 어림
+                val consumer = onSpeech
+                val level = if (consumer != null) speechLevel.get() else null
+                val (said, rec) = sit.step(SituationInput(clockNs(), d, s, g?.commands.orEmpty(), Situations.headingOf(g), surf, level))
                 logger?.situation(said, rec)
-                if (said.isNotEmpty()) onSpeech?.invoke(said)
+                if (said.isNotEmpty() && consumer != null) {
+                    // 넘기는 순간부터 말하는 중으로 둔다(말 내보내기가 받으면 실제 등급으로, 받지 않으면 되돌린다)
+                    speechLevel.set(said.minOf { it.priority })
+                    consumer(said)
+                }
             }
         }
     }

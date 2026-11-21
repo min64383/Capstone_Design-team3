@@ -54,6 +54,9 @@ class AndroidTts(
     var isDucked = false
         private set
 
+    /** 지금 줄(받은 뒤 끝나기 전)의 id. [speak]가 참을 돌려준 직후 읽으면 그 줄의 id다(M65 말 내보내기가 이벤트와 맞춘다). */
+    val currentId: String? get() = current?.id
+
     /** 초기화/발화 타임아웃은 구분한다. 일시적 발화 실패 뒤에는 다음 요청을 받을 수 있다. */
     val isAvailable: Boolean get() = engineState == EngineState.LOADING || engineState == EngineState.READY
 
@@ -114,8 +117,13 @@ class AndroidTts(
             }
             // 네트워크 음성으로 조용히 대체하지 않는다. 엔진은 OS에 설치된 제3자 서비스일 수 있다.
             fun offlineKorean(v: Voice) =
-                v.locale.language == Locale.KOREAN.language && !v.isNetworkConnectionRequired &&
+                isKorean(v.locale) && !v.isNetworkConnectionRequired &&
                     TextToSpeech.Engine.KEY_FEATURE_NOT_INSTALLED !in v.features.orEmpty()
+            // 진단(M65 기기 확인): 기본 엔진과 한국어 음성의 네트워크 필요·설치 여부. 발화 원문은 아니다
+            Log.i(TAG, "tts engine ${tts.defaultEngine}, voice ${tts.voice?.let { "${it.name} ${it.locale} net=${it.isNetworkConnectionRequired} features=${it.features}" }}, " +
+                "engines ${tts.engines.joinToString { it.name }}, ko voices " +
+                tts.voices.orEmpty().filter { isKorean(it.locale) }
+                    .joinToString { "${it.name}(net=${it.isNetworkConnectionRequired}, notInstalled=${TextToSpeech.Engine.KEY_FEATURE_NOT_INSTALLED in it.features.orEmpty()})" })
             if (tts.voice?.let(::offlineKorean) != true) {
                 val voice = tts.voices.orEmpty().filter(::offlineKorean).sortedBy { it.name }.firstOrNull()
                 if (voice == null || tts.setVoice(voice) != TextToSpeech.SUCCESS) {
@@ -145,6 +153,7 @@ class AndroidTts(
     private fun failInit(detail: String) {
         if (engineState == EngineState.CLOSED || engineState == EngineState.FAILED) return
         engineState = EngineState.FAILED
+        Log.w(TAG, "tts init failed: $detail") // 실패 이유만 남긴다(발화 원문은 남기지 않음)
         main.removeCallbacks(initTimeout)
         val failedLine = current
         stopEngine()
@@ -281,6 +290,10 @@ class AndroidTts(
         runCatching { engine?.shutdown() }
         engine = null
     }
+
+    /** 한국어 음성인지. 삼성 TTS는 locale을 3글자 코드로 준다(기기 확인 2026-11-21: `kor_KOR_default`, 언어 `kor`). */
+    private fun isKorean(l: Locale): Boolean =
+        l.language == Locale.KOREAN.language || runCatching { l.isO3Language }.getOrNull() == Locale.KOREAN.isO3Language
 
     private fun checkMain() = check(Looper.myLooper() == Looper.getMainLooper()) {
         "AndroidTts must be called on the main thread"
