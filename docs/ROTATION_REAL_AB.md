@@ -2,13 +2,13 @@
 
 2026-11-19 비교는 최신 main의 네 회전 녹화와 하네스 실측값 위 0.20 m·뒤 0.10 m를 사용한다. `head.offsetFromCameraM`와 `heading.chestMount.headOffsetBodyM`에 같은 값을 넣는다. 녹화 당시 장착 방식·머리 오프셋이 기록되지 않았으므로 하네스 장착·장착 yaw 0°를 가정한 재생이다.
 
-PowerShell에서 아래 명령 하나로 네 세션을 일곱 변형으로 모두 재생하고 결과 ZIP을 만든다. 출력 폴더는 매번 새로 만든다.
+PowerShell에서 아래 명령 하나로 네 세션을 다섯 변형으로 모두 재생하고 결과 ZIP을 만든다. 출력 폴더는 매번 새로 만든다.
 
 ```powershell
 powershell -ExecutionPolicy Bypass -File .\tools\measurement\run-rotation-real.ps1
 ```
 
-다른 환경에서는 `./gradlew :core:rotationRealReplay -Pout=core/build/rotation-real-new`로 같은 비교를 실행한다. 결과 `summary.csv`와 세션별 실행 로그에 설정·5cm 보정 사용 여부가 남는다. 근거리 STOP 변형에는 `near_stop_debug.csv`(ROI 점 수·칸 수·크기 통과 후보·누적 관측 수·출력 수)도 쓴다. 이번 비교의 [결과 기록](ROTATION_REAL_RESULT.md)을 함께 참고한다.
+다른 환경에서는 `./gradlew :core:rotationRealReplay -Pout=core/build/rotation-real-new`로 같은 비교를 실행한다. 결과 `summary.csv`와 세션별 실행 로그에 설정이 남는다. 근거리 STOP 변형에는 `near_stop_debug.csv`(ROI 점 수·칸 수·크기 통과 후보·누적 관측 수·출력 수)도 쓴다. 이번 비교의 [결과 기록](ROTATION_REAL_RESULT.md)을 함께 참고한다.
 
 | 변형 | 진행 방향 | 근거리 STOP | 높이 겹침 보정 |
 |---|---|---|---|
@@ -16,15 +16,15 @@ powershell -ExecutionPolicy Bypass -File .\tools\measurement\run-rotation-real.p
 | fused | M42 카메라 결합, 기존 합성 비교값 2.3° | OFF | OFF |
 | chest | 가슴 고정 방향 | OFF | OFF |
 | near | 가슴 고정 방향 | ON | OFF |
-| overlap | 가슴 고정 방향 | ON | ON |
 | near_system_age | 가슴 고정 방향, 정보 나이 상한 진단 | ON | OFF |
-| overlap_system_age | 가슴 고정 방향, 정보 나이 상한 진단 | ON | ON |
 
-`*_system_age` 두 변형은 근거리 STOP의 `maxAgeMs`만 기존 시스템의 `policy.maxInfoAgeMs`로 맞춘 진단이다(현재 500 ms, 기본 근거리 프로파일은 150 ms). 그 외 근거리 문턱은 동일하다.
+높이 겹침 보정(한 복셀 수평 반경, 5cm)을 켠 `overlap`·`overlap_system_age` 두 변형은 실제 네 세션에서 안내가 바이트 단위로 같아 main에 넣지 않았다. 그 코드와 일곱 변형 실행기는 커밋 `34f26286`에 있고, [결과 CSV](rotation_real_20261119.csv)의 28행은 그 커밋으로 돌린 것이다(main 실행기는 다섯 변형 20행, `nearVsOverlapGuidanceEqual` 열 없음).
+
+`near_system_age` 변형은 근거리 STOP의 `maxAgeMs`만 기존 시스템의 `policy.maxInfoAgeMs`로 맞춘 진단이다(현재 500 ms, 기본 근거리 프로파일은 150 ms). 그 외 근거리 문턱은 동일하다.
 
 실행기는 `tools/measurement/rotation-ab`의 설정과 `sessions.csv`를 읽는다. 회전 구간은 `testdata/README.md`에 기재된 카메라 방향 변화 10~90% 구간(0.1초 단위 근사)이다. `firstStopFromTurnStartMs`는 이 구간 시작 이후 첫 STOP의 시각 차다. 물체가 통로에 들어온 시점부터의 지연은 아니다. `stopFromTurnStartS`와 `earlyStopFromTurnStartS`는 회전 시작부터 녹화 끝까지 STOP이 나온 블록의 합집합 시간이며, 음원 수로 중복 합산하지 않는다.
 
-`cameraYawErrorOver5Fraction`은 블록이 사용한 자세의 카메라 정면과 추정 진행 방향 차이가 5°를 넘은 비율이다. 회전 시작 이후의 블록을 사용한다. 몸 방향 정답이 없어 카메라 정면을 대리 기준으로 사용하며, 독립적인 몸 방향 정확도 지표로 해석할 수 없다. `nearVsOverlapGuidanceEqual`은 near·overlap의 `guidance.csv` 전체 바이트 비교다.
+`cameraYawErrorOver5Fraction`은 블록이 사용한 자세의 카메라 정면과 추정 진행 방향 차이가 5°를 넘은 비율이다. 회전 시작 이후의 블록을 사용한다. 몸 방향 정답이 없어 카메라 정면을 대리 기준으로 사용하며, 독립적인 몸 방향 정확도 지표로 해석할 수 없다. `nearVsOverlapGuidanceEqual`(커밋 `34f26286`의 CSV에만 있음)은 near·overlap의 `guidance.csv` 전체 바이트 비교다.
 
 앞 물체 장면 두 개의 RGB에는 글씨가 붙은 유리문이 보인다. 대조 두 개도 실내 장면이며 장애물 위치 정답 파일이 없다. 추가 STOP은 영상과 함께 확인하고 오경보 판정은 보류한다. 고정 처리 시간 10 ms는 PC 재생 가정이다. 기기 처리 시간·발열·실제 경고음 지연은 기기에서 측정한다.
 

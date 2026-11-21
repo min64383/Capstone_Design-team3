@@ -11,7 +11,7 @@ import kotlin.math.abs
 
 /** Recorded rotation comparison. Camera yaw is a reference proxy, not measured body heading. */
 object RealRotationReplay {
-    private data class Variant(val name: String, val profiles: List<String>, val overlap: Boolean = false)
+    private data class Variant(val name: String, val profiles: List<String>)
 
     @JvmStatic fun main(args: Array<String>) {
         val root = File(System.getProperty("hearspace.repo"))
@@ -27,12 +27,10 @@ object RealRotationReplay {
         val variants = listOf(
             Variant("movement", emptyList()), Variant("fused", listOf(fused)),
             Variant("chest", listOf(chest)), Variant("near", listOf(chest, near)),
-            Variant("overlap", listOf(chest, near), overlap = true),
             Variant("near_system_age", listOf(chest, near, systemAge)),
-            Variant("overlap_system_age", listOf(chest, near, systemAge), overlap = true),
         )
         File(out, "summary.csv").bufferedWriter().use { summary ->
-            summary.appendLine("session,scene,variant,turnStartS,turnEndS,firstStopFromTurnStartMs,stopFromTurnStartS,earlyStopFromTurnStartS,cameraYawErrorOver5Fraction,inputWarnings,nearVsOverlapGuidanceEqual")
+            summary.appendLine("session,scene,variant,turnStartS,turnEndS,firstStopFromTurnStartMs,stopFromTurnStartS,earlyStopFromTurnStartS,cameraYawErrorOver5Fraction,inputWarnings")
             val sessions = File(profiles, "sessions.csv").readLines().drop(1).filter { it.isNotBlank() }
             for (line in sessions) {
                 val cells = line.split(',')
@@ -51,7 +49,7 @@ object RealRotationReplay {
                     val overrides = MiniJson.write(merged)
                     val config = ConfigLoader.load(base, overrides)
                     val run = File(out, "$id/${variant.name}")
-                    val replay = OfflineReplay(config, OfflineReplay.fixed(10f), nearStopHeightOverlap = variant.overlap)
+                    val replay = OfflineReplay(config, OfflineReplay.fixed(10f))
                     run.mkdirs()
                     val debug = if (config.policy.nearStop != null) File(run, "near_stop_debug.csv").bufferedWriter() else null
                     debug.use { writer ->
@@ -90,13 +88,10 @@ object RealRotationReplay {
                             headingBlocks++
                         }
                     }
-                    val withoutOverlap = if (variant.name == "overlap_system_age") "near_system_age" else "near"
-                    val equal = if (variant.overlap) File(out, "$id/$withoutOverlap/guidance.csv").readBytes()
-                        .contentEquals(File(run, "guidance.csv").readBytes()) else null
                     summary.appendLine(listOf(id, cells[1], variant.name, turnStartS, turnEndS,
                         firstStop?.let { (it - turnStartS) * 1000 }, stopS, earlyS,
                         if (headingBlocks > 0) over5.toDouble() / headingBlocks else null,
-                        replay.warnings.size, equal).joinToString(",") { it?.toString().orEmpty() })
+                        replay.warnings.size).joinToString(",") { it?.toString().orEmpty() })
                     summary.flush()
                     println("$id ${variant.name}: first STOP from turn start ${firstStop?.minus(turnStartS)} s; early STOP $earlyS s; warnings ${replay.warnings.size}")
                 }

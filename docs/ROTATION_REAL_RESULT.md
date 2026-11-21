@@ -1,6 +1,6 @@
 # 90° 회전 녹화 비교 결과
 
-2026-11-19. 기준 main `0a89c71b1eb888fdf95acf02f7eca2cedfa5b906`에 기존 실험 브랜치의 높이 겹침 보정과 재생 옵션을 옮겨 평가했다. 실험 브랜치는 `experiment/rotation-real-90-review`다. 재현 명령과 열 정의는 [실행 절차](ROTATION_REAL_AB.md), 숫자 원본은 [summary CSV](rotation_real_20261119.csv)에 있다.
+2026-11-19. 기준 main `0a89c71b1eb888fdf95acf02f7eca2cedfa5b906`에 기존 실험 브랜치의 높이 겹침 보정과 재생 옵션을 옮겨 평가했다(커밋 `34f26286`). 병합 때(PR #112) 높이 겹침 보정은 효과가 없어 main에 넣지 않았고, 재생기와 근거리 진단 기록만 받았다. 아래의 보정 ON 수치와 합성 쌍 비교는 커밋 `34f26286`의 코드로 다시 낼 수 있다. 재현 명령과 열 정의는 [실행 절차](ROTATION_REAL_AB.md), 숫자 원본은 [summary CSV](rotation_real_20261119.csv)에 있다.
 
 네 세션 × 일곱 변형을 PC에서 고정 처리 시간 10 ms로 재생했다. 모든 변형에 소리 설정과 머리 오프셋 [0, 0.2, -0.1] m를 적용했다. 가슴 고정 변형은 같은 값을 `heading.chestMount.headOffsetBodyM`에도 넣었다. 장착 yaw는 0°로 가정했다. M42 카메라 결합의 2.3°는 기존 합성 비교값이며 이번 녹화로 조정하지 않았다.
 

@@ -114,10 +114,9 @@ class OfflineReplay(
     private val movingOracle: ((Long, List<hearspace.core.geometry.Vec3>) -> Boolean?)? = null,
     /** 움직임 정답의 출처(`replay_info.json` 기록용, 예: clicks). */
     private val movingFrom: String? = null,
-    /** Evaluation-only recovery of vertically unstable near-STOP representatives. */
-    private val nearStopHeightOverlap: Boolean = false,
 ) {
 
+    /** 근거리 STOP 진단(평가 전용): 느린 경로 장마다 근거리 후보 단계별 수(ROI 점·칸·크기 통과·누적 관측·출력). */
     internal var nearStopFrameObserver: ((Long, hearspace.core.guidance.NearStopDetector.FrameEvidence) -> Unit)? = null
 
     /** 마지막 [run]에서 세션을 읽으며 건너뛴 항목(없는·손상된 파일, 잘린 마지막 줄 등, [SessionReader.warnings]). */
@@ -131,7 +130,7 @@ class OfflineReplay(
      */
     fun run(session: File, outDir: File, overridesJson: String = "{}", slowPathNote: String = "") {
         val depthFromJson = depthFrom?.let { "{ \"variant\": \"$it\", \"delayMs\": ${depthFromDelayNs / 1_000_000.0} }" }
-        RunLogWriter(outDir, session, overridesJson, slowPathNote, substitution?.infoJson(alignFrom), rgbSource.name, depthFromJson, movingFrom, nearStopHeightOverlap).use { log ->
+        RunLogWriter(outDir, session, overridesJson, slowPathNote, substitution?.infoJson(alignFrom), rgbSource.name, depthFromJson, movingFrom).use { log ->
             val truth = File(session, "annotations/obstacles.json").isFile
             val base = if (truth) MapEvalWriter(ClusterEvalWriter(log, outDir, session, config, substitution?.align), outDir, session, config, align = substitution?.align, alignFile = alignFrom.takeIf { it.isNotBlank() }?.let(::File)) else log
             // M50: 상황 가지는 결과를 읽기만 하고 speech.csv·situation.csv를 따로 쓴다(실행 로그는 그대로)
@@ -155,10 +154,6 @@ class OfflineReplay(
         val vision = if (VisionFrames.needed(config) || cellTraceOut != null) VisionFrames(session, reader, labelRemap) else null
         val fast = FastPath(config, substitution?.headingSnap())
         val slow = SlowPath(config, substitution?.fixedMap(config.map.voxelSizeM), floorOverrideY = substitution?.floorY(), movingOracle = movingOracle)
-        if (nearStopHeightOverlap) {
-            requireNotNull(slow.nearStop) { "nearStopHeightOverlap requires policy.nearStop and live-map replay" }
-                .experimentHeightOverlap = true
-        }
         slow.map.collectInserted = mapInserts
         if (cellTraceOut != null) slow.map.cellTrace = hearspace.core.mapping.CellTrace(config.map)
         var pose: PoseFrame? = null

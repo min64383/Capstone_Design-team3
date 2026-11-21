@@ -70,33 +70,22 @@ object ChestGuidanceExperiment {
         }
     }
     private val columns = listOf("caseId", "suite", "mode", "turnDeg", "turnS", "mountYawDeg", "actualFrontM", "usedFrontM", "slipDeg", "noiseSeed", "sideM", "phase", "ticks", "eligibleTicks", "stopTicks", "stopCoverage", "maxMissRunMs", "azimuthFrameP95Deg", "headP95M", "activeFraction", "firstEligibleS", "firstStopDelayMs", "resets", "anyStopTicks", "hasTarget", "roomHalfWidthM", "targetStopIds")
-    private fun run(id: Int, c: Case, base: Config, trace: Appendable, timing: Appendable, widthConfig: NearStopConfig = nearConfig, matchTrace: Appendable? = null, heightOverlap: Boolean = false): List<Map<String, Any>> {
+    private fun run(id: Int, c: Case, base: Config, trace: Appendable, timing: Appendable): List<Map<String, Any>> {
         val usedFront = if (c.mode == "CALIBRATED_MEASURED" || c.mode in listOf("PRODUCTION_CHEST", "NEAR_CHEST")) c.frontM else .39f
         val cfg = base.copy(heading = if (c.mode == "FUSED") base.heading.copy(cameraSigmaDeg = 2.3f) else base.heading,
             head = base.head.copy(offsetFromCameraM = Vec3(0f, .5f, if (c.mode in listOf("PRODUCTION_CHEST", "NEAR_CHEST")) -.39f else -usedFront)))
         val effectiveCfg = if (c.mode in listOf("PRODUCTION_CHEST", "NEAR_CHEST")) cfg.copy(heading = cfg.heading.copy(
             chestMount = ChestMountConfig(c.mountYawDeg, Vec3(0f, .5f, -c.frontM), .1f)),
-            policy = cfg.policy.copy(nearStop = if (c.mode == "NEAR_CHEST") widthConfig else null)) else cfg
+            policy = cfg.policy.copy(nearStop = if (c.mode == "NEAR_CHEST") nearConfig else null)) else cfg
         val first = pose(c, 0).pose.worldFromCam
         val forwardC = first.rigidInverse().transformDir(fwd(0f)) // exact initial alignment, first frame only
         var calibrated = fwd(0f)
         val fast = FastPath(effectiveCfg, if (c.mode.startsWith("CALIBRATED")) { _ -> calibrated } else null)
         val slow = SlowPath(effectiveCfg)
-        slow.nearStop?.experimentHeightOverlap = heightOverlap
-        if (matchTrace != null) {
-            slow.nearStop?.observeMatch = { time, rep, nearest, matched, radius ->
-                val prior = nearest?.repPointW
-                val delta = prior?.let { rep - it }
-                val distance = delta?.norm()
-                matchTrace.appendLine(listOf((time - T0_NS) / 1e9, rep.x, rep.y, rep.z,
-                    prior?.x, prior?.y, prior?.z, nearest?.id, matched?.id, distance, radius,
-                    distance?.minus(radius)).joinToString(",") { it?.toString().orEmpty() })
-            }
-        }
         var evidence: hearspace.core.guidance.NearStopDetector.FrameEvidence? = null
         val groupEvidence = mutableListOf<String>()
         val compareGroups = c.suite == "TURN_HOLD" && c.mode == "NEAR_CHEST" &&
-            abs(c.turnDeg) == 90f && (c.turnS == .5f || c.noiseSeed == 0)
+            abs(c.turnDeg) == 90f && c.turnS == 1f && c.noiseSeed == 0
         if (compareGroups) {
             slow.nearStop?.observeGroup = { cells, height, width, gate ->
                 groupEvidence += "$cells/$height/$width/$gate"
@@ -170,112 +159,6 @@ object ChestGuidanceExperiment {
             File(System.getProperty("hearspace.runtimeOverride")).readText(),
             File(System.getProperty("hearspace.nearStopOverride")).readText())).policy.nearStop!!
         val out = File(args.firstOrNull() ?: "core/build/chest-guidance-experiment").also { it.mkdirs() }
-        if (System.getenv("HEARSPACE_ADJACENT_CONTROL") == "1") {
-            val baseline = nearConfig.copy(confirmMinLateralSpanM = nearConfig.minLateralSpanM)
-            val cfgTest = cfg.copy(policy = cfg.policy.copy(nearStop = baseline))
-            val corridor = hearspace.core.guidance.Corridor(Vec3(0f, 0f, 0f), Vec3(0f, 0f, -1f), 0f, cfg.corridor)
-            fun points(center: Float, bottom: Float) = buildList {
-                for (x in -1..1) for (y in 0..5) add(Vec3(center + x * .055f, bottom + y * .055f, -.7f))
-            }
-            File(out, "adjacent_control.csv").bufferedWriter().use { log ->
-                log.appendLine("spacingM,bottomDiffM,heightOverlap,aId,bFirstId,bSecondId,wrongTransfer")
-                for (spacing in listOf(.24f, .28f, .32f)) for (rise in listOf(0f, .22f, .40f)) {
-                    for (enabled in listOf(false, true)) {
-                        val detector = hearspace.core.guidance.NearStopDetector(cfgTest)
-                        detector.experimentHeightOverlap = enabled
-                        val a = points(-spacing / 2, .35f)
-                        val b = points(spacing / 2, .35f + rise)
-                        fun sample(points: List<Vec3>, frame: Int) =
-                            detector.update(points, T0_NS + frame * 33_333_333L, corridor, emptyList()).singleOrNull()?.id
-                        check(sample(a, 0) == null)
-                        val aId = checkNotNull(sample(a, 1)) { "First object did not confirm" }
-                        val bFirst = sample(b, 2)
-                        val bSecond = checkNotNull(sample(b, 3)) { "Second object did not confirm" }
-                        log.appendLine(listOf(spacing, rise, enabled, aId, bFirst, bSecond, bFirst == aId).joinToString(",") { it?.toString().orEmpty() })
-                    }
-                }
-            }
-            return
-        }
-        if (System.getenv("HEARSPACE_HEIGHT_OVERLAP") == "1") {
-            val baseline = nearConfig.copy(confirmMinLateralSpanM = nearConfig.minLateralSpanM)
-            val detector = hearspace.core.guidance.NearStopDetector(cfg.copy(policy = cfg.policy.copy(nearStop = baseline)))
-            detector.experimentHeightOverlap = true
-            val corridor = hearspace.core.guidance.Corridor(Vec3(0f, 0f, 0f), Vec3(0f, 0f, -1f), 0f, cfg.corridor)
-            fun patch(bottom: Float) = buildList {
-                for (x in -3..3) for (y in 0..5) add(Vec3(x * .055f, bottom + y * .055f, -.7f))
-            }
-            val lower = patch(.25f)
-            val upper = patch(.95f)
-            fun sample(points: List<Vec3>, frame: Int) =
-                detector.update(points, T0_NS + frame * 33_333_333L, corridor, emptyList())
-            check(sample(lower, 0).isEmpty() && sample(lower, 1).isNotEmpty())
-            check(sample(upper, 2).isEmpty() && sample(upper, 3).isNotEmpty()) { "Stacked object control failed" }
-            File(out, "overlap_pairs.csv").bufferedWriter().use { csv ->
-                csv.appendLine("heightOverlap," + columns.joinToString(","))
-                var id = 0
-                for (seed in 101..120) for (angle in listOf(-90f, 90f)) {
-                    val scene = Case("TURN_HOLD", "NEAR_CHEST", angle, .5f, noiseSeed = seed)
-                    for (enabled in listOf(false, true)) {
-                        val rows = run(id, scene, cfg, java.io.Writer.nullWriter(), java.io.Writer.nullWriter(),
-                            baseline, heightOverlap = enabled)
-                        for (row in rows) csv.appendLine(enabled.toString() + "," + columns.joinToString(",") { row[it].toString() })
-                    }
-                    id++
-                }
-            }
-            println("Height overlap complete: 40 paired scenes and stacked object control")
-            return
-        }
-        if (System.getenv("HEARSPACE_ROTATION_MATCH_TRACE") == "1") {
-            File(out, "match_104.csv").bufferedWriter().use { log ->
-                log.appendLine("tS,x,y,z,prevX,prevY,prevZ,nearestId,matchedId,distanceM,radiusM,distanceMinusRadiusM")
-                val scene = Case("TURN_HOLD", "NEAR_CHEST", 90f, .5f, noiseSeed = 104)
-                run(0, scene, cfg, java.io.Writer.nullWriter(), java.io.Writer.nullWriter(),
-                    nearConfig.copy(confirmMinLateralSpanM = nearConfig.minLateralSpanM), log)
-            }
-            return
-        }
-        if (System.getenv("HEARSPACE_ROTATION_FAST_TRACE") == "1") {
-            val baseline = nearConfig.copy(confirmMinLateralSpanM = nearConfig.minLateralSpanM)
-            File(out, "fast_trace.csv").bufferedWriter().use { trace ->
-                trace.appendLine("caseId,phase,tS,eligible,targetStop,state,headingErrorDeg,headErrorM,targetCommands,azimuthFrameMaxDeg,obstacles,targetCenterAzimuthDeg,earlyCommands,anyStop,nearRoiPoints,nearCells,nearSizeCandidates,nearMaxObservations,nearPublished,nearGroups_cells_heightM_widthM_firstGate,noiseSeed,turnDeg")
-                var id = 0
-                for (seed in 101..120) for (angle in listOf(-90f, 90f)) {
-                    val frames = StringBuilder()
-                    val scene = Case("TURN_HOLD", "NEAR_CHEST", angle, .5f, noiseSeed = seed)
-                    run(id++, scene, cfg, frames, java.io.Writer.nullWriter(), baseline)
-                    for (line in frames.lineSequence().filter { it.isNotBlank() }) {
-                        trace.appendLine("$line,$seed,$angle")
-                    }
-                }
-            }
-            println("Fast rotation trace complete: 40 scenes")
-            return
-        }
-        if (System.getenv("HEARSPACE_ROTATION_WIDTH_SWEEP") == "1") {
-            check(nearConfig.minLateralSpanM == .08f && nearConfig.confirmMinLateralSpanM == .079f)
-            val cases = buildList {
-                for (seed in 101..120) for (angle in listOf(-90f, 90f)) for (duration in listOf(.5f, 1f)) {
-                    add(Case("TURN_HOLD", "NEAR_CHEST", angle, duration, noiseSeed = seed))
-                    add(Case("EMPTY_ROOM", "NEAR_CHEST", angle, duration, noiseSeed = seed, hasTarget = false))
-                }
-                for (seed in 101..120) for (width in listOf(.45f, .55f, .8f))
-                    add(Case("SIDE_WALL", "NEAR_CHEST", 0f, noiseSeed = seed, hasTarget = false, roomHalfWidthM = width))
-            }
-            File(out, "width_pairs.csv").bufferedWriter().use { csv ->
-                csv.appendLine("confirmWidthM," + columns.joinToString(","))
-                for ((id, scene) in cases.withIndex()) {
-                    for (width in listOf(nearConfig.minLateralSpanM, nearConfig.confirmMinLateralSpanM)) {
-                        val rows = run(id, scene, cfg, java.io.Writer.nullWriter(), java.io.Writer.nullWriter(),
-                            nearConfig.copy(confirmMinLateralSpanM = width))
-                        for (row in rows) csv.appendLine(width.toString() + "," + columns.joinToString(",") { row[it].toString() })
-                    }
-                    println("paired scene ${id + 1}/${cases.size}")
-                }
-            }
-            return
-        }
         val referenceCases = buildList {
             for (a in listOf(-180f, -90f, 90f, 180f)) for (s in listOf(.5f, 1f)) for (mode in listOf("CURRENT", "FUSED", "CALIBRATED"))
                 for (seed in listOf(0, 7)) add(Case("TURN_HOLD", mode, a, s, noiseSeed = seed))

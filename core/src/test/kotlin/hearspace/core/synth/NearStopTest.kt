@@ -102,40 +102,4 @@ class NearStopTest {
         assertEquals(1, g.single().obstacleId)
         assertEquals(Band.STOP, g.single().band)
     }
-
-    private fun risingPatch(bottomM: Float, centerM: Float = 0f): List<Vec3> =
-        (0..6).flatMap { x -> (0..10).map { y ->
-            Vec3(centerM - .15f + x * .05f, bottomM + y * .05f, -.8f)
-        } }
-
-    @Test fun `overlapping surface with vertical representative jump confirms only with recovery`() {
-        val c = config().let { it.copy(repPoint = it.repPoint.copy(strategy = RepStrategy.NEAREST)) }
-        for (enabled in listOf(false, true)) {
-            val detector = NearStopDetector(c).also { it.experimentHeightOverlap = enabled }
-            assertTrue(detector.update(risingPatch(.2f), t0, corridor(c), emptyList()).isEmpty())
-            val second = detector.update(risingPatch(.55f), t0 + frameNs, corridor(c), emptyList())
-            assertEquals(enabled, second.isNotEmpty())
-            if (enabled) assertEquals(-1, second.single().id)
-        }
-    }
-
-    @Test fun `height recovery rejects separated heights and horizontal shifts beyond one voxel`() {
-        val c = config().let { it.copy(repPoint = it.repPoint.copy(strategy = RepStrategy.NEAREST)) }
-        for ((bottomM, centerM) in listOf(.8f to 0f, .55f to .25f)) {
-            val detector = NearStopDetector(c).also { it.experimentHeightOverlap = true }
-            detector.update(risingPatch(.2f), t0, corridor(c), emptyList())
-            assertTrue(detector.update(risingPatch(bottomM, centerM), t0 + frameNs, corridor(c), emptyList()).isEmpty())
-        }
-    }
-
-    @Test fun `height recovery does not reuse observations across missing frames gaps or resets`() {
-        val c = config().let { it.copy(repPoint = it.repPoint.copy(strategy = RepStrategy.NEAREST)) }
-        val detector = NearStopDetector(c).also { it.experimentHeightOverlap = true }
-        detector.update(risingPatch(.2f), t0, corridor(c), emptyList())
-        detector.update(emptyList(), t0 + frameNs, corridor(c), emptyList())
-        assertTrue(detector.update(risingPatch(.55f), t0 + 2 * frameNs, corridor(c), emptyList()).isEmpty())
-        assertTrue(detector.update(risingPatch(.2f), t0 + 1_000_000_000L, corridor(c), emptyList()).isEmpty())
-        detector.reset()
-        assertTrue(detector.update(risingPatch(.55f), t0 + 2_000_000_000L, corridor(c), emptyList()).isEmpty())
-    }
 }
