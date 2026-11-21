@@ -154,3 +154,15 @@ tasks.register<JavaExec>("chestGuidanceExperiment") {
     systemProperty("hearspace.runtimeOverride", rootProject.file("app/src/main/assets/config/risk-continuous.override.json").absolutePath)
     args(rootProject.file((project.findProperty("out") as String?) ?: "core/build/chest-guidance-experiment").absolutePath)
 }
+
+tasks.register<JavaExec>("rotationRealReplay") {
+    group = "hearspace"
+    description = "Compare heading, near-STOP and age-limit diagnostics on the four November 16 rotation recordings"
+    dependsOn("testClasses")
+    classpath = sourceSets["test"].runtimeClasspath
+    mainClass.set("hearspace.core.synth.RealRotationReplay")
+    maxHeapSize = "2g"
+    systemProperty("hearspace.repo", rootProject.projectDir.absolutePath)
+    systemProperty("hearspace.gitHash", gitHash)
+    args(rootProject.file((project.findProperty("out") as String?) ?: "core/build/rotation-real").absolutePath)
+}

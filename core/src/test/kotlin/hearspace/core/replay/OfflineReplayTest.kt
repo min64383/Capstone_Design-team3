@@ -61,6 +61,24 @@ class OfflineReplayTest {
     private fun guidance(run: File) = File(run, RunLog.GUIDANCE_FILE).readLines().drop(1).map { it.split(',') }
 
     @Test
+    fun `near stop frame observer sees every slow step without changing guidance`() {
+        val session = File(root, "near_observer/session")
+        SyntheticSessionWriter.write(box4().generate(), session, "SYN")
+        val mount = """{"heading":{"cameraSigmaDeg":0,"chestMount":{"yawOffsetDeg":0,"headOffsetBodyM":[0,0.2,-0.1],"minHorizontalNorm":0.1}}}"""
+        val profile = File(File(System.getProperty("hearspace.defaultConfig")).parentFile, "near-stop.experimental.override.json").readText()
+        val near = ConfigLoader.load(base, listOf(mount, profile))
+        val plain = File(root, "near_observer/plain")
+        OfflineReplay(near, OfflineReplay.fixed(10f)).run(session, plain)
+        val observed = File(root, "near_observer/observed")
+        val replay = OfflineReplay(near, OfflineReplay.fixed(10f))
+        var frames = 0
+        replay.nearStopFrameObserver = { _, _ -> frames++ }
+        replay.run(session, observed)
+        assertTrue(frames > 0)
+        assertTrue(File(plain, RunLog.GUIDANCE_FILE).readBytes().contentEquals(File(observed, RunLog.GUIDANCE_FILE).readBytes()))
+    }
+
+    @Test
     fun `elevation diagnostics preserve obstacle guidance and log every slow step`() {
         val session = File(root, "geometry/session")
         SyntheticSessionWriter.write(box4().generate(), session, "SYN")
