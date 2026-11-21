@@ -252,6 +252,52 @@ class SituationTest {
     }
 
     @Test
+    fun `SP-18 incremental grid windows equal a fresh recount`() {
+        val inc = hearspace.core.situation.SurfaceGrid(config.situation)
+        val ms = 1_000_000L
+        val t0 = 1_000_000_000L
+        val imgs = (0 until 30).map { i -> surface(t0 + i * 200 * ms, pose(0.05f * (i % 3), -0.1f * i), blockLine(to = 6f)) }
+        val added = ArrayList<LabelImage>()
+        for (j in 0 until 60) {
+            val now = t0 + j * 100 * ms
+            for (img in imgs) if (img.tCaptureNs <= now && img !in added) { inc.add(img, 0f); added.add(img) }
+            for (w in listOf(0.5f, 1.2f)) {
+                val a = inc.cells(now, w)
+                val fresh = hearspace.core.situation.SurfaceGrid(config.situation)
+                for (img in added) fresh.add(img, 0f)
+                val b = fresh.cells(now, w)
+                assertEquals(b.size, a.size, "now $j window $w")
+                for (c in b.values) assertTrue(a[fresh.keyAt(c.centerW)]!!.frames.contentEquals(c.frames), "now $j window $w cell ${c.ix},${c.iz}")
+            }
+        }
+    }
+
+    @Test
+    fun `SP-19 map-based speech stops when the last surface image is older than surfaceMaxAgeMs`() {
+        val t0 = 1_000_000_000L
+        val all = run(100, cls = blockLine())
+        assertTrue(all.isNotEmpty(), "control run must speak")
+        // 노면 영상을 첫 차례에만 주면, 그 영상 + 1 s 뒤로는 노면 지도에 기대는 말이 없다
+        val stale = runSurfaceOnce(100, cls = blockLine())
+        val limit = t0 + config.situation.surfaceMaxAgeMs * 1_000_000L + 30_000_000L
+        assertTrue(stale.all { it.tNs <= limit }, stale.toString())
+    }
+
+    /** [run]과 같지만 노면 영상은 첫 차례에만 준다. */
+    private fun runSurfaceOnce(n: Int, cls: (Float, Float) -> Int): List<Utterance> {
+        val sit = Situations(config.situation, config.corridor.widthM, config.corridor.heightM, config.vision.footHeightWindowS, 500_000_000L)
+        val out = ArrayList<Utterance>()
+        val first = surface(1_000_000_000L, pose(0f, 0f), cls)
+        for (i in 0 until n) {
+            val t = 1_000_000_000L + i * stepNs
+            val w = pose(0f, 0f)
+            val (u, _) = sit.step(SituationInput(t + 30_000_000L, depth(t, w), ObstacleSnapshot(t, emptyList(), 0f, MapHealth.OK), emptyList(), heading, first))
+            out += u
+        }
+        return out
+    }
+
+    @Test
     fun `SP-5 no block end when the ground beyond is unobserved`() {
         val said = run(100, cls = { x, z -> if (-z > 3.5f) 255 else blockLine()(x, z) })
         assertEquals(0, said.count { it.text.startsWith("블록 끝") }, said.toString())

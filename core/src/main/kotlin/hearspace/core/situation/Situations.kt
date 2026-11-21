@@ -73,6 +73,8 @@ class Situations(
     private val heights = ArrayDeque<Pair<Long, Float>>()
     private var lastSurfaceNs = Long.MIN_VALUE
     private var lastStepDepthNs = Long.MIN_VALUE
+    /** 이번 판단의 깊이 장 시각. 노면 지도에 기대는 말의 근거 시각이다(M65 설계 승인 뒤 변경, 아래 [step]). */
+    private var stepNs = Long.MIN_VALUE
     private var lastStepSurfaceNs = Long.MIN_VALUE
 
     /**
@@ -96,6 +98,7 @@ class Situations(
     /** 한 차례: 노면 영상을 격자에 넣고 규칙을 돌려 낸 말과 상태 기록. */
     fun step(inp: SituationInput): Pair<List<Utterance>, SituationRecord> {
         lastStepDepthNs = inp.depth.tCaptureNs
+        stepNs = inp.depth.tCaptureNs
         inp.surface?.let { lastStepSurfaceNs = maxOf(lastStepSurfaceNs, it.tCaptureNs) }
         val camW = inp.depth.worldFromCam.translation()
         val tNs = inp.depth.tCaptureNs
@@ -116,13 +119,14 @@ class Situations(
         if (h != null) {
             val user = camW.horizontal()
             val right = BlockLine.rightOf(h)
-            val lines = BlockLines.fit(memory.values.filter { it.major == SurfaceClass.BLOCK.pixel }.map { it.centerW }, cfg.lineInlierM, cfg.lineMinLengthM, cfg.gridCellM)
+            // 블록 점은 좌표순으로 정렬해 넣는다: RANSAC은 씨앗을 고정했으므로 점 순서가 결과를 정한다(격자 표의 도는 순서와 무관하게, M65)
+            val lines = BlockLines.fit(memory.values.filter { it.major == SurfaceClass.BLOCK.pixel }.sortedWith(compareBy({ it.ix }, { it.iz })).map { it.centerW }, cfg.lineInlierM, cfg.lineMinLengthM, cfg.gridCellM)
                 .map { if (it.dir dot h < 0f) it.flipped() else it }
             val ceiling = heights.isNotEmpty() && ceilingSeen(inp.depth, user, h, right, camW.y - medianHeight())
             rec = rec.copy(nLines = lines.size, ceiling = ceiling)
             updateEnvironment(tNs, grid.cells(tNs, cfg.envWindowS), lines, user, h, right, ceiling)
             rec = rec.copy(env = env, envCandidate = candidate)
-            if (cfg.envSpeech) env.text?.let { req.add(SpeechRequest("env:$env", it, env.priority, lastSurfaceNs)) }
+            if (cfg.envSpeech) env.text?.let { req.add(SpeechRequest("env:$env", it, env.priority, stepNs)) }
 
             val follow = lines.filter { angleDeg(it.dir, h) <= cfg.lineMaxAngleDeg && abs(it.lateral(user)) <= cfg.envHalfWidthM }
                 .minByOrNull { abs(it.lateral(user)) }
@@ -137,12 +141,16 @@ class Situations(
             }
             val (stairsAhead, dir) = stairs(inp, memory, user, h, right, req)
             val dropM = dropAhead(inp.depth, user, h, right)
-            if (cfg.dropEnabled && !dropM.isNaN() && dir != "down") req.add(SpeechRequest("drop", "내려가는 곳, ${meters(dropM)}미터", 1, minOf(lastSurfaceNs, inp.depth.tCaptureNs)))
+            if (cfg.dropEnabled && !dropM.isNaN() && dir != "down") req.add(SpeechRequest("drop", "내려가는 곳, ${meters(dropM)}미터", 1, stepNs))
             rec = rec.copy(stairsAheadM = stairsAhead, stairsDir = dir, dropAheadM = dropM)
             if (cfg.bumpSpeech) bump(memory, user, h, right, req)
             vehicles(inp, user, req)
         }
-        return speech.tick(inp.nowNs, req, inp.outputPriority) to rec
+        // M65(사용자 승인 2026-11-21): 노면 격자는 지난 gridMemoryS를 기억하는 지도이고 노면은 움직이지 않으므로, 노면 지도에 기대는 말의 근거 시각은
+        // 노면 영상 촬영 시각이 아니라 판단에 쓴 사용자 위치(이 깊이 장)의 시각이다(장애물 소리가 느린 경로 결과 시각으로 나이를 재는 것과 같다).
+        // 안전장치: 마지막 노면 영상이 surfaceMaxAgeMs보다 오래되면(모델이 멈춤 등) 노면 지도에 기대는 말은 내지 않는다. 차 다가옴은 노면과 무관하다.
+        val fresh = lastSurfaceNs != Long.MIN_VALUE && inp.depth.tCaptureNs - lastSurfaceNs <= cfg.surfaceMaxAgeMs * 1_000_000L
+        return speech.tick(inp.nowNs, if (fresh) req else req.filter { it.key.startsWith("veh#") }, inp.outputPriority) to rec
     }
 
     fun reset() {
@@ -211,7 +219,7 @@ class Situations(
         } else {
             driftOverSinceNs = Long.MIN_VALUE
         }
-        if (drifting) req.add(SpeechRequest("drift#$driftEpisode", if (driftRight) "블록 오른쪽" else "블록 왼쪽", 2, lastSurfaceNs))
+        if (drifting) req.add(SpeechRequest("drift#$driftEpisode", if (driftRight) "블록 오른쪽" else "블록 왼쪽", 2, stepNs))
     }
 
     /** 1c: 장애물 출력의 대표점이 따라가는 블록 선에서 [SituationConfig.onBlockBandM] 안이고 앞에 있으면. */
@@ -246,7 +254,7 @@ class Situations(
                 else -> "블록 왼쪽으로 꺾임"
             }
             if (atEnd) turnAtEnd = true
-            req.add(SpeechRequest("turn", text, 2, lastSurfaceNs))
+            req.add(SpeechRequest("turn", text, 2, stepNs))
         }
         if (turnAtEnd || endAhead < cfg.endMinM || endAhead > cfg.endMaxM) return if (endAhead in cfg.endMinM..cfg.endMaxM) endAhead else Float.NaN
         var t = cfg.gridCellM
@@ -255,7 +263,7 @@ class Situations(
             if (c.major !in SurfaceClass.WALKABLE || c.major == SurfaceClass.BLOCK.pixel || c.frames[SurfaceClass.BLOCK.pixel] > 0) return Float.NaN
             t += cfg.gridCellM
         }
-        req.add(SpeechRequest("end", "블록 끝, ${meters(endAhead)}미터", 2, lastSurfaceNs))
+        req.add(SpeechRequest("end", "블록 끝, ${meters(endAhead)}미터", 2, stepNs))
         return endAhead
     }
 
@@ -273,8 +281,8 @@ class Situations(
         val key = "stairs"
         when {
             down -> req.add(SpeechRequest(key, "내려가는 계단, ${meters(ahead)}미터", 1, inp.depth.tCaptureNs, level = 2))
-            up -> req.add(SpeechRequest(key, "올라가는 계단", 3, lastSurfaceNs, level = 1))
-            else -> req.add(SpeechRequest(key, "계단, ${meters(ahead)}미터", 2, lastSurfaceNs, level = 1))
+            up -> req.add(SpeechRequest(key, "올라가는 계단", 3, stepNs, level = 1))
+            else -> req.add(SpeechRequest(key, "계단, ${meters(ahead)}미터", 2, stepNs, level = 1))
         }
         return ahead to if (down) "down" else if (up) "up" else "unknown"
     }
@@ -372,7 +380,7 @@ class Situations(
 
     private fun bump(memory: Map<Long, SurfaceCell>, user: Vec3, h: Vec3, right: Vec3, req: MutableList<SpeechRequest>) {
         val nearest = inCorridor(memory, SurfaceClass.BUMP, user, h, right).minByOrNull { (it.centerW - user) dot h } ?: return
-        req.add(SpeechRequest("bump", "방지턱", 3, lastSurfaceNs))
+        req.add(SpeechRequest("bump", "방지턱", 3, stepNs))
     }
 
     private fun inCorridor(memory: Map<Long, SurfaceCell>, cls: SurfaceClass, user: Vec3, h: Vec3, right: Vec3): List<SurfaceCell> =
