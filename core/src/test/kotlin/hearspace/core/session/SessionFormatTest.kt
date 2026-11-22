@@ -107,9 +107,16 @@ class SessionFormatTest {
 
     @Test
     fun `device csv round trips`() {
-        val rows = listOf(DeviceRow(1_000_000_000L, 2, 87, null), DeviceRow(2L, null, null, 12.5f))
+        val rows = listOf(DeviceRow(1_000_000_000L, 2, 87, null), DeviceRow(2L, null, null, 12.5f, 31.5f, 0.42f, 88.25f))
         for (r in rows) assertEquals(r, DeviceCsv.parse(DeviceCsv.format(r)))
-        assertEquals("tNs,thermalStatus,batteryPct,audioOutputLatencyMs", DeviceCsv.headerLine())
+        assertEquals("tNs,thermalStatus,batteryPct,audioOutputLatencyMs,batteryTempC,thermalHeadroom,heapMb", DeviceCsv.headerLine())
+    }
+
+    @Test
+    fun `device csv reads old four column lines and writes NaN headroom as empty`() {
+        assertEquals(DeviceRow(5L, 0, 100, 54.0625f), DeviceCsv.parse("5,0,100,54.0625")) // M63 전 파일
+        assertEquals("7,,,,30.0,,", DeviceCsv.format(DeviceRow(7L, null, null, null, 30f, Float.NaN, null)))
+        assertThrows<IllegalArgumentException> { DeviceCsv.parse("1,2,3") }
     }
 
     @Test

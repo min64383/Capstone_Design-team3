@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- M63: bench 빌드만 셸 프로파일러(simpleperf) 허용. 실행 코드는 바꾸지 않는다(Android 10+ <profileable>). -->
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+    <application>
+        <profileable android:shell="true" />
+    </application>
+</manifest>

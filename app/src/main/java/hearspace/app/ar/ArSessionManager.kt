@@ -76,6 +76,8 @@ class ArSessionManager(
                 val s = Session(activity)
                 try {
                     depthSupport = configure(s)
+                    // M63: 깊이를 못 쓰는 기기는 이유를 알리고 시작하지 않는다(그대로 두면 이유 없이 확인 불가만 계속 냄). 재생은 녹화 깊이를 씀
+                    if (playbackMp4 == null && depthSupport?.modeUsed == Config.DepthMode.DISABLED) throw NoDepthException()
                     // VERIFY: 재생 데이터셋은 세션이 일시정지 상태일 때(첫 resume 전) 지정해야 한다(ARCore Playback API 문서)
                     playbackMp4?.let { s.setPlaybackDatasetUri(Uri.fromFile(it)) }
                 } catch (e: Exception) {
@@ -90,6 +92,9 @@ class ArSessionManager(
             } catch (e: PlaybackFailedException) {
                 Log.e(TAG, "playback dataset failed: $playbackMp4", e)
                 return "재생 파일을 열 수 없습니다"
+            } catch (e: NoDepthException) {
+                Log.e(TAG, "depth not supported on this device")
+                return "이 기기는 깊이 측정을 지원하지 않아 안내할 수 없습니다"
             } catch (e: NoSensorConfigException) {
                 Log.e(TAG, e.message ?: "no camera config")
                 return "깊이 센서 설정(${sensorUsage.name})을 쓸 수 없습니다. 기기 설정 덮어쓰기를 확인하세요"
@@ -140,6 +145,8 @@ class ArSessionManager(
         "image ${c.imageSize} texture ${c.textureSize} fps ${c.fpsRange} depthSensor ${c.depthSensorUsage}"
 
     private class NoSensorConfigException(message: String) : Exception(message)
+
+    private class NoDepthException : Exception("depth not supported")
 
     private fun configure(s: Session): DepthSupport {
         selectCameraConfig(s)

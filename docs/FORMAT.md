@@ -64,7 +64,7 @@ F8(재생 모드)은 M7에서 확인한다.
 ├── meta.json        기기·ARCore 버전·깊이 지원·내부 파라미터·규약·파지 오프셋·통계(종료 시)
 ├── arcore.mp4       ARCore Recording API 출력 (재생 모드 입력)
 ├── frames.csv       ARCore 프레임마다 1행 (저장이 밀려도 행은 빠지지 않음)
-├── device.csv       발열·배터리 (record.deviceLogIntervalS 간격)
+├── device.csv       발열·배터리 (record.deviceLogIntervalS 간격; 열 tNs, thermalStatus, batteryPct, audioOutputLatencyMs, batteryTempC, thermalHeadroom, heapMb — 뒤 셋은 M63에서 더함, 옛 파일은 앞 4열)
 ├── depth/NNNNNN.png       일반 깊이 uint16 mm, 16비트 흑백 PNG, 0 = 무효
 ├── raw_depth/NNNNNN.png   원시 깊이 uint16 mm (v0 추가, F6 비교용)
 ├── depth_conf/NNNNNN.png  원시 깊이 신뢰도 uint8 (원시 깊이와 같은 프레임)
