@@ -18,12 +18,24 @@ class ConfigLoaderTest {
     private fun load(override: String? = null) = ConfigLoader.load(defaultJson, override)
 
     @Test
-    fun `app asset overrides load in app order with the harness head offset`() {
+    fun `app asset overrides load in app order with the harness head offset, chest mount and the semantic combo`() {
         val assets = File(System.getProperty("hearspace.defaultConfig")).parentFile
         if (!File(assets, "harness.override.json").isFile) return // -PtestOverrides 합친 설정에서는 자산 폴더가 아니다
-        val c = ConfigLoader.load(defaultJson, listOf("risk-continuous.override.json", "harness.override.json").map { File(assets, it).readText() })
+        // AppConfig와 같은 순서: 소리 → 하네스 → 상황 → 조합(기기 덮어쓰기는 없음)
+        val app = listOf("risk-continuous.override.json", "harness.override.json", "situation.override.json", "semantic-combo.override.json")
+        val c = ConfigLoader.load(defaultJson, app.map { File(assets, it).readText() })
         assertEquals(Vec3(0f, 0.2f, -0.1f), c.headOffsetFromCameraM) // M61 하네스 실측(앱만, PC 재생 기준선은 손 파지)
-        assertEquals(Vec3(0f, 0.5f, -0.39f), load().headOffsetFromCameraM)
+        assertEquals(Vec3(0f, 0.2f, -0.1f), c.heading.chestMount?.headOffsetBodyM) // M51 가슴 고정(H1~H3)
+        assertEquals(true, c.vision.semantics) // M51 데모 = 조합 C
+        assertEquals(VisionLabelSource.SEMANTICS, c.vision.label)
+        assertEquals(MotionMode.KALMAN, c.track.motion)
+        assertEquals(MotionEvidence.FREE_SPACE, c.track.motionEvidence)
+        assertEquals(HitWeighting.CONFIDENCE, c.map.hitWeighting)
+        assertEquals(true, c.situation.enabled)
+        val base = load()
+        assertEquals(Vec3(0f, 0.5f, -0.39f), base.headOffsetFromCameraM) // 재생 기준선은 그대로
+        assertEquals(null, base.heading.chestMount)
+        assertEquals(MotionMode.NONE, base.track.motion)
     }
 
     private fun assertConfigError(expectedPath: String, override: String) {
