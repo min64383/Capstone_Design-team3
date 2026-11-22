@@ -30,7 +30,7 @@ class ConfigLoaderTest {
         assertEquals(VisionLabelSource.SEMANTICS, c.vision.label)
         assertEquals(MotionMode.KALMAN, c.track.motion)
         assertEquals(MotionEvidence.FREE_SPACE, c.track.motionEvidence)
-        assertEquals(HitWeighting.CONFIDENCE, c.map.hitWeighting)
+        assertEquals(HitWeighting.DISTANCE, c.map.hitWeighting) // M51: 조합에서 신뢰도 무게를 뺌(원시 신뢰도가 낮으면 지도가 빔, T01·회전 뒤 지연)
         assertEquals(true, c.situation.enabled)
         val base = load()
         assertEquals(Vec3(0f, 0.5f, -0.39f), base.headOffsetFromCameraM) // 재생 기준선은 그대로
