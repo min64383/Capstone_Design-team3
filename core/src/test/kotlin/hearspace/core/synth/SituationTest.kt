@@ -298,6 +298,28 @@ class SituationTest {
     }
 
     @Test
+    fun `SP-20 a wide dot pad where the line starts is not a branch, a real crossing line is`() {
+        // 선이 2.6 m 앞에서 시작하고, 시작점에 폭 1.4 m·깊이 0.6 m 점형블록 판(노면 모델은 같은 블록으로 칠함, T01 160 s)
+        val pad: (Float, Float) -> Int = { x, z -> if ((x in -0.15f..0.15f && -z in 2.6f..6f) || (x in -0.7f..0.7f && -z in 2.0f..2.6f)) B else S }
+        val padSaid = run(30, cls = pad)
+        assertEquals(0, padSaid.count { it.text.contains("갈림") || it.text.contains("꺾임") }, padSaid.toString())
+        // 같은 자리를 양옆 2 m씩 가로지르는 선은 갈림
+        val cross: (Float, Float) -> Int = { x, z -> if ((x in -0.15f..0.15f && -z in 0.5f..6f) || (x in -2f..2f && -z in 2.6f..2.9f)) B else S }
+        val crossSaid = run(30, cls = cross)
+        assertEquals(1, crossSaid.count { it.text == "블록 갈림" }, crossSaid.toString())
+    }
+
+    @Test
+    fun `SP-21 two branches 10 m apart are both spoken, each once`() {
+        // 따라가는 선 위 3 m·13 m 앞에서 양옆 2 m씩 가로지르는 선, 1 m/s로 걸음(옛 규칙은 키 하나라 둘째를 repeatS 동안 막았다)
+        val two: (Float, Float) -> Int = { x, z ->
+            if ((x in -0.15f..0.15f && -z in 0.5f..16f) || (x in -2f..2f && (-z in 3f..3.3f || -z in 13f..13.3f))) B else S
+        }
+        val said = run(150, userZ = { i -> -0.1f * i }, cls = two)
+        assertEquals(2, said.count { it.text == "블록 갈림" }, said.toString())
+    }
+
+    @Test
     fun `SP-5 no block end when the ground beyond is unobserved`() {
         val said = run(100, cls = { x, z -> if (-z > 3.5f) 255 else blockLine()(x, z) })
         assertEquals(0, said.count { it.text.startsWith("블록 끝") }, said.toString())

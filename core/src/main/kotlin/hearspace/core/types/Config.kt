@@ -1003,6 +1003,11 @@ data class SituationConfig(
     /** 1d 꺾임·갈림: 끝에서 [turnJoinM] 안에 시작하는 다른 선이 [turnMinDeg] 넘게 꺾임. */
     val turnJoinM: Float,
     val turnMinDeg: Float,
+    /**
+     * 1d 갈림·꺾임 말 묶기(M51): 두 선의 교점(월드)이 이미 잡은 갈림 자리에서 이 거리 안이면 같은 자리로 보고 되풀이하지 않는다. 자리마다 따로 말한다
+     * (자체 선택, 검증 안 함: 다가가며 다시 맞춘 교점의 흔들림보다 크고, T01의 실제 두 갈림 간격 약 10 m보다 작게).
+     */
+    val junctionMergeM: Float,
     /** 1e 계단·방지턱: 서로 다른 노면 영상 수, 내리막 증거를 볼 계단 화소(가장 가까운 칸보다 이만큼 먼), 깊이 초과(광선 방향), 화소 몫. */
     val confirmFrames: Int,
     val stairsBeyondM: Float,

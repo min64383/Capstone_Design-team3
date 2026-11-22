@@ -233,6 +233,17 @@ class Situations(
         }
     }
 
+    /** 잡은 갈림·꺾임 자리(교점, 월드). 번호 = 목록 위치. */
+    private val junctions = ArrayList<Vec3>()
+
+    /** 교점 [x]가 이미 잡은 자리에서 [SituationConfig.junctionMergeM] 안이면 그 번호, 아니면 새 번호. */
+    private fun junctionId(x: Vec3): Int {
+        val i = junctions.indexOfFirst { (it - x).horizontal().norm() <= cfg.junctionMergeM }
+        if (i >= 0) return i
+        junctions += x
+        return junctions.size - 1
+    }
+
     /** 1d: 끝(너머를 블록 아닌 노면으로 관측)·꺾임·갈림. 반환값은 끝까지의 앞 거리(없으면 NaN). */
     private fun endAndTurns(line: BlockLine, lines: List<BlockLine>, memory: Map<Long, SurfaceCell>, user: Vec3, h: Vec3, right: Vec3, req: MutableList<SpeechRequest>): Float {
         val endP = line.at(line.tMax)
@@ -240,6 +251,9 @@ class Situations(
         var turnAtEnd = false
         for (o in lines) {
             if (o === line || angleDeg(o.dir, line.dir).let { minOf(it, 180f - it) } < cfg.turnMinDeg) continue
+            // 칠해진 블록 선은 끊기지 않는다(M51): 격자 한 칸 길이마다 평균 한 칸 이상. 흩어진 노란 칠(바닥 원형 표시·연석 칠)을 이은 선을 뺀다
+            // (T01: 진짜 선 1 m에 12~35칸, 흩어진 칠을 이은 선 1.4~4.7칸)
+            if (o.nInliers < (o.tMax - o.tMin) / cfg.gridCellM) continue
             val x = intersect(line, o) ?: continue
             val tx = line.t(x)
             val to = o.t(x)
@@ -247,14 +261,19 @@ class Situations(
             val ahead = (x - user) dot h
             if (ahead < cfg.endMinM || ahead > cfg.endMaxM) continue
             val atEnd = line.tMax - tx <= cfg.turnJoinM
-            val sides = listOf(o.at(o.tMin), o.at(o.tMax)).map { line.lateral(it) }
+            // 갈래 줄기(M51): 교점에서 o를 따라 각 쪽으로 뻗은 길이가 블록 선 최소 길이 이상인 쪽만 센다. 선 시작·끝의 점형블록 판처럼
+            // 따라가는 선 양옆으로 짧게 넓은 칠은 줄기가 없어 갈림·꺾임이 아니다(T01 160 s, 노면 모델은 점형·선형을 가르지 않음)
+            val arms = listOf(to - o.tMin to line.lateral(o.at(o.tMin)), o.tMax - to to line.lateral(o.at(o.tMax)))
+                .filter { (len, _) -> len >= cfg.lineMinLengthM }.map { (_, lat) -> lat }
+            if (arms.isEmpty()) continue
             val text = when {
-                !atEnd || (sides.max() > cfg.lineInlierM && sides.min() < -cfg.lineInlierM) -> "블록 갈림"
-                sides.maxBy { abs(it) } > 0f -> "블록 오른쪽으로 꺾임"
+                !atEnd || (arms.any { it > 0f } && arms.any { it < 0f }) -> "블록 갈림"
+                arms.maxBy { abs(it) } > 0f -> "블록 오른쪽으로 꺾임"
                 else -> "블록 왼쪽으로 꺾임"
             }
             if (atEnd) turnAtEnd = true
-            req.add(SpeechRequest("turn", text, 2, stepNs))
+            // 자리마다 따로 말한다(M51: 같은 키 "turn"이면 앞 갈림을 말한 뒤 repeatS 동안 다른 갈림도 막혔다, T01 246 s)
+            req.add(SpeechRequest("turn#${junctionId(x)}", text, 2, stepNs))
         }
         if (turnAtEnd || endAhead < cfg.endMinM || endAhead > cfg.endMaxM) return if (endAhead in cfg.endMinM..cfg.endMaxM) endAhead else Float.NaN
         var t = cfg.gridCellM
