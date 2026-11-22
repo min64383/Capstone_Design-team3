@@ -994,7 +994,10 @@ data class SituationConfig(
     val driftOnM: Float,
     val driftOffM: Float,
     val driftHoldS: Float,
-    /** 1c 블록 위 물체: 장애물 출력 대표점과 블록 선의 거리 상한(블록 절반 + 몸 절반). */
+    /**
+     * 1c 블록 위 물체: 장애물 출력 상자가 블록 선 중심 ± 이 거리(블록 띠)와 겹침 = 블록 폭 절반(M51 사용자: 블록 타일 위에 놓여 블록을 따라가는 사람을
+     * 막는 물체. 처음에는 대표점이 블록 절반 + 몸 절반(0.55 m) 안이었으나 블록 옆 물체까지 블록 위로 말했다, T01 256·273 s).
+     */
     val onBlockBandM: Float,
     /** 1d 끝: 먼 끝이 이 거리 구간에서 보이고, 너머 [endBeyondM]이 블록 아닌 노면으로 관측돼야 한다. */
     val endMinM: Float,

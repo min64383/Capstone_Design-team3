@@ -131,6 +131,7 @@ class Situations(
             val follow = lines.filter { angleDeg(it.dir, h) <= cfg.lineMaxAngleDeg && abs(it.lateral(user)) <= cfg.envHalfWidthM }
                 .minByOrNull { abs(it.lateral(user)) }
             if (follow != null) {
+                noteFollow(tNs, user)
                 val lat = -follow.lateral(user) // + = 블록이 사용자 오른쪽
                 rec = rec.copy(followAngleDeg = angleDeg(follow.dir, h), lateralM = lat, blockYawDeg = yawDeg(follow.dir))
                 drift(tNs, lat, req)
@@ -161,6 +162,9 @@ class Situations(
         lastSurfaceNs = Long.MIN_VALUE
         env = Environment.UNKNOWN
         candidate = Environment.UNKNOWN
+        episodeStart = null
+        lastFollowNs = Long.MIN_VALUE
+        junctions.clear()
         drifting = false
         driftOverSinceNs = Long.MIN_VALUE
     }
@@ -228,13 +232,25 @@ class Situations(
         for (cmd in inp.outputs) {
             if (!cmd.inCorridor) continue
             val o = byId[cmd.obstacleId] ?: continue
-            if (((o.repPointW - user).horizontal() dot h) <= 0f || abs(line.lateral(o.repPointW)) > cfg.onBlockBandM) continue
+            if (((o.repPointW - user).horizontal() dot h) <= 0f) continue
+            // 상자 네 모서리(수평)의 블록 선 옆 거리 범위가 블록 띠 ±onBlockBandM과 겹쳐야 블록 위(M51)
+            val lats = listOf(o.aabbMinW, o.aabbMaxW, Vec3(o.aabbMinW.x, 0f, o.aabbMaxW.z), Vec3(o.aabbMaxW.x, 0f, o.aabbMinW.z)).map { line.lateral(it) }
+            if (lats.min() > cfg.onBlockBandM || lats.max() < -cfg.onBlockBandM) continue
             req.add(SpeechRequest("obj#${o.id}", "블록 위 물체, ${meters(cmd.distanceM)}미터", 2, inp.snapshot.tCaptureNs))
         }
     }
 
     /** 잡은 갈림·꺾임 자리(교점, 월드). 번호 = 목록 위치. */
     private val junctions = ArrayList<Vec3>()
+
+    /** 블록 따라가기 구간을 시작한 사용자 위치. 따라갈 선이 [SituationConfig.gridMemoryS](노면 격자가 블록 칸을 기억하는 길이) 동안 없다가 다시 잡히면 새로 정한다. */
+    private var episodeStart: Vec3? = null
+    private var lastFollowNs = Long.MIN_VALUE
+
+    private fun noteFollow(tNs: Long, user: Vec3) {
+        if (lastFollowNs == Long.MIN_VALUE || tNs - lastFollowNs >= (cfg.gridMemoryS * 1e9).toLong()) episodeStart = user
+        lastFollowNs = tNs
+    }
 
     /** 교점 [x]가 이미 잡은 자리에서 [SituationConfig.junctionMergeM] 안이면 그 번호, 아니면 새 번호. */
     private fun junctionId(x: Vec3): Int {
@@ -260,6 +276,10 @@ class Situations(
             if (tx < line.tMin - cfg.turnJoinM || tx > line.tMax + cfg.turnJoinM || to < o.tMin - cfg.turnJoinM || to > o.tMax + cfg.turnJoinM) continue
             val ahead = (x - user) dot h
             if (ahead < cfg.endMinM || ahead > cfg.endMaxM) continue
+            // 선의 시작(M51 사용자): 선형블록은 ㅗ자처럼 점형블록 가로줄에서 시작한다. 따라가지 않다가 선을 새로 잡은 자리에서 말하는 범위(endMaxM) +
+            // 같은 자리로 묶는 거리(junctionMergeM) 안의 교점은 갈림이 아니라 시작 구조로 보고 말하지 않는다(T01 160 s: 선을 처음 잡자마자 가로줄을 갈림으로
+            // 말함). 앞 거리가 아니라 수평 거리로 잰다: 차도에서 보도로 꺾어 들어오며 선을 잡으면 그때 진행 방향이 흔들린다
+            episodeStart?.let { p0 -> if ((x - p0).horizontal().norm() <= cfg.endMaxM + cfg.junctionMergeM) continue }
             val atEnd = line.tMax - tx <= cfg.turnJoinM
             // 갈래 줄기(M51): 교점에서 o를 따라 각 쪽으로 뻗은 길이가 블록 선 최소 길이 이상인 쪽만 센다. 선 시작·끝의 점형블록 판처럼
             // 따라가는 선 양옆으로 짧게 넓은 칠은 줄기가 없어 갈림·꺾임이 아니다(T01 160 s, 노면 모델은 점형·선형을 가르지 않음)
