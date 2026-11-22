@@ -1,4 +1,4 @@
-package hearspace.app.ui.user
+package hearspace.core.screen
 
 import hearspace.core.types.Band
 import hearspace.core.types.GuidanceState
@@ -6,6 +6,7 @@ import hearspace.core.types.MapHealth
 
 /**
  * 작동 화면에 그릴 것(M45, `docs/ui/ui-mockup.html` §3). 안내 판단은 하지 않고 지금 상태를 화면 요소로 바꾸기만 한다.
+ * 앱과 데모 중계의 PC 녹화 재생기가 같이 쓰도록 core에 둔다(M66, Android를 쓰지 않음).
  * 무음(SILENT)이나 명령 없음은 가운데를 비운다: "장애물 없음"으로 보이게 하지 않는다(무음 ≠ 안전).
  * 주의와 멈춤은 색만으로 나누지 않는다: 멈춤은 고리를 두른 화살표 + "멈춤", 주의는 화살표 + "주의".
  */

@@ -1,0 +1,361 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, interactive-widget=resizes-content">
+<meta name="referrer" content="no-referrer">
+<title>HEARSPACE 중계</title>
+<style>
+  /* 앱 작동 화면(M45, UserModeActivity·colors.xml run_*)과 같은 배치·크기·색. 앱 dp(글자 sp) = CSS px. M66 설계 표 5 */
+  :root { --text: #FFFFFF; --text2: #B3B3B3; --outline: #5F6167; --guide: #439ECC; --caution: #EAB431; --stop: #F26A5F; }
+  [hidden] { display: none !important; }
+  html, body { margin: 0; height: 100%; background: #000000; color: var(--text); overflow: hidden;
+    font-family: system-ui, -apple-system, "Noto Sans KR", "Apple SD Gothic Neo", sans-serif; }
+  #app { display: flex; flex-direction: column; height: 100vh; height: 100dvh; }
+  #screen { flex: 1 1 auto; min-height: 0; display: flex; flex-direction: column; align-items: center; overflow: hidden; }
+  #title { font-size: 40px; font-weight: 700; margin-top: 44px; display: flex; align-items: center; gap: 12px; line-height: 1.2; }
+  #dot { width: 14px; height: 14px; border-radius: 50%; background: var(--guide); flex: none; }
+  #sub { font-size: 18px; color: var(--text2); padding: 6px 28px 0; text-align: center; white-space: pre-line; align-self: stretch; }
+  .spacer { flex: 1 1 0; }
+  #guide { align-self: stretch; flex: 0 1 240px; min-height: 0; position: relative; }
+  #cv { position: absolute; left: 0; top: 0; width: 100%; height: 100%; }
+  #label { font-weight: 700; text-align: center; line-height: 1.1; white-space: pre-line; align-self: stretch; }
+  #hints { font-size: 18px; color: var(--text2); text-align: center; line-height: 1.3; padding: 16px 24px 28px; align-self: stretch; }
+  #hints b { color: var(--text); }
+  #notice { font-size: 12.5px; color: var(--text2); padding: 0 26px 20px; white-space: pre-line; align-self: stretch; }
+  #chat { flex: 0 0 160px; border-top: 1px solid var(--outline); display: flex; flex-direction: column; min-height: 0; }
+  #msgs { flex: 1 1 auto; min-height: 0; overflow-y: auto; padding: 6px 12px; font-size: 15px; line-height: 1.35; overflow-wrap: anywhere; }
+  #msgs .nick { color: var(--text2); }
+  #msgs .sys { color: var(--text2); font-style: italic; }
+  #form { display: flex; gap: 6px; padding: 6px 8px 8px; min-width: 0; }
+  #form input, #form button { font: inherit; font-size: 16px; color: var(--text); background: #111111; border: 1px solid var(--outline); border-radius: 8px; padding: 8px; }
+  #nick { width: 5em; flex: none; }
+  #text { flex: 1 1 0; min-width: 0; width: 0; } /* 입력 칸 기본 폭(size 20)이 단추를 밀어내지 않게 */
+  #form button { flex: none; background: #222222; padding: 8px 12px; }
+</style>
+</head>
+<body>
+<div id="app">
+  <div id="screen">
+    <div id="title" hidden><span id="dot" hidden></span><span id="titleText"></span></div>
+    <div id="sub" hidden></div>
+    <div class="spacer"></div>
+    <div id="guide"><canvas id="cv"></canvas></div>
+    <div id="label" hidden></div>
+    <div class="spacer"></div>
+    <div id="hints"></div>
+    <div id="notice" hidden></div>
+  </div>
+  <div id="chat">
+    <div id="msgs" aria-live="polite"></div>
+    <form id="form" autocomplete="off">
+      <input id="nick" placeholder="별명" aria-label="별명">
+      <input id="text" placeholder="메시지 입력" aria-label="메시지">
+      <button type="submit">보내기</button>
+    </form>
+  </div>
+</div>
+<pre id="test-out" hidden></pre>
+<script>
+'use strict';
+// 서버가 넣는 설정(relay.json): rate, clientBufferMs, clientMaxBufferMs, lostMs, chatMaxChars, nickMaxChars, chatKeep, clientStatsS
+const S = /*SETTINGS*/null;
+const Q = new URLSearchParams(location.search);
+const K = Q.get('k') || '';
+const $ = (id) => document.getElementById(id);
+const COLOR = { text: '#FFFFFF', caution: '#EAB431', stop: '#F26A5F' };
+const RING = ['#DE867C', '#D2AC5A', '#6AB67F', '#53ADDC', '#8E9CE7', '#D884A5']; // logo_1~6
+const still = matchMedia('(prefers-reduced-motion: reduce)').matches; // 앱은 애니메이션 끔 설정이면 준비 고리를 멈춘다
+const logo = new Image();
+logo.onload = () => draw();
+logo.src = 'logo.png';
+
+// ---- 화면 (앱 UserModeActivity.show()와 같은 규칙) ----
+let shown = null;
+let visual = { visual: 'None' };
+
+/** 앱 화면 요소 하나(서버가 보낸 UserScreen JSON)를 그린다. 설정 단추는 없다. */
+function showApp(s) {
+  shown = s;
+  const title = $('title');
+  title.hidden = s.title == null;
+  $('titleText').textContent = s.title || '';
+  title.style.color = s.titleTone === 'CAUTION' ? COLOR.caution : COLOR.text;
+  $('dot').hidden = s.titleTone !== 'GUIDE';
+  $('sub').hidden = s.sub == null;
+  $('sub').textContent = s.sub || '';
+  // 그림 칸: 가장 큰 그림(화살표 230)이 들어가는 240, 시작 전 로고는 176
+  $('guide').style.flexBasis = (s.visual === 'Logo' ? 176 : 240) + 'px';
+  const label = $('label');
+  label.hidden = s.label == null;
+  label.textContent = s.label || '';
+  label.style.fontSize = (s.labelTone === 'STOP' ? 36 : s.labelTone === 'CAUTION' ? 30 : 34) + 'px';
+  label.style.color = s.label == null || s.visual !== 'Arrow' ? COLOR.text : s.labelTone === 'STOP' ? COLOR.stop : COLOR.caution;
+  const hints = $('hints');
+  hints.replaceChildren();
+  (s.hints || []).forEach(([gesture, meaning], i) => {
+    if (i > 0) hints.append(document.createElement('br'));
+    const b = document.createElement('b');
+    b.textContent = gesture;
+    hints.append(b, ' · ' + meaning);
+  });
+  hints.style.visibility = (s.hints || []).length ? 'visible' : 'hidden';
+  $('notice').hidden = !(s.idle && s.visual === 'Logo' && s.notice);
+  $('notice').textContent = s.notice || '';
+  visual = s;
+  draw();
+}
+
+/** 중계에만 있는 화면: 시작 화면(로고 + "탭하여 듣기 시작")과 "중계 끊김". */
+function showStart() {
+  showApp({ title: null, sub: null, titleTone: 'PLAIN', visual: 'Logo', label: '탭하여\n듣기 시작', labelTone: 'PLAIN', hints: [], idle: true,
+    notice: '이어폰을 끼고 들어 주세요. 아이폰은 무음 스위치를 꺼 주세요.' });
+}
+function showLost(serverDown) {
+  showApp({ title: '중계 끊김', sub: serverDown ? '서버와 연결이 끊겼어요' : 'S10에서 ' + Math.round(S.lostMs / 1000) + '초 넘게 소식이 없어요',
+    titleTone: 'PLAIN', visual: 'None', label: null, labelTone: 'PLAIN', hints: [], idle: false, notice: null });
+}
+
+// ---- 가운데 그림 (앱 GuideView와 같은 120칸 기준 도형) ----
+const cv = $('cv');
+let anim = 0;
+function draw() {
+  const box = cv.getBoundingClientRect();
+  const dpr = window.devicePixelRatio || 1;
+  if (cv.width !== Math.round(box.width * dpr) || cv.height !== Math.round(box.height * dpr)) {
+    cv.width = Math.round(box.width * dpr);
+    cv.height = Math.round(box.height * dpr);
+  }
+  const g = cv.getContext('2d');
+  g.setTransform(dpr, 0, 0, dpr, 0, 0);
+  g.clearRect(0, 0, box.width, box.height);
+  g.lineCap = 'round';
+  g.lineJoin = 'round';
+  const cx = box.width / 2, cy = box.height / 2, room = Math.min(box.width, box.height);
+  const v = visual;
+  let u = 0;
+  cancelAnimationFrame(anim);
+  switch (v.visual) {
+    case 'Logo': {
+      const s = Math.min(150, room);
+      u = s / 150;
+      if (logo.complete && logo.naturalWidth) g.drawImage(logo, cx - s / 2, cy - s / 2, s, s);
+      break;
+    }
+    case 'Preparing': { // 로고 여섯 색이 차례로 켜지는 고리: 원 지름 26, 고리 반지름 42
+      u = Math.min(180, room) / 120;
+      const t = performance.now();
+      for (let i = 0; i < 6; i++) {
+        const a = (-90 + 60 * i) * Math.PI / 180;
+        g.globalAlpha = still ? 1 : pulse((((t - i * 300) % 1800) + 1800) % 1800 / 1800);
+        g.fillStyle = RING[i];
+        g.beginPath();
+        g.arc(cx + 42 * u * Math.cos(a), cy + 42 * u * Math.sin(a), 13 * u, 0, 2 * Math.PI);
+        g.fill();
+      }
+      g.globalAlpha = 1;
+      if (!still) anim = requestAnimationFrame(draw);
+      break;
+    }
+    case 'FloorCheck': { // 주의 세모 + 느낌표(100칸, 150)
+      u = Math.min(150, room) / 100;
+      g.translate(cx - 50 * u, cy - 46 * u);
+      g.strokeStyle = COLOR.caution;
+      g.lineWidth = 8 * u;
+      g.beginPath();
+      g.moveTo(50 * u, 6 * u); g.lineTo(95 * u, 86 * u); g.lineTo(5 * u, 86 * u); g.closePath();
+      g.stroke();
+      exclamation(g, u, 34, 58, 72, COLOR.caution);
+      break;
+    }
+    case 'Paused': {
+      u = Math.min(120, room) / 100;
+      g.fillStyle = COLOR.text;
+      g.translate(cx - 50 * u, cy - 50 * u);
+      for (const left of [22, 60]) { g.beginPath(); g.roundRect(left * u, 14 * u, 18 * u, 72 * u, 6 * u); g.fill(); }
+      break;
+    }
+    case 'Notice': { // 흰 원 + 느낌표
+      u = Math.min(120, room) / 100;
+      g.translate(cx - 50 * u, cy - 50 * u);
+      g.strokeStyle = COLOR.text;
+      g.lineWidth = 8 * u;
+      g.beginPath(); g.arc(50 * u, 50 * u, 42 * u, 0, 2 * Math.PI); g.stroke();
+      exclamation(g, u, 28, 56, 71, COLOR.text);
+      break;
+    }
+    case 'Arrow': { // 120칸(230). 주의: 화살표만. 멈춤: 굵은 고리 + 작은 화살표
+      u = Math.min(230, room) / 120;
+      const color = v.stop ? COLOR.stop : COLOR.caution;
+      g.translate(cx, cy);
+      if (v.stop) { g.strokeStyle = color; g.lineWidth = 9 * u; g.beginPath(); g.arc(0, 0, 54 * u, 0, 2 * Math.PI); g.stroke(); }
+      g.rotate(v.az * Math.PI / 180);
+      const tip = v.stop ? -36 : -46, head = v.stop ? -11 : -16, shaft = v.stop ? 7 : 8, tail = v.stop ? 32 : 40, half = v.stop ? 20 : 24;
+      g.beginPath();
+      g.moveTo(0, tip * u);
+      g.lineTo(-half * u, head * u); g.lineTo(-shaft * u, head * u); g.lineTo(-shaft * u, tail * u);
+      g.lineTo(shaft * u, tail * u); g.lineTo(shaft * u, head * u); g.lineTo(half * u, head * u);
+      g.closePath();
+      g.fillStyle = color; g.strokeStyle = color; g.lineWidth = 5 * u;
+      g.fill(); g.stroke();
+      break;
+    }
+  }
+  cv.dataset.visual = v.visual;
+  cv.dataset.az = v.visual === 'Arrow' ? String(v.az) : '';
+  cv.dataset.stop = v.visual === 'Arrow' ? String(v.stop) : '';
+  cv.dataset.u = String(u);
+}
+function exclamation(g, u, top, bottom, dot, color) {
+  g.strokeStyle = color; g.lineWidth = 9 * u;
+  g.beginPath(); g.moveTo(50 * u, top * u); g.lineTo(50 * u, bottom * u); g.stroke();
+  g.fillStyle = color; g.beginPath(); g.arc(50 * u, dot * u, 5.5 * u, 0, 2 * Math.PI); g.fill();
+}
+// 앱 시안의 켜짐 곡선: 15%에서 가장 밝고 천천히 어두워진다(투명도 0.25 ~ 1)
+function pulse(f) { return f < 0.15 ? 0.25 + 0.75 * f / 0.15 : 1 - 0.75 * (f - 0.15) / 0.85; }
+new ResizeObserver(() => draw()).observe($('guide'));
+// Safari는 키보드가 열릴 때 viewport 설정을 따르지 않으므로 보이는 높이에 맞춘다
+if (window.visualViewport) visualViewport.addEventListener('resize', () => { $('app').style.height = visualViewport.height + 'px'; });
+
+// ---- 채팅 ----
+let CID = '';
+try { CID = crypto.randomUUID(); } catch (e) { CID = String(Math.random()).slice(2) + String(Date.now()); }
+function addChat(m) {
+  const box = $('msgs');
+  const div = document.createElement('div');
+  if (m.sys) { div.className = 'sys'; div.textContent = m.text; } else {
+    const nick = document.createElement('span');
+    nick.className = 'nick';
+    nick.textContent = m.nick + ': ';
+    div.append(nick, m.text); // 글자로만(HTML로 해석하지 않음)
+  }
+  box.append(div);
+  while (box.childElementCount > S.chatKeep) box.firstElementChild.remove();
+  box.scrollTop = box.scrollHeight;
+}
+$('nick').maxLength = S.nickMaxChars;
+$('text').maxLength = S.chatMaxChars;
+try { $('nick').value = localStorage.getItem('relayNick') || ''; } catch (e) {}
+$('form').addEventListener('submit', async (e) => {
+  e.preventDefault();
+  const nick = $('nick').value.trim(), text = $('text').value.trim();
+  if (!nick) { $('nick').focus(); return; }
+  if (!text) return;
+  try { localStorage.setItem('relayNick', nick); } catch (e2) {}
+  try {
+    const r = await fetch('chat?k=' + encodeURIComponent(K), { method: 'POST', body: JSON.stringify({ client: CID, nick, text }) });
+    if (r.status === 204) $('text').value = '';
+    else addChat({ sys: true, text: r.status === 429 ? '1초에 한 번만 보낼 수 있어요' : '보내지 못했어요(' + r.status + ')' });
+  } catch (e3) { addChat({ sys: true, text: '보내지 못했어요' }); }
+});
+
+// ---- 소리와 화면 맞추기 ----
+let ctx = null, node = null, started = false, startFrame = 0, played = 0, stats = null;
+let sseDown = false, audioDown = false;
+const queue = []; // 서버 화면 사건(프레임 번호 순)
+
+function onScreen(ev) {
+  queue.push(ev);
+  if (!started) queue.splice(0, queue.length - 1); // 소리를 켜기 전에는 마지막 하나만
+  apply();
+}
+/** 지금 이어폰에 나오는 프레임 번호 이하의 마지막 화면을 그린다. */
+function apply() {
+  if (!started) return;
+  if (sseDown || audioDown) { showLost(true); return; }
+  const now = startFrame + played;
+  while (queue.length > 1 && queue[1].frame <= now) queue.shift();
+  const ev = queue[0];
+  if (!ev || ev.frame > now) return;
+  if (!ev.live || !ev.screen) { if (shown == null || shown.title !== '중계 끊김') showLost(false); return; }
+  if (JSON.stringify(ev.screen) !== JSON.stringify(shown)) showApp(ev.screen);
+}
+
+async function start() {
+  if (started) return;
+  started = true;
+  try {
+    try { ctx = new AudioContext({ sampleRate: S.rate, latencyHint: 'playback' }); } catch (e) { ctx = new AudioContext(); } // 못 맞추면 링 버퍼가 비율대로 읽는다
+    try { if (navigator.audioSession) navigator.audioSession.type = 'playback'; } catch (e) {}
+    await ctx.audioWorklet.addModule('worklet.js');
+    node = new AudioWorkletNode(ctx, 'pcm', { numberOfInputs: 0, outputChannelCount: [2],
+      processorOptions: { inRate: S.rate, bufferMs: S.clientBufferMs, maxBufferMs: S.clientMaxBufferMs } });
+    node.connect(ctx.destination);
+    node.port.onmessage = (e) => { stats = e.data; played = e.data.played; apply(); };
+    await ctx.resume();
+  } catch (e) {
+    started = false;
+    addChat({ sys: true, text: '소리를 켜지 못했어요(' + e + ')' });
+    return;
+  }
+  wake();
+  showLost(false);
+  stream();
+}
+async function stream() {
+  for (;;) {
+    try {
+      const r = await fetch('audio?k=' + encodeURIComponent(K), { cache: 'no-store' });
+      if (!r.ok) throw new Error(String(r.status));
+      startFrame = Number(r.headers.get('X-Start-Frame'));
+      played = 0;
+      node.port.postMessage({ reset: true });
+      audioDown = false;
+      const rd = r.body.getReader();
+      for (;;) {
+        const { value, done } = await rd.read();
+        if (done) break;
+        const b = value.byteOffset === 0 && value.byteLength === value.buffer.byteLength ? value.buffer : value.slice().buffer;
+        node.port.postMessage(b, [b]);
+      }
+    } catch (e) {}
+    audioDown = true;
+    apply();
+    await new Promise((ok) => setTimeout(ok, S.lostMs));
+  }
+}
+let lock = null;
+async function wake() {
+  try { if (navigator.wakeLock && document.visibilityState === 'visible') lock = await navigator.wakeLock.request('screen'); } catch (e) {}
+}
+document.addEventListener('visibilitychange', () => { if (started && document.visibilityState === 'visible') { wake(); ctx && ctx.resume(); } });
+setInterval(() => {
+  if (!started || !stats) return;
+  fetch('stats?k=' + encodeURIComponent(K), { method: 'POST', body: JSON.stringify({ client: CID,
+    bufferedMs: stats.buffered * 1000 / S.rate, underruns: stats.underruns, drops: stats.drops, played: stats.played, ua: navigator.userAgent }) }).catch(() => {});
+}, S.clientStatsS * 1000);
+
+// ---- 시작 ----
+if (Q.get('test') === '1') {
+  // 페이지 시험(RelayPageTest): 주소 # 뒤의 화면 요소·채팅을 그리고, 그린 결과를 #test-out에 JSON으로 쓴다
+  const fx = JSON.parse(decodeURIComponent(location.hash.slice(1)));
+  const out = { screens: [], settingsButton: !!document.querySelector('[aria-label="설정"]') };
+  const css = (id, p) => getComputedStyle($(id))[p];
+  for (const s of fx.screens) {
+    showApp(s);
+    out.screens.push({
+      title: $('title').hidden ? null : $('titleText').textContent, titleColor: css('title', 'color'), dot: !$('dot').hidden,
+      sub: $('sub').hidden ? null : $('sub').textContent, visual: cv.dataset.visual, az: cv.dataset.az, stop: cv.dataset.stop,
+      guideHeight: $('guide').style.flexBasis,
+      label: $('label').hidden ? null : $('label').textContent, labelSize: css('label', 'fontSize'), labelColor: css('label', 'color'),
+      hints: $('hints').textContent, hintsVisible: css('hints', 'visibility') === 'visible', hintsBold: [...$('hints').querySelectorAll('b')].map((b) => b.textContent),
+      notice: $('notice').hidden ? null : $('notice').textContent,
+    });
+  }
+  for (const m of fx.chats) addChat(m);
+  out.chatText = [...$('msgs').children].map((d) => d.textContent);
+  out.chatElements = $('msgs').querySelectorAll('b, i, script, img').length;
+  $('test-out').textContent = JSON.stringify(out);
+} else {
+  showStart();
+  const es = new EventSource('events?k=' + encodeURIComponent(K));
+  es.addEventListener('screen', (e) => onScreen(JSON.parse(e.data)));
+  es.addEventListener('chat', (e) => addChat(JSON.parse(e.data)));
+  es.onopen = () => { sseDown = false; apply(); };
+  es.onerror = () => { sseDown = true; apply(); };
+  $('screen').addEventListener('click', () => start());
+  if (Q.get('autostart') === '1') start(); // 시험 실행용(브라우저를 자동 재생 허용으로 켰을 때)
+}
+</script>
+</body>
+</html>

@@ -37,6 +37,7 @@ import android.widget.TextView
 import hearspace.app.AppConfig
 import hearspace.app.R
 import hearspace.app.TAG
+import hearspace.core.screen.UserScreen
 import hearspace.app.ar.ArFeeder
 import hearspace.app.ar.ArSessionManager
 import hearspace.app.ar.displayRotationCompat

@@ -40,6 +40,8 @@ tasks.named<JavaExec>("run") {
 tasks.test {
     useJUnitPlatform()
     systemProperty("hearspace.repoRoot", rootProject.projectDir.absolutePath)
+    // M66 중계 부하 시험 길이(s). CI는 5, 10분 실행은 -PrelayLoadS=600
+    systemProperty("relay.loadS", (project.findProperty("relayLoadS") as String?) ?: "5")
     systemProperty("java.awt.headless", "true")
 }
 
@@ -75,4 +77,30 @@ tasks.register<JavaExec>("snapshot") {
     args = listOf("session", "variant", "compare", "alignDir", "out", "times").mapNotNull { k ->
         (project.findProperty(k) as String?)?.let { v -> "$k=${if (k == "out" || k == "alignDir") rootProject.file(v).absolutePath else v}" }
     }
+}
+
+// M66 데모 중계 서버: ./gradlew :viewer:relay [-PrelayConfig=<덮어쓰기 JSON>]. 설정은 app/src/bench/assets/relay.json, 열쇠는 git 밖 data/relay/server.json
+tasks.register<JavaExec>("relay") {
+    group = "hearspace"
+    description = "데모 중계 서버(M66): 업로드를 받아 소리·화면·채팅을 페이지로"
+    classpath = sourceSets["main"].runtimeClasspath
+    mainClass.set("hearspace.viewer.RelayServerKt")
+    workingDir = rootProject.projectDir
+    systemProperty("hearspace.repoRoot", rootProject.projectDir.absolutePath)
+    systemProperty("hearspace.gitHash", rootProject.extra["gitHash"].toString())
+    providers.gradleProperty("relayConfig").orNull?.let { args(rootProject.file(it).absolutePath) }
+}
+
+// M66 PC 녹화 재생기(업로더 대역): ./gradlew :viewer:relayReplay -Psession=<ID 일부> [-Pjitter=<ms>] [-Ploop=false] [-Pcheck=true] [-Purl=<서버>]
+tasks.register<JavaExec>("relayReplay") {
+    group = "hearspace"
+    description = "녹화를 앱 설정 층으로 재생해 중계 서버에 실제 시간으로 올림(M66)"
+    classpath = sourceSets["main"].runtimeClasspath
+    mainClass.set("hearspace.viewer.RelayReplayMainKt")
+    workingDir = rootProject.projectDir
+    maxHeapSize = "4g"
+    systemProperty("hearspace.repoRoot", rootProject.projectDir.absolutePath)
+    systemProperty("hearspace.gitHash", rootProject.extra["gitHash"].toString())
+    // -P 값만 읽는다(findProperty는 같은 이름의 작업, 예: check를 돌려준다)
+    args = listOf("session", "jitter", "loop", "check", "url").mapNotNull { k -> providers.gradleProperty(k).orNull?.let { "$k=$it" } }
 }

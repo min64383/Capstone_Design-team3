@@ -288,11 +288,13 @@ object ReplayRunner {
     /**
      * [substitution]을 주면 정답 대입 재생(M30 비교 D: 정답 깊이)이다. 정렬은 그 대입의 정렬([Substitution.align])을 쓴다.
      */
-    fun run(session: File, overridesJson: String, hrtf: Hrtf, exportDir: File? = null, substitution: Substitution? = null, label: String = "", objectCueSettings: ObjectCueSettings? = null): ReplayResult {
+    /** [layers]를 주면 그 설정 층(기본 → 덮어쓰기, 앱 순서) 위에 [overridesJson]을 얹는다(데모 중계 재생기, M66). 없으면 [Repo.loadConfig]. */
+    fun run(session: File, overridesJson: String, hrtf: Hrtf, exportDir: File? = null, substitution: Substitution? = null, label: String = "", objectCueSettings: ObjectCueSettings? = null,
+            layers: List<String>? = null): ReplayResult {
         val start = System.nanoTime()
         // 변형의 viewer 전용 값(M49): "viewer": {"movingFrom": "clicks"} = 움직임 판정을 세션 클릭 정답으로(평가 전용, -PmovingFrom=clicks와 같음)
         val (configJson, movingFrom) = ViewerOptions.split(overridesJson)
-        val config = Repo.loadConfig(configJson)
+        val config = layers?.let { ConfigLoader.load(it.first(), it.drop(1) + configJson) } ?: Repo.loadConfig(configJson)
         val reader = SessionReader(session)
         val cueRenderer = objectCueSettings?.let { ObjectCueRenderer(it, config.audio.sampleRate, config.policy.maxInfoAgeMs) }
         val cueEvents = ArrayList<ObjectCueEvent>()
