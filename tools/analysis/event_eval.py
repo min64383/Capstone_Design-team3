@@ -48,6 +48,7 @@ CLICK_TOL_M = 0.2  # 클릭 검증 목표 p95(자체 선택: 1.3 m/s에서 TTC �
 # [0.112, 0.207]). 이전에는 반지름 0.2 m(M47 자체 선택)를 썼다. 옆 방향(통로 안인지)은 반지름 그대로: 몸 앞뒤 두께와 어깨 폭이 다르다
 FRONT_OFFSET_M = 0.15
 UNEXPL_GAP_S = 0.2  # 정답 없는 경고 구간을 이을 때 이보다 짧은 틈은 같은 구간(보고용 묶음)
+ATTR_M = 0.8  # 경고를 낸 출력이 정답 물체의 것인지: 출력 위치가 정답에서 이 안(M56 gap_trail.py PERSON_ZONE_M과 같음, M51 C4)
 
 
 def load_events(session: Path) -> dict | None:
@@ -351,7 +352,36 @@ def compute(session: Path, run_dir: Path) -> dict:
     steady = walking & (since >= TRANS_S)
 
     def frac(m):
-        return {"over5": float((np.abs(err[m]) > HEADING_TOL_DEG).mean()) if m.any() else None, "n": int(m.sum())}
+        # medianDeg(M51 H3, 보고): 부호 있는 오차 중앙값 — 정상 걷기에서는 하네스 장착 치우침을 따로 잰다
+        return {"over5": float((np.abs(err[m]) > HEADING_TOL_DEG).mean()) if m.any() else None, "n": int(m.sum()),
+                "medianDeg": round(float(np.median(err[m])), 2) if m.any() else None}
+
+    # 물체마다 첫 경고(M51 C4, 보고): STOP 구간에 들어오지 않은 물체도 포함. 경고 블록이 소리 낸 출력(obstacleId)의 그 장 위치
+    # (obstacles.csv repNEAREST)가 정답 물체에서 ATTR_M 안일 때만 그 물체의 경고로 센다 — 다른 출력(바닥 가짜 물체 등)이 먼저 낸 경고를 빼려고
+    obs = pd.read_csv(run_dir / "obstacles.csv") if (run_dir / "obstacles.csv").is_file() else pd.DataFrame()
+    opos = {(int(r.tCaptureNs), int(r.id)): (r.repNEAREST_x, r.repNEAREST_z) for r in obs.itertuples()} if len(obs) else {}
+    snap = blocks.snapshotTNs.to_numpy()
+    oid = blocks.obstacleId.to_numpy()
+
+    def warned_by(k: int, j: int) -> bool:
+        if band[k] not in ("WARN", "STOP") or not active[k] or np.isnan(snap[k]) or np.isnan(oid[k]):
+            return False
+        p = opos.get((int(snap[k]), int(oid[k])))
+        if p is None:
+            return False
+        if tracks[j] is not None:
+            r = tracks[j](t[k])
+            if r is None:
+                return False
+            return float(np.linalg.norm(np.asarray(r[0]) - np.asarray(p))) <= ATTR_M
+        return float(np.min(np.linalg.norm(statics[j] - np.asarray(p), axis=1))) <= ATTR_M
+
+    first_warn = []
+    for j, o in enumerate(objs):
+        kw = next((q for q in range(n) if warned_by(q, j)), None)
+        first_warn.append({"object": o["id"], "kind": o["kind"], "warnS": round(t[kw] - t[0], 3) if kw is not None else None,
+                           "warnAlongM": round(float(A[kw, j]), 3) if kw is not None else None,
+                           "minAlongM": round(float(np.nanmin(A[:, j])), 3) if not np.isnan(A[:, j]).all() else None})
 
     return {
         "validation": val,
@@ -364,6 +394,7 @@ def compute(session: Path, run_dir: Path) -> dict:
                        "falseOnsetS": fa_t, "durationMin": round(dur_min, 3)},
         "unexplainedWarn": {"s": round(float(dt[unexpl].sum()), 3), "stopS": round(float(dt[unexpl & (band == "STOP")].sum()), 3), "segments": segs},
         "heading": {"transition": frac(trans), "steady": frac(steady)},
+        "firstWarn": first_warn,
     }
 
 
