@@ -33,7 +33,16 @@ class RunLogger(val dir: File) : AutoCloseable {
         DEVICE(SessionFormat.DEVICE_FILE, DeviceCsv.headerLine()),
         STAGE(RunLog.STAGE_TIMING_FILE, RunLog.header(RunLog.STAGE_TIMING_HEADER)),
         INPUT(RunLog.INPUT_TIMING_FILE, RunLog.header(RunLog.INPUT_TIMING_HEADER)),
+        // M65: 상황 판단·노면 모델·말 내보내기(켜졌을 때만 처음 쓸 때 만든다)
+        SPEECH(RunLog.SPEECH_FILE, RunLog.SPEECH_HEADER_LINE),
+        SITUATION(RunLog.SITUATION_FILE, RunLog.SITUATION_HEADER_LINE),
+        SURFACE(RunLog.SURFACE_TIMING_FILE, RunLog.header(RunLog.SURFACE_TIMING_HEADER)),
+        TTS(RunLog.TTS_FILE, RunLog.header(RunLog.TTS_HEADER)),
+        SITUATION_TIMING("situation_timing.csv", "tNs,stepNs"),
     }
+
+    /** 처음 쓸 때 만드는 파일(그 기능이 켜졌을 때만 생긴다). */
+    private val lazyKinds = setOf(Kind.GEOMETRY, Kind.SPEECH, Kind.SITUATION, Kind.SURFACE, Kind.TTS, Kind.SITUATION_TIMING)
 
     private val queue = ConcurrentLinkedQueue<Pair<Kind, () -> List<String>>>()
     private val pending = AtomicInteger() // ConcurrentLinkedQueue.size는 O(n)이라 따로 센다
@@ -64,6 +73,22 @@ class RunLogger(val dir: File) : AutoCloseable {
     fun input(frameTNs: Long, appNs: Long, kind: String, imageTNs: Long?, copyNs: Long, result: String, tracking: String?) =
         put(Kind.INPUT) { listOf(RunLog.inputTimingLine(frameTNs, appNs, kind, imageTNs, copyNs, result, tracking)) }
 
+    /** 느린 경로 스레드: 상황 판단 한 차례(M65). */
+    fun situation(said: List<hearspace.core.situation.Utterance>, rec: hearspace.core.situation.SituationRecord) {
+        if (said.isNotEmpty()) put(Kind.SPEECH) { said.map(RunLog::speechLine) }
+        put(Kind.SITUATION) { listOf(RunLog.situationLine(rec)) }
+    }
+
+    /** 상황 판단 스레드: 한 차례의 시간(M65, 앱 전용 `situation_timing.csv`: 판단 시각의 깊이 장 시각, 걸린 ns). */
+    fun situationTiming(tNs: Long, stepNs: Long) = put(Kind.SITUATION_TIMING) { listOf("$tNs,$stepNs") }
+
+    /** 노면 모델 스레드: 노면 영상 하나(M65). */
+    fun surface(imageTNs: Long, offerNs: Long, doneNs: Long, rgbNs: Long, preNs: Long, inferNs: Long, postNs: Long) =
+        put(Kind.SURFACE) { listOf(RunLog.surfaceTimingLine(imageTNs, offerNs, doneNs, rgbNs, preNs, inferNs, postNs)) }
+
+    /** UI 스레드: 말 내보내기 결과 하나(M65). */
+    fun tts(line: String) = put(Kind.TTS) { listOf(line) }
+
     private fun put(k: Kind, lines: () -> List<String>) {
         if (failed || pending.get() >= MAX_PENDING) {
             nDropped.incrementAndGet()
@@ -77,7 +102,7 @@ class RunLogger(val dir: File) : AutoCloseable {
         val out = LinkedHashMap<Kind, BufferedWriter>()
         try {
             if (!dir.isDirectory && !dir.mkdirs()) throw IOException("cannot create $dir")
-            for (k in Kind.entries.filter { it != Kind.GEOMETRY }) out[k] = File(dir, k.file).bufferedWriter().also { it.write(k.header); it.newLine() }
+            for (k in Kind.entries.filter { it !in lazyKinds }) out[k] = File(dir, k.file).bufferedWriter().also { it.write(k.header); it.newLine() }
             while (true) {
                 val stop = !running // 멈춤을 본 뒤 한 번 더 비우고 끝낸다
                 while (true) {

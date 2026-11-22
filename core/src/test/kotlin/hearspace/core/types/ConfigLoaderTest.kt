@@ -203,6 +203,10 @@ class ConfigLoaderTest {
                 alertGainDb = -6f,
                 limiterCeiling = 0.9f,
                 bufferBlocks = 8,
+<<<<<<< HEAD
+=======
+                // 팀원 TTS(2026-11-18 결정, M65에서 합침): 음성 음량, 말하는 동안 장애물 소리 이득
+>>>>>>> origin/main
                 ttsVolume = 0.7f,
                 ttsObstacleGain = 0.35f,
             ),

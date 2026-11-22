@@ -955,6 +955,23 @@ data class SituationConfig(
     val enabled: Boolean,
     /** 노면 모델 처리 시간(ms): 영상 촬영 시각 + 이 값 ≤ 깊이 장 시각인 영상만 쓴다(과거만, 기기 측정 전 가정). */
     val surfaceDelayMs: Int,
+    /** 앱(M65): 노면 영상 사이 최소 간격(ms). PC `tools/surface/infer_sessions.py`의 5 Hz와 같다. */
+    val surfaceIntervalMs: Int,
+    /**
+     * 노면 모델이 학습된 입력·출력 형식(M50, `infer_sessions.py`): 세로로 세운 영상에서 버리는 위쪽 몫, 모델 입력 폭·높이,
+     * 센서 방향 노면 영상 폭·높이. 학습한 가중치에 묶인 값이라 바꾸려면 다시 학습해야 한다.
+     */
+    val surfaceCropTop: Float,
+    val surfaceInputW: Int,
+    val surfaceInputH: Int,
+    val surfaceOutW: Int,
+    val surfaceOutH: Int,
+    /** 상황 판단 간격(ms, M65): 새 노면 영상이 오면 바로, 아니면 지난 판단에서 깊이 장 시각으로 이만큼 지나야 판단한다. 0 = 처리마다(M50까지). Claude 선택: 블록 위 물체 등 장애물 출력에 기대는 말이 최대 100 ms 늦음. */
+    val stepIntervalMs: Int,
+    /** 노면 지도에 기대는 말을 내는 마지막 노면 영상의 최대 나이(ms, 깊이 장 시각 기준, M65). 노면 영상 5장을 놓친 정도(Claude 선택). */
+    val surfaceMaxAgeMs: Int,
+    /** 측정용(M65 E2): 앱이 첫 노면 영상부터 이 시간(s) 동안 노면 영상을 실행 폴더 `surface/`에 저장한다. 0 = 저장 안 함. */
+    val surfaceSaveS: Float,
     /** 노면 격자 칸(m)과 기억(s): 이 시간 안에 본 칸만 "관측됨". */
     val gridCellM: Float,
     val gridMemoryS: Float,

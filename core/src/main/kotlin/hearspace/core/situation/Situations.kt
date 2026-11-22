@@ -31,6 +31,8 @@ class SituationInput(
     val headingW: Vec3?,
     /** 쓸 수 있는 가장 최근 노면 영상. 없으면 null. */
     val surface: LabelImage?,
+    /** 앱에서 지금 말하는 중인 줄의 등급(0 = 쉼, [Speech.tick]). PC 재생은 null(음절 수 어림). */
+    val outputPriority: Int? = null,
 )
 
 /** 한 차례의 상태 기록(`situation.csv`, 1b 블록 방향 값 포함). 없는 값은 NaN. */
@@ -70,6 +72,21 @@ class Situations(
 
     private val heights = ArrayDeque<Pair<Long, Float>>()
     private var lastSurfaceNs = Long.MIN_VALUE
+    private var lastStepDepthNs = Long.MIN_VALUE
+    /** 이번 판단의 깊이 장 시각. 노면 지도에 기대는 말의 근거 시각이다(M65 설계 승인 뒤 변경, 아래 [step]). */
+    private var stepNs = Long.MIN_VALUE
+    private var lastStepSurfaceNs = Long.MIN_VALUE
+
+    /**
+     * 판단할 차례인지(M65, `situation.stepIntervalMs`): 지난 판단 뒤 새 노면 영상이 왔으면 바로, 아니면 깊이 장 시각으로 그 간격이 지났을 때.
+     * 노면 격자는 노면 영상(5 Hz)으로만 바뀌고 말은 같은 상황을 한 번·2 s 간격으로 내므로, 처리마다(약 30 Hz) 판단하면 같은 답을 되풀이한다.
+     * 깊이 장 시각 기준이라 PC 재생과 앱이 같은 차례에 판단한다. 0이면 늘(M50까지).
+     */
+    fun due(depthTNs: Long, surfaceTNs: Long?): Boolean {
+        if (cfg.stepIntervalMs <= 0) return true
+        if (surfaceTNs != null && surfaceTNs > lastStepSurfaceNs) return true
+        return lastStepDepthNs == Long.MIN_VALUE || depthTNs - lastStepDepthNs >= cfg.stepIntervalMs * 1_000_000L
+    }
     private var env = Environment.UNKNOWN
     private var candidate = Environment.UNKNOWN
     private var candidateSinceNs = Long.MIN_VALUE
@@ -80,12 +97,18 @@ class Situations(
 
     /** 한 차례: 노면 영상을 격자에 넣고 규칙을 돌려 낸 말과 상태 기록. */
     fun step(inp: SituationInput): Pair<List<Utterance>, SituationRecord> {
+<<<<<<< HEAD
         val (requests, record) = detect(inp)
         return speech.tick(inp.nowNs, requests) to record
     }
 
     /** Live use submits these candidates to the same arbiter as status and obstacle speech. */
     fun detect(inp: SituationInput): Pair<List<SpeechRequest>, SituationRecord> {
+=======
+        lastStepDepthNs = inp.depth.tCaptureNs
+        stepNs = inp.depth.tCaptureNs
+        inp.surface?.let { lastStepSurfaceNs = maxOf(lastStepSurfaceNs, it.tCaptureNs) }
+>>>>>>> origin/main
         val camW = inp.depth.worldFromCam.translation()
         val tNs = inp.depth.tCaptureNs
         inp.snapshot.floorY?.let { f ->
@@ -105,13 +128,14 @@ class Situations(
         if (h != null) {
             val user = camW.horizontal()
             val right = BlockLine.rightOf(h)
-            val lines = BlockLines.fit(memory.values.filter { it.major == SurfaceClass.BLOCK.pixel }.map { it.centerW }, cfg.lineInlierM, cfg.lineMinLengthM, cfg.gridCellM)
+            // 블록 점은 좌표순으로 정렬해 넣는다: RANSAC은 씨앗을 고정했으므로 점 순서가 결과를 정한다(격자 표의 도는 순서와 무관하게, M65)
+            val lines = BlockLines.fit(memory.values.filter { it.major == SurfaceClass.BLOCK.pixel }.sortedWith(compareBy({ it.ix }, { it.iz })).map { it.centerW }, cfg.lineInlierM, cfg.lineMinLengthM, cfg.gridCellM)
                 .map { if (it.dir dot h < 0f) it.flipped() else it }
             val ceiling = heights.isNotEmpty() && ceilingSeen(inp.depth, user, h, right, camW.y - medianHeight())
             rec = rec.copy(nLines = lines.size, ceiling = ceiling)
             updateEnvironment(tNs, grid.cells(tNs, cfg.envWindowS), lines, user, h, right, ceiling)
             rec = rec.copy(env = env, envCandidate = candidate)
-            if (cfg.envSpeech) env.text?.let { req.add(SpeechRequest("env:$env", it, env.priority, lastSurfaceNs)) }
+            if (cfg.envSpeech) env.text?.let { req.add(SpeechRequest("env:$env", it, env.priority, stepNs)) }
 
             val follow = lines.filter { angleDeg(it.dir, h) <= cfg.lineMaxAngleDeg && abs(it.lateral(user)) <= cfg.envHalfWidthM }
                 .minByOrNull { abs(it.lateral(user)) }
@@ -126,15 +150,25 @@ class Situations(
             }
             val (stairsAhead, dir) = stairs(inp, memory, user, h, right, req)
             val dropM = dropAhead(inp.depth, user, h, right)
-            if (cfg.dropEnabled && !dropM.isNaN() && dir != "down") req.add(SpeechRequest("drop", "내려가는 곳, ${meters(dropM)}미터", 1, minOf(lastSurfaceNs, inp.depth.tCaptureNs)))
+            if (cfg.dropEnabled && !dropM.isNaN() && dir != "down") req.add(SpeechRequest("drop", "내려가는 곳, ${meters(dropM)}미터", 1, stepNs))
             rec = rec.copy(stairsAheadM = stairsAhead, stairsDir = dir, dropAheadM = dropM)
             if (cfg.bumpSpeech) bump(memory, user, h, right, req)
             vehicles(inp, user, req)
         }
+<<<<<<< HEAD
         return req to rec
+=======
+        // M65(사용자 승인 2026-11-21): 노면 격자는 지난 gridMemoryS를 기억하는 지도이고 노면은 움직이지 않으므로, 노면 지도에 기대는 말의 근거 시각은
+        // 노면 영상 촬영 시각이 아니라 판단에 쓴 사용자 위치(이 깊이 장)의 시각이다(장애물 소리가 느린 경로 결과 시각으로 나이를 재는 것과 같다).
+        // 안전장치: 마지막 노면 영상이 surfaceMaxAgeMs보다 오래되면(모델이 멈춤 등) 노면 지도에 기대는 말은 내지 않는다. 차 다가옴은 노면과 무관하다.
+        val fresh = lastSurfaceNs != Long.MIN_VALUE && inp.depth.tCaptureNs - lastSurfaceNs <= cfg.surfaceMaxAgeMs * 1_000_000L
+        return speech.tick(inp.nowNs, if (fresh) req else req.filter { it.key.startsWith("veh#") }, inp.outputPriority) to rec
+>>>>>>> origin/main
     }
 
     fun reset() {
+        lastStepDepthNs = Long.MIN_VALUE
+        lastStepSurfaceNs = Long.MIN_VALUE
         grid.reset()
         heights.clear()
         lastSurfaceNs = Long.MIN_VALUE
@@ -198,7 +232,7 @@ class Situations(
         } else {
             driftOverSinceNs = Long.MIN_VALUE
         }
-        if (drifting) req.add(SpeechRequest("drift#$driftEpisode", if (driftRight) "블록 오른쪽" else "블록 왼쪽", 2, lastSurfaceNs))
+        if (drifting) req.add(SpeechRequest("drift#$driftEpisode", if (driftRight) "블록 오른쪽" else "블록 왼쪽", 2, stepNs))
     }
 
     /** 1c: 장애물 출력의 대표점이 따라가는 블록 선에서 [SituationConfig.onBlockBandM] 안이고 앞에 있으면. */
@@ -234,7 +268,7 @@ class Situations(
                 else -> "블록 왼쪽으로 꺾임"
             }
             if (atEnd) turnAtEnd = true
-            req.add(SpeechRequest("turn", text, 2, lastSurfaceNs))
+            req.add(SpeechRequest("turn", text, 2, stepNs))
         }
         if (turnAtEnd || endAhead < cfg.endMinM || endAhead > cfg.endMaxM) return if (endAhead in cfg.endMinM..cfg.endMaxM) endAhead else Float.NaN
         var t = cfg.gridCellM
@@ -243,7 +277,7 @@ class Situations(
             if (c.major !in SurfaceClass.WALKABLE || c.major == SurfaceClass.BLOCK.pixel || c.frames[SurfaceClass.BLOCK.pixel] > 0) return Float.NaN
             t += cfg.gridCellM
         }
-        req.add(SpeechRequest("end", "블록 끝, ${meters(endAhead)}미터", 2, lastSurfaceNs))
+        req.add(SpeechRequest("end", "블록 끝, ${meters(endAhead)}미터", 2, stepNs))
         return endAhead
     }
 
@@ -261,8 +295,8 @@ class Situations(
         val key = "stairs"
         when {
             down -> req.add(SpeechRequest(key, "내려가는 계단, ${meters(ahead)}미터", 1, inp.depth.tCaptureNs, level = 2))
-            up -> req.add(SpeechRequest(key, "올라가는 계단", 3, lastSurfaceNs, level = 1))
-            else -> req.add(SpeechRequest(key, "계단, ${meters(ahead)}미터", 2, lastSurfaceNs, level = 1))
+            up -> req.add(SpeechRequest(key, "올라가는 계단", 3, stepNs, level = 1))
+            else -> req.add(SpeechRequest(key, "계단, ${meters(ahead)}미터", 2, stepNs, level = 1))
         }
         return ahead to if (down) "down" else if (up) "up" else "unknown"
     }
@@ -360,7 +394,7 @@ class Situations(
 
     private fun bump(memory: Map<Long, SurfaceCell>, user: Vec3, h: Vec3, right: Vec3, req: MutableList<SpeechRequest>) {
         val nearest = inCorridor(memory, SurfaceClass.BUMP, user, h, right).minByOrNull { (it.centerW - user) dot h } ?: return
-        req.add(SpeechRequest("bump", "방지턱", 3, lastSurfaceNs))
+        req.add(SpeechRequest("bump", "방지턱", 3, stepNs))
     }
 
     private fun inCorridor(memory: Map<Long, SurfaceCell>, cls: SurfaceClass, user: Vec3, h: Vec3, right: Vec3): List<SurfaceCell> =
@@ -402,6 +436,10 @@ class Situations(
 
         /** [hearspace.core.guidance.Heading.toDeg]와 같은 방위(−Z가 0°, +X가 90°). */
         fun yawDeg(d: Vec3): Float = Math.toDegrees(kotlin.math.atan2(d.x, -d.z).toDouble()).toFloat()
+
+        /** 안내 출력의 진행 방위를 수평 단위 벡터로(모르면 null). PC 재생과 앱(M65)이 같이 쓴다. */
+        fun headingOf(g: hearspace.core.types.GuidanceOutput?): Vec3? =
+            g?.headingDeg?.takeIf { it.isFinite() }?.let { Math.toRadians(it.toDouble()) }?.let { Vec3(kotlin.math.sin(it).toFloat(), 0f, -cos(it).toFloat()) }
 
         /** 말할 거리: 1 m 단위 반올림, 1 m 아래로 내리지 않는다. */
         fun meters(m: Float): Int = maxOf(1, m.roundToInt())

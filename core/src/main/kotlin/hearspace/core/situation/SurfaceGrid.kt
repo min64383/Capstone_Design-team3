@@ -36,7 +36,12 @@ class SurfacePoint(val pW: Vec3, val cls: Int)
  * 지난 [SituationConfig.gridMemoryS] 안의 영상만 쓴다. 지금 시각 이후의 영상은 받지 않는다(부르는 쪽이 과거 영상만 넘긴다).
  */
 class SurfaceGrid(private val cfg: SituationConfig) {
-    private class FrameObs(val tNs: Long, val cells: Map<Long, Int>)
+    /** 영상 하나가 본 칸들: 칸 열쇠, 섞은 열쇠, 그 영상에서 가장 많은 클래스. */
+    private class FrameObs(val tNs: Long, val keys: LongArray, val mixed: LongArray, val cls: IntArray)
+
+    private class Tally(val key: Long) {
+        val n = IntArray(SurfaceClass.COUNT)
+    }
 
     private val frames = ArrayDeque<FrameObs>()
 
@@ -48,7 +53,7 @@ class SurfaceGrid(private val cfg: SituationConfig) {
     fun add(img: LabelImage, floorY: Float, stride: Int = 2) {
         val k = img.K
         val o = img.worldFromCam.translation()
-        val counts = HashMap<Long, IntArray>()
+        val counts = HashMap<Long, Tally>() // 섞은 열쇠로 찾는다(칸 열쇠 그대로면 이웃 칸끼리 해시가 겹친다, 아래 cells)
         val points = ArrayList<SurfacePoint>()
         val maxD2 = cfg.gridMaxDistM * cfg.gridMaxDistM
         var v = stride / 2
@@ -65,7 +70,8 @@ class SurfaceGrid(private val cfg: SituationConfig) {
                             val dx = p.x - o.x
                             val dz = p.z - o.z
                             if (dx * dx + dz * dz <= maxD2) {
-                                counts.getOrPut(key(index(p.x), index(p.z))) { IntArray(SurfaceClass.COUNT) }[c]++
+                                val kc = key(index(p.x), index(p.z))
+                                counts.getOrPut(mix(kc)) { Tally(kc) }.n[c]++
                                 if (c != SurfaceClass.BACKGROUND.pixel) points.add(SurfacePoint(p, c))
                             }
                         }
@@ -75,25 +81,68 @@ class SurfaceGrid(private val cfg: SituationConfig) {
             }
             v += stride
         }
-        frames.addLast(FrameObs(img.tCaptureNs, counts.mapValues { (_, n) -> n.indices.maxBy { n[it] } }))
+        val keys = LongArray(counts.size)
+        val mixed = LongArray(counts.size)
+        val cls = IntArray(counts.size)
+        var i = 0
+        for ((m, t) in counts) {
+            keys[i] = t.key; mixed[i] = m; cls[i] = t.n.indices.maxBy { t.n[it] }
+            i++
+        }
+        frames.addLast(FrameObs(img.tCaptureNs, keys, mixed, cls))
         lastPoints = points
         val keepNs = (cfg.gridMemoryS * 1e9).toLong()
         while (frames.isNotEmpty() && frames.first().tNs < img.tCaptureNs - keepNs) frames.removeFirst()
     }
 
-    /** [nowNs]에서 지난 [windowS] 안의 영상을 모은 칸들. */
-    fun cells(nowNs: Long, windowS: Float): Map<Long, SurfaceCell> {
-        val fromNs = nowNs - (windowS * 1e9).toLong()
-        val out = HashMap<Long, SurfaceCell>()
-        for (f in frames) {
-            if (f.tNs < fromNs || f.tNs > nowNs) continue
-            for ((key, c) in f.cells) {
-                val cell = out.getOrPut(key) { cellOf(key) }
-                cell.frames[c]++
-                if (f.tNs > cell.lastNs) cell.lastNs = f.tNs
-            }
+    /**
+     * [nowNs]에서 지난 [windowS] 안의 영상을 모은 칸들. 창 길이마다 집계를 이어서 쌓는다(M65): 새로 창에 든 영상은 더하고, 창 밖으로 나간 영상은 뺀다.
+     * 판단마다 창 안 영상 전부를 다시 모으면 기기에서 상황 판단 한 차례가 p95 275~460 ms였다(T01). [nowNs]는 줄지 않는다고 본다(재생·앱 모두).
+     * 찾기는 섞은 열쇠로 한다: 칸 열쇠 `(ix << 32) | iz`의 `Long` 해시는 `ix xor iz`로 접혀 이웃 칸끼리 겹친다(M65 PC 프로파일 76%).
+     * 칸을 도는 순서는 정해져 있지만 M50과 다르므로, 순서가 결과를 바꾸는 곳(블록 선 RANSAC)은 부르는 쪽이 칸을 좌표순으로 정렬한다.
+     * [SurfaceCell.lastNs]는 창 안에서 그 칸에 마지막으로 더한 영상 시각이다(뺄 때 되돌리지 않음, 격자 밖에서 쓰지 않음).
+     */
+    fun cells(nowNs: Long, windowS: Float): Map<Long, SurfaceCell> =
+        windows.getOrPut(windowS) { Window((windowS * 1e9).toLong()) }.advance(nowNs)
+
+    private val windows = HashMap<Float, Window>()
+
+    private inner class Window(private val lengthNs: Long) {
+        private val inside = ArrayDeque<FrameObs>()
+        private val byMixed = HashMap<Long, SurfaceCell>()
+        private var lastAddedNs = Long.MIN_VALUE
+        private val view = object : AbstractMap<Long, SurfaceCell>() {
+            override val entries: Set<Map.Entry<Long, SurfaceCell>>
+                get() = byMixed.values.mapTo(LinkedHashSet()) { java.util.AbstractMap.SimpleImmutableEntry(key(it.ix, it.iz), it) }
+            override val values: Collection<SurfaceCell> get() = byMixed.values
+            override val size: Int get() = byMixed.size
+            override fun get(key: Long): SurfaceCell? = byMixed[mix(key)]
+            override fun containsKey(key: Long): Boolean = byMixed.containsKey(mix(key))
         }
-        return out
+
+        fun advance(nowNs: Long): Map<Long, SurfaceCell> {
+            val fromNs = nowNs - lengthNs
+            while (inside.isNotEmpty() && inside.first().tNs < fromNs) {
+                val f = inside.removeFirst()
+                for (i in f.keys.indices) {
+                    val m = f.mixed[i]
+                    val cell = byMixed[m] ?: continue
+                    cell.frames[f.cls[i]]--
+                    if (cell.frames.all { it == 0 }) byMixed.remove(m)
+                }
+            }
+            for (f in frames) {
+                if (f.tNs <= lastAddedNs || f.tNs < fromNs || f.tNs > nowNs) continue
+                for (i in f.keys.indices) {
+                    val cell = byMixed.getOrPut(f.mixed[i]) { cellOf(f.keys[i]) }
+                    cell.frames[f.cls[i]]++
+                    if (f.tNs > cell.lastNs) cell.lastNs = f.tNs
+                }
+                inside.addLast(f)
+                lastAddedNs = f.tNs
+            }
+            return view
+        }
     }
 
     /** 월드 점 [pW]가 든 칸의 열쇠. */
@@ -101,6 +150,7 @@ class SurfaceGrid(private val cfg: SituationConfig) {
 
     fun reset() {
         frames.clear()
+        windows.clear()
         lastPoints = emptyList()
     }
 
@@ -113,4 +163,14 @@ class SurfaceGrid(private val cfg: SituationConfig) {
     }
 
     private fun key(ix: Int, iz: Int): Long = (ix.toLong() shl 32) or (iz.toLong() and 0xFFFFFFFFL)
+
+    private companion object {
+        /** splitmix64 끝 섞기(일대일): 섞은 값의 `Long` 해시가 고르게 퍼진다. */
+        fun mix(k: Long): Long {
+            var z = k
+            z = (z xor (z ushr 30)) * -0x40a7b892e31b1a47L
+            z = (z xor (z ushr 27)) * -0x6b2fb644ecceee15L
+            return z xor (z ushr 31)
+        }
+    }
 }

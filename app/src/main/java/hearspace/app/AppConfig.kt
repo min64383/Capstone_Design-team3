@@ -16,6 +16,8 @@ object AppConfig {
     private const val SONIFY_OVERRIDE_ASSET = "config/risk-continuous.override.json"
     /** 하네스 착용 실측(M61, 사용자 줄자 2026-11-17: 카메라가 머리 중심보다 앞 0.10·아래 0.20 m). PC 재생 기준선(default.json, 손 파지 실측)은 그대로. */
     private const val HARNESS_OVERRIDE_ASSET = "config/harness.override.json"
+    /** 앱에서만 상황 판단(M50 보행상황 말)을 켠다(M65). PC 재생 기준선(default.json)은 꺼진 채. 노면 모델 파일이 없으면 노면 말은 나지 않는다. */
+    private const val SITUATION_OVERRIDE_ASSET = "config/situation.override.json"
     /** `/sdcard/Android/data/<패키지>/files/config.override.json`. */
     const val DEVICE_OVERRIDE_FILE = "config.override.json"
 
@@ -34,9 +36,10 @@ object AppConfig {
             val base = context.assets.open(CONFIG_ASSET).bufferedReader().use { it.readText() }
             val override = context.assets.open(SONIFY_OVERRIDE_ASSET).bufferedReader().use { it.readText() }
             val harness = context.assets.open(HARNESS_OVERRIDE_ASSET).bufferedReader().use { it.readText() }
+            val situation = context.assets.open(SITUATION_OVERRIDE_ASSET).bufferedReader().use { it.readText() }
             val device = if (deviceOverride && deviceOverrideAllowed) deviceOverrideFile(context)?.takeIf { it.isFile }?.readText() else null
             if (device != null) android.util.Log.i(TAG, "device config override: $device")
-            ConfigLoader.load(base, listOfNotNull(override, harness, device))
+            ConfigLoader.load(base, listOfNotNull(override, harness, situation, device))
         }
     }
 

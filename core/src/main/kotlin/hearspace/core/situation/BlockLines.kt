@@ -38,7 +38,10 @@ object BlockLines {
         val out = ArrayList<BlockLine>()
         val rnd = java.util.Random(1L)
         while (out.size < maxLines && rest.size >= 2) {
-            var best: List<Vec3> = emptyList()
+            // 후보마다 안쪽 점을 세기만 하고, 가장 많은 후보의 안쪽 점만 모은다(M65: 후보마다 목록을 만들면 기기에서 한 차례가 무거웠다)
+            var bestN = 0
+            var bestA = Vec3(0f, 0f, 0f)
+            var bestRight = bestA
             repeat(iterations) {
                 val a = rest[rnd.nextInt(rest.size)]
                 val b = rest[rnd.nextInt(rest.size)]
@@ -47,9 +50,10 @@ object BlockLines {
                 if (n < 1e-3f) return@repeat
                 val dir = d * (1f / n)
                 val right = BlockLine.rightOf(dir)
-                val inl = rest.filter { abs((it - a).horizontal() dot right) <= tol }
-                if (inl.size > best.size) best = inl
+                val inl = rest.count { abs((it - a).horizontal() dot right) <= tol }
+                if (inl > bestN) { bestN = inl; bestA = a; bestRight = right }
             }
+            val best = if (bestN == 0) emptyList() else rest.filter { abs((it - bestA).horizontal() dot bestRight) <= tol }
             var line = refine(best) ?: break
             repeat(2) {
                 val again = rest.filter { p -> abs(line.lateral(p)) <= tol }

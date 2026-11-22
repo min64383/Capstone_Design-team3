@@ -3,12 +3,17 @@ agp = "9.4.0"
 kotlin = "2.4.20"
 junit = "6.1.3"
 arcore = "1.56.0"
+# M65 노면 모델 실행(Interpreter API, GPU 대리자). Apache-2.0, docs/LICENSES.md
+litert = "1.4.2"
 
 [libraries]
 junit-bom = { module = "org.junit:junit-bom", version.ref = "junit" }
 junit-jupiter = { module = "org.junit.jupiter:junit-jupiter" }
 junit-platform-launcher = { module = "org.junit.platform:junit-platform-launcher" }
 arcore = { module = "com.google.ar:core", version.ref = "arcore" }
+litert = { module = "com.google.ai.edge.litert:litert", version.ref = "litert" }
+litert-gpu = { module = "com.google.ai.edge.litert:litert-gpu", version.ref = "litert" }
+litert-gpu-api = { module = "com.google.ai.edge.litert:litert-gpu-api", version.ref = "litert" }
 
 [plugins]
 android-application = { id = "com.android.application", version.ref = "agp" }

@@ -25,6 +25,9 @@ data class Utterance(val tNs: Long, val key: String, val text: String, val prior
  * - 한 상황(열쇠)은 이어지는 동안 한 번만. 끊겼다가 다시 오면 마지막으로 말한 지 [SituationConfig.repeatS]가 지나야 다시 말한다. [SpeechRequest.level]이 오르면 예외.
  * - 우선순위 1은 우선순위 2·3을 끊고 바로 말한다(1끼리는 끊지 않음). 2·3은 말하는 중이 아닐 때 하나만, 앞 2·3 말과 같거나 낮은 우선순위면 [SituationConfig.gapS]가 지난 뒤에.
  * - [SituationConfig.infoSpeech]가 false면 우선순위 3은 내지 않는다.
+ *
+ * 앱(M65)은 [tick]에 실제로 말하는 중인 줄의 등급을 넘긴다(0 = 쉼). 그러면 음절 수 어림 대신 그 값으로 말하는 중인지 보고,
+ * 2·3순위 사이 간격은 실제로 끝난 시각부터 센다. PC 재생은 넘기지 않는다(출력 그대로).
  */
 class Speech(private val cfg: SituationConfig, private val maxInfoAgeNs: Long) {
     private class Spoken(val tNs: Long, val level: Int)
@@ -37,8 +40,18 @@ class Speech(private val cfg: SituationConfig, private val maxInfoAgeNs: Long) {
     private var busyPriority = 0
     private var lowEndNs = Long.MIN_VALUE
     private var lowPriority = 3
+    /** 앱 등급 모드에서 마지막으로 낸 2·3순위 말이 아직 끝나지 않았는지(끝난 시각은 앱 값이 0이 된 차례). */
+    private var lowSpeaking = false
+    private var lowKey: String? = null
 
-    fun tick(nowNs: Long, requests: List<SpeechRequest>): List<Utterance> {
+    /**
+     * [outputPriority]: 앱에서 지금 말하는 중인 줄의 등급(1~3, 0 = 쉼, 말 내보내기가 줄을 받은 때부터 끝날 때까지). null이면 음절 수 어림.
+     */
+    fun tick(nowNs: Long, requests: List<SpeechRequest>, outputPriority: Int? = null): List<Utterance> {
+        if (outputPriority == 0 && lowSpeaking) {
+            lowEndNs = nowNs
+            lowSpeaking = false
+        }
         val prevActive = active
         active = requests.map { it.key }.toSet()
         owed.retainAll(active)
@@ -53,9 +66,10 @@ class Speech(private val cfg: SituationConfig, private val maxInfoAgeNs: Long) {
             r.level > s.level || r.key in owed
         }
         val out = ArrayList<Utterance>()
-        val busy = nowNs < busyUntilNs
+        val busy = if (outputPriority != null) outputPriority > 0 else nowNs < busyUntilNs
+        val busyLevel = outputPriority ?: busyPriority
         val urgent = eligible.filter { it.priority == 1 }.maxByOrNull { it.evidenceNs }
-        if (urgent != null && !(busy && busyPriority == 1)) {
+        if (urgent != null && !(busy && busyLevel == 1)) {
             out.add(say(nowNs, urgent, interrupted = busy))
             return out
         }
@@ -64,9 +78,17 @@ class Speech(private val cfg: SituationConfig, private val maxInfoAgeNs: Long) {
         // 간격은 같거나 낮은 우선순위만 막는다(정보 말 뒤에 길 사건이 2 s 밀리지 않게, M50 SP-9)
         if (next.priority >= lowPriority && nowNs < lowEndNs + (cfg.gapS * 1e9).toLong()) return out
         out.add(say(nowNs, next, interrupted = false))
-        lowEndNs = busyUntilNs
+        if (outputPriority != null) lowSpeaking = true else lowEndNs = busyUntilNs
+        lowKey = next.key
         lowPriority = next.priority
         return out
+    }
+
+    /** 앱이 소리를 내지 못한 말(시작 전 정보 나이 초과·끊김·오류)을 말하지 않은 것으로 되돌린다. 상황이 이어지면 다음 차례에 새 근거로 다시 낸다. */
+    fun unsay(key: String) {
+        spoken.remove(key)
+        owed.remove(key)
+        if (key == lowKey) lowSpeaking = false // 소리 나지 않은 말은 간격을 만들지 않는다(앞 말의 끝 시각 그대로)
     }
 
     private fun say(nowNs: Long, r: SpeechRequest, interrupted: Boolean): Utterance {
