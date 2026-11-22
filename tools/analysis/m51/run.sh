@@ -6,7 +6,7 @@
 # Gradle 시작을 건너뛰려고 :core:replay와 같은 JVM 설정으로 바로 부른다(data/sweeps/m37/rp.sh와 같음).
 set -e
 R=$(cd "$(dirname "$0")/../../.." && pwd)
-LIST=$1; ROOT=$2; shift 2
+LIST=$(cd "$(dirname "$1")" && pwd)/$(basename "$1"); mkdir -p "$2"; ROOT=$(cd "$2" && pwd); shift 2
 cd "$R" && ./gradlew :core:classes -q
 STDLIB=$(ls "$HOME"/.gradle/caches/modules-2/files-2.1/org.jetbrains.kotlin/kotlin-stdlib/2.4.20/*/kotlin-stdlib-2.4.20.jar | head -1)
 SEP=":"; case "$(uname -s)" in MINGW*|MSYS*|CYGWIN*) SEP=";"; STDLIB=$(cygpath -m "$STDLIB"); R=$(cygpath -m "$R");; esac

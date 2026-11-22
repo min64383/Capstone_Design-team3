@@ -2,6 +2,8 @@
 
 2026-11-07. `fix/rotation-near-stop`, 기준 `fix/chest-mount-calibration`의 `46ec77cb5c1c4cde39eccc93c5cb1b5d8d182ddf` (PR #98). main 직접 변경 없음.
 
+> 2026-11-22 M51 다시 실행: main에 들어간 지금 코드(폭 여유 `confirmMinLateralSpanM` 0.079 m 포함, PR #99 마지막 커밋)로 같은 186조건을 다시 돌렸다. 바뀐 값은 회전 중 근거리 STOP 표본 53/72 → 55/72 하나이고, 회전 직후·이후 비율, 첫 STOP 지연, ±90·−180° 사례, 대상 STOP ID 수, 대조 STOP 0회는 같다. 이 실험은 결과 전달을 가상 10 ms로 두므로 실제 기기의 정보 나이(ARCore 프레임 지연 약 170 ms)와 `maxAgeMs` 150 ms의 관계에는 답하지 않는다. 근거리 STOP은 기본 꺼짐 그대로다(M51 결정).
+
 ## 변경
 
 현재 가슴 방향 보정은 회전 후 안내를 안정시키지만, 복셀이 6장의 관측을 누적하고 추적 확인을 받기 전의 첫 경고 지연은 남는다. 새 `NearStopDetector`는 현재 깊이의 필터링된 바닥 위 점을 사용해 근거리 STOP 후보를 만든다. 지도 점유 문턱이나 기존 Tracker 확인 횟수를 낮추지 않는다. 기본 `policy.nearStop=null`은 OFF다.
@@ -26,6 +28,7 @@
 | minLateralSpanM | 0.08m |
 | minAboveFloorM | 0.15m |
 | confirmFrames | 2개의 서로 다른 깊이 장 |
+| confirmMinLateralSpanM | 0.079m(직전 장의 폭 충족 후보와 맞을 때만 0.079~0.08m 덩어리를 이어받음) |
 | maxGapMs | 150ms |
 | maxAgeMs | 150ms |
 
@@ -41,7 +44,7 @@
 
 | 구간 | 가슴 방향 보정만 | NearStop 추가 |
 |---|---:|---:|
-| 회전 중 | 12/72 = 16.7% | 53/72 = 73.6% |
+| 회전 중 | 12/72 = 16.7% | 55/72 = 76.4% (11-07 판 53/72 = 73.6%) |
 | 회전 직후 1초 | 448/480 = 93.3% | 479/480 = 99.8% |
 | 이후 2초 | 976/976 = 100% | 976/976 = 100% |
 
@@ -62,12 +65,11 @@
 
 ## 실행
 
-이 브랜치는 PR #98의 가슴 보정 위에 쌓은 작업이다. PC에서 설정 없이 비교 전체를 실행한다. CSV를 열어 둔 상태로 같은 폴더를 덮어쓰지 말고 새 출력 폴더를 쓴다.
+11-07 판은 PR #98의 가슴 보정 위에 쌓은 `fix/rotation-near-stop` 브랜치에서 돌렸고, 지금은 main에 들어가 있다. PC에서 설정 없이 비교 전체를 실행한다. CSV를 열어 둔 상태로 같은 폴더를 덮어쓰지 말고 새 출력 폴더를 쓴다.
 
 ```powershell
-git fetch origin
-git switch fix/rotation-near-stop
-git pull --ff-only origin fix/rotation-near-stop
+git switch main
+git pull --ff-only origin main
 .\gradlew.bat :core:test :core:chestGuidanceExperiment -Pout=core/build/near-stop-run1
 explorer .\core\build\near-stop-run1
 ```
@@ -79,7 +81,8 @@ explorer .\core\build\near-stop-run1
 ## 검증 기록
 
 - 레포와 같은 Kotlin 2.4.20 CLI로 core production/전체 테스트 컴파일, 기존 선언 버전 JUnit 6.1.3과 Gradle과 같은 설정·HRIR·출력 경로로 core **404/404 통과**(새 합성 테스트 9개 포함). 단일 장 면, 반복 깊이, 역행 시각, 긴 관측 공백, 바닥/측면/원거리/중복 화소/점 잡음, 성숙 track 중복, 정보 만료·현재 ROI, 기존 STOP 우선, 설정 거부를 확인했다.
-- 186조건·558구간을 독립 JVM에서 두 번 실행. cases.csv/trace.csv가 각각 바이트 단위로 같았다. cases SHA-256 `bc82ccffd8097b617d0587ad0e4bcdf9002502fc798e152d233fa8abde195fad`, trace SHA-256 `5e692ecd4c9c9866669d121166316f89cd7bdc73c17650787e833cc5bdef75b7`.
+- 2026-11-22 M51 다시 실행(한 번): cases SHA-256 `b4fa8a407c615e650c6ead418d9b463b65e95c359f584949fb37ed66f7193052`, trace SHA-256 `f4da13853360f103286232fcad19f0e35b112b565841da7060721916d36086ad`. 정적 참조 CSV를 이 판으로 바꿨다. 기본 회전의 방식당 2,296프레임에서 SlowPath(지도 + 군집 + 추적·근거리) p95는 가슴 보정만 0.972 ms / NearStop 포함 1.981 ms, 추적·근거리 단계 p95는 0.004 / 0.753 ms였다(다른 재생이 동시에 돈 PC 측정, 11-07 판과 PC 조건이 달라 직접 견주지 않는다).
+- 11-07 판: 186조건·558구간을 독립 JVM에서 두 번 실행. cases.csv/trace.csv가 각각 바이트 단위로 같았다. cases SHA-256 `bc82ccffd8097b617d0587ad0e4bcdf9002502fc798e152d233fa8abde195fad`, trace SHA-256 `5e692ecd4c9c9866669d121166316f89cd7bdc73c17650787e833cc5bdef75b7`.
 - OFF의 기존 112조건 모든 기존 CSV 열이 PR #98 결과와 같았다. 558개 조건/구간 행의 고유성, 대조에서 STOP 0회도 CSV로 교차 확인했다.
 - 두 번째 실행은 비결정적인 실제 시계 데이터를 별도 stage_timing.csv에 기록했다. 기본 회전의 같은 방식당 2,296프레임에서 SlowPath 전체 p95는 가슴 보정만 4.643ms / NearStop 포함 4.877ms, 추적+근거리 단계 p95는 0.006 / 0.853ms였다. 다른 회귀 테스트가 동시에 실행된 PC 측정이며 두 p95의 차이를 순수한 추가 비용으로 해석하지 않는다. 기기 처리 시간이나 실제 소리 지연은 측정하지 않았다.
 - `git diff --check` 통과. 이 환경의 Gradle은 9.8 배포판 다운로드에서 Network is unreachable로 실패했다. Android 앱 빌드·실기 설치·청취·실제 촬영 오탐 평가는 미완료다. Viewer 전체 시험은 이번 단계에서 다시 실행하지 않았다(PR #98에 기록한 기존 Linux 경로 실패가 남아 있음).

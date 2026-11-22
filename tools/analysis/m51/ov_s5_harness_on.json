@@ -1,0 +1,32 @@
+{
+ "sonify": {
+  "mode": "RISK_CONTINUOUS",
+  "mapping": "DISTANCE_HEIGHT"
+ },
+ "policy": {
+  "maxSources": 2,
+  "prioritizeStop": true
+ },
+ "head": {
+  "offsetFromCameraM": [
+   0.0,
+   0.2,
+   -0.1
+  ]
+ },
+ "situation": {
+  "enabled": true
+ },
+ "heading": {
+  "cameraSigmaDeg": 0,
+  "chestMount": {
+   "yawOffsetDeg": 0,
+   "headOffsetBodyM": [
+    0.0,
+    0.2,
+    -0.1
+   ],
+   "minHorizontalNorm": 0.1
+  }
+ }
+}
