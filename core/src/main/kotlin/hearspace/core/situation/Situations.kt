@@ -148,9 +148,9 @@ class Situations(
         }
         // M65(사용자 승인 2026-11-21): 노면 격자는 지난 gridMemoryS를 기억하는 지도이고 노면은 움직이지 않으므로, 노면 지도에 기대는 말의 근거 시각은
         // 노면 영상 촬영 시각이 아니라 판단에 쓴 사용자 위치(이 깊이 장)의 시각이다(장애물 소리가 느린 경로 결과 시각으로 나이를 재는 것과 같다).
-        // 안전장치: 마지막 노면 영상이 surfaceMaxAgeMs보다 오래되면(모델이 멈춤 등) 노면 지도에 기대는 말은 내지 않는다. 차 다가옴은 노면과 무관하다.
+        // 안전장치: 마지막 노면 영상이 surfaceMaxAgeMs보다 오래되면(모델이 멈춤 등) 노면 지도에 기대는 말은 내지 않는다. 차·사람 다가옴은 노면과 무관하다.
         val fresh = lastSurfaceNs != Long.MIN_VALUE && inp.depth.tCaptureNs - lastSurfaceNs <= cfg.surfaceMaxAgeMs * 1_000_000L
-        return speech.tick(inp.nowNs, if (fresh) req else req.filter { it.key.startsWith("veh#") }, inp.outputPriority) to rec
+        return speech.tick(inp.nowNs, if (fresh) req else req.filter { it.key.startsWith("veh#") || it.key == "ped" }, inp.outputPriority) to rec
     }
 
     fun reset() {
@@ -408,7 +408,10 @@ class Situations(
             c.frames[cls.pixel] >= cfg.confirmFrames && (rel dot h) > 0f && abs(rel dot right) <= corridorWidthM / 2f
         }
 
-    /** 1g: 통로 안 움직이는 출력이 [SituationConfig.vehicleApproachMps] 넘게 다가오고, 의미 영상에서 그 물체 자리의 사람·차량 라벨 다수가 차량. */
+    /**
+     * 1g: 통로 안 움직이는 출력이 [SituationConfig.vehicleApproachMps] 넘게 다가오고, 의미 영상에서 그 물체 자리의 사람·차량 라벨 다수가 차량이면 "차 다가옴",
+     * 사람이면 "사람 다가옴"(M51 사용자 요청: M50에서 사람은 STOP 소리로만 알리기로 했던 것을 바꿈). 의미 영상이 없으면(실내·옛 녹화) 둘 다 말하지 않는다.
+     */
     private fun vehicles(inp: SituationInput, user: Vec3, req: MutableList<SpeechRequest>) {
         val labels = inp.depth.labels ?: return
         val byId = inp.snapshot.obstacles.associateBy { it.id }
@@ -420,11 +423,18 @@ class Situations(
             val rel = (o.repPointW - user).horizontal()
             val n = rel.norm()
             if (n < 1e-3f || -(v.horizontal() dot rel) / n <= cfg.vehicleApproachMps) continue
-            if (majorityVehicle(labels, o.aabbMinW, o.aabbMaxW)) req.add(SpeechRequest("veh#${o.id}", "차 다가옴", 1, inp.snapshot.tCaptureNs))
+            when (majorityMover(labels, o.aabbMinW, o.aabbMaxW)) {
+                SemanticLabel.VEHICLE -> req.add(SpeechRequest("veh#${o.id}", "차 다가옴", 1, inp.snapshot.tCaptureNs))
+                // 사람은 키 하나: 한 사람이 발 접점 → 깊이 track 넘김·track 갈림으로 번호가 바뀌어 같은 사람에게 되풀이했다(T 150300·150338·150439).
+                // 다가오는 사람이 이어지는 동안 한 번, 사라졌다가 repeatS 뒤에 다시. 사람마다의 위치는 장애물 소리가 맡는다
+                SemanticLabel.PERSON -> req.add(SpeechRequest("ped", "사람 다가옴", 1, inp.snapshot.tCaptureNs))
+                else -> Unit
+            }
         }
     }
 
-    private fun majorityVehicle(labels: LabelImage, lo: Vec3, hi: Vec3): Boolean {
+    /** 물체 상자 27점에서 사람·차량 라벨 중 많은 쪽(둘 다 없거나 같으면 null). */
+    private fun majorityMover(labels: LabelImage, lo: Vec3, hi: Vec3): SemanticLabel? {
         var veh = 0; var person = 0
         for (i in 0..2) for (j in 0..2) for (k in 0..2) {
             val p = Vec3(lo.x + (hi.x - lo.x) * i / 2f, lo.y + (hi.y - lo.y) * j / 2f, lo.z + (hi.z - lo.z) * k / 2f)
@@ -433,7 +443,11 @@ class Situations(
                 SemanticLabel.PERSON.pixel -> person++
             }
         }
-        return veh > person
+        return when {
+            veh > person -> SemanticLabel.VEHICLE
+            person > veh -> SemanticLabel.PERSON
+            else -> null
+        }
     }
 
     companion object {

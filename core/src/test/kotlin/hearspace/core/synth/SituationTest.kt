@@ -298,6 +298,17 @@ class SituationTest {
     }
 
     @Test
+    fun `SP-22 an approaching person is spoken, a crossing or standing person is not`() {
+        val labels = LabelImage(0L, ByteArray(kS.width * kS.height) { SemanticLabel.PERSON.pixel.toByte() }, kS, pose(0f))
+        fun said(o: Obstacle) = run(30, cls = { _, _ -> S }, depthOf = { t, w -> depth(t, w, labels = labels) }, obstacles = listOf(o))
+        assertTrue(said(obstacle(7, Vec3(0f, 0.6f, -4f))).none { it.text == "사람 다가옴" })
+        assertTrue(said(obstacle(8, Vec3(0f, 0.6f, -4f), vel = Vec3(1.2f, 0f, 0f), moving = true)).none { it.text == "사람 다가옴" })
+        val approach = said(obstacle(9, Vec3(0f, 0.6f, -4f), vel = Vec3(0f, 0f, 1.2f), moving = true))
+        assertEquals(1, approach.count { it.text == "사람 다가옴" }, approach.toString())
+        assertTrue(approach.none { it.text == "차 다가옴" })
+    }
+
+    @Test
     fun `SP-20 a wide dot pad where the line starts is not a branch, a real crossing line is`() {
         // 선이 2.6 m 앞에서 시작하고, 시작점에 폭 1.4 m·깊이 0.6 m 점형블록 판(노면 모델은 같은 블록으로 칠함, T01 160 s)
         val pad: (Float, Float) -> Int = { x, z -> if ((x in -0.15f..0.15f && -z in 2.6f..6f) || (x in -0.7f..0.7f && -z in 2.0f..2.6f)) B else S }
