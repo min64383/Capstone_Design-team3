@@ -360,8 +360,10 @@ def compute(session: Path, run_dir: Path) -> dict:
     # (obstacles.csv repNEAREST)가 정답 물체에서 ATTR_M 안일 때만 그 물체의 경고로 센다 — 다른 출력(바닥 가짜 물체 등)이 먼저 낸 경고를 빼려고
     obs = pd.read_csv(run_dir / "obstacles.csv") if (run_dir / "obstacles.csv").is_file() else pd.DataFrame()
     opos = {(int(r.tCaptureNs), int(r.id)): (r.repNEAREST_x, r.repNEAREST_z) for r in obs.itertuples()} if len(obs) else {}
-    snap = blocks.snapshotTNs.to_numpy()
-    oid = blocks.obstacleId.to_numpy()
+    # 합성 재생(core 테스트 출력)의 guidance.csv에는 두 칸이 없을 수 있다 → 경고를 어느 물체에도 붙이지 않음(firstWarn 없음)
+    nan = pd.Series(np.nan, index=blocks.index)
+    snap = blocks.get("snapshotTNs", nan).to_numpy(float)
+    oid = blocks.get("obstacleId", nan).to_numpy(float)
 
     def warned_by(k: int, j: int) -> bool:
         if band[k] not in ("WARN", "STOP") or not active[k] or np.isnan(snap[k]) or np.isnan(oid[k]):
