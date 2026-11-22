@@ -178,29 +178,43 @@ data class DeviceRow(
     val thermalStatus: Int?,
     val batteryPct: Int?,
     val audioOutputLatencyMs: Float?,
+    /** 배터리 온도 °C(`ACTION_BATTERY_CHANGED`의 `EXTRA_TEMPERATURE` ÷ 10, M63). */
+    val batteryTempC: Float? = null,
+    /** `PowerManager.getThermalHeadroom(0)`(API 30+, 1.0 = SEVERE에서 제한, M63). */
+    val thermalHeadroom: Float? = null,
+    /** Java 힙 사용량 MB(M63). */
+    val heapMb: Float? = null,
 )
 
 /** `device.csv` 쓰기·읽기. */
 object DeviceCsv {
-    /** 열 이름(순서 고정, §10.1). */
-    val HEADER = listOf("tNs", "thermalStatus", "batteryPct", "audioOutputLatencyMs")
+    /** 열 이름(순서 고정, §10.1). 뒤 세 열은 M63에서 더함. */
+    val HEADER = listOf("tNs", "thermalStatus", "batteryPct", "audioOutputLatencyMs", "batteryTempC", "thermalHeadroom", "heapMb")
+
+    /** M63 전 파일의 열 수(앞 4열). */
+    private const val OLD_COLUMNS = 4
 
     /** 헤더 한 줄. */
     fun headerLine(): String = HEADER.joinToString(",")
 
-    /** [row]를 CSV 한 줄로. */
+    /** [row]를 CSV 한 줄로. NaN(발열 여유 미지원)은 빈칸. */
     fun format(row: DeviceRow): String =
-        listOf(row.tNs, row.thermalStatus, row.batteryPct, row.audioOutputLatencyMs).joinToString(",") { it?.toString() ?: "" }
+        listOf(row.tNs, row.thermalStatus, row.batteryPct, row.audioOutputLatencyMs, row.batteryTempC, row.thermalHeadroom, row.heapMb)
+            .joinToString(",") { if (it == null || (it is Float && it.isNaN())) "" else it.toString() }
 
-    /** CSV 한 줄을 읽는다. */
+    /** CSV 한 줄을 읽는다(옛 4열 줄도 받음). */
     fun parse(line: String): DeviceRow {
         val c = line.split(',')
-        require(c.size == HEADER.size) { "expected ${HEADER.size} columns, got ${c.size}" }
+        require(c.size == HEADER.size || c.size == OLD_COLUMNS) { "expected ${HEADER.size} or $OLD_COLUMNS columns, got ${c.size}" }
+        fun f(i: Int) = c.getOrNull(i)?.ifEmpty { null }?.toFloat()
         return DeviceRow(
             tNs = c[0].toLong(),
             thermalStatus = c[1].ifEmpty { null }?.toInt(),
             batteryPct = c[2].ifEmpty { null }?.toInt(),
-            audioOutputLatencyMs = c[3].ifEmpty { null }?.toFloat(),
+            audioOutputLatencyMs = f(3),
+            batteryTempC = f(4),
+            thermalHeadroom = f(5),
+            heapMb = f(6),
         )
     }
 }

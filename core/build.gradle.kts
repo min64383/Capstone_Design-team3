@@ -70,7 +70,7 @@ fun mergeJson(base: String, over: String): String {
 // 재생 결과 replay_info.json의 코드 판(루트 build.gradle.kts, M41)
 val gitHash: String by rootProject.extra
 
-// M8 오프라인 재생: ./gradlew :core:replay -Psession=<세션 폴더> [-Pout=..] [-PslowMs=10 | -PslowFrom=<slow_path.csv>] [-PoverridesFile=<json>]
+// M8 오프라인 재생: ./gradlew :core:replay -Psession=<세션 폴더> [-Pout=..] [-PslowMs=10 | -PslowFrom=<slow_path.csv>] [-PoverridesFile=<json>] [-PreplayJvmArgs="..."]
 // M12.3 정답 대입: [-Psubstitute=depth,map,heading,floor -PalignFrom=<align.json> -PdepthNoisePerM=0.03]
 // M19 RGB 원천: [-PrgbFrom=mp4|recorded]
 // M37 학습형 깊이 장: [-PdepthFrom=<변형>/<full|fill> -PdepthFromDelayMs=<ms>]
@@ -82,6 +82,8 @@ tasks.register<JavaExec>("replay") {
     systemProperty("hearspace.defaultConfig", rootProject.file("app/src/main/assets/config/default.json").absolutePath)
     systemProperty("hearspace.replayOut", layout.buildDirectory.dir("replay").get().asFile.absolutePath)
     systemProperty("hearspace.gitHash", gitHash)
+    // M63: 프로파일용 JVM 인자(예: -PreplayJvmArgs="-XX:StartFlightRecording=filename=rec.jfr,settings=profile")
+    (project.findProperty("replayJvmArgs") as String?)?.let { jvmArgs(it.split(' ').filter(String::isNotBlank)) }
     val paths = setOf("session", "out", "slowFrom", "overridesFile", "alignFrom")
     args = listOf("session", "out", "slowMs", "slowFrom", "overrides", "overridesFile", "substitute", "alignFrom", "depthNoisePerM", "rgbFrom", "depthFrom", "depthFromDelayMs", "movingFrom", "mapInserts", "cellTrace", "labelRemap").mapNotNull { k ->
         (project.findProperty(k) as String?)?.let { v -> "$k=${if (k in paths) rootProject.file(v).absolutePath else v}" }
