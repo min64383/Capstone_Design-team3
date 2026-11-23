@@ -16,6 +16,8 @@ KEYS = ("hz", "procP95Ms", "ageP50Ms")
 
 def run_stats(d: Path) -> dict:
     sp = pd.read_csv(d / "slow_path.csv")
+    if sp.empty:  # ARCore 깊이 멈춤(M63)이면 느린 경로가 한 번도 돌지 않는다. nan으로 견주면 판정이 틀린다
+        raise SystemExit(f"{d.name}: slow_path.csv has no rows (depth never arrived); leave this run out")
     g = pd.read_csv(d / "guidance.csv")
     dur = (sp.tCaptureNs.max() - sp.tCaptureNs.min()) / 1e9
     age = g.infoAgeMs.dropna()  # 음원이 있는 블록만 기록된다(metrics.run_metrics와 같음)

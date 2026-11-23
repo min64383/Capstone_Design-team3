@@ -53,7 +53,7 @@ class RelayUploader(
     private var ticks = 0L
     private var seq = 0L
     private var lastT = Long.MIN_VALUE
-    private var lastLogNs = Long.MIN_VALUE
+    private var lastLogNs = clockNs() // MIN_VALUE로 두면 now - lastLogNs가 넘쳐 요약이 찍히지 않는다(M67 기기 확인)
     @Volatile private var lastProblem: String? = null // 보내기 스레드가 쓰고 표본 스레드가 기록에 읽는다
 
     private fun factory(name: String) = { r: Runnable -> Thread({ threadInit(); r.run() }, name).apply { isDaemon = true } }
