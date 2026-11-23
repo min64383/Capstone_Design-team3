@@ -18,11 +18,17 @@
 | Pillow | 12.3.0 (requirements.txt 고정, M41. 전에는 matplotlib 전이 의존성) | tools/analysis: PNG·JPEG 읽기(spike_check.py) | MIT-CMU (HPND) | 2026-09-26 (M1, 전이 의존성 사용) |
 | PyAV (`av`) | 18.1.0 (requirements.txt 고정, M41) | tools/analysis: ARCore 녹화 MP4의 H.264 영상 디코딩(mp4_rgb.py). 앱에는 들어가지 않음 | BSD-3-Clause. 휠에 FFmpeg 8.1.2 라이브러리 동봉: **LGPL v3 이상** 빌드(`--enable-version3`, GPL·nonfree 아님, `av._core.library_meta`로 확인) | 2026-10-10 (M19) |
 | LiteRT (`com.google.ai.edge.litert:litert`·`litert-gpu`·`litert-gpu-api`, Interpreter API) | 1.4.2 | app: M50 노면 분할 모델 실행(GPU 대리자, M65) | Apache-2.0(Maven POM `The Apache Software License, Version 2.0`, Google AI Edge Authors) | 2026-11-21 (M65 설계 승인) |
+| Caddy | 2.11.9 (GitHub 릴리스 `caddy_2.11.9_windows_amd64.zip`, 릴리스 checksums의 SHA-512 확인, caddy.exe sha256 2622e239c79df700) | 데모 중계 HTTPS 앞단(도구, 저장소 밖 `data/tools/caddy-2.11.9/`, 설정만 `tools/relay/Caddyfile`). 앱·서버 코드에 들어가지 않음 | Apache-2.0 | 2026-11-23 (M68 설계) |
 
 ### ARCore 약관 메모
 
 - 앱을 배포(사용자 평가 포함)할 때는 앱 안내문에 "ARCore 기능을 포함하며 Google 서비스 약관·개인정보처리방침이 적용된다"는 고지가 필요하다(ARCore Additional Terms). M9에서 빠졌던 것을 M40에서 반영(A1 TR7): 사용자 모드 시작 화면 아래에 늘 보이고, 처음 시작하기 전까지는 TalkBack이 화면 설명과 함께 읽는다(`UserTexts.ARCORE_NOTICE`). M45부터 설정 > 정보 > ARCore 고지에서도 언제든 볼 수 있고, 같은 곳의 "오픈소스 라이선스"가 앱에 든 SADIE II(고지·Apache 2.0 전문)·Kotlin 표준 라이브러리·ARCore 약관을 알린다. 약관 원문(https://developers.google.com/ar/develop/terms, 2026-10-27 확인)은 앱의 최종 사용자 약관에서 알리라고 하며 문구는 정하지 않는다: 앱 밖 약관·안내문(사용자 평가 동의서 등)을 만들면 같은 문장을 넣는다.
 - 공식 샘플(hello_ar, Apache-2.0) 코드는 복사하지 않았다. `render/BackgroundRenderer.kt`는 샘플의 방식(OES 텍스처 + `transformCoordinates2d`)을 참고해 새로 작성.
+
+### 외부 서비스 (M68 데모 중계)
+
+- DuckDNS(무료 동적 DNS, duckdns.org): 데모 중계 주소 `<이름>.duckdns.org`. 계정은 사용자, 토큰은 git 밖 `data/relay/ddns.json`. 공개 접미사 목록에 있어 Let's Encrypt 한도가 이름마다 따로다(ipTIME DDNS `iptime.org`는 목록에 없음, 2026-11-23 확인).
+- Let's Encrypt(인증 기관): Caddy가 ACME로 인증서를 받는다(Let's Encrypt Subscriber Agreement에 Caddy가 동의하는 방식). 승인 2026-11-23 (M68 설계).
 
 ## 모델 가중치
 

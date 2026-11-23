@@ -142,6 +142,9 @@ class RelayServer(
         ?.apply { appendLine("wallS,live,heldAgeMs,audioPages,ssePages,lateEvents,lateAlertsDropped,listenerSkips,missingTexts"); flush() }
     private val clients = runDir?.let { File(it, "clients.csv").bufferedWriter() }
         ?.apply { appendLine("wallS,client,bufferedMs,underruns,drops,played,ua"); flush() }
+    /** 업로드마다 한 줄(M68 설계 3.3절): 묵힘을 다시 계산하는 데 쓴다. 시각은 서버 시계(t0부터 ns)와 S10 시계(ns). 번호가 빈 곳 = S10이 버리거나 못 보낸 묶음. */
+    private val uploads = runDir?.let { File(it, "uploads.csv").bufferedWriter() }
+        ?.apply { appendLine("arrivalNs,session,seq,sentNs,firstTNs,lastTNs,samples,code"); flush() }
     private val t0 = clock()
     private val renderThread = Thread(::renderLoop, "RelayRender")
 
@@ -191,7 +194,7 @@ class RelayServer(
                 stats?.run {
                     val b = last
                     val age = if (b?.pNs != null && b.sampleTNs != null) "%.1f".format((b.pNs!! - b.sampleTNs!!) / 1e6) else ""
-                    appendLine("%.1f,%s,%s,%d,%d,%d,%d,%d,%d".format((now - t0) / 1e9, b?.live ?: false, age, audioPages.get(), ssePages.get(),
+                    appendLine("%.3f,%s,%s,%d,%d,%d,%d,%d,%d".format((now - t0) / 1e9, b?.live ?: false, age, audioPages.get(), ssePages.get(),
                         playback.lateEvents, playback.lateAlertsDropped, listenerSkips.get(), missingSeen.size))
                     flush()
                 }
@@ -326,15 +329,21 @@ class RelayServer(
         } catch (e: Exception) {
             return send(ex, 400)
         }
-        when (playback.accept(batch, clock())) {
+        val now = clock()
+        val code = when (playback.accept(batch, now)) {
             RelayPlayback.Accept.OK -> {
                 val c = batch.start?.appCommit
                 if (c != null && c != serverCommit && warnedCommit.add(batch.session)) println("relay: WARNING app commit $c != server commit $serverCommit")
-                send(ex, 200)
+                200
             }
-            RelayPlayback.Accept.NEED_START -> send(ex, 409)
-            RelayPlayback.Accept.BAD -> send(ex, 400)
+            RelayPlayback.Accept.NEED_START -> 409
+            RelayPlayback.Accept.BAD -> 400
         }
+        uploads?.run {
+            val s = batch.samples
+            synchronized(this) { appendLine("${now - t0},${batch.session.replace(',', ' ')},${batch.seq},${batch.sentNs},${s.firstOrNull()?.tNs ?: ""},${s.lastOrNull()?.tNs ?: ""},${s.size},$code"); flush() }
+        }
+        send(ex, code)
     }
 
     private fun body(ex: HttpExchange, limit: Int): ByteArray? = ex.requestBody.readNBytes(limit + 1).takeIf { it.size <= limit }
@@ -364,6 +373,7 @@ class RelayServer(
         renderThread.join(2000)
         stats?.close()
         clients?.close()
+        uploads?.let { synchronized(it) { it.close() } }
     }
 
     companion object {

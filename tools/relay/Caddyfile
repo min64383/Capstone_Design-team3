@@ -1,0 +1,9 @@
+# 데모 중계 HTTPS 앞단(M68 설계 3.2절). tools/relay/home.ps1이 켠다.
+# RELAY_HOST: <이름>.duckdns.org(인증서는 Caddy가 80·443번으로 받음) 또는 PC 확인용 http://localhost:8081
+# RELAY_UPSTREAM: 중계 서버 127.0.0.1:<relay.json port>. 서버는 127.0.0.1에서만 받으므로 밖에서는 Caddy로만 닿는다.
+{$RELAY_HOST} {
+	reverse_proxy {$RELAY_UPSTREAM} {
+		# 소리(/audio, 길이 없는 청크 응답)와 사건(/events, SSE)을 모으지 않고 바로 흘린다
+		flush_interval -1
+	}
+}
