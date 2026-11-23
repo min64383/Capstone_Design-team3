@@ -26,23 +26,26 @@ object AppConfig {
     /** 기기 덮어쓰기 파일을 읽는 빌드인지(개발 도구가 있는 debug·bench, M61). */
     val deviceOverrideAllowed: Boolean get() = BuildConfig.DEV_TOOLS
 
-    /** 기기 덮어쓰기를 쓴 설정(true)과 앱 자산만의 설정(false). */
-    private val cached = HashMap<Boolean, Config>()
+    /** 기기 덮어쓰기를 쓴 설정(true)과 앱 자산만의 설정(false), 그리고 합친 층 글. */
+    private val cached = HashMap<Boolean, Pair<List<String>, Config>>()
 
     /**
      * 설정을 읽는다. 형식 오류는 [hearspace.core.types.ConfigException].
      * [deviceOverride]가 false면 기기 파일을 읽지 않는다(사용자 모드: 기기 파일이 잘못됐을 때 앱 기본 설정으로 안내, A1 FA2).
      */
-    fun get(context: Context, deviceOverride: Boolean = true): Config = synchronized(this) {
+    fun get(context: Context, deviceOverride: Boolean = true): Config = load(context, deviceOverride).second
+
+    /** [get]이 합친 설정 층 글(기본이 먼저). 데모 중계가 서버에 같은 설정을 보내는 데 쓴다(M67). */
+    fun layers(context: Context, deviceOverride: Boolean = true): List<String> = load(context, deviceOverride).first
+
+    private fun load(context: Context, deviceOverride: Boolean): Pair<List<String>, Config> = synchronized(this) {
         cached.getOrPut(deviceOverride) {
-            val base = context.assets.open(CONFIG_ASSET).bufferedReader().use { it.readText() }
-            val override = context.assets.open(SONIFY_OVERRIDE_ASSET).bufferedReader().use { it.readText() }
-            val harness = context.assets.open(HARNESS_OVERRIDE_ASSET).bufferedReader().use { it.readText() }
-            val situation = context.assets.open(SITUATION_OVERRIDE_ASSET).bufferedReader().use { it.readText() }
-            val combo = context.assets.open(COMBO_OVERRIDE_ASSET).bufferedReader().use { it.readText() }
+            fun asset(name: String) = context.assets.open(name).bufferedReader().use { it.readText() }
             val device = if (deviceOverride && deviceOverrideAllowed) deviceOverrideFile(context)?.takeIf { it.isFile }?.readText() else null
             if (device != null) android.util.Log.i(TAG, "device config override: $device")
-            ConfigLoader.load(base, listOfNotNull(override, harness, situation, combo, device))
+            val layers = listOfNotNull(asset(CONFIG_ASSET), asset(SONIFY_OVERRIDE_ASSET), asset(HARNESS_OVERRIDE_ASSET),
+                asset(SITUATION_OVERRIDE_ASSET), asset(COMBO_OVERRIDE_ASSET), device)
+            layers to ConfigLoader.load(layers.first(), layers.drop(1))
         }
     }
 

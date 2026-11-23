@@ -46,6 +46,7 @@ import hearspace.app.runtime.AndroidTts
 import hearspace.app.runtime.AudioFocus
 import hearspace.app.runtime.Haptics
 import hearspace.app.runtime.RunSession
+import hearspace.app.runtime.RunTap
 import hearspace.app.runtime.SpeechOut
 import hearspace.app.runtime.TtsBench
 import hearspace.app.runtime.ThermalMonitor
@@ -78,6 +79,8 @@ class UserModeActivity : Activity(), GLSurfaceView.Renderer {
     enum class UserCommand { TOGGLE, EXIT }
 
     private lateinit var config: Config
+    /** [config]가 기기 설정 덮어쓰기를 썼는지(형식 오류로 버렸으면 false). 데모 중계 고리에 같은 설정 층을 넘긴다(M67). */
+    private var configDeviceOverride = true
     private lateinit var hrtf: Hrtf
     private lateinit var ar: ArSessionManager
     private lateinit var feeder: ArFeeder
@@ -133,6 +136,7 @@ class UserModeActivity : Activity(), GLSurfaceView.Renderer {
         } catch (e: ConfigException) {
             // 기기 덮어쓰기 파일이 잘못됐으면 버리고 앱 기본 설정으로 안내한다(A1 FA2: 실행마다 죽지 않게). 앱 자산 설정은 테스트가 검사한다
             Log.e(TAG, "device config override rejected", e)
+            configDeviceOverride = false
             AppConfig.get(this, deviceOverride = false)
         }
         overrideNotice = AppConfig.overrideNotice(this)
@@ -179,9 +183,12 @@ class UserModeActivity : Activity(), GLSurfaceView.Renderer {
         screenReaderActive = a11y.isTouchExplorationEnabled
         shown = null
         spokenLine = null
+        // 데모 중계(M67): bench 빌드만 고리가 채워져 있다. 일반 빌드는 비어 있어 아무것도 하지 않는다
+        RunTap.current?.resumed(feeder::nowNs, AppConfig.layers(this, configDeviceOverride), noticeText.text?.toString())
         tts = AndroidTts(this, config, onDuckingChanged = { active ->
             run?.pipeline?.speechActive = active
         }, onEvent = { event ->
+            RunTap.current?.speech(event)
             speechOut?.onEvent(event)
             bench?.onEvent(event)
             if (foreground && event.state == AndroidTts.State.STARTED && ttsFailure != null) {
@@ -407,6 +414,7 @@ class UserModeActivity : Activity(), GLSurfaceView.Renderer {
             }
             it.pipeline.onAlert = { kind ->
                 // 오디오 스레드에서 불린다: 진동(바인더 호출)·로그는 UI 스레드로 넘긴다(A1 CO5)
+                RunTap.current?.alert(kind)
                 ui.post {
                     haptics.on(kind)
                     Log.i(TAG, "alert $kind")
@@ -417,6 +425,7 @@ class UserModeActivity : Activity(), GLSurfaceView.Renderer {
             feeder.pipeline = it.pipeline
             feeder.surface = it.surface
         }
+        RunTap.current?.run(r.pipeline)
         prefs.edit().putBoolean(PREF_NOTICE_READ, true).apply()
         glView.onResume()
         ui.removeCallbacks(uiTick)
@@ -432,6 +441,7 @@ class UserModeActivity : Activity(), GLSurfaceView.Renderer {
     }
 
     private fun stop() {
+        RunTap.current?.run(null)
         tts?.stop()
         speechOut?.pipeline = null
         speechOut?.logger = null
@@ -456,6 +466,7 @@ class UserModeActivity : Activity(), GLSurfaceView.Renderer {
         // VERIFY: 화면이 꺼지는 중(onPause)에도 진동이 전달되는지(Android 13+ 백그라운드 진동 제한) 기기에서 확인
         if (run != null) stopWithNotice("화면을 떠나 안내를 멈췄습니다", haptics::exit) else stop()
         render()
+        RunTap.current?.paused()
     }
 
     override fun onDestroy() {
@@ -544,6 +555,7 @@ class UserModeActivity : Activity(), GLSurfaceView.Renderer {
 
     private fun show(s: UserScreen) {
         shown = s
+        RunTap.current?.screen(s)
         titleText.visibility = if (s.title == null) View.GONE else View.VISIBLE
         titleText.text = s.title
         titleText.setTextColor(getColor(if (s.titleTone == UserScreen.Tone.CAUTION) R.color.run_caution else R.color.run_text))

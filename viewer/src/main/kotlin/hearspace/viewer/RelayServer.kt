@@ -2,6 +2,7 @@ package hearspace.viewer
 
 import com.sun.net.httpserver.HttpExchange
 import com.sun.net.httpserver.HttpServer
+import hearspace.core.audio.Resample
 import hearspace.core.relay.RelayBatch
 import hearspace.core.relay.RelayPlayback
 import hearspace.core.relay.RelayScreen
@@ -67,17 +68,19 @@ object RelayClips {
     fun name(text: String): String =
         MessageDigest.getInstance("SHA-1").digest(text.toByteArray(Charsets.UTF_8)).joinToString("") { "%02x".format(it) }
 
-    /** [dir]의 소리를 읽는다. 형식이 다른 파일은 건너뛰고 알린다. 폴더가 없으면 빈 모음. */
+    /** [dir]의 소리를 읽는다. 표본율이 [rate]가 아니면 바꾼다(M67: S10 TTS는 엔진이 표본율을 정함). 16-bit 모노가 아닌 파일은 건너뛰고 알린다. 폴더가 없으면 빈 모음. */
     fun load(dir: File, rate: Int): Map<String, FloatArray> = (dir.listFiles { f -> f.name.endsWith(".wav") } ?: emptyArray()).mapNotNull { f ->
         try {
             AudioSystem.getAudioInputStream(f).use { s ->
                 val fm = s.format
-                if (fm.encoding != AudioFormat.Encoding.PCM_SIGNED || fm.sampleSizeInBits != 16 || fm.channels != 1 || fm.sampleRate.toInt() != rate || fm.isBigEndian) {
-                    println("relay: clip skipped (need 16-bit mono $rate Hz): ${f.name} $fm")
+                val fromHz = fm.sampleRate.toInt()
+                if (fm.encoding != AudioFormat.Encoding.PCM_SIGNED || fm.sampleSizeInBits != 16 || fm.channels != 1 || fm.isBigEndian || fromHz <= 0) {
+                    println("relay: clip skipped (need 16-bit mono): ${f.name} $fm")
                     null
                 } else {
                     val b = s.readAllBytes()
-                    f.name.removeSuffix(".wav") to FloatArray(b.size / 2) { ((b[2 * it + 1].toInt() shl 8) or (b[2 * it].toInt() and 255)).toShort() / 32768f }
+                    val x = FloatArray(b.size / 2) { ((b[2 * it + 1].toInt() shl 8) or (b[2 * it].toInt() and 255)).toShort() / 32768f }
+                    f.name.removeSuffix(".wav") to Resample.to(x, fromHz, rate)
                 }
             }
         } catch (e: Exception) {
