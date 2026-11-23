@@ -138,6 +138,25 @@ class RelayServerTest {
     }
 
     @Test
+    fun `말 소리 표본율이 서버와 다르면 읽을 때 바꾼다(M67, S10 TTS 파일)`() {
+        val dir = File(tmp, "clips24").apply { mkdirs() }
+        val n = 24_000
+        val pcm = ByteArray(2 * n).also { b ->
+            for (i in 0 until n) {
+                val v = (0.5 * sin(2 * Math.PI * 440 * i / 24_000) * 32767).toInt()
+                b[2 * i] = v.toByte(); b[2 * i + 1] = (v shr 8).toByte()
+            }
+        }
+        val fmt = javax.sound.sampled.AudioFormat(24_000f, 16, 1, true, false)
+        javax.sound.sampled.AudioSystem.write(javax.sound.sampled.AudioInputStream(pcm.inputStream(), fmt, n.toLong()),
+            javax.sound.sampled.AudioFileFormat.Type.WAVE, File(dir, RelayClips.name("안내를 시작합니다.") + ".wav"))
+        val clips = RelayClips.load(dir, 48_000)
+        val c = clips.getValue(RelayClips.name("안내를 시작합니다."))
+        assertEquals(2 * n, c.size)
+        assertEquals(0.5, c.slice(1000 until c.size - 1000).maxOf { kotlin.math.abs(it) }.toDouble(), 0.01)
+    }
+
+    @Test
     fun `열쇠가 틀리면 403이고 페이지에는 설정 값이 들어간다`() {
         RelayServer(settings(), null).use { s ->
             assertEquals(403, open(s, "/?k=wrong").statusCode())

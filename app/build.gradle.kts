@@ -52,6 +52,13 @@ android {
     }
 }
 
+// M67: bench 빌드의 데모 중계 업로더·문장 목록 PC 시험(src/testBench, `./gradlew :app:testBenchUnitTest`). AGP 9는 기본으로 debug 단위 시험만 만든다.
+androidComponents {
+    beforeVariants(selector().withBuildType("bench")) { v ->
+        (v as com.android.build.api.variant.HasHostTestsBuilder).hostTests[com.android.build.api.variant.HostTestBuilder.UNIT_TEST_TYPE]?.enable = true
+    }
+}
+
 dependencies {
     implementation(project(":core"))
     implementation(libs.arcore)

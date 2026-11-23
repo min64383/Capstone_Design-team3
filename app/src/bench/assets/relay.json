@@ -19,5 +19,7 @@
   "bindHost": "127.0.0.1",
   "clipDir": "data/relay/clips",
   "uploadKey": "",
-  "viewKey": ""
+  "viewKey": "",
+  "serverUrl": "",
+  "uploadTimeoutMs": 1000
 }

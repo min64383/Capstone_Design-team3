@@ -16,6 +16,7 @@
 - 앱 설치: `./gradlew :app:installDebug` (처리 시간 측정·데모는 디버깅을 끈 `./gradlew :app:installBench`, M61)
 - 평가 GUI: `./gradlew :viewer:run -Psession=<세션ID 또는 그 일부>` (testdata/sessions → data/sessions 순으로 찾음)
 - 데모 중계 서버: `./gradlew :viewer:relay` (설정 `app/src/bench/assets/relay.json`, 열쇠는 git 밖 `data/relay/server.json`), PC 녹화 재생기: `./gradlew :viewer:relayReplay -Psession=<세션>` (M66)
+- 데모 중계 S10(bench 빌드): 켜기 `powershell -File tools/relay/s10.ps1 -Url http://<PC IP>:8080`, 끄기 `-Off`, 말 소리 만들기·가져오기 `-Clips`. 업로더 시험 `./gradlew :app:testBenchUnitTest` (M67)
 - 로그: `adb logcat -s HEARSPACE`
 
 ## 반드시 지킬 원칙

@@ -39,6 +39,10 @@ data class RelaySettings(
     val clipDir: String,
     val uploadKey: String,
     val viewKey: String,
+    /** S10 업로더가 올릴 서버 주소(M67, 기기 파일에서 얹음). 서버는 읽지 않는다. */
+    val serverUrl: String,
+    /** S10 업로더의 연결·읽기 시간 제한(M67). 막혀도 이만큼 뒤에는 다음 묶음을 보낼 수 있다. */
+    val uploadTimeoutMs: Int,
 ) {
     companion object {
         /** [base] 위에 [overrides]를 차례로 얹는다. 덮어쓰기는 [base]에 있는 키만 쓸 수 있다(모르는 키 거부). */
@@ -67,6 +71,7 @@ data class RelaySettings(
                 sseKeepaliveS = int("sseKeepaliveS"), clientStatsS = int("clientStatsS"), uploadMaxBytes = int("uploadMaxBytes"),
                 port = int("port", 0), bindHost = str("bindHost"), clipDir = str("clipDir"),
                 uploadKey = str("uploadKey"), viewKey = str("viewKey"),
+                serverUrl = str("serverUrl"), uploadTimeoutMs = int("uploadTimeoutMs"),
             )
             (v.keys - used).firstOrNull()?.let { throw ConfigException("relay.$it", "unknown key") }
             if (s.clientMaxBufferMs <= s.clientBufferMs) throw ConfigException("relay.clientMaxBufferMs", "must exceed clientBufferMs")

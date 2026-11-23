@@ -1,7 +1,18 @@
 <?xml version="1.0" encoding="utf-8"?>
-<!-- M63: bench 빌드만 셸 프로파일러(simpleperf) 허용. 실행 코드는 바꾸지 않는다(Android 10+ <profileable>). -->
+<!-- M63: bench 빌드만 셸 프로파일러(simpleperf) 허용. 실행 코드는 바꾸지 않는다(Android 10+ <profileable>).
+     M67: 데모 중계는 데모용 bench 빌드에만 둔다(일반 앱에는 인터넷 권한·네트워크 코드 없음). 업로더는 기기 파일 relay.override.json이
+     있을 때만 켜진다. 같은 Wi-Fi의 PC 서버(http) 시험을 위해 평문 HTTP를 허용한다(데모 배포는 HTTPS, M68).
+     말 소리 만들기 화면은 adb(tools/relay/s10.ps1 -Clips)로 띄우려고 내보낸다. -->
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
-    <application>
+    <uses-permission android:name="android.permission.INTERNET" />
+
+    <application
+        android:name="hearspace.app.relay.RelayApp"
+        android:usesCleartextTraffic="true">
         <profileable android:shell="true" />
+        <activity
+            android:name="hearspace.app.relay.ClipMakerActivity"
+            android:exported="true"
+            android:label="중계 말 소리 만들기" />
     </application>
 </manifest>
