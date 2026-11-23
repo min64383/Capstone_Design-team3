@@ -46,7 +46,6 @@ import hearspace.app.runtime.AndroidTts
 import hearspace.app.runtime.AudioFocus
 import hearspace.app.runtime.Haptics
 import hearspace.app.runtime.RunSession
-import hearspace.app.runtime.SpeechOut
 import hearspace.app.runtime.TtsBench
 import hearspace.app.runtime.ThermalMonitor
 import hearspace.core.audio.Hrtf
@@ -110,16 +109,11 @@ class UserModeActivity : Activity(), GLSurfaceView.Renderer {
     private val ui = Handler(Looper.getMainLooper())
     private var run: RunSession? = null
     private var tts: AndroidTts? = null
-<<<<<<< HEAD
     private lateinit var objectSpeechConfig: ObjectSpeechConfig
     private lateinit var objectSpeech: ObjectSpeechPolicy
     private lateinit var spatialConfig: SpatialUiConfig
     private lateinit var spatialFeedback: SpatialFeedback
     private val speechVisual = SpeechVisualState()
-=======
-    /** 상황 말·상태 말을 등급 표로 골라 [tts]로 낸다(M65). [tts]와 함께 만들고 닫는다. */
-    private var speechOut: SpeechOut? = null
->>>>>>> origin/main
     private var announceLaunch = false
     private val speechPolicy = StatusSpeechPolicy()
     private lateinit var walkingSpeech: LiveSituationSpeech
@@ -238,7 +232,6 @@ class UserModeActivity : Activity(), GLSurfaceView.Renderer {
         tts = AndroidTts(this, config, onDuckingChanged = { active ->
             run?.pipeline?.speechActive = active
         }, onEvent = { event ->
-<<<<<<< HEAD
             if (foreground) {
                 if (event.state == AndroidTts.State.STARTED) speechVisual.started(event.id, event.text)
                 else speechVisual.finished(event.id)
@@ -261,10 +254,7 @@ class UserModeActivity : Activity(), GLSurfaceView.Renderer {
                         objectSpeech.onFinished(key, nowNs, completed = false)
                 }
             }
-=======
-            speechOut?.onEvent(event)
             bench?.onEvent(event)
->>>>>>> origin/main
             if (foreground && event.state == AndroidTts.State.STARTED && ttsFailure != null) {
                 ttsFailure = null
                 shown = null
@@ -280,10 +270,9 @@ class UserModeActivity : Activity(), GLSurfaceView.Renderer {
                 ui.post { if (foreground) render() }
             }
         }, onFirstAudio = { id -> bench?.onFirstAudio(id) })
-        speechOut = tts?.let { SpeechOut(it, feeder::nowNs) }
         if (announceLaunch) {
             announceLaunch = false
-            if (!screenReaderActive) speechOut?.status("앱이 시작했습니다", safety = false)
+            if (!screenReaderActive) tts?.speak("앱이 시작했습니다", requestKey = "status-launch")
         }
         render()
         ui.removeCallbacks(uiTick)
@@ -297,7 +286,6 @@ class UserModeActivity : Activity(), GLSurfaceView.Renderer {
     private fun startBench() {
         val r = run ?: return
         val t = tts ?: return
-        speechOut = null
         r.pipeline.onSpeech = null
         val talkBack = a11y.isTouchExplorationEnabled
         Log.i(TAG, "tts bench: reps ${intent.getIntExtra(EXTRA_TTS_BENCH, 0)}, talkBack $talkBack")
@@ -514,11 +502,7 @@ class UserModeActivity : Activity(), GLSurfaceView.Renderer {
         val stamp = SimpleDateFormat("yyyyMMdd_HHmmss", Locale.US).format(Date())
         val runs = File(getExternalFilesDir(null), RunSession.RUNS_DIR)
         val r = try {
-<<<<<<< HEAD
-            RunSession(config, hrtf, File(runs, stamp), feeder::nowNs, objectSpeechConfig)
-=======
-            RunSession(this, config, hrtf, File(runs, stamp), feeder::nowNs)
->>>>>>> origin/main
+            RunSession(this, config, hrtf, File(runs, stamp), feeder::nowNs, objectSpeechConfig)
         } catch (e: Exception) {
             Log.e(TAG, "run start failed", e) // 오디오 출력을 열지 못함(A1 FA3)
             stop()
@@ -529,17 +513,7 @@ class UserModeActivity : Activity(), GLSurfaceView.Renderer {
         thread(name = "RunsTrim") { RunSession.trimRuns(runs, config.record.maxRuns) }
         run = r.also {
             it.pipeline.speechActive = tts?.isDucked == true
-            speechOut?.pipeline = it.pipeline
-            speechOut?.logger = it.logger
-            // 상황 말(M65): 느린 경로 → UI 스레드 → 말 내보내기. 내보내기가 없으면(TTS 닫힘) 되돌린다
-            val p = it.pipeline
-            p.onSpeech = { said ->
-                ui.post {
-                    val so = speechOut
-                    if (so != null && so.pipeline === p) said.forEach(so::situation)
-                    else { said.forEach { u -> p.unsay(u.key) }; p.speechLevel.set(0) }
-                }
-            }
+            // 상태·물체·보행상황은 announce()의 같은 선택기로 넘긴다.
             it.pipeline.onAlert = { kind ->
                 // 오디오 스레드에서 불린다: 진동(바인더 호출)·로그는 UI 스레드로 넘긴다(A1 CO5)
                 ui.post {
@@ -568,7 +542,6 @@ class UserModeActivity : Activity(), GLSurfaceView.Renderer {
 
     private fun stop() {
         tts?.stop()
-<<<<<<< HEAD
         objectSpeech.reset()
         walkingSpeech.reset()
         pendingStatus = null
@@ -576,10 +549,6 @@ class UserModeActivity : Activity(), GLSurfaceView.Renderer {
         spatialFeedback.reset()
         speechVisual.clear()
         renderSpeech()
-=======
-        speechOut?.pipeline = null
-        speechOut?.logger = null
->>>>>>> origin/main
         ui.removeCallbacks(uiTick)
         feeder.pipeline = null
         feeder.surface = null
@@ -596,7 +565,6 @@ class UserModeActivity : Activity(), GLSurfaceView.Renderer {
         renderSpeech()
         ui.removeCallbacks(uiTick)
         super.onPause()
-        speechOut = null
         tts?.close()
         tts = null
         // 앱을 떠나면(화면 잠금·전화) 안내를 멈춘다. 돌아오면 다시 두 번 탭으로 시작. 설정 화면은 안내 중이 아닐 때만 열린다
@@ -606,7 +574,6 @@ class UserModeActivity : Activity(), GLSurfaceView.Renderer {
     }
 
     override fun onDestroy() {
-        speechOut = null
         tts?.close()
         tts = null
         ar.close()
@@ -676,11 +643,12 @@ class UserModeActivity : Activity(), GLSurfaceView.Renderer {
 
     /** Select one line across status, obstacle and walking situation candidates. */
     private fun announce(status: StatusSpeechPolicy.Status, frame: ObjectSpeechFrame?, nowNs: Long) {
-        if (!foreground) return
+        if (!foreground || (hearspace.app.BuildConfig.DEV_TOOLS &&
+            intent.getIntExtra(EXTRA_TTS_BENCH, 0) > 0 && !benchDone)) return
         val reader = a11y.isTouchExplorationEnabled
         if (reader != screenReaderActive) {
             screenReaderActive = reader
-            speechOut?.cancelStatus()
+            if (activeSpeech?.status == true) tts?.stop()
             speechPolicy.reset()
             objectSpeech.reset()
             walkingSpeech.reset()
@@ -689,16 +657,16 @@ class UserModeActivity : Activity(), GLSurfaceView.Renderer {
         }
         root.accessibilityLiveRegion = if (reader) View.ACCESSIBILITY_LIVE_REGION_POLITE else View.ACCESSIBILITY_LIVE_REGION_NONE
         val player = tts ?: return
-        if (reader || !player.isAvailable) return
+        if (!player.isAvailable) return
 
         val guiding = status == StatusSpeechPolicy.Status.GUIDING
         if (lastSpeechStatus != status) {
-<<<<<<< HEAD
             if (lastSpeechStatus != null && (!guiding || activeSpeech?.status == true)) player.stop()
             pendingStatus = null
             lastSpeechStatus = status
         }
-        speechPolicy.update(status, SystemClock.elapsedRealtime())?.let { pendingStatus = it }
+        val announcement = speechPolicy.update(status, SystemClock.elapsedRealtime())
+        if (reader) pendingStatus = null else announcement?.let { pendingStatus = it }
 
         val situations = run?.pipeline?.lastSituationSpeech?.get().takeIf { guiding }
         val currentWalking = walkingSpeech.observe(situations, frame?.epochNs, nowNs)
@@ -744,16 +712,6 @@ class UserModeActivity : Activity(), GLSurfaceView.Renderer {
         } else {
             next.obstacle?.let { objectSpeech.onRejected(it, nowNs) }
             next.walking?.let { walkingSpeech.finished(it, nowNs, completed = false, failed = true) }
-=======
-            // 첫 IDLE은 시작 문장을 유지한다. 이후 변화는 안정화 대기 중에도 이전 발화를 취소한다.
-            if (lastSpeechStatus != null) speechOut?.cancelStatus() // M65: 상태 말만 멈춘다(위험 상황 말은 끊지 않음)
-            lastSpeechStatus = status
-        }
-        val announcement = speechPolicy.update(status, SystemClock.elapsedRealtime()) ?: return
-        // 상태 말은 TalkBack이 화면 설명으로 읽으므로 생략한다. 상황 말은 TalkBack을 켜도 말 내보내기가 낸다(M65)
-        if (!reader && tts?.isAvailable == true) {
-            speechOut?.status(announcement.text, safety = announcement.urgent)
->>>>>>> origin/main
         }
     }
 
@@ -863,3 +821,4 @@ class UserModeActivity : Activity(), GLSurfaceView.Renderer {
         private const val BENCH_WARMUP_MS = 3000L
     }
 }
+

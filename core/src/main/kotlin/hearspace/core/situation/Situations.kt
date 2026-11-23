@@ -95,20 +95,17 @@ class Situations(
     private var drifting = false
     private var driftRight = false
 
-    /** 한 차례: 노면 영상을 격자에 넣고 규칙을 돌려 낸 말과 상태 기록. */
+    /** PC 재생과 기존 앱 호출은 말하기 규칙까지 적용한 결과를 받는다. */
     fun step(inp: SituationInput): Pair<List<Utterance>, SituationRecord> {
-<<<<<<< HEAD
         val (requests, record) = detect(inp)
-        return speech.tick(inp.nowNs, requests) to record
+        return speech.tick(inp.nowNs, requests, inp.outputPriority) to record
     }
 
-    /** Live use submits these candidates to the same arbiter as status and obstacle speech. */
+    /** 실시간 TTS는 상태·장애물 안내와 우선순위를 함께 판단할 수 있도록 후보 요청을 받는다. */
     fun detect(inp: SituationInput): Pair<List<SpeechRequest>, SituationRecord> {
-=======
         lastStepDepthNs = inp.depth.tCaptureNs
         stepNs = inp.depth.tCaptureNs
         inp.surface?.let { lastStepSurfaceNs = maxOf(lastStepSurfaceNs, it.tCaptureNs) }
->>>>>>> origin/main
         val camW = inp.depth.worldFromCam.translation()
         val tNs = inp.depth.tCaptureNs
         inp.snapshot.floorY?.let { f ->
@@ -140,6 +137,7 @@ class Situations(
             val follow = lines.filter { angleDeg(it.dir, h) <= cfg.lineMaxAngleDeg && abs(it.lateral(user)) <= cfg.envHalfWidthM }
                 .minByOrNull { abs(it.lateral(user)) }
             if (follow != null) {
+                noteFollow(tNs, user)
                 val lat = -follow.lateral(user) // + = 블록이 사용자 오른쪽
                 rec = rec.copy(followAngleDeg = angleDeg(follow.dir, h), lateralM = lat, blockYawDeg = yawDeg(follow.dir))
                 drift(tNs, lat, req)
@@ -155,15 +153,11 @@ class Situations(
             if (cfg.bumpSpeech) bump(memory, user, h, right, req)
             vehicles(inp, user, req)
         }
-<<<<<<< HEAD
-        return req to rec
-=======
         // M65(사용자 승인 2026-11-21): 노면 격자는 지난 gridMemoryS를 기억하는 지도이고 노면은 움직이지 않으므로, 노면 지도에 기대는 말의 근거 시각은
         // 노면 영상 촬영 시각이 아니라 판단에 쓴 사용자 위치(이 깊이 장)의 시각이다(장애물 소리가 느린 경로 결과 시각으로 나이를 재는 것과 같다).
-        // 안전장치: 마지막 노면 영상이 surfaceMaxAgeMs보다 오래되면(모델이 멈춤 등) 노면 지도에 기대는 말은 내지 않는다. 차 다가옴은 노면과 무관하다.
+        // 안전장치: 마지막 노면 영상이 surfaceMaxAgeMs보다 오래되면(모델이 멈춤 등) 노면 지도에 기대는 말은 내지 않는다. 차·사람 다가옴은 노면과 무관하다.
         val fresh = lastSurfaceNs != Long.MIN_VALUE && inp.depth.tCaptureNs - lastSurfaceNs <= cfg.surfaceMaxAgeMs * 1_000_000L
-        return speech.tick(inp.nowNs, if (fresh) req else req.filter { it.key.startsWith("veh#") }, inp.outputPriority) to rec
->>>>>>> origin/main
+        return (if (fresh) req else req.filter { it.key.startsWith("veh#") || it.key == "ped" }) to rec
     }
 
     fun reset() {
@@ -174,6 +168,9 @@ class Situations(
         lastSurfaceNs = Long.MIN_VALUE
         env = Environment.UNKNOWN
         candidate = Environment.UNKNOWN
+        episodeStart = null
+        lastFollowNs = Long.MIN_VALUE
+        junctions.clear()
         drifting = false
         driftOverSinceNs = Long.MIN_VALUE
     }
@@ -241,10 +238,33 @@ class Situations(
         for (cmd in inp.outputs) {
             if (!cmd.inCorridor) continue
             val o = byId[cmd.obstacleId] ?: continue
-            if (((o.repPointW - user).horizontal() dot h) <= 0f || abs(line.lateral(o.repPointW)) > cfg.onBlockBandM) continue
+            if (((o.repPointW - user).horizontal() dot h) <= 0f) continue
+            // 상자 네 모서리(수평)의 블록 선 옆 거리 범위가 블록 띠 ±onBlockBandM과 겹쳐야 블록 위(M51)
+            val lats = listOf(o.aabbMinW, o.aabbMaxW, Vec3(o.aabbMinW.x, 0f, o.aabbMaxW.z), Vec3(o.aabbMaxW.x, 0f, o.aabbMinW.z)).map { line.lateral(it) }
+            if (lats.min() > cfg.onBlockBandM || lats.max() < -cfg.onBlockBandM) continue
             req.add(SpeechRequest("obj#${o.id}", "블록 위 물체, ${meters(cmd.distanceM)}미터", 2,
                 inp.snapshot.tCaptureNs, onBlockObstacleId = o.id))
         }
+    }
+
+    /** 잡은 갈림·꺾임 자리(교점, 월드). 번호 = 목록 위치. */
+    private val junctions = ArrayList<Vec3>()
+
+    /** 블록 따라가기 구간을 시작한 사용자 위치. 따라갈 선이 [SituationConfig.gridMemoryS](노면 격자가 블록 칸을 기억하는 길이) 동안 없다가 다시 잡히면 새로 정한다. */
+    private var episodeStart: Vec3? = null
+    private var lastFollowNs = Long.MIN_VALUE
+
+    private fun noteFollow(tNs: Long, user: Vec3) {
+        if (lastFollowNs == Long.MIN_VALUE || tNs - lastFollowNs >= (cfg.gridMemoryS * 1e9).toLong()) episodeStart = user
+        lastFollowNs = tNs
+    }
+
+    /** 교점 [x]가 이미 잡은 자리에서 [SituationConfig.junctionMergeM] 안이면 그 번호, 아니면 새 번호. */
+    private fun junctionId(x: Vec3): Int {
+        val i = junctions.indexOfFirst { (it - x).horizontal().norm() <= cfg.junctionMergeM }
+        if (i >= 0) return i
+        junctions += x
+        return junctions.size - 1
     }
 
     /** 1d: 끝(너머를 블록 아닌 노면으로 관측)·꺾임·갈림. 반환값은 끝까지의 앞 거리(없으면 NaN). */
@@ -254,21 +274,33 @@ class Situations(
         var turnAtEnd = false
         for (o in lines) {
             if (o === line || angleDeg(o.dir, line.dir).let { minOf(it, 180f - it) } < cfg.turnMinDeg) continue
+            // 칠해진 블록 선은 끊기지 않는다(M51): 격자 한 칸 길이마다 평균 한 칸 이상. 흩어진 노란 칠(바닥 원형 표시·연석 칠)을 이은 선을 뺀다
+            // (T01: 진짜 선 1 m에 12~35칸, 흩어진 칠을 이은 선 1.4~4.7칸)
+            if (o.nInliers < (o.tMax - o.tMin) / cfg.gridCellM) continue
             val x = intersect(line, o) ?: continue
             val tx = line.t(x)
             val to = o.t(x)
             if (tx < line.tMin - cfg.turnJoinM || tx > line.tMax + cfg.turnJoinM || to < o.tMin - cfg.turnJoinM || to > o.tMax + cfg.turnJoinM) continue
             val ahead = (x - user) dot h
             if (ahead < cfg.endMinM || ahead > cfg.endMaxM) continue
+            // 선의 시작(M51 사용자): 선형블록은 ㅗ자처럼 점형블록 가로줄에서 시작한다. 따라가지 않다가 선을 새로 잡은 자리에서 말하는 범위(endMaxM) +
+            // 같은 자리로 묶는 거리(junctionMergeM) 안의 교점은 갈림이 아니라 시작 구조로 보고 말하지 않는다(T01 160 s: 선을 처음 잡자마자 가로줄을 갈림으로
+            // 말함). 앞 거리가 아니라 수평 거리로 잰다: 차도에서 보도로 꺾어 들어오며 선을 잡으면 그때 진행 방향이 흔들린다
+            episodeStart?.let { p0 -> if ((x - p0).horizontal().norm() <= cfg.endMaxM + cfg.junctionMergeM) continue }
             val atEnd = line.tMax - tx <= cfg.turnJoinM
-            val sides = listOf(o.at(o.tMin), o.at(o.tMax)).map { line.lateral(it) }
+            // 갈래 줄기(M51): 교점에서 o를 따라 각 쪽으로 뻗은 길이가 블록 선 최소 길이 이상인 쪽만 센다. 선 시작·끝의 점형블록 판처럼
+            // 따라가는 선 양옆으로 짧게 넓은 칠은 줄기가 없어 갈림·꺾임이 아니다(T01 160 s, 노면 모델은 점형·선형을 가르지 않음)
+            val arms = listOf(to - o.tMin to line.lateral(o.at(o.tMin)), o.tMax - to to line.lateral(o.at(o.tMax)))
+                .filter { (len, _) -> len >= cfg.lineMinLengthM }.map { (_, lat) -> lat }
+            if (arms.isEmpty()) continue
             val text = when {
-                !atEnd || (sides.max() > cfg.lineInlierM && sides.min() < -cfg.lineInlierM) -> "블록 갈림"
-                sides.maxBy { abs(it) } > 0f -> "블록 오른쪽으로 꺾임"
+                !atEnd || (arms.any { it > 0f } && arms.any { it < 0f }) -> "블록 갈림"
+                arms.maxBy { abs(it) } > 0f -> "블록 오른쪽으로 꺾임"
                 else -> "블록 왼쪽으로 꺾임"
             }
             if (atEnd) turnAtEnd = true
-            req.add(SpeechRequest("turn", text, 2, stepNs))
+            // 자리마다 따로 말한다(M51: 같은 키 "turn"이면 앞 갈림을 말한 뒤 repeatS 동안 다른 갈림도 막혔다, T01 246 s)
+            req.add(SpeechRequest("turn#${junctionId(x)}", text, 2, stepNs))
         }
         if (turnAtEnd || endAhead < cfg.endMinM || endAhead > cfg.endMaxM) return if (endAhead in cfg.endMinM..cfg.endMaxM) endAhead else Float.NaN
         var t = cfg.gridCellM
@@ -403,7 +435,10 @@ class Situations(
             c.frames[cls.pixel] >= cfg.confirmFrames && (rel dot h) > 0f && abs(rel dot right) <= corridorWidthM / 2f
         }
 
-    /** 1g: 통로 안 움직이는 출력이 [SituationConfig.vehicleApproachMps] 넘게 다가오고, 의미 영상에서 그 물체 자리의 사람·차량 라벨 다수가 차량. */
+    /**
+     * 1g: 통로 안 움직이는 출력이 [SituationConfig.vehicleApproachMps] 넘게 다가오고, 의미 영상에서 그 물체 자리의 사람·차량 라벨 다수가 차량이면 "차 다가옴",
+     * 사람이면 "사람 다가옴"(M51 사용자 요청: M50에서 사람은 STOP 소리로만 알리기로 했던 것을 바꿈). 의미 영상이 없으면(실내·옛 녹화) 둘 다 말하지 않는다.
+     */
     private fun vehicles(inp: SituationInput, user: Vec3, req: MutableList<SpeechRequest>) {
         val labels = inp.depth.labels ?: return
         val byId = inp.snapshot.obstacles.associateBy { it.id }
@@ -415,11 +450,18 @@ class Situations(
             val rel = (o.repPointW - user).horizontal()
             val n = rel.norm()
             if (n < 1e-3f || -(v.horizontal() dot rel) / n <= cfg.vehicleApproachMps) continue
-            if (majorityVehicle(labels, o.aabbMinW, o.aabbMaxW)) req.add(SpeechRequest("veh#${o.id}", "차 다가옴", 1, inp.snapshot.tCaptureNs))
+            when (majorityMover(labels, o.aabbMinW, o.aabbMaxW)) {
+                SemanticLabel.VEHICLE -> req.add(SpeechRequest("veh#${o.id}", "차 다가옴", 1, inp.snapshot.tCaptureNs))
+                // 사람은 키 하나: 한 사람이 발 접점 → 깊이 track 넘김·track 갈림으로 번호가 바뀌어 같은 사람에게 되풀이했다(T 150300·150338·150439).
+                // 다가오는 사람이 이어지는 동안 한 번, 사라졌다가 repeatS 뒤에 다시. 사람마다의 위치는 장애물 소리가 맡는다
+                SemanticLabel.PERSON -> req.add(SpeechRequest("ped", "사람 다가옴", 1, inp.snapshot.tCaptureNs))
+                else -> Unit
+            }
         }
     }
 
-    private fun majorityVehicle(labels: LabelImage, lo: Vec3, hi: Vec3): Boolean {
+    /** 물체 상자 27점에서 사람·차량 라벨 중 많은 쪽(둘 다 없거나 같으면 null). */
+    private fun majorityMover(labels: LabelImage, lo: Vec3, hi: Vec3): SemanticLabel? {
         var veh = 0; var person = 0
         for (i in 0..2) for (j in 0..2) for (k in 0..2) {
             val p = Vec3(lo.x + (hi.x - lo.x) * i / 2f, lo.y + (hi.y - lo.y) * j / 2f, lo.z + (hi.z - lo.z) * k / 2f)
@@ -428,7 +470,11 @@ class Situations(
                 SemanticLabel.PERSON.pixel -> person++
             }
         }
-        return veh > person
+        return when {
+            veh > person -> SemanticLabel.VEHICLE
+            person > veh -> SemanticLabel.PERSON
+            else -> null
+        }
     }
 
     companion object {

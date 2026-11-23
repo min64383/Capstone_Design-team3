@@ -19,13 +19,26 @@ class ConfigLoaderTest {
         ConfigLoader.load(defaultJson, override)
 
     @Test
-    fun `app asset overrides load in app order with the harness head offset`() {
+    fun `app asset overrides load in app order with the harness head offset, chest mount and the semantic combo`() {
         val assets = File(System.getProperty("hearspace.defaultConfig")).parentFile
+        if (!File(assets, "harness.override.json").isFile) return // -PtestOverrides 합친 설정에서는 자산 폴더가 아니다
+        // AppConfig와 같은 순서: 소리 → 하네스 → 상황 → 조합(기기 덮어쓰기는 없음)
+        val app = listOf("risk-continuous.override.json", "harness.override.json", "situation.override.json", "semantic-combo.override.json")
+        val c = ConfigLoader.load(defaultJson, app.map { File(assets, it).readText() })
+        assertEquals(Vec3(0f, 0.2f, -0.1f), c.headOffsetFromCameraM) // M61 하네스 실측(앱만, PC 재생 기준선은 손 파지)
+        assertEquals(Vec3(0f, 0.2f, -0.1f), c.heading.chestMount?.headOffsetBodyM) // M51 가슴 고정(H1~H3)
+        assertEquals(true, c.vision.semantics) // M51 데모 = 조합 C
+        assertEquals(VisionLabelSource.SEMANTICS, c.vision.label)
+        assertEquals(MotionMode.KALMAN, c.track.motion)
+        assertEquals(MotionEvidence.FREE_SPACE, c.track.motionEvidence)
+        assertEquals(HitWeighting.DISTANCE, c.map.hitWeighting) // M51: 조합에서 신뢰도 무게를 뺌(원시 신뢰도가 낮으면 지도가 빔, T01·회전 뒤 지연)
+        assertEquals(true, c.situation.enabled)
+        val base = load()
+        assertEquals(Vec3(0f, 0.5f, -0.39f), base.headOffsetFromCameraM) // 재생 기준선은 그대로
+        assertEquals(null, base.heading.chestMount)
+        assertEquals(MotionMode.NONE, base.track.motion)
 
-        // -PtestOverrides 합친 설정에서는 자산 폴더가 아니다.
-        if (!File(assets, "harness.override.json").isFile) return
-
-        val c = ConfigLoader.load(
+        val harnessOnly = ConfigLoader.load(
             defaultJson,
             listOf(
                 "risk-continuous.override.json",
@@ -34,7 +47,7 @@ class ConfigLoaderTest {
         )
 
         // M61 하네스 실측: 앱만 적용, PC 재생 기준선은 손 파지.
-        assertEquals(Vec3(0f, 0.2f, -0.1f), c.headOffsetFromCameraM)
+        assertEquals(Vec3(0f, 0.2f, -0.1f), harnessOnly.headOffsetFromCameraM)
         assertEquals(Vec3(0f, 0.5f, -0.39f), load().headOffsetFromCameraM)
     }
 
@@ -203,10 +216,7 @@ class ConfigLoaderTest {
                 alertGainDb = -6f,
                 limiterCeiling = 0.9f,
                 bufferBlocks = 8,
-<<<<<<< HEAD
-=======
                 // 팀원 TTS(2026-11-18 결정, M65에서 합침): 음성 음량, 말하는 동안 장애물 소리 이득
->>>>>>> origin/main
                 ttsVolume = 0.7f,
                 ttsObstacleGain = 0.35f,
             ),

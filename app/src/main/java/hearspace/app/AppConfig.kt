@@ -18,6 +18,8 @@ object AppConfig {
     private const val HARNESS_OVERRIDE_ASSET = "config/harness.override.json"
     /** 앱에서만 상황 판단(M50 보행상황 말)을 켠다(M65). PC 재생 기준선(default.json)은 꺼진 채. 노면 모델 파일이 없으면 노면 말은 나지 않는다. */
     private const val SITUATION_OVERRIDE_ASSET = "config/situation.override.json"
+    /** 데모·앱 기본 안내 = 조합 C(뷰어 변형 44 + ARCore 의미 모드, M51 사용자 결정 2026-11-22). PC 재생 기준선(default.json)은 그대로. */
+    private const val COMBO_OVERRIDE_ASSET = "config/semantic-combo.override.json"
     /** `/sdcard/Android/data/<패키지>/files/config.override.json`. */
     const val DEVICE_OVERRIDE_FILE = "config.override.json"
 
@@ -37,9 +39,10 @@ object AppConfig {
             val override = context.assets.open(SONIFY_OVERRIDE_ASSET).bufferedReader().use { it.readText() }
             val harness = context.assets.open(HARNESS_OVERRIDE_ASSET).bufferedReader().use { it.readText() }
             val situation = context.assets.open(SITUATION_OVERRIDE_ASSET).bufferedReader().use { it.readText() }
+            val combo = context.assets.open(COMBO_OVERRIDE_ASSET).bufferedReader().use { it.readText() }
             val device = if (deviceOverride && deviceOverrideAllowed) deviceOverrideFile(context)?.takeIf { it.isFile }?.readText() else null
             if (device != null) android.util.Log.i(TAG, "device config override: $device")
-            ConfigLoader.load(base, listOfNotNull(override, harness, situation, device))
+            ConfigLoader.load(base, listOfNotNull(override, harness, situation, combo, device))
         }
     }
 

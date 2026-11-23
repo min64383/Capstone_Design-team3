@@ -15,15 +15,10 @@ import hearspace.core.pipeline.FastPath
 import hearspace.core.pipeline.SlowPath
 import hearspace.core.session.RunLog
 import hearspace.core.situation.SituationInput
-<<<<<<< HEAD
 import hearspace.core.situation.SituationSpeechFrame
 import hearspace.core.situation.Situations
-=======
-import hearspace.core.situation.Situations
 import hearspace.core.situation.Utterance
->>>>>>> origin/main
 import hearspace.core.types.AlertKind
-import hearspace.core.types.Band
 import hearspace.core.types.Config
 import hearspace.core.types.DepthFrame
 import hearspace.core.types.GuidanceOutput
@@ -43,7 +38,7 @@ import java.util.concurrent.atomic.AtomicReference
  * - 느린 경로 워커(이 클래스가 소유): 최신 깊이 → `SlowPath.process` → [snapshot]
  * - 오디오 스레드: [renderBlock]이 블록마다 최신 자세·스냅샷으로 `FastPath.compute` → `BinauralRenderer`
  * - 상황 판단 스레드(M65, 설정이 켰을 때): 느린 경로가 처리마다 그 결과를 최신 값으로 넘기면 [surface]의 가장 최근 노면 영상으로 한 차례 돌리고,
- *   낸 말은 [onSpeech]로 넘긴다. 앱에서 지금 말하는 중인 등급은 [speechLevel]로 받는다(말 내보내기가 쓴다).
+ *   사용자 모드는 후보를 [lastSituationSpeech]로 넘기고, 기존 호출은 [onSpeech]와 [speechLevel]을 쓴다.
  *   느린 경로 스레드에서 돌리면 기기에서 한 차례 수십~수백 ms가 걸려 깊이 처리를 막았다(M65 E2: T01 처리 29.6 → 7.9 Hz).
  * 예외 하나: 맵 명령(RESET/SCALE)은 덮어쓰면 RESET이 사라질 수 있어 강한 쪽을 남기도록 합친다.
  * [clockNs]는 자세 시각과 같은 시계의 현재 시각이다(실시간·재생 모드가 다름, [LiveScreen] 참고).
@@ -64,17 +59,13 @@ class LivePipeline(
             ObjectLabels(it, config.vision.maxLabelAgeMs * 1_000_000L)
         }
     }
-    private val renderer = BinauralRenderer(config, hrtf)
-<<<<<<< HEAD
     private val maxInfoAgeNs = (config.policy.maxInfoAgeMs * 1e6).toLong()
-    private val situations = if (config.situation.enabled) {
-        Situations(config.situation, config.corridor.widthM, config.corridor.heightM,
-            config.vision.footHeightWindowS, maxInfoAgeNs)
-    } else null
+    // 사용자 모드는 상태·물체·보행상황을 같은 TTS 선택기로 보낸다.
+    private val useLiveSpeechArbiter = objectSpeechConfig != null
     private val latestSurface = AtomicReference<LabelImage?>(null)
-    private var appliedSurface: LabelImage? = null // SlowPath worker only
+    private var appliedSurface: LabelImage? = null // Situation 스레드 전용
     val lastSituationSpeech = AtomicReference<SituationSpeechFrame?>(null)
-=======
+    private val renderer = BinauralRenderer(config, hrtf)
     private val situations = if (config.situation.enabled) Situations(
         config.situation, config.corridor.widthM, config.corridor.heightM, config.vision.footHeightWindowS, (config.policy.maxInfoAgeMs * 1e6).toLong(),
     ) else null
@@ -86,7 +77,7 @@ class LivePipeline(
     /** 앱에서 지금 말하는 중인 줄의 등급(0 = 쉼, 1~3). 말 내보내기가 줄을 받은 때부터 끝날 때까지. */
     val speechLevel = AtomicInteger(0)
 
-    /** 상황 판단이 낸 말(느린 경로 스레드에서 부른다, 가볍게: UI 스레드로 넘긴다). */
+    /** 기존 호출용 발화 결과(상황 판단 스레드에서 부른다). 사용자 모드는 lastSituationSpeech를 읽는다. */
     @Volatile
     var onSpeech: ((List<Utterance>) -> Unit)? = null
 
@@ -97,7 +88,6 @@ class LivePipeline(
     fun unsay(key: String) {
         unsaid.add(key)
     }
->>>>>>> origin/main
 
     private val pose = AtomicReference<PoseFrame?>(null)
     private val depth = AtomicReference<DepthFrame?>(null)
@@ -113,7 +103,7 @@ class LivePipeline(
 
     /** 오버레이용: 최신 안내 출력과 머리 자세, 복셀 중심(느린 경로마다 복사). */
     val lastOutput = AtomicReference<GuidanceOutput?>(null)
-    /** 문장 생성용 최신 입력. 출력과 그 출력에 쓰인 스냅샷을 함께 교체한다. */
+    /** 문장 생성용 출력과 그 출력에 쓰인 스냅샷을 같은 값으로 교체한다. */
     val lastObjectSpeech = AtomicReference<ObjectSpeechFrame?>(null)
     val lastHead = AtomicReference<HeadPose?>(null)
     val voxelCentersW = AtomicReference<List<Vec3>>(emptyList())
@@ -162,10 +152,7 @@ class LivePipeline(
         wake.release()
     }
 
-    /**
-     * Hand off a completed M50 model result. Its pixels use SurfaceClass, not ARCore SemanticLabel.
-     * The producer transfers ownership of labels and uses the RGB capture pose and live clock.
-     */
+    /** 완료된 노면 마스크를 넘긴다. 화소는 SurfaceClass 번호이고 촬영 시각·자세를 보존한다. */
     fun publishSurface(surface: LabelImage) {
         if (!running || situations == null || surface.tCaptureNs <= resetAfterNs.get() ||
             surface.tCaptureNs > clockNs() || surface.K.width <= 0 || surface.K.height <= 0 ||
@@ -190,6 +177,7 @@ class LivePipeline(
         val p = pose.get()
         if (p == null) { // 카메라 시작 전: 알림음만(음원 없음)
             lastObjectSpeech.set(null)
+            lastSituationSpeech.set(null)
             renderer.renderWithSpeech(GuidanceOutput(clockNs(), GuidanceState.UNKNOWN, emptyList(), Float.NaN, null), out, speechActive)
             return
         }
@@ -202,6 +190,7 @@ class LivePipeline(
             MapAction.RESET -> {
                 resetAfterNs.set(p.tCaptureNs)
                 snapshot.set(null) // 이전 월드 좌표의 물체로 안내하지 않는다
+                lastSituationSpeech.set(null)
                 mapAction.set(MapAction.RESET)
                 wake.release()
             }
@@ -233,15 +222,10 @@ class LivePipeline(
             val action = mapAction.getAndSet(MapAction.NONE)
             if (action != MapAction.NONE) {
                 slow.apply(action)
-<<<<<<< HEAD
                 if (action == MapAction.RESET) {
-                    situations?.reset()
-                    appliedSurface = null
+                    sitReset.set(true) // Situations는 상황 판단 스레드에서만 만진다.
                     lastSituationSpeech.set(null)
                 }
-=======
-                if (action == MapAction.RESET) sitReset.set(true) // 상황 판단 스레드가 다음 차례 전에 비운다
->>>>>>> origin/main
                 Log.i(TAG, "map action $action")
             }
             // M13.4 주기 상한: 지난 시작에서 1/maxRateHz가 지나야 꺼낸다(기다리는 동안 온 깊이는 최신 값으로 교체된다)
@@ -259,10 +243,7 @@ class LivePipeline(
             val s = slow.process(d, h)
             val t1 = clockNs()
             // 처리 중 RESET이 왔으면 이 결과는 이전 월드 좌표의 것이다
-            if (resetAfterNs.get() == resetMark) {
-                snapshot.set(s)
-                updateSituationSpeech(d, s, h, resetMark)
-            }
+            if (resetAfterNs.get() == resetMark) snapshot.set(s)
             voxelCentersW.set(slow.map.voxels.occupied().map { it.centerW })
             nSlow.incrementAndGet()
             logger?.slowPath(RunLog.slowPathLine(slow.lastMapUpdate!!, t0, t1, s))
@@ -288,61 +269,57 @@ class LivePipeline(
                 java.util.concurrent.locks.LockSupport.park(this)
                 continue
             }
-            if (sitReset.getAndSet(false)) sit.reset()
-            if (paused || resetAfterNs.get() != job.resetMark) continue // 처리 뒤 RESET이 왔으면 이전 월드 좌표의 결과다
-            val g = lastOutput.get()
-            // RESET 전 월드 좌표의 노면 영상은 쓰지 않는다
-            val surf = surface?.latest?.get()?.takeIf { it.tCaptureNs >= job.resetMark }
+            if (sitReset.getAndSet(false)) {
+                sit.reset()
+                appliedSurface = null
+            }
+            if (paused || resetAfterNs.get() != job.resetMark) continue
+
+            val nowNs = clockNs()
+            val g = lastOutput.get()?.takeIf { nowNs - it.tBlockNs in 0L..maxInfoAgeNs }
+            // 최신 모델 결과가 이 깊이보다 나중이면 쓰지 않는다. 이전에 적용한 마스크도 후보로 둔다.
+            val surf = listOfNotNull(surface?.latest?.get(), latestSurface.get(), appliedSurface)
+                .filter { it.tCaptureNs > job.resetMark && it.tCaptureNs <= job.depth.tCaptureNs }
+                .maxByOrNull { it.tCaptureNs }
             if (!sit.due(job.depth.tCaptureNs, surf?.tCaptureNs)) continue
-            for (k in unsaid.toList()) { unsaid.remove(k); sit.speech.unsay(k) }
-            // 말 내보내기가 붙어 있을 때만 앱의 실제 등급을 넘긴다. 없으면(개발 화면) PC 재생처럼 음절 수 어림
+            appliedSurface = surf
+            for (key in unsaid.toList()) {
+                unsaid.remove(key)
+                sit.speech.unsay(key)
+            }
+
             val consumer = onSpeech
             val level = if (consumer != null) speechLevel.get() else null
             val t0 = System.nanoTime()
-            val (said, rec) = sit.step(SituationInput(clockNs(), job.depth, job.snapshot, g?.commands.orEmpty(), Situations.headingOf(g), surf, level))
+            val (requests, rec) = sit.detect(SituationInput(nowNs, job.depth, job.snapshot,
+                g?.commands.orEmpty(), Situations.headingOf(g), surf, level))
+            val said = if (useLiveSpeechArbiter) emptyList() else sit.speech.tick(nowNs, requests, level)
             logger?.situationTiming(rec.tNs, System.nanoTime() - t0)
             logger?.situation(said, rec)
-            if (said.isNotEmpty() && consumer != null) {
-                // 넘기는 순간부터 말하는 중으로 둔다(말 내보내기가 받으면 실제 등급으로, 받지 않으면 되돌린다)
+
+            // 판단 도중 일시정지·RESET이 왔으면 결과를 내보내지 않는다.
+            val finishedNs = clockNs()
+            if (!running || paused || resetAfterNs.get() != job.resetMark ||
+                finishedNs - job.depth.tCaptureNs !in 0L..maxInfoAgeNs) {
+                lastSituationSpeech.set(null)
+                said.forEach { sit.speech.unsay(it.key) }
+                continue
+            }
+            if (useLiveSpeechArbiter) {
+                val usable = job.snapshot.mapHealth == MapHealth.OK && job.snapshot.floorY != null &&
+                    g?.state == GuidanceState.NORMAL
+                lastSituationSpeech.set(if (usable) SituationSpeechFrame(job.resetMark, requests) else null)
+            } else if (said.isNotEmpty() && consumer != null) {
                 speechLevel.set(said.minOf { it.priority })
                 consumer(said)
             }
         }
     }
 
-    private fun updateSituationSpeech(d: DepthFrame, s: ObstacleSnapshot, heading: Vec3, epochNs: Long) {
-        val detector = situations ?: return
-        val nowNs = clockNs()
-        if (paused || s.mapHealth != MapHealth.OK || s.floorY == null ||
-            nowNs - d.tCaptureNs !in 0L..maxInfoAgeNs) {
-            lastSituationSpeech.set(null)
-            return
-        }
-        val surface = latestSurface.get()?.takeIf { it.tCaptureNs <= d.tCaptureNs } ?: appliedSurface
-        if (surface == null || surface.tCaptureNs <= epochNs || surface.tCaptureNs > d.tCaptureNs ||
-            nowNs - surface.tCaptureNs !in 0L..maxInfoAgeNs) {
-            lastSituationSpeech.set(null)
-            return
-        }
-        appliedSurface = surface
-
-        val commands = lastObjectSpeech.get()?.takeIf {
-            it.epochNs == epochNs && it.output.state == GuidanceState.NORMAL &&
-                nowNs - it.output.tBlockNs in 0L..maxInfoAgeNs
-        }?.output?.commands.orEmpty().filter {
-            it.band != Band.SILENT && it.infoAgeMs.isFinite() && it.infoAgeMs >= 0f &&
-                it.infoAgeMs * 1e6 <= maxInfoAgeNs
-        }
-        val (requests, _) = detector.detect(SituationInput(nowNs, d, s, commands, heading, surface))
-        val timed = requests.map { it.copy(evidenceNs = minOf(it.evidenceNs, surface.tCaptureNs)) }
-        // Recheck after detection: a reset can swap the world while the worker computes.
-        if (!paused && resetAfterNs.get() == epochNs) {
-            lastSituationSpeech.set(SituationSpeechFrame(epochNs, timed))
-        }
-    }
-
     override fun close() {
         running = false
+        lastSituationSpeech.set(null)
+        lastObjectSpeech.set(null)
         wake.release()
         worker.join(2000)
         sitWorker?.let { java.util.concurrent.locks.LockSupport.unpark(it); it.join(2000) }
@@ -356,3 +333,4 @@ class LivePipeline(
         const val BACKGROUND_WORK_PRIORITY = 5
     }
 }
+

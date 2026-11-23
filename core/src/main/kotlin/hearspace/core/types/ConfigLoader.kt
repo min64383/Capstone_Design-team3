@@ -477,6 +477,7 @@ object ConfigLoader {
                     endBeyondM = positive("endBeyondM"),
                     turnJoinM = positive("turnJoinM"),
                     turnMinDeg = positive("turnMinDeg"),
+                    junctionMergeM = positive("junctionMergeM"),
                     confirmFrames = atLeast1("confirmFrames"),
                     stairsBeyondM = nonNegative("stairsBeyondM"),
                     stairsDepthExcessM = positive("stairsDepthExcessM"),

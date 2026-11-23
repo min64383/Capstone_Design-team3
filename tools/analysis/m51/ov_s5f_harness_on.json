@@ -1,0 +1,92 @@
+{
+ "sonify": {
+  "mode": "RISK_CONTINUOUS",
+  "mapping": "DISTANCE_HEIGHT"
+ },
+ "policy": {
+  "maxSources": 2,
+  "prioritizeStop": true
+ },
+ "head": {
+  "offsetFromCameraM": [
+   0.0,
+   0.2,
+   -0.1
+  ]
+ },
+ "heading": {
+  "cameraSigmaDeg": 0,
+  "chestMount": {
+   "yawOffsetDeg": 0,
+   "headOffsetBodyM": [
+    0.0,
+    0.2,
+    -0.1
+   ],
+   "minHorizontalNorm": 0.1
+  }
+ },
+ "situation": {
+  "enabled": true
+ },
+ "track": {
+  "motion": "KALMAN",
+  "measureWeight": "POINTS",
+  "initMaxSpeedMps": 6.9,
+  "measureFrom": "RAW_MASK",
+  "motionMap": "OWNED",
+  "gateLagS": 0.345,
+  "shadowDepthM": 2.93,
+  "motionEvidence": "FREE_SPACE",
+  "freeSpaceLagFrames": [
+   6,
+   6,
+   12,
+   12,
+   10,
+   12,
+   12,
+   12,
+   12
+  ],
+  "freeSpaceMarginM": [
+   0.1017,
+   0.0966,
+   0.4026,
+   0.4584,
+   0.1673,
+   0.2616,
+   0.4972,
+   0.4231,
+   0.5157
+  ],
+  "freeSpaceWindow": 5,
+  "freeSpaceThreshold": 0.112,
+  "freeSpaceMinCompared": 50,
+  "freeSpaceMaxRotDegS": 100,
+  "freeSpaceConvergeS": 1.5,
+  "freeSpacePersistFrames": 30,
+  "existFrom": "RAW",
+  "rawAssociation": "GATE"
+ },
+ "vision": {
+  "semantics": true,
+  "label": "SEMANTICS",
+  "voxelLabels": true,
+  "footContact": false
+ },
+ "frontend": {
+  "labelBandPx": 6,
+  "bandLabels": [
+   "UNLABELED",
+   "TREE",
+   "STRUCTURE",
+   "OBJECT",
+   "VEHICLE",
+   "PERSON"
+  ]
+ },
+ "cluster": {
+  "sameLabelEpsM": 0.3
+ }
+}

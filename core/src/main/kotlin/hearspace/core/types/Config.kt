@@ -994,7 +994,10 @@ data class SituationConfig(
     val driftOnM: Float,
     val driftOffM: Float,
     val driftHoldS: Float,
-    /** 1c 블록 위 물체: 장애물 출력 대표점과 블록 선의 거리 상한(블록 절반 + 몸 절반). */
+    /**
+     * 1c 블록 위 물체: 장애물 출력 상자가 블록 선 중심 ± 이 거리(블록 띠)와 겹침 = 블록 폭 절반(M51 사용자: 블록 타일 위에 놓여 블록을 따라가는 사람을
+     * 막는 물체. 처음에는 대표점이 블록 절반 + 몸 절반(0.55 m) 안이었으나 블록 옆 물체까지 블록 위로 말했다, T01 256·273 s).
+     */
     val onBlockBandM: Float,
     /** 1d 끝: 먼 끝이 이 거리 구간에서 보이고, 너머 [endBeyondM]이 블록 아닌 노면으로 관측돼야 한다. */
     val endMinM: Float,
@@ -1003,6 +1006,11 @@ data class SituationConfig(
     /** 1d 꺾임·갈림: 끝에서 [turnJoinM] 안에 시작하는 다른 선이 [turnMinDeg] 넘게 꺾임. */
     val turnJoinM: Float,
     val turnMinDeg: Float,
+    /**
+     * 1d 갈림·꺾임 말 묶기(M51): 두 선의 교점(월드)이 이미 잡은 갈림 자리에서 이 거리 안이면 같은 자리로 보고 되풀이하지 않는다. 자리마다 따로 말한다
+     * (자체 선택, 검증 안 함: 다가가며 다시 맞춘 교점의 흔들림보다 크고, T01의 실제 두 갈림 간격 약 10 m보다 작게).
+     */
+    val junctionMergeM: Float,
     /** 1e 계단·방지턱: 서로 다른 노면 영상 수, 내리막 증거를 볼 계단 화소(가장 가까운 칸보다 이만큼 먼), 깊이 초과(광선 방향), 화소 몫. */
     val confirmFrames: Int,
     val stairsBeyondM: Float,

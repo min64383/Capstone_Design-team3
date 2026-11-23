@@ -1,0 +1,10 @@
+{
+ "sonify": {
+  "mode": "RISK_CONTINUOUS",
+  "mapping": "DISTANCE_HEIGHT"
+ },
+ "policy": {
+  "maxSources": 2,
+  "prioritizeStop": true
+ }
+}
