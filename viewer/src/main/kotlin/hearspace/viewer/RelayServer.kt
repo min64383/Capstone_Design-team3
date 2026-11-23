@@ -142,9 +142,9 @@ class RelayServer(
         ?.apply { appendLine("wallS,live,heldAgeMs,audioPages,ssePages,lateEvents,lateAlertsDropped,listenerSkips,missingTexts"); flush() }
     private val clients = runDir?.let { File(it, "clients.csv").bufferedWriter() }
         ?.apply { appendLine("wallS,client,bufferedMs,underruns,drops,played,ua"); flush() }
-    /** 업로드마다 한 줄(M68 설계 3.3절): 묵힘을 다시 계산하는 데 쓴다. 시각은 서버 시계(t0부터 ns)와 S10 시계(ns). 번호가 빈 곳 = S10이 버리거나 못 보낸 묶음. */
+    /** 업로드마다 한 줄(M68 설계 3.3절): 묵힘을 다시 계산하는 데 쓴다. 시각은 서버 시계(t0부터 ns)와 S10 시계(ns), 표본 시각은 첫 표본부터 µs(;로 나눔). 번호가 빈 곳 = S10이 버리거나 못 보낸 묶음. */
     private val uploads = runDir?.let { File(it, "uploads.csv").bufferedWriter() }
-        ?.apply { appendLine("arrivalNs,session,seq,sentNs,firstTNs,lastTNs,samples,code"); flush() }
+        ?.apply { appendLine("arrivalNs,session,seq,sentNs,firstTNs,lastTNs,samples,code,sampleUs"); flush() }
     private val t0 = clock()
     private val renderThread = Thread(::renderLoop, "RelayRender")
 
@@ -341,7 +341,7 @@ class RelayServer(
         }
         uploads?.run {
             val s = batch.samples
-            synchronized(this) { appendLine("${now - t0},${batch.session.replace(',', ' ')},${batch.seq},${batch.sentNs},${s.firstOrNull()?.tNs ?: ""},${s.lastOrNull()?.tNs ?: ""},${s.size},$code"); flush() }
+            synchronized(this) { appendLine("${now - t0},${batch.session.replace(',', ' ')},${batch.seq},${batch.sentNs},${s.firstOrNull()?.tNs ?: ""},${s.lastOrNull()?.tNs ?: ""},${s.size},$code,${s.joinToString(";") { ((it.tNs - s[0].tNs) / 1000).toString() }}"); flush() }
         }
         send(ex, code)
     }

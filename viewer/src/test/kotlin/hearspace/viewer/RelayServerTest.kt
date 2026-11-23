@@ -235,11 +235,13 @@ class RelayServerTest {
         assertTrue(File(run, "stats.csv").readLines().size > 3)
         // M68: 업로드마다 한 줄, 번호는 올린 차례대로
         val up = File(run, "uploads.csv").readLines()
-        assertEquals("arrivalNs,session,seq,sentNs,firstTNs,lastTNs,samples,code", up[0])
+        assertEquals("arrivalNs,session,seq,sentNs,firstTNs,lastTNs,samples,code,sampleUs", up[0])
         val rows = up.drop(1).map { it.split(',') }
         assertTrue(rows.size >= 4, "${rows.size} upload rows")
         assertEquals((1..rows.size).map { it.toString() }, rows.map { it[2] })
         assertTrue(rows.all { it[7] == "200" && it[6].toInt() > 0 && it[5].toLong() >= it[4].toLong() })
+        // 표본 시각(첫 표본부터 µs): 개수가 맞고 끝 값이 끝 표본 시각과 같다
+        assertTrue(rows.all { r -> r[8].split(';').let { us -> us.size == r[6].toInt() && us.last().toLong() == (r[5].toLong() - r[4].toLong()) / 1000 } })
     }
 
     @Test

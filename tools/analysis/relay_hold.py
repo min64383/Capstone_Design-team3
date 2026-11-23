@@ -43,11 +43,15 @@ def simulate(rows: pd.DataFrame, hold_ns: int, block: int, rate: int):
     rows = rows.sort_values("arrivalNs")
     a = rows.arrivalNs.to_numpy(np.int64)
     off = np.minimum.accumulate(a - rows.sentNs.to_numpy(np.int64))
-    # 표본 시각: 묶음 안은 첫·끝 사이를 고르게(20 ms 간격, 오차는 블록 하나 안)
+    # 표본 시각: sampleUs 칸(첫 표본부터 µs)이 있으면 그대로, 없으면(M68 초기 기록) 첫·끝 사이를 고르게 어림(실제 간격 17~31 ms라 오차 수 ms)
     ts, ta = [], []
-    for f, l, n, arr in zip(rows.firstTNs, rows.lastTNs, rows.samples, a):
+    exact = rows.sampleUs if "sampleUs" in rows else [None] * len(rows)
+    for f, l, n, arr, us in zip(rows.firstTNs, rows.lastTNs, rows.samples, a, exact):
         if n > 0:
-            ts.append(np.linspace(f, l, int(n)).astype(np.int64))
+            if isinstance(us, str) and us:
+                ts.append(int(f) + np.array([int(x) for x in us.split(";")], np.int64) * 1000)
+            else:
+                ts.append(np.linspace(f, l, int(n)).astype(np.int64))
             ta.append(np.full(int(n), arr, np.int64))
     ts, ta = np.concatenate(ts), np.concatenate(ta)
     w = block_times(int(a[0]), int(a[-1]) + hold_ns, block, rate)
@@ -104,11 +108,13 @@ def s10_age_ms(dirs: list[Path]) -> float:
     return float(np.median([run_stats(d)["ageP50Ms"] for d in dirs]))
 
 
-def report(run: Path, age_ms: float, cands: list[float], target: float, margin_ms: float) -> dict:
+def report(run: Path, age_ms: float, cands: list[float], target: float, margin_ms: float, session: str | None = None) -> dict:
     cfg = settings()
     block, rate = cfg["blockSize"], cfg["sampleRate"]
     a_ms = cfg["maxInfoAgeMs"] - age_ms
     up = pd.read_csv(run / "uploads.csv")
+    if session:  # 한 실행 폴더에 녹화 재생기·S10 세션이 섞일 수 있다
+        up = up[up.session.astype(str).str.startswith(session)]
     sessions = [g for _, g in up[up.code == 200].groupby("session") if g.samples.sum() > 0]
     rows = []
     for h in cands:
@@ -177,6 +183,7 @@ def main() -> None:
     ap.add_argument("--from-ms", type=float, default=300)
     ap.add_argument("--to-ms", type=float, default=1000)
     ap.add_argument("--step-ms", type=float, default=50)
+    ap.add_argument("--session", help="이 이름으로 시작하는 세션만")
     ap.add_argument("--selftest", action="store_true")
     a = ap.parse_args()
     if a.selftest:
@@ -186,7 +193,7 @@ def main() -> None:
         ap.error("run folder and --s10-run (or --age-ms) are required")
     age = a.age_ms if a.age_ms is not None else s10_age_ms(a.s10_run)
     cands = list(np.arange(a.from_ms, a.to_ms + 1e-9, a.step_ms))
-    r = report(a.run, age, cands, a.target, a.margin_ms)
+    r = report(a.run, age, cands, a.target, a.margin_ms, a.session)
     print(f"A = {r['settings']['maxInfoAgeMs']} - S10 info age p50 {age:.1f} = {r['thresholdA_Ms']:.1f} ms")
     for c in r["candidates"]:
         print(f"  hold {c['holdMs']:6.0f} ms: relay silent {c['silentPct']:6.2f} % of {c['seconds']:.0f} s")
