@@ -1,0 +1,23 @@
+{
+  "holdMs": 600,
+  "lostMs": 2000,
+  "sampleHz": 50,
+  "batchMs": 200,
+  "clientBufferMs": 250,
+  "clientMaxBufferMs": 600,
+  "listenerLagMs": 2000,
+  "speechGainDb": 0,
+  "chatKeep": 50,
+  "chatMaxChars": 200,
+  "chatMinIntervalMs": 1000,
+  "nickMaxChars": 16,
+  "maxPages": 40,
+  "sseKeepaliveS": 15,
+  "clientStatsS": 5,
+  "uploadMaxBytes": 262144,
+  "port": 8080,
+  "bindHost": "127.0.0.1",
+  "clipDir": "data/relay/clips",
+  "uploadKey": "",
+  "viewKey": ""
+}

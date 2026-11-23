@@ -10,6 +10,7 @@ import android.os.SystemClock
 import android.provider.Settings
 import android.view.View
 import hearspace.app.R
+import hearspace.core.screen.UserScreen
 import kotlin.math.min
 
 /**

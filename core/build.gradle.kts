@@ -33,6 +33,10 @@ tasks.test {
     inputs.file(hrir)
     systemProperty("hearspace.hrtfAsset", hrir.absolutePath)
     systemProperty("hearspace.testOutput", layout.buildDirectory.dir("test-output").get().asFile.absolutePath)
+    // M66 데모 중계 설정(bench 빌드 자원, 앱 기본 설정과 따로)
+    val relaySettings = rootProject.file("app/src/bench/assets/relay.json")
+    inputs.file(relaySettings)
+    systemProperty("hearspace.relaySettings", relaySettings.absolutePath)
     systemProperty("hearspace.coreSrc", project.file("src").absolutePath)
     inputs.dir("src/main")
     // M13: 기존 테스트 전부를 설정 변형으로 다시 돌린다(명세 §6.1.1 "기존 SC 전부 통과"). -PtestOverrides=<json>이면 default.json에
