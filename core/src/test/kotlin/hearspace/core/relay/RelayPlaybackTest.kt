@@ -183,7 +183,7 @@ class RelayPlaybackTest {
                 if (p >= end) break
                 for (i in 0 until n) {
                     val pos = (k - k0) * n + i
-                    val want = if (pos < clip.size) clip[pos] else 0f
+                    val want = if (pos < clip.size) clip[pos] * config.audio.ttsVolume else 0f // S10이 재생할 때 곱하는 말 음량(M70)
                     assertEquals(want, out[2 * i], "L at block $k")
                     assertEquals(want, out[2 * i + 1], "R at block $k")
                 }
@@ -211,7 +211,7 @@ class RelayPlaybackTest {
         }
         val (p, v) = first!!
         val skip = ((p - sayT) * sr / 1_000_000_000L).toInt()
-        assertEquals(clip[skip], v)
+        assertEquals(clip[skip] * config.audio.ttsVolume, v)
         assertEquals(1L, play.lateEvents)
     }
 

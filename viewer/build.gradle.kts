@@ -63,6 +63,18 @@ tasks.register<JavaExec>("exportSonification") {
     }
 }
 
+// M70 사운드팩: 앱이 낼 수 있는 소리를 앱 설정 층·렌더러로 WAV + index.html에. ./gradlew :viewer:soundPack [-Pout=<폴더>] [-PoverridesFile=<덮어쓰기 json>]
+tasks.register<JavaExec>("soundPack") {
+    group = "hearspace"
+    description = "앱 소리를 모두 담은 사운드팩(WAV, index.html)"
+    classpath = sourceSets["main"].runtimeClasspath
+    mainClass.set("hearspace.viewer.SoundPackMainKt")
+    workingDir = rootProject.projectDir
+    systemProperty("hearspace.repoRoot", rootProject.projectDir.absolutePath)
+    args(providers.gradleProperty("out").map { rootProject.file(it).absolutePath }.getOrElse(""),
+        providers.gradleProperty("overridesFile").map { rootProject.file(it).absolutePath }.getOrElse(""))
+}
+
 // M30 화면 없는 그림 저장: 책갈피(viewer/bookmarks.json)마다 카메라 화면 + 위에서 본 그림(지도 칸 겹침), 아래 줄은 정답 깊이 대입(D).
 // ./gradlew :viewer:snapshot [-Psession=<ID 일부>] [-Pvariant=<변형 이름>] [-Pcompare=<변형 이름>](아래 줄을 그 변형으로, M32) [-Pout=<폴더>]
 tasks.register<JavaExec>("snapshot") {
