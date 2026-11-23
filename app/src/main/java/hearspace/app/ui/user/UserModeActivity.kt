@@ -15,6 +15,7 @@ import android.os.Looper
 import android.os.SystemClock
 import android.text.SpannableStringBuilder
 import android.text.Spanned
+import android.text.TextUtils
 import android.text.style.ForegroundColorSpan
 import android.text.style.StyleSpan
 import android.util.Log
@@ -45,10 +46,17 @@ import hearspace.app.runtime.AndroidTts
 import hearspace.app.runtime.AudioFocus
 import hearspace.app.runtime.Haptics
 import hearspace.app.runtime.RunSession
-import hearspace.app.runtime.SpeechOut
 import hearspace.app.runtime.TtsBench
 import hearspace.app.runtime.ThermalMonitor
 import hearspace.core.audio.Hrtf
+import hearspace.core.audio.ObjectSpeechConfig
+import hearspace.core.audio.ObjectSpeechFrame
+import hearspace.core.audio.ObjectSpeechPolicy
+import hearspace.core.situation.LiveSituationSpeech
+import hearspace.core.situation.SpeechPriority
+import hearspace.core.situation.SpeechRequest
+import hearspace.core.situation.chooseSpeech
+import hearspace.core.situation.obstacleSpeechLine
 import hearspace.core.types.AlertKind
 import hearspace.core.types.Config
 import hearspace.core.types.ConfigException
@@ -90,6 +98,10 @@ class UserModeActivity : Activity(), GLSurfaceView.Renderer {
     private lateinit var subText: TextView
     private lateinit var guide: GuideView
     private lateinit var labelText: TextView
+    private lateinit var spatialDetailText: TextView
+    private lateinit var speechPanel: LinearLayout
+    private lateinit var speechCaptionText: TextView
+    private lateinit var speechWave: SpeechWaveView
     private lateinit var hintText: TextView
     private lateinit var noticeText: TextView
     private lateinit var settingsButton: ImageButton
@@ -97,10 +109,28 @@ class UserModeActivity : Activity(), GLSurfaceView.Renderer {
     private val ui = Handler(Looper.getMainLooper())
     private var run: RunSession? = null
     private var tts: AndroidTts? = null
-    /** 상황 말·상태 말을 등급 표로 골라 [tts]로 낸다(M65). [tts]와 함께 만들고 닫는다. */
-    private var speechOut: SpeechOut? = null
+    private lateinit var objectSpeechConfig: ObjectSpeechConfig
+    private lateinit var objectSpeech: ObjectSpeechPolicy
+    private lateinit var spatialConfig: SpatialUiConfig
+    private lateinit var spatialFeedback: SpatialFeedback
+    private val speechVisual = SpeechVisualState()
     private var announceLaunch = false
     private val speechPolicy = StatusSpeechPolicy()
+    private lateinit var walkingSpeech: LiveSituationSpeech
+    private var pendingStatus: StatusSpeechPolicy.Announcement? = null
+    private var activeSpeech: SpokenLine? = null
+    private var speechSerial = 0L
+    private data class SpokenLine(
+        val key: String,
+        val text: String,
+        val priority: SpeechPriority,
+        val evidenceNs: Long? = null,
+        val walking: SpeechRequest? = null,
+        val epochNs: Long? = null,
+        val obstacle: ObjectSpeechPolicy.Request? = null,
+        val status: Boolean = false,
+    )
+
     private var lastSpeechStatus: StatusSpeechPolicy.Status? = null
     private var foreground = false
     private var endedByUser = false
@@ -135,6 +165,21 @@ class UserModeActivity : Activity(), GLSurfaceView.Renderer {
             AppConfig.get(this, deviceOverride = false)
         }
         overrideNotice = AppConfig.overrideNotice(this)
+        objectSpeechConfig = assets.open("config/object-speech.json").bufferedReader().use {
+            ObjectSpeechConfig.parse(it.readText())
+        }
+        if (objectSpeechConfig.enabled && objectSpeechConfig.useSemanticLabels) {
+            config = config.copy(vision = config.vision.copy(semantics = true))
+        }
+        objectSpeech = ObjectSpeechPolicy(objectSpeechConfig,
+            (config.policy.maxInfoAgeMs * 1_000_000.0).toLong())
+        walkingSpeech = LiveSituationSpeech(config.situation,
+            (config.policy.maxInfoAgeMs * 1_000_000.0).toLong())
+        spatialConfig = assets.open("config/spatial-ui.json").bufferedReader().use {
+            SpatialUiConfig.parse(it.readText())
+        }
+        spatialFeedback = SpatialFeedback(spatialConfig,
+            (config.policy.maxInfoAgeMs * 1_000_000.0).toLong(), objectSpeechConfig.minLabelFraction)
         hrtf = loadHrtf(this)
         ar = ArSessionManager(this, sensorUsage = config.depth.sensorUsage, semantics = config.vision.semantics)
         feeder = ArFeeder(config, replay = false, drawCamera = false)
@@ -171,6 +216,12 @@ class UserModeActivity : Activity(), GLSurfaceView.Renderer {
     override fun onResume() {
         super.onResume()
         foreground = true
+        objectSpeech.reset()
+        walkingSpeech.reset()
+        pendingStatus = null
+        activeSpeech = null
+        spatialFeedback.reset()
+        speechVisual.clear()
         ttsFailure = null
         speechPolicy.reset()
         lastSpeechStatus = null
@@ -181,7 +232,28 @@ class UserModeActivity : Activity(), GLSurfaceView.Renderer {
         tts = AndroidTts(this, config, onDuckingChanged = { active ->
             run?.pipeline?.speechActive = active
         }, onEvent = { event ->
-            speechOut?.onEvent(event)
+            if (foreground) {
+                if (event.state == AndroidTts.State.STARTED) speechVisual.started(event.id, event.text)
+                else speechVisual.finished(event.id)
+                renderSpeech()
+            }
+            event.requestKey?.let { key ->
+                val nowNs = feeder.nowNs()
+                val active = activeSpeech?.takeIf { it.key == key }
+                if (active != null && event.state != AndroidTts.State.STARTED) {
+                    activeSpeech = null
+                    active.walking?.let {
+                        walkingSpeech.finished(it, nowNs, event.state == AndroidTts.State.COMPLETED,
+                            event.state == AndroidTts.State.ERROR)
+                    }
+                }
+                when (event.state) {
+                    AndroidTts.State.STARTED -> objectSpeech.onStarted(key, nowNs)
+                    AndroidTts.State.COMPLETED -> objectSpeech.onFinished(key, nowNs, completed = true)
+                    AndroidTts.State.ERROR, AndroidTts.State.INTERRUPTED ->
+                        objectSpeech.onFinished(key, nowNs, completed = false)
+                }
+            }
             bench?.onEvent(event)
             if (foreground && event.state == AndroidTts.State.STARTED && ttsFailure != null) {
                 ttsFailure = null
@@ -198,10 +270,9 @@ class UserModeActivity : Activity(), GLSurfaceView.Renderer {
                 ui.post { if (foreground) render() }
             }
         }, onFirstAudio = { id -> bench?.onFirstAudio(id) })
-        speechOut = tts?.let { SpeechOut(it, feeder::nowNs) }
         if (announceLaunch) {
             announceLaunch = false
-            if (!screenReaderActive) speechOut?.status("앱이 시작했습니다", safety = false)
+            if (!screenReaderActive) tts?.speak("앱이 시작했습니다", requestKey = "status-launch")
         }
         render()
         ui.removeCallbacks(uiTick)
@@ -215,7 +286,6 @@ class UserModeActivity : Activity(), GLSurfaceView.Renderer {
     private fun startBench() {
         val r = run ?: return
         val t = tts ?: return
-        speechOut = null
         r.pipeline.onSpeech = null
         val talkBack = a11y.isTouchExplorationEnabled
         Log.i(TAG, "tts bench: reps ${intent.getIntExtra(EXTRA_TTS_BENCH, 0)}, talkBack $talkBack")
@@ -253,12 +323,55 @@ class UserModeActivity : Activity(), GLSurfaceView.Renderer {
             setPadding(dp(28), dp(6), dp(28), 0)
             importantForAccessibility = View.IMPORTANT_FOR_ACCESSIBILITY_NO
         }
-        guide = GuideView(this).apply { importantForAccessibility = View.IMPORTANT_FOR_ACCESSIBILITY_NO }
+        guide = GuideView(this).apply {
+            spatialConfig = this@UserModeActivity.spatialConfig
+            importantForAccessibility = View.IMPORTANT_FOR_ACCESSIBILITY_NO
+        }
         labelText = TextView(this).apply {
             typeface = Typeface.DEFAULT_BOLD
             gravity = Gravity.CENTER
             setLineSpacing(0f, 1.1f)
             importantForAccessibility = View.IMPORTANT_FOR_ACCESSIBILITY_NO
+        }
+        spatialDetailText = TextView(this).apply {
+            textSize = 26f
+            setTextColor(white)
+            gravity = Gravity.CENTER
+            setPadding(dp(12), dp(4), dp(12), dp(4))
+            importantForAccessibility = View.IMPORTANT_FOR_ACCESSIBILITY_NO
+            visibility = View.GONE
+        }
+        speechWave = SpeechWaveView(this).apply {
+            config = spatialConfig
+            importantForAccessibility = View.IMPORTANT_FOR_ACCESSIBILITY_NO
+        }
+        val speechTitle = TextView(this).apply {
+            text = "음성 안내 중"
+            textSize = 18f
+            setTextColor(white)
+            gravity = Gravity.CENTER_VERTICAL
+            importantForAccessibility = View.IMPORTANT_FOR_ACCESSIBILITY_NO
+        }
+        speechCaptionText = TextView(this).apply {
+            textSize = 18f
+            setTextColor(white)
+            gravity = Gravity.CENTER
+            maxLines = 2
+            ellipsize = TextUtils.TruncateAt.END
+            importantForAccessibility = View.IMPORTANT_FOR_ACCESSIBILITY_NO
+        }
+        speechPanel = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            gravity = Gravity.CENTER_HORIZONTAL
+            setPadding(dp(18), dp(8), dp(18), dp(4))
+            importantForAccessibility = View.IMPORTANT_FOR_ACCESSIBILITY_NO_HIDE_DESCENDANTS
+            visibility = View.GONE
+            addView(LinearLayout(context).apply {
+                gravity = Gravity.CENTER
+                addView(speechWave, LinearLayout.LayoutParams(dp(40), dp(28)).apply { rightMargin = dp(10) })
+                addView(speechTitle, LinearLayout.LayoutParams(WRAP_CONTENT, WRAP_CONTENT))
+            }, LinearLayout.LayoutParams(MATCH_PARENT, WRAP_CONTENT))
+            addView(speechCaptionText, LinearLayout.LayoutParams(MATCH_PARENT, WRAP_CONTENT).apply { topMargin = dp(4) })
         }
         hintText = TextView(this).apply {
             textSize = 18f
@@ -296,6 +409,8 @@ class UserModeActivity : Activity(), GLSurfaceView.Renderer {
             addView(Space(context), LinearLayout.LayoutParams(MATCH_PARENT, 0, 1f))
             addView(guide, LinearLayout.LayoutParams(MATCH_PARENT, dp(GUIDE_DP)))
             addView(labelText, LinearLayout.LayoutParams(MATCH_PARENT, WRAP_CONTENT))
+            addView(spatialDetailText, LinearLayout.LayoutParams(MATCH_PARENT, WRAP_CONTENT))
+            addView(speechPanel, LinearLayout.LayoutParams(MATCH_PARENT, WRAP_CONTENT))
             addView(Space(context), LinearLayout.LayoutParams(MATCH_PARENT, 0, 1f))
             addView(hintText, LinearLayout.LayoutParams(MATCH_PARENT, WRAP_CONTENT))
             addView(noticeText, LinearLayout.LayoutParams(MATCH_PARENT, WRAP_CONTENT))
@@ -363,6 +478,11 @@ class UserModeActivity : Activity(), GLSurfaceView.Renderer {
         notice = null
         endedByUser = false
         speechPolicy.reset()
+        objectSpeech.reset()
+        walkingSpeech.reset()
+        pendingStatus = null
+        activeSpeech = null
+        spatialFeedback.reset()
         lastSpeechStatus = null
         val reason = try {
             ar.resume()
@@ -382,7 +502,7 @@ class UserModeActivity : Activity(), GLSurfaceView.Renderer {
         val stamp = SimpleDateFormat("yyyyMMdd_HHmmss", Locale.US).format(Date())
         val runs = File(getExternalFilesDir(null), RunSession.RUNS_DIR)
         val r = try {
-            RunSession(this, config, hrtf, File(runs, stamp), feeder::nowNs)
+            RunSession(this, config, hrtf, File(runs, stamp), feeder::nowNs, objectSpeechConfig)
         } catch (e: Exception) {
             Log.e(TAG, "run start failed", e) // 오디오 출력을 열지 못함(A1 FA3)
             stop()
@@ -393,17 +513,7 @@ class UserModeActivity : Activity(), GLSurfaceView.Renderer {
         thread(name = "RunsTrim") { RunSession.trimRuns(runs, config.record.maxRuns) }
         run = r.also {
             it.pipeline.speechActive = tts?.isDucked == true
-            speechOut?.pipeline = it.pipeline
-            speechOut?.logger = it.logger
-            // 상황 말(M65): 느린 경로 → UI 스레드 → 말 내보내기. 내보내기가 없으면(TTS 닫힘) 되돌린다
-            val p = it.pipeline
-            p.onSpeech = { said ->
-                ui.post {
-                    val so = speechOut
-                    if (so != null && so.pipeline === p) said.forEach(so::situation)
-                    else { said.forEach { u -> p.unsay(u.key) }; p.speechLevel.set(0) }
-                }
-            }
+            // 상태·물체·보행상황은 announce()의 같은 선택기로 넘긴다.
             it.pipeline.onAlert = { kind ->
                 // 오디오 스레드에서 불린다: 진동(바인더 호출)·로그는 UI 스레드로 넘긴다(A1 CO5)
                 ui.post {
@@ -432,8 +542,13 @@ class UserModeActivity : Activity(), GLSurfaceView.Renderer {
 
     private fun stop() {
         tts?.stop()
-        speechOut?.pipeline = null
-        speechOut?.logger = null
+        objectSpeech.reset()
+        walkingSpeech.reset()
+        pendingStatus = null
+        activeSpeech = null
+        spatialFeedback.reset()
+        speechVisual.clear()
+        renderSpeech()
         ui.removeCallbacks(uiTick)
         feeder.pipeline = null
         feeder.surface = null
@@ -446,9 +561,10 @@ class UserModeActivity : Activity(), GLSurfaceView.Renderer {
 
     override fun onPause() {
         foreground = false
+        speechVisual.clear()
+        renderSpeech()
         ui.removeCallbacks(uiTick)
         super.onPause()
-        speechOut = null
         tts?.close()
         tts = null
         // 앱을 떠나면(화면 잠금·전화) 안내를 멈춘다. 돌아오면 다시 두 번 탭으로 시작. 설정 화면은 안내 중이 아닐 때만 열린다
@@ -458,7 +574,6 @@ class UserModeActivity : Activity(), GLSurfaceView.Renderer {
     }
 
     override fun onDestroy() {
-        speechOut = null
         tts?.close()
         tts = null
         ar.close()
@@ -482,8 +597,14 @@ class UserModeActivity : Activity(), GLSurfaceView.Renderer {
     /** 지금 상태를 화면([UserScreen])으로 바꿔 그리고, 버튼 설명(TalkBack이 읽는 문장)을 갱신한다. */
     private fun render() {
         val r = run
-        val g = r?.pipeline?.lastOutput?.get()
-        val cmd = g?.commands?.firstOrNull()
+        val nowNs = feeder.nowNs()
+        // 같은 블록에서 사용한 출력과 스냅샷을 함께 읽는다.
+        val frame = r?.pipeline?.lastObjectSpeech?.get()
+        val g = frame?.output?.takeIf {
+            nowNs - it.tBlockNs in 0L..(config.policy.maxInfoAgeMs * 1_000_000.0).toLong()
+        }
+        val cue = if (foreground && r != null && !r.pipeline.paused) spatialFeedback.update(frame, nowNs)
+            else { spatialFeedback.reset(); null }
         val speechStatus = when {
             r == null && notice != null -> if (notice?.title == "시작하지 못했어요")
                 StatusSpeechPolicy.Status.START_FAILED else StatusSpeechPolicy.Status.STOPPED
@@ -491,18 +612,19 @@ class UserModeActivity : Activity(), GLSurfaceView.Renderer {
             r.pipeline.paused || g?.state == GuidanceState.PAUSED -> StatusSpeechPolicy.Status.PAUSED
             g == null || feeder.nowNs() - g.tBlockNs !in 0L..(config.policy.maxInfoAgeMs * 1_000_000.0).toLong() ||
                 g.state == GuidanceState.UNKNOWN -> StatusSpeechPolicy.Status.PREPARING
-            r.pipeline.snapshot.get()?.mapHealth == MapHealth.DEGRADED -> StatusSpeechPolicy.Status.FLOOR_CHECK
+            frame?.snapshot?.mapHealth == MapHealth.DEGRADED -> StatusSpeechPolicy.Status.FLOOR_CHECK
             else -> StatusSpeechPolicy.Status.GUIDING
         }
-        announceStatus(speechStatus)
+        announce(speechStatus, frame, nowNs)
         val s = UserScreen.of(
             running = r != null,
             notice = notice,
             paused = r?.pipeline?.paused == true,
             state = g?.state,
-            mapHealth = r?.pipeline?.snapshot?.get()?.mapHealth,
-            band = cmd?.band,
-            azimuthDeg = cmd?.azimuthDeg,
+            mapHealth = frame?.snapshot?.mapHealth,
+            band = cue?.band,
+            azimuthDeg = cue?.azimuthDeg,
+            spatial = cue?.takeIf { spatialConfig.enabled },
         )
         if (s.spoken != spokenLine) {
             spokenLine = s.spoken
@@ -516,28 +638,80 @@ class UserModeActivity : Activity(), GLSurfaceView.Renderer {
             root.contentDescription = "HEARSPACE, ${s.spoken}. $voiceNotice$read$hint"
         }
         if (s != shown) show(s)
+        renderSpeech()
     }
 
-    /** TalkBack이 터치 탐색을 쓰면 자동 상태 낭독은 TalkBack에 맡긴다. 설명/액션은 보존한다. */
-    private fun announceStatus(status: StatusSpeechPolicy.Status) {
-        if (!foreground) return
+    /** Select one line across status, obstacle and walking situation candidates. */
+    private fun announce(status: StatusSpeechPolicy.Status, frame: ObjectSpeechFrame?, nowNs: Long) {
+        if (!foreground || (hearspace.app.BuildConfig.DEV_TOOLS &&
+            intent.getIntExtra(EXTRA_TTS_BENCH, 0) > 0 && !benchDone)) return
         val reader = a11y.isTouchExplorationEnabled
         if (reader != screenReaderActive) {
             screenReaderActive = reader
-            speechOut?.cancelStatus()
+            if (activeSpeech?.status == true) tts?.stop()
             speechPolicy.reset()
+            objectSpeech.reset()
+            walkingSpeech.reset()
+            pendingStatus = null
             lastSpeechStatus = null
         }
         root.accessibilityLiveRegion = if (reader) View.ACCESSIBILITY_LIVE_REGION_POLITE else View.ACCESSIBILITY_LIVE_REGION_NONE
+        val player = tts ?: return
+        if (!player.isAvailable) return
+
+        val guiding = status == StatusSpeechPolicy.Status.GUIDING
         if (lastSpeechStatus != status) {
-            // 첫 IDLE은 시작 문장을 유지한다. 이후 변화는 안정화 대기 중에도 이전 발화를 취소한다.
-            if (lastSpeechStatus != null) speechOut?.cancelStatus() // M65: 상태 말만 멈춘다(위험 상황 말은 끊지 않음)
+            if (lastSpeechStatus != null && (!guiding || activeSpeech?.status == true)) player.stop()
+            pendingStatus = null
             lastSpeechStatus = status
         }
-        val announcement = speechPolicy.update(status, SystemClock.elapsedRealtime()) ?: return
-        // 상태 말은 TalkBack이 화면 설명으로 읽으므로 생략한다. 상황 말은 TalkBack을 켜도 말 내보내기가 낸다(M65)
-        if (!reader && tts?.isAvailable == true) {
-            speechOut?.status(announcement.text, safety = announcement.urgent)
+        val announcement = speechPolicy.update(status, SystemClock.elapsedRealtime())
+        if (reader) pendingStatus = null else announcement?.let { pendingStatus = it }
+
+        val situations = run?.pipeline?.lastSituationSpeech?.get().takeIf { guiding }
+        val currentWalking = walkingSpeech.observe(situations, frame?.epochNs, nowNs)
+        val speaking = activeSpeech
+        speaking?.walking?.let { active ->
+            if (speaking.epochNs != frame?.epochNs ||
+                currentWalking.none { it.key == active.key && it.level == active.level }) player.stop()
+        }
+
+        val objectDecision = objectSpeech.update(frame.takeIf { guiding }, nowNs)
+        if (objectDecision.cancelKey != null && player.currentRequestKey == objectDecision.cancelKey) player.stop()
+
+        val candidates = buildList {
+            pendingStatus?.let {
+                add(SpokenLine("status-${++speechSerial}", it.text,
+                    if (it.urgent) SpeechPriority.UNAVAILABLE else SpeechPriority.STATUS, status = true))
+            }
+            objectDecision.request?.let { request ->
+                val line = obstacleSpeechLine(request, currentWalking)
+                add(SpokenLine(request.key, line.text,
+                    if (request.urgent) SpeechPriority.IMMEDIATE else SpeechPriority.OBSTACLE,
+                    line.evidenceNs, obstacle = request))
+            }
+            walkingSpeech.next(currentWalking, objectSpeechConfig.enabled, nowNs)?.let { request ->
+                val priority = when (request.priority) {
+                    1 -> SpeechPriority.IMMEDIATE
+                    2 -> SpeechPriority.ROUTE
+                    else -> SpeechPriority.INFORMATION
+                }
+                val text = if (request.priority == 1) "멈추세요. ${request.text}." else request.text
+                add(SpokenLine("walking-${++speechSerial}", text, priority, request.evidenceNs,
+                    walking = request, epochNs = frame?.epochNs))
+            }
+        }
+        val active = if (player.hasRequest) activeSpeech?.priority ?: SpeechPriority.STATUS else null
+        val next = chooseSpeech(active, candidates) { it.priority } ?: return
+        if (next.status) pendingStatus = null
+        val accepted = player.speak(next.text, urgent = next.priority <= SpeechPriority.IMMEDIATE,
+            evidenceNs = next.evidenceNs, replaceCurrent = true, requestKey = next.key)
+        if (accepted) {
+            activeSpeech = next
+            next.obstacle?.let(objectSpeech::onAccepted)
+        } else {
+            next.obstacle?.let { objectSpeech.onRejected(it, nowNs) }
+            next.walking?.let { walkingSpeech.finished(it, nowNs, completed = false, failed = true) }
         }
     }
 
@@ -551,8 +725,16 @@ class UserModeActivity : Activity(), GLSurfaceView.Renderer {
         subText.visibility = if (detail.isEmpty()) View.GONE else View.VISIBLE
         subText.text = detail
         guide.visual = s.visual
+        val cue = (s.visual as? UserScreen.Visual.Arrow)?.spatial
+        spatialDetailText.visibility = if (cue == null) View.GONE else View.VISIBLE
+        spatialDetailText.text = cue?.detailText.orEmpty()
         // 그림 칸: 시안의 가장 큰 그림(화살표 230 dp)이 들어가는 높이, 시작 전 로고(150 dp)는 글자와 가깝게
-        val guideHeight = dp(if (s.visual == UserScreen.Visual.Logo) LOGO_DP else GUIDE_DP)
+        val guideHeight = dp(when {
+            s.visual == UserScreen.Visual.Logo -> LOGO_DP
+            spatialConfig.enabled -> (resources.configuration.screenHeightDp * 0.30f /
+                resources.configuration.fontScale.coerceAtLeast(1f)).toInt().coerceIn(140, GUIDE_DP)
+            else -> GUIDE_DP
+        })
         if (guide.layoutParams.height != guideHeight) guide.layoutParams = guide.layoutParams.apply { height = guideHeight }
         labelText.visibility = if (s.label == null) View.GONE else View.VISIBLE
         labelText.text = s.label
@@ -561,7 +743,7 @@ class UserModeActivity : Activity(), GLSurfaceView.Renderer {
             UserScreen.Tone.CAUTION -> 30f
             else -> 34f
         }
-        labelText.setTextColor(getColor(when {
+        labelText.setTextColor(if (cue != null) spatialColor(this, cue.tint) else getColor(when {
             s.label == null || s.visual !is UserScreen.Visual.Arrow -> R.color.run_text
             s.labelTone == UserScreen.Tone.STOP -> R.color.run_stop
             else -> R.color.run_caution
@@ -580,6 +762,13 @@ class UserModeActivity : Activity(), GLSurfaceView.Renderer {
         }
         settingsButton.visibility = if (s.idle) View.VISIBLE else View.GONE
         noticeText.visibility = if (s.idle && s.visual == UserScreen.Visual.Logo) View.VISIBLE else View.GONE
+    }
+
+    private fun renderSpeech() {
+        val line = speechVisual.line?.takeIf { foreground && spatialConfig.enabled && !screenReaderActive }
+        speechPanel.visibility = if (line == null) View.GONE else View.VISIBLE
+        speechCaptionText.text = line?.text.orEmpty()
+        speechWave.active = line != null
     }
 
     /** "안내 중" 앞의 청록 점(앱이 동작 중임만 보인다). */
@@ -632,3 +821,4 @@ class UserModeActivity : Activity(), GLSurfaceView.Renderer {
         private const val BENCH_WARMUP_MS = 3000L
     }
 }
+

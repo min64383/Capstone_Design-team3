@@ -1,0 +1,11 @@
+{
+  "enabled": true,
+  "useSemanticLabels": true,
+  "minLabelPixels": 3,
+  "minLabelFraction": 0.6,
+  "frontHalfAngleDeg": 22.5,
+  "normalConfirmMs": 400,
+  "urgentConfirmMs": 200,
+  "repeatMs": 10000,
+  "gapMs": 1500
+}

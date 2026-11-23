@@ -48,7 +48,12 @@ android {
 
     // M45: 화면 상태 변환(UserScreen)·안내 글의 JVM 단위 시험(JUnit 5, core와 같은 버전)
     testOptions {
-        unitTests.all { it.useJUnitPlatform() }
+        unitTests.all {
+            it.useJUnitPlatform()
+            val spatialUiConfig = project.file("src/main/assets/config/spatial-ui.json")
+            it.inputs.file(spatialUiConfig)
+            it.systemProperty("hearspace.spatialUiConfig", spatialUiConfig.absolutePath)
+        }
     }
 }
 

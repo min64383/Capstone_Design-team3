@@ -252,6 +252,9 @@ data class DepthFrame(
     }
 }
 
+/** 기존 의미 영상에서 얻은 물체 종류. supportFraction은 표본 화소의 득표율이다. */
+data class ObjectClassification(val label: SemanticLabel, val supportFraction: Float, val observedNs: Long)
+
 /** 추적 중인 장애물 하나. */
 data class Obstacle(
     val id: Int,
@@ -277,6 +280,8 @@ data class Obstacle(
     val velocitySigmaMps: Float = Float.NaN,
     /** Current-depth near STOP candidate; independent of persistent map occupancy/track identity. */
     val earlyStop: Boolean = false,
+    /** 현재 관측으로 붙인 분류 결과. 기존 입력·녹화에서는 null이다. */
+    val classification: ObjectClassification? = null,
 )
 
 /** 느린 경로의 출력. */

@@ -1,6 +1,7 @@
 package hearspace.core.pipeline
 
 import hearspace.core.geometry.HeadPose
+import hearspace.core.audio.ObjectLabels
 import hearspace.core.geometry.Vec3
 import hearspace.core.guidance.Corridor
 import hearspace.core.guidance.MapAction
@@ -54,6 +55,9 @@ class SlowPath(
 
     /** 바닥·복셀 맵. */
     val map = LocalMap(config)
+
+    /** 앱이 실행을 만들 때만 설정한다. 기존 재생 호출은 null로 동작한다. */
+    var objectLabels: ObjectLabels? = null
 
     private val tracker = Tracker(
         config.track, config.repPoint.strategy, if (config.track.reidLost) (config.map.maxUnseenS * 1e9).toLong() else 0L,
@@ -268,7 +272,12 @@ class SlowPath(
             nearStop?.update(map.frameObstaclePoints.map { it.first }, depth.tCaptureNs, corridor, obstacles).orEmpty()
         } else { nearStop?.reset(); emptyList() }
         lastStageNs = StageTimes(t1 - t0, t2 - t1, nanoTime() - t2)
-        return ObstacleSnapshot(depth.tCaptureNs, obstacles + early, floorY, u.mapHealth)
+        val output = obstacles + early
+        val classified = objectLabels?.let { labels ->
+            val observedPoints = map.frameObstaclePoints.map { it.first }
+            labels.attach(output, observedPoints, depth)
+        } ?: output
+        return ObstacleSnapshot(depth.tCaptureNs, classified, floorY, u.mapHealth)
     }
 
     /** 같은 라벨 연결을 주는 라벨 화소 값(`cluster.sameLabels`). 나머지는 -1(연결 없음). */

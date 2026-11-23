@@ -95,8 +95,14 @@ class Situations(
     private var drifting = false
     private var driftRight = false
 
-    /** 한 차례: 노면 영상을 격자에 넣고 규칙을 돌려 낸 말과 상태 기록. */
+    /** PC 재생과 기존 앱 호출은 말하기 규칙까지 적용한 결과를 받는다. */
     fun step(inp: SituationInput): Pair<List<Utterance>, SituationRecord> {
+        val (requests, record) = detect(inp)
+        return speech.tick(inp.nowNs, requests, inp.outputPriority) to record
+    }
+
+    /** 실시간 TTS는 상태·장애물 안내와 우선순위를 함께 판단할 수 있도록 후보 요청을 받는다. */
+    fun detect(inp: SituationInput): Pair<List<SpeechRequest>, SituationRecord> {
         lastStepDepthNs = inp.depth.tCaptureNs
         stepNs = inp.depth.tCaptureNs
         inp.surface?.let { lastStepSurfaceNs = maxOf(lastStepSurfaceNs, it.tCaptureNs) }
@@ -151,7 +157,7 @@ class Situations(
         // 노면 영상 촬영 시각이 아니라 판단에 쓴 사용자 위치(이 깊이 장)의 시각이다(장애물 소리가 느린 경로 결과 시각으로 나이를 재는 것과 같다).
         // 안전장치: 마지막 노면 영상이 surfaceMaxAgeMs보다 오래되면(모델이 멈춤 등) 노면 지도에 기대는 말은 내지 않는다. 차·사람 다가옴은 노면과 무관하다.
         val fresh = lastSurfaceNs != Long.MIN_VALUE && inp.depth.tCaptureNs - lastSurfaceNs <= cfg.surfaceMaxAgeMs * 1_000_000L
-        return speech.tick(inp.nowNs, if (fresh) req else req.filter { it.key.startsWith("veh#") || it.key == "ped" }, inp.outputPriority) to rec
+        return (if (fresh) req else req.filter { it.key.startsWith("veh#") || it.key == "ped" }) to rec
     }
 
     fun reset() {
@@ -236,7 +242,8 @@ class Situations(
             // 상자 네 모서리(수평)의 블록 선 옆 거리 범위가 블록 띠 ±onBlockBandM과 겹쳐야 블록 위(M51)
             val lats = listOf(o.aabbMinW, o.aabbMaxW, Vec3(o.aabbMinW.x, 0f, o.aabbMaxW.z), Vec3(o.aabbMaxW.x, 0f, o.aabbMinW.z)).map { line.lateral(it) }
             if (lats.min() > cfg.onBlockBandM || lats.max() < -cfg.onBlockBandM) continue
-            req.add(SpeechRequest("obj#${o.id}", "블록 위 물체, ${meters(cmd.distanceM)}미터", 2, inp.snapshot.tCaptureNs))
+            req.add(SpeechRequest("obj#${o.id}", "블록 위 물체, ${meters(cmd.distanceM)}미터", 2,
+                inp.snapshot.tCaptureNs, onBlockObstacleId = o.id))
         }
     }
 

@@ -28,12 +28,13 @@ class AndroidTts(
         STARTED("읽는 중"), COMPLETED("읽기 완료"), INTERRUPTED("중단"), ERROR("오류")
     }
 
-    data class Event(val id: String, val text: String, val state: State, val detail: String?)
+    data class Event(val id: String, val text: String, val state: State, val detail: String?,
+        val requestKey: String? = null)
 
     private enum class EngineState { LOADING, READY, FAILED, CLOSED }
     private class Line(
         val id: String, val text: String, val urgent: Boolean,
-        val evidenceNs: Long?, val requestedMs: Long,
+        val evidenceNs: Long?, val requestedMs: Long, val requestKey: String?,
     ) {
         var submitted = false
         var started = false
@@ -61,6 +62,9 @@ class AndroidTts(
 
     /** 초기화/발화 타임아웃은 구분한다. 일시적 발화 실패 뒤에는 다음 요청을 받을 수 있다. */
     val isAvailable: Boolean get() = engineState == EngineState.LOADING || engineState == EngineState.READY
+    val hasRequest: Boolean get() = current != null
+    val currentRequestKey: String? get() = current?.requestKey
+    val hasUrgentRequest: Boolean get() = current?.urgent == true
 
     init {
         checkMain()
@@ -83,10 +87,11 @@ class AndroidTts(
     fun speak(
         text: String, urgent: Boolean = false, evidenceNs: Long? = null,
         replaceCurrent: Boolean = false,
+        requestKey: String? = null,
     ): Boolean {
         checkMain()
         if (engineState == EngineState.CLOSED) return false
-        val line = Line((++serial).toString(), text, urgent, evidenceNs, SystemClock.elapsedRealtime())
+        val line = Line((++serial).toString(), text, urgent, evidenceNs, SystemClock.elapsedRealtime(), requestKey)
         val problem = when {
             text.isBlank() || text.length > TextToSpeech.getMaxSpeechInputLength() -> "문장 길이 오류"
             engineState == EngineState.FAILED -> "오프라인 한국어 TTS를 사용할 수 없습니다"
@@ -269,7 +274,7 @@ class AndroidTts(
     private fun emit(line: Line, state: State, detail: String? = null) {
         // 원문/관측 시각을 logcat에 기록하지 않는다. 원문은 화면 콜백 메모리로만 전달한다.
         Log.i(TAG, "tts id=${line.id} state=$state")
-        onEvent(Event(line.id, line.text, state, detail))
+        onEvent(Event(line.id, line.text, state, detail, line.requestKey))
     }
 
     private fun duck(value: Boolean) {
