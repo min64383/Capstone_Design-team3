@@ -96,6 +96,13 @@ class Situations(
     private var driftOverSinceNs = Long.MIN_VALUE
     private var driftEpisode = 0
     private var drifting = false
+
+    /** 보행 상태(M69, 사용자 2026-11-25): 점자블록 유도보행이면 true, 기본 보행이면 false. 블록 말은 유도보행일 때만 낸다. */
+    var guided = false
+        private set
+    private var guideWalkedM = 0f
+    private var guideLastUser: Vec3? = null
+    private var guideOffSinceNs = Long.MIN_VALUE
     private var driftRight = false
     private var driftOverRight = false
 
@@ -137,14 +144,20 @@ class Situations(
 
             val follow = lines.filter { angleDeg(it.dir, h) <= cfg.lineMaxAngleDeg && abs(it.lateral(user)) <= cfg.envHalfWidthM }
                 .minByOrNull { abs(it.lateral(user)) }
+            updateGuide(tNs, follow, user, h)
             if (follow != null) {
                 blockTrace?.invoke(tNs, user, h, follow, memory, inp.depth, if (heights.isEmpty()) Float.NaN else medianHeight())
                 noteFollow(tNs, user)
                 val lat = -follow.lateral(user) // + = 블록이 사용자 오른쪽
                 rec = rec.copy(followAngleDeg = angleDeg(follow.dir, h), lateralM = lat, blockYawDeg = yawDeg(follow.dir))
-                drift(tNs, lat, req)
-                onBlock(inp, follow, user, h, req)
-                rec = rec.copy(endAheadM = if (cfg.blockMethod == BlockMethod.ARMS) arms(inp, follow, memory, user, h, req) else endAndTurns(follow, lines, memory, user, h, right, req))
+                // 블록 말은 점자블록 유도보행일 때만(사용자 2026-11-25): 블록 위를 따라 걷지 않는 사람에게 갈림·꺾임·끝을 말하면 오답
+                if (guided) {
+                    drift(tNs, lat, req)
+                    onBlock(inp, follow, user, h, req)
+                    rec = rec.copy(endAheadM = if (cfg.blockMethod == BlockMethod.ARMS) arms(inp, follow, memory, user, h, req) else endAndTurns(follow, lines, memory, user, h, right, req))
+                } else {
+                    driftOverSinceNs = Long.MIN_VALUE
+                }
             } else {
                 driftOverSinceNs = Long.MIN_VALUE
             }
@@ -185,6 +198,10 @@ class Situations(
         rowSurfaceNs = Long.MIN_VALUE
         drifting = false
         driftOverSinceNs = Long.MIN_VALUE
+        guided = false
+        guideWalkedM = 0f
+        guideLastUser = null
+        guideOffSinceNs = Long.MIN_VALUE
     }
 
     private fun medianHeight(): Float {
@@ -226,6 +243,28 @@ class Situations(
         val a = (l.at(l.tMin) - user) dot h
         val b = (l.at(l.tMax) - user) dot h
         return maxOf(a, b) >= cfg.envAheadMinM && minOf(a, b) <= cfg.envAheadMaxM
+    }
+
+    /**
+     * 보행 상태 갱신(M69, 사용자 2026-11-25). 1자 블록 위 = 따라가는 선이 있고 옆 거리 ≤ [SituationConfig.driftOnM], 방향 차 ≤ [SituationConfig.lineMaxAngleDeg].
+     * 블록 위에서 블록 방향으로 이어 걸은 거리가 [SituationConfig.guideEnterM]이 되면 유도보행, 유도보행 중 블록 위가 아닌 채
+     * [SituationConfig.guideExitS]가 지나면 기본 보행. 유도보행 전에 블록을 벗어나면 걸은 거리를 다시 센다.
+     */
+    private fun updateGuide(tNs: Long, follow: BlockLine?, user: Vec3, h: Vec3) {
+        if (cfg.guideEnterM <= 0f) { guided = true; return }
+        val onLine = follow != null && abs(follow.lateral(user)) <= cfg.driftOnM && angleDeg(follow.dir, h) <= cfg.lineMaxAngleDeg
+        if (onLine) {
+            guideOffSinceNs = Long.MIN_VALUE
+            // 블록 방향으로 앞으로 걸은 만큼(뒤로·옆으로는 세지 않음, 한 차례 1 m 넘는 건너뜀은 자세 튐으로 보고 버림)
+            guideLastUser?.let { last -> val d = (user - last).horizontal() dot follow!!.dir; if (d > 0f && d < 1f) guideWalkedM += d }
+            guideLastUser = user
+            if (guideWalkedM >= cfg.guideEnterM) guided = true
+        } else {
+            guideLastUser = null
+            if (!guided) guideWalkedM = 0f
+            if (guideOffSinceNs == Long.MIN_VALUE) guideOffSinceNs = tNs
+            if (guided && tNs - guideOffSinceNs >= (cfg.guideExitS * 1e9).toLong()) { guided = false; guideWalkedM = 0f }
+        }
     }
 
     /** 1a: 늘인 블록 선이 몸에서 [SituationConfig.driftOnM] 넘게 [SituationConfig.driftHoldS] 떨어지면 블록이 있는 쪽을 말한다. */

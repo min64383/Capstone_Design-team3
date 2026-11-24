@@ -44,6 +44,9 @@ class SituationTest {
     private val camH = 1.3f
     private val stepNs = 100_000_000L
 
+    /** 보행 상태를 끈 설정(guideEnterM 0 = 늘 유도보행): 서 있는 사용자로 블록 말의 다른 규칙을 보는 시험용. */
+    private val still get() = config.situation.copy(guideEnterM = 0f)
+
     private fun pose(x: Float, z: Float = 0f, pitchDeg: Float = 9f): Mat4 {
         val p = Math.toRadians(pitchDeg.toDouble())
         val s = sin(p).toFloat()
@@ -141,7 +144,7 @@ class SituationTest {
 
     @Test
     fun `SP-2 a block end seen for 10 s is spoken once`() {
-        val said = run(100, cls = blockLine())
+        val said = run(100, cls = blockLine(), sc = still)
         assertEquals(1, said.count { it.text.startsWith("블록 끝") }, said.toString())
     }
 
@@ -275,17 +278,17 @@ class SituationTest {
     @Test
     fun `SP-19 map-based speech stops when the last surface image is older than surfaceMaxAgeMs`() {
         val t0 = 1_000_000_000L
-        val all = run(100, cls = blockLine())
+        val all = run(100, cls = blockLine(), sc = still)
         assertTrue(all.isNotEmpty(), "control run must speak")
         // 노면 영상을 첫 차례에만 주면, 그 영상 + 1 s 뒤로는 노면 지도에 기대는 말이 없다
-        val stale = runSurfaceOnce(100, cls = blockLine())
+        val stale = runSurfaceOnce(100, cls = blockLine(), sc = still)
         val limit = t0 + config.situation.surfaceMaxAgeMs * 1_000_000L + 30_000_000L
         assertTrue(stale.all { it.tNs <= limit }, stale.toString())
     }
 
     /** [run]과 같지만 노면 영상은 첫 차례에만 준다. */
-    private fun runSurfaceOnce(n: Int, cls: (Float, Float) -> Int): List<Utterance> {
-        val sit = Situations(config.situation, config.corridor.widthM, config.corridor.heightM, config.vision.footHeightWindowS, 500_000_000L)
+    private fun runSurfaceOnce(n: Int, cls: (Float, Float) -> Int, sc: hearspace.core.types.SituationConfig = config.situation): List<Utterance> {
+        val sit = Situations(sc, config.corridor.widthM, config.corridor.heightM, config.vision.footHeightWindowS, 500_000_000L)
         val out = ArrayList<Utterance>()
         val first = surface(1_000_000_000L, pose(0f, 0f), cls)
         for (i in 0 until n) {
@@ -399,7 +402,7 @@ class SituationTest {
         val on = obstacle(1, Vec3(0.1f, 0.4f, -3f))
         val beside = obstacle(2, Vec3(0.45f, 0.4f, -3.5f))
         val far = obstacle(3, Vec3(-0.8f, 0.4f, -3f))
-        val said = run(100, cls = blockLine(to = 6f), obstacles = listOf(on, beside, far))
+        val said = run(100, cls = blockLine(to = 6f), obstacles = listOf(on, beside, far), sc = still)
         assertEquals(listOf("obj#1"), said.filter { it.key.startsWith("obj#") }.map { it.key }.distinct(), said.toString())
     }
 
@@ -427,7 +430,7 @@ class SituationTest {
     fun `SP-9 drift speaks once past the on threshold and releases inside the off threshold`() {
         // 블록은 x = 0, 사용자가 왼쪽으로 옮겨 가 블록이 오른쪽에 남는다: 횡 거리 0.5 → 0.7 → 0.5 → 0.2 → 0.7 m, 각 2 s
         val xs = listOf(-0.5f, -0.7f, -0.5f, -0.2f, -0.7f)
-        val said = run(100, userX = { xs[it / 20] }, cls = blockLine(to = 8f), sc = config.situation.copy(infoSpeech = false))
+        val said = run(100, userX = { xs[it / 20] }, cls = blockLine(to = 8f), sc = still.copy(infoSpeech = false))
         val drift = said.filter { it.key.startsWith("drift#") }
         assertEquals(listOf("블록 오른쪽", "블록 오른쪽"), drift.map { it.text }, said.toString())
         assertTrue(drift[0].tNs in 1_000_000_000L + 30 * stepNs..1_000_000_000L + 40 * stepNs + 30_000_000L, drift.toString())
@@ -474,5 +477,52 @@ class SituationTest {
         // 정상 줄은 그대로 맞춘다
         val row = List(20) { Vec3(3f, 0f, -0.1f * it) }
         assertEquals(1, hearspace.core.situation.BlockLines.fit(row, 0.15f, 1.0f, 0.1f).size)
+    }
+
+    // ---- 보행 상태(M69, 사용자 2026-11-25): 점자블록 유도보행일 때만 블록 말 ----
+
+    private fun isBlockSpeech(u: Utterance) = u.text.startsWith("블록") || u.key.startsWith("obj#")
+
+    @Test
+    fun `G-1 walking beside a block line, not on it, gives no block speech`() {
+        // 블록 x ∈ ±0.15, 앞 0.5~8 m에서 끝남. 사용자는 x = −1.0(옆 거리 1.0 > driftOnM 0.6)으로 1 m/s 6 m 걸음
+        val said = run(60, userX = { -1.0f }, userZ = { -0.1f * it }, cls = blockLine(to = 8f))
+        assertTrue(said.none(::isBlockSpeech), said.toString())
+    }
+
+    @Test
+    fun `G-2 walking along on the block becomes guided walking and the block end is spoken`() {
+        val said = run(60, userZ = { -0.1f * it }, cls = blockLine(to = 8f))
+        val end = said.filter { it.text.startsWith("블록 끝") }
+        assertEquals(1, end.size, said.toString())
+        // 유도보행은 블록 위를 guideEnterM(2 m) 걸은 뒤부터: 그 전(20차례 = 2 s)에는 블록 말이 없다
+        assertTrue(said.filter(::isBlockSpeech).all { it.tNs >= 1_000_000_000L + 20 * stepNs }, said.toString())
+    }
+
+    @Test
+    fun `G-3 standing on a block is not guided walking`() {
+        assertTrue(run(100, cls = blockLine()).none(::isBlockSpeech))
+    }
+
+    @Test
+    fun `G-4 leaving the block for guideExitS returns to basic walking, a short step off does not`() {
+        val sc = config.situation
+        val sit = Situations(sc, config.corridor.widthM, config.corridor.heightM, config.vision.footHeightWindowS, 500_000_000L)
+        val cls = blockLine(to = 20f)
+        // 0~3 s: 블록 위를 걸음(유도보행), 3~4 s: 옆으로 1.2 m 비켜 걸음(1 s < guideExitS), 4~5 s 돌아옴, 5~10 s: 다시 비켜 5 s
+        fun x(i: Int) = if (i in 30 until 40 || i >= 50) -1.2f else 0f
+        val guided = ArrayList<Boolean>()
+        var surf: LabelImage? = null
+        for (i in 0 until 100) {
+            val t = 1_000_000_000L + i * stepNs
+            val w = pose(x(i), -0.1f * i)
+            if (i % 2 == 0) surf = surface(t, w, cls)
+            sit.step(SituationInput(t + 30_000_000L, depth(t, w), ObstacleSnapshot(t, emptyList(), 0f, MapHealth.OK), emptyList(), heading, surf))
+            guided += sit.guided
+        }
+        assertTrue(!guided[10] && guided[29], "guided after 2 m on the block: $guided")
+        assertTrue((30 until 50).all { guided[it] }, "a 1 s step off keeps guided walking: $guided")
+        val exitAt = 50 + (sc.guideExitS * 10).toInt()
+        assertTrue(guided[exitAt - 2] && !guided[exitAt + 2], "basic walking after guideExitS off the block: $guided")
     }
 }

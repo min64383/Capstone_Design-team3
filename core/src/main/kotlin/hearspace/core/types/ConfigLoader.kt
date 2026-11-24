@@ -520,6 +520,8 @@ object ConfigLoader {
                     rowRaiseM = positive("rowRaiseM"),
                     rowMaxM = positive("rowMaxM"),
                     stairsDownRule = enumValue<StairsDownRule>("stairsDownRule"),
+                    guideEnterM = nonNegative("guideEnterM"),
+                    guideExitS = nonNegative("guideExitS"),
                 ).also {
                     if (it.envAheadMaxM <= it.envAheadMinM) throw ConfigException("situation.envAheadMaxM", "must be > envAheadMinM")
                     if (it.driftOffM >= it.driftOnM) throw ConfigException("situation.driftOffM", "must be < driftOnM")
