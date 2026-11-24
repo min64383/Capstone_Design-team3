@@ -4,15 +4,13 @@ import hearspace.core.replay.VideoDemoSettings
 import hearspace.core.replay.VideoScene
 import hearspace.core.replay.VideoSceneRunner
 import hearspace.core.types.ConfigLoader
-import hearspace.core.types.JsonArray
-import hearspace.core.types.JsonNumber
 import hearspace.core.types.JsonObject
 import hearspace.core.types.JsonString
 import hearspace.core.types.MiniJson
 import java.io.File
 
 /**
- * 영상 데모(M73 설계 3.4절): `tools/demo/scenes/` 아래 장면 파일마다 core 재현 실행기를 앱 설정 층으로 돌려 중계 데모 폴더(`relay.json` demoDir)에
+ * 영상 데모(M73 설계 3.4절): `tools/demo/scenes/` 아래 장면 파일마다 core 재현 실행기를 앱 설정 층으로 돌려 `videodemo.json` outDir에
  * `<장면>.wav`(2채널 16 bit)와 `<장면>.json`(화면·말 시간표, 확인용 정답)을 쓴다. 말 소리는 중계 말 소리 모음(S10 TTS)을 쓴다.
  * 영상과 합치기는 `python tools/demo/video_demo.py`.
  *
@@ -21,13 +19,15 @@ import java.io.File
 fun main(args: Array<String>) {
     val opt = args.associate { it.substringBefore('=') to it.substringAfter('=', "") }
     val demo = File(Repo.root, "tools/demo")
-    val settings = VideoDemoSettings.parse(File(demo, "videodemo.json").readText())
+    val settingsText = File(demo, "videodemo.json").readText()
+    val settings = VideoDemoSettings.parse(settingsText)
     val layers = RelayFiles.appLayers()
     val config = ConfigLoader.load(layers.first(), layers.drop(1))
     val hrtf = ReplayRunner.loadHrtf()
     val relay = RelayFiles.settings()
     val clips = RelayClips.load(File(relay.clipDir).let { if (it.isAbsolute) it else File(Repo.root, relay.clipDir) }, config.audio.sampleRate)
-    val out = File(relay.demoDir).let { if (it.isAbsolute) it else File(Repo.root, relay.demoDir) }.apply { mkdirs() }
+    val outDir = ((MiniJson.parse(settingsText) as JsonObject).fields["outDir"] as JsonString).value
+    val out = File(outDir).let { if (it.isAbsolute) it else File(Repo.root, outDir) }.apply { mkdirs() }
     val only = opt["scene"]?.takeIf { it.isNotEmpty() }
     val files = File(demo, "scenes").listFiles { f -> f.name.endsWith(".json") }.orEmpty().sortedBy { it.name }
     for (f in files) {
@@ -42,11 +42,6 @@ fun main(args: Array<String>) {
         for ((t, sc) in r.screens) println("  screen %6.2f s  %s %s %s".format(t / 1e9, sc.title ?: "", (sc.visual as? hearspace.core.screen.UserScreen.Visual.Arrow)?.let { "arrow %.0f° %s".format(it.azimuthDeg, if (it.stop) "STOP" else "") } ?: sc.visual.toString(), sc.label ?: ""))
         if (runner.missing.isNotEmpty()) println("  WARNING speech clips missing: ${runner.missing}")
     }
-    // 데모 페이지의 장면 단추: 시간표가 있는 장면을 장면 파일의 order 순으로(id, 제목, 영상 출처 쪽)
-    val index = files.map { MiniJson.parse(it.readText()) as JsonObject }.filter { File(out, "${(it.fields["id"] as JsonString).value}.json").isFile }
-        .sortedBy { (it.fields["order"] as? JsonNumber)?.value ?: 99.0 }
-        .map { o -> JsonObject(linkedMapOf("id" to o.fields["id"]!!, "title" to o.fields["title"]!!, "page" to ((o.fields["source"] as JsonObject).fields["page"] ?: JsonString("")))) }
-    File(out, "scenes.json").writeText(MiniJson.write(JsonArray(index), pretty = false))
 }
 
 /** 2채널 교차 ±1 → 16-bit PCM WAV(중계 서버·사운드팩과 같은 변환). */

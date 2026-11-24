@@ -2,7 +2,7 @@
 
     python tools/demo/video_demo.py [--scene <id>] [--check]
 
-먼저 `./gradlew :viewer:videoDemo`가 relay.json demoDir(data/videodemo/out)에 <장면>.wav·.json을 쓴다.
+먼저 `./gradlew :viewer:videoDemo`가 videodemo.json outDir(data/videodemo/out)에 <장면>.wav·.json을 쓴다.
 원본 영상은 장면 파일 source.file에서 data/videodemo/src/<id>.mp4로 한 번 받는다(Pexels License, git 밖).
 --check면 <id>_check.mp4에 손으로 적은 상자(열쇠 사이 직선), core가 낸 거리·구간, 말을 겹친다(소리 같음).
 """
@@ -27,8 +27,7 @@ FONT = "C:/Windows/Fonts/malgunbd.ttf"
 
 def settings() -> tuple[dict, Path]:
     s = json.loads((DEMO / "videodemo.json").read_text(encoding="utf-8"))
-    relay = json.loads((ROOT / "app/src/bench/assets/relay.json").read_text(encoding="utf-8"))
-    out = Path(relay["demoDir"])
+    out = Path(s["outDir"])
     return s["encode"], out if out.is_absolute() else ROOT / out
 
 

@@ -1,6 +1,5 @@
 {
   "id": "car",
-  "order": 2,
   "title": "다가오는 차",
   "note": "정비소에서 차가 천천히 나와 카메라 쪽으로 오다가 오른쪽으로 돌아 약 2 m 앞을 지나간다. 화각은 폰 기본(26 mm 환산) 가정. 8.0 s까지는 앞면 폭(W, 1.735 m), 8.5 s부터는 가장 가까운 바퀴의 바닥 접점(G). 영상 카메라 높이·지평선은 앞면 폭으로 거리를 안 6.0~8.0 s의 바퀴 접점으로 맞춤(0.64 m, 601행). 상자는 Claude가 격자 장을 보고 적음(2026-11-24).",
   "source": { "page": "https://www.pexels.com/video/car-going-out-of-the-repair-shop-8987275/", "file": "https://videos.pexels.com/video-files/8987275/8987275-hd_1920_1080_30fps.mp4", "license": "Pexels License" },

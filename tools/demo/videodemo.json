@@ -1,5 +1,6 @@
 {
   "note": "M73 영상 데모 재현 값(설계 표 4). preRollS: 영상 전에 서 있던 시간(상태 기계 준비·신호 멈춤 확인, 이 동안 소리는 버림). snapshotIntervalMs·LatencyMs: M61 bench 처리 시간 p50 A 20 + C 59 ms. velocityWindowS: 칼만 대신 지난 이동. screenRefreshMs: 앱 사용자 화면 UI_REFRESH_MS. encode: 영상 합치기(tools/demo/video_demo.py).",
+  "outDir": "data/videodemo/out",
   "preRollS": 1.0,
   "poseHz": 30,
   "snapshotIntervalMs": 80,

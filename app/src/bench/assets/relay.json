@@ -18,7 +18,6 @@
   "port": 8080,
   "bindHost": "127.0.0.1",
   "clipDir": "data/relay/clips",
-  "demoDir": "data/videodemo/out",
   "uploadKey": "",
   "viewKey": "",
   "serverUrl": "",
