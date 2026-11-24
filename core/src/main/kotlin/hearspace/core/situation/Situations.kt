@@ -7,6 +7,7 @@ import hearspace.core.types.DepthFrame
 import hearspace.core.types.LabelImage
 import hearspace.core.types.ObstacleSnapshot
 import hearspace.core.types.SemanticLabel
+import hearspace.core.types.BlockMethod
 import hearspace.core.types.SituationConfig
 import kotlin.math.abs
 import kotlin.math.acos
@@ -96,6 +97,10 @@ class Situations(
     private var driftEpisode = 0
     private var drifting = false
     private var driftRight = false
+    private var driftOverRight = false
+
+    /** PC 재생 기록용(M69): 따라가는 선이 있는 판단마다 그 시각·사용자·진행 방향·선·노면 지도·깊이 장·카메라 높이(모르면 NaN)를 넘긴다. 앱은 null. */
+    var blockTrace: ((tNs: Long, user: Vec3, heading: Vec3, follow: BlockLine, memory: Map<Long, SurfaceCell>, depth: DepthFrame, camH: Float) -> Unit)? = null
 
     /** 한 차례: 노면 영상을 격자에 넣고 규칙을 돌려 낸 말과 상태 기록. */
     fun step(inp: SituationInput): Pair<List<Utterance>, SituationRecord> {
@@ -133,15 +138,17 @@ class Situations(
             val follow = lines.filter { angleDeg(it.dir, h) <= cfg.lineMaxAngleDeg && abs(it.lateral(user)) <= cfg.envHalfWidthM }
                 .minByOrNull { abs(it.lateral(user)) }
             if (follow != null) {
+                blockTrace?.invoke(tNs, user, h, follow, memory, inp.depth, if (heights.isEmpty()) Float.NaN else medianHeight())
                 noteFollow(tNs, user)
                 val lat = -follow.lateral(user) // + = 블록이 사용자 오른쪽
                 rec = rec.copy(followAngleDeg = angleDeg(follow.dir, h), lateralM = lat, blockYawDeg = yawDeg(follow.dir))
                 drift(tNs, lat, req)
                 onBlock(inp, follow, user, h, req)
-                rec = rec.copy(endAheadM = endAndTurns(follow, lines, memory, user, h, right, req))
+                rec = rec.copy(endAheadM = if (cfg.blockMethod == BlockMethod.ARMS) arms(inp, follow, memory, user, h, req) else endAndTurns(follow, lines, memory, user, h, right, req))
             } else {
                 driftOverSinceNs = Long.MIN_VALUE
             }
+            if (cfg.blockMethod == BlockMethod.ARMS) rowStairs(inp, memory, user, h, req)
             val (stairsAhead, dir) = stairs(inp, memory, user, h, right, req)
             val dropM = dropAhead(inp.depth, user, h, right)
             if (cfg.dropEnabled && !dropM.isNaN() && dir != "down") req.add(SpeechRequest("drop", "내려가는 곳, ${meters(dropM)}미터", 1, stepNs))
@@ -170,6 +177,12 @@ class Situations(
         episodeStart = null
         lastFollowNs = Long.MIN_VALUE
         junctions.clear()
+        armPlaces.clear()
+        armCands.clear()
+        armInputsNs = Long.MIN_VALUE
+        rowDown = null
+        rowStreak = 0
+        rowSurfaceNs = Long.MIN_VALUE
         drifting = false
         driftOverSinceNs = Long.MIN_VALUE
     }
@@ -219,7 +232,12 @@ class Situations(
     private fun drift(tNs: Long, lat: Float, req: MutableList<SpeechRequest>) {
         if (drifting && abs(lat) < cfg.driftOffM) drifting = false
         if (abs(lat) > cfg.driftOnM) {
-            if (driftOverSinceNs == Long.MIN_VALUE) driftOverSinceNs = tNs
+            // 같은 쪽으로 [driftHoldS] 이어져야 한다(M69 고침): 따라가는 선이 반대쪽 선으로 잠깐 바뀌면 다시 센다.
+            // 고치기 전에는 왼쪽으로 1 s 쌓인 뒤 오른쪽 선을 잠깐 잡은 순간의 쪽을 말했다(T01 274.6 s "블록 오른쪽", 사용자: 왼쪽)
+            if (driftOverSinceNs == Long.MIN_VALUE || (lat > 0f) != driftOverRight) {
+                driftOverSinceNs = tNs
+                driftOverRight = lat > 0f
+            }
             if (!drifting && tNs - driftOverSinceNs >= (cfg.driftHoldS * 1e9).toLong()) {
                 drifting = true
                 driftEpisode++
@@ -263,6 +281,118 @@ class Situations(
         if (i >= 0) return i
         junctions += x
         return junctions.size - 1
+    }
+
+    private val blockArms = BlockArms(cfg) { x, z -> grid.keyAt(Vec3(x, 0f, z)) }
+
+    /** 팔 세기로 말한 블록 자리(월드). 번호 = 목록 위치. */
+    private val armPlaces = ArrayList<Vec3>()
+
+    /** 말하기 전 이어짐을 세는 후보(같은 자리·같은 종류, 마지막으로 센 노면 영상 시각). */
+    private class ArmCand(val kind: ArmKind, val center: Vec3, var surfaceNs: Long) { var count = 1 }
+    private val armCands = ArrayList<ArmCand>()
+
+    /** PC 재생 기록용(M69): 팔 세기 판단마다 그 시각과 중심별 판단을 넘긴다. 앱은 null. */
+    var armTrace: ((tNs: Long, decisions: List<ArmDecision>) -> Unit)? = null
+
+    /**
+     * 1d(M69 ARMS): 팔 세기로 갈림·꺾임·끝, 그리고 블록 끝 너머로 본 계단을 말한다. 칸 라벨은 [SituationConfig.gridRecentK] > 0이면 최근 관측 다수결.
+     * 한 자리를 말하면 사용자가 그 자리를 지날 때까지(그 자리가 아직 앞에 있는 동안) 다른 블록 자리는 말하지 않는다(갈림 구조가 2~3 m라 여러 중심이 잡음).
+     * 반환값은 가장 가까운 끝·계단 자리의 앞 거리(없으면 NaN).
+     */
+    /** 이번 판단의 ARMS 입력(칸 라벨, 깊이로 잰 노면 점 낮음). 한 판단에 한 번 만든다. */
+    private var armInputsNs = Long.MIN_VALUE
+    private var armCounts: (Long) -> IntArray? = { null }
+    private var armLows: List<LowPoint> = emptyList()
+
+    private fun armInputs(inp: SituationInput, memory: Map<Long, SurfaceCell>, user: Vec3, h: Vec3) {
+        if (armInputsNs == stepNs) return
+        armInputsNs = stepNs
+        val recent = if (cfg.gridRecentK > 0) grid.recent(stepNs, cfg.gridMemoryS, cfg.gridRecentK) else null
+        armCounts = if (recent != null) { k -> recent[k] } else { k -> memory[k]?.frames }
+        val lows = ArrayList<LowPoint>()
+        if (heights.isNotEmpty()) {
+            val camH = medianHeight()
+            val camFromWorld = inp.depth.worldFromCam.rigidInverse()
+            val maxAhead = maxOf(cfg.armDecideMaxM, cfg.endMaxM) + cfg.beyondToM + 0.5f
+            for (sp in grid.lastPoints) {
+                val rel = sp.pW - user
+                if ((rel dot h) <= 0f || (rel dot h) > maxAhead) continue
+                val lo = lowM(inp.depth, camFromWorld, sp.pW, camH)
+                if (!lo.isNaN()) lows.add(LowPoint(sp.pW.x, sp.pW.z, lo))
+            }
+        }
+        armLows = lows
+    }
+
+    /** 가로줄 계단이 같은 쪽으로 서로 다른 노면 영상 몇 장에서 이어졌는지. */
+    private var rowDown: Boolean? = null
+    private var rowStreak = 0
+    private var rowSurfaceNs = Long.MIN_VALUE
+
+    /** 앞을 가로지르는 가로줄 너머 계단([BlockArms.rowStairs]): 같은 쪽이 [SituationConfig.confirmFrames]장 이어지면 계단 말(노면 라벨 계단 규칙과 같은 열쇠). */
+    private fun rowStairs(inp: SituationInput, memory: Map<Long, SurfaceCell>, user: Vec3, h: Vec3, req: MutableList<SpeechRequest>) {
+        armInputs(inp, memory, user, h)
+        val r = blockArms.rowStairs(user, h, armCounts, armLows)
+        if (r == null) {
+            rowDown = null
+            rowStreak = 0
+            return
+        }
+        val (dist, down) = r
+        if (rowDown == down) {
+            if (lastSurfaceNs != rowSurfaceNs) { rowStreak++; rowSurfaceNs = lastSurfaceNs }
+        } else {
+            rowDown = down
+            rowStreak = 1
+            rowSurfaceNs = lastSurfaceNs
+        }
+        if (rowStreak < cfg.confirmFrames) return
+        if (down) req.add(SpeechRequest("stairs", "내려가는 계단, ${meters(dist)}미터", 1, inp.depth.tCaptureNs, level = 2))
+        else req.add(SpeechRequest("stairs", "올라가는 계단", 3, stepNs, level = 1))
+    }
+
+    private fun arms(inp: SituationInput, follow: BlockLine, memory: Map<Long, SurfaceCell>, user: Vec3, h: Vec3, req: MutableList<SpeechRequest>): Float {
+        armInputs(inp, memory, user, h)
+        val counts = armCounts
+        val lows = armLows
+        val decisions = blockArms.decide(user, follow, counts, lows)
+        // 후보는 노면 지도 기억(gridMemoryS) 동안만 남긴다
+        armCands.removeAll { lastSurfaceNs - it.surfaceNs > (cfg.gridMemoryS * 1e9).toLong() }
+        armTrace?.invoke(stepNs, decisions)
+        var endAhead = Float.NaN
+        val lastAhead = armPlaces.lastOrNull()?.let { ((it - user) dot h) > 0f } ?: false
+        for (d in decisions) {
+            val n = meters(d.aheadM)
+            val (key, text, prio) = when (d.kind) {
+                ArmKind.FORK -> Triple("turn", "블록 갈림", 2)
+                ArmKind.TURN_LEFT -> Triple("turn", "블록 왼쪽으로 꺾임", 2)
+                ArmKind.TURN_RIGHT -> Triple("turn", "블록 오른쪽으로 꺾임", 2)
+                ArmKind.END -> Triple("end", "블록 끝, ${n}미터", 2)
+                ArmKind.STAIRS_DOWN -> Triple("stairs", "내려가는 계단, ${n}미터", 1)
+                ArmKind.STAIRS_UP -> Triple("stairs", "올라가는 계단", 3)
+                else -> continue
+            }
+            if (d.kind == ArmKind.END || d.kind == ArmKind.STAIRS_DOWN || d.kind == ArmKind.STAIRS_UP) endAhead = if (endAhead.isNaN()) d.aheadM else minOf(endAhead, d.aheadM)
+            // 선의 시작(M51 사용자 규칙을 ARMS에도): 블록이 없다가 선을 새로 잡은 자리에서 endMaxM + junctionMergeM 안의 갈림·꺾임은 시작 구조(ㅗ자 정지 가로줄)로 보고
+            // 말하지 않는다(T01 162 s 골목에서 인도 연석 점형 줄로 올라섬)
+            if ((key == "turn") && episodeStart?.let { (d.center - it).horizontal().norm() <= cfg.endMaxM + cfg.junctionMergeM } == true) continue
+            // 같은 자리(junctionMergeM 안)·같은 종류가 서로 다른 노면 영상 [confirmFrames]장에서 이어져야 말한다(M69: T01 거짓 갈림 4873·5077f는 한 판단뿐,
+            // 진짜 갈림·꺾임은 2~8번 이어짐). 계단 칸 확인·가로줄 계단과 같은 규칙
+            val cand = armCands.firstOrNull { it.kind == d.kind && (it.center - d.center).horizontal().norm() <= cfg.junctionMergeM }
+            if (cand == null) armCands += ArmCand(d.kind, d.center, lastSurfaceNs)
+            else if (cand.surfaceNs != lastSurfaceNs) { cand.count++; cand.surfaceNs = lastSurfaceNs }
+            if ((cand?.count ?: 1) < cfg.confirmFrames) continue
+            // 이미 말한 자리(2 m 안)는 다른 종류로 다시 말하지 않는다. 앞에 아직 지나지 않은 말한 자리가 있으면 새 자리도 말하지 않는다
+            if (armPlaces.any { (it - d.center).horizontal().norm() <= cfg.junctionMergeM } || lastAhead) break
+            armPlaces += d.center
+            val id = armPlaces.size - 1
+            // 계단은 노면 라벨 계단 규칙과 같은 열쇠(한 계단 한 번, 내려가는 쪽이 등급이 높아 다시 말함)
+            if (key == "stairs") req.add(SpeechRequest("stairs", text, prio, inp.depth.tCaptureNs, level = if (d.kind == ArmKind.STAIRS_DOWN) 2 else 1))
+            else req.add(SpeechRequest("$key#a$id", text, prio, stepNs))
+            break
+        }
+        return endAhead
     }
 
     /** 1d: 끝(너머를 블록 아닌 노면으로 관측)·꺾임·갈림. 반환값은 끝까지의 앞 거리(없으면 NaN). */
@@ -361,7 +491,6 @@ class Situations(
         if (heights.isEmpty()) return Float.NaN
         val camH = medianHeight()
         val camFromWorld = depth.worldFromCam.rigidInverse()
-        val k = depth.K
         val nb = (cfg.envAheadMaxM / cfg.gridCellM).toInt() + 1
         val valid = IntArray(nb + 1)
         val low = IntArray(nb + 1)
@@ -370,16 +499,11 @@ class Situations(
             val rel = sp.pW - user
             val a = rel dot h
             if (a <= 0f || a > cfg.envAheadMaxM || abs(rel dot right) > corridorWidthM / 2f) continue
-            val c = camFromWorld.transformPoint(sp.pW)
-            if (c.z <= 0f) continue
-            val u = (k.fx * c.x / c.z + k.cx).toInt()
-            val v = (k.fy * c.y / c.z + k.cy).toInt()
-            if (u < 0 || v < 0 || u >= k.width || v >= k.height) continue
-            val zM = (depth.depthMm[v * k.width + u].toInt() and 0xFFFF) / 1000f
-            if (zM <= 0f) continue
+            val lo = lowM(depth, camFromWorld, sp.pW, camH)
+            if (lo.isNaN()) continue
             val b = (a / cfg.gridCellM).toInt()
             valid[b]++
-            if (camH * (zM / c.z - 1f) > cfg.dropMinM) low[b]++
+            if (lo > cfg.dropMinM) low[b]++
         }
         for (b in nb - 1 downTo 0) {
             valid[b] += valid[b + 1]
@@ -484,6 +608,22 @@ class Situations(
         /** 안내 출력의 진행 방위를 수평 단위 벡터로(모르면 null). PC 재생과 앱(M65)이 같이 쓴다. */
         fun headingOf(g: hearspace.core.types.GuidanceOutput?): Vec3? =
             g?.headingDeg?.takeIf { it.isFinite() }?.let { Math.toRadians(it.toDouble()) }?.let { Vec3(kotlin.math.sin(it).toFloat(), 0f, -cos(it).toFloat()) }
+
+        /**
+         * 바닥면 위 노면 점 [p]가 실제로 바닥면보다 얼마나 낮은가(M50 낙차): 카메라 높이 [camH] × (잰 깊이 ÷ 바닥면 교점 깊이 − 1).
+         * 수평면이면 정확하고, 음수면 바닥면보다 높다. 화면 밖이거나 깊이가 없으면 NaN.
+         */
+        fun lowM(depth: DepthFrame, camFromWorld: hearspace.core.geometry.Mat4, p: Vec3, camH: Float): Float {
+            val k = depth.K
+            val c = camFromWorld.transformPoint(p)
+            if (c.z <= 0f) return Float.NaN
+            val u = (k.fx * c.x / c.z + k.cx).toInt()
+            val v = (k.fy * c.y / c.z + k.cy).toInt()
+            if (u < 0 || v < 0 || u >= k.width || v >= k.height) return Float.NaN
+            val zM = (depth.depthMm[v * k.width + u].toInt() and 0xFFFF) / 1000f
+            if (zM <= 0f) return Float.NaN
+            return camH * (zM / c.z - 1f)
+        }
 
         /** 말할 거리: 1 m 단위 반올림, 1 m 아래로 내리지 않는다. */
         fun meters(m: Float): Int = maxOf(1, m.roundToInt())

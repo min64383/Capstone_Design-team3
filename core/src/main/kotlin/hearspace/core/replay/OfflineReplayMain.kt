@@ -62,6 +62,7 @@ fun main(args: Array<String>) {
     val replay = OfflineReplay(config, slow, sub?.second, sub?.first?.path ?: "", rgbSource, depthFrom, delayNs, oracle, movingFrom)
     replay.mapInserts = opts["mapInserts"] == "true" // M54 평가: 장마다 지도에 넣은 칸(map_inserts.csv)
     replay.signalFullRes = opts["signalFullRes"] == "true" // M71 평가: 신호 판단을 녹화 RGB 원본 해상도로(기본은 앱 해상도로 줄임)
+    replay.blockCells = opts["blockCells"] == "true" // M69 평가: 블록 칸 기록
     // M55 평가: 라벨 화소 값 바꾸기 "5:8,4:8"
     replay.labelRemap = opts["labelRemap"]?.takeIf { it.isNotBlank() }?.split(',')?.associate { p ->
         p.split(':').let { (a, b) -> a.trim().toInt() to b.trim().toInt() }

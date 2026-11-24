@@ -1040,7 +1040,50 @@ data class SituationConfig(
     val envSpeech: Boolean,
     /** "방지턱" 말을 낼지. 기본 꺼짐: 노면 모델이 T01 횡단보도 6곳을 모두 방지턱으로 칠함(M50 결과, 사용자 "권장대로") — M64에서 횡단보도 칠하기를 확인한 뒤 다시 정한다. */
     val bumpSpeech: Boolean,
+    /** 블록 갈림·꺾임·끝 판단 방식(M69): LINES = 직선 교점(M50·M51), ARMS = 팔 세기([hearspace.core.situation.BlockArms]). */
+    val blockMethod: BlockMethod = BlockMethod.LINES,
+    /**
+     * 노면 지도 칸 라벨을 최근 이 수만큼의 관측 다수결로(M69, 0 = 지난 [gridMemoryS] 전체 다수결). 걸어가며 같은 칸을 점점 가까이 보므로,
+     * 멀리서 인도로 칠한 가는 가로 블록 선을 가까이서 블록으로 본 관측이 이기게 한다. ARMS의 블록 칸·너머 판단에 쓴다.
+     */
+    val gridRecentK: Int = 0,
+    /** ARMS(M69 설계 3.1~3.3절): 팔 길이, 팔 안 빈칸 허용, 광선 각 간격, 중심 간격, 넓은 블록 바닥으로 볼 묶음 폭, 앞·뒤 팔 각 허용, 옆 팔 최소 각, 판단 최대 거리. */
+    val armMinM: Float = 1.0f,
+    /** 팔 길이를 재기 시작하는 띠 가장자리(중심에서, m): 선형블록 폭 0.3 m의 절반(표 3). */
+    val armEdgeM: Float = 0f,
+    val armGapM: Float = 0.2f,
+    val armStepDeg: Float = 5f,
+    val armCenterStepM: Float = 0.3f,
+    val armMaxSpreadDeg: Float = 60f,
+    val armAxisTolDeg: Float = 10f,
+    val armSideMinDeg: Float = 40f,
+    val armDecideMaxM: Float = 3f,
+    /** 너머 띠(따라가는 방향 [beyondFromM]~[beyondToM], 옆 ±[beyondHalfWidthM]), 관측 몫 하한, 걷는 바닥 몫 하한, 옆 확인 시작 거리, 바닥 높이 허용(낮음 절댓값)과 그 넘는 점 몫 상한. */
+    val beyondFromM: Float = 0.3f,
+    val beyondToM: Float = 1.5f,
+    val beyondHalfWidthM: Float = 0.3f,
+    val beyondSeenFrac: Float = 0.5f,
+    val beyondWalkFrac: Float = 0.8f,
+    val sideFromM: Float = 0.45f,
+    val floorTolM: Float = 0.2f,
+    val floorLowFrac: Float = 0.2f,
+    /** 너머 낙차를 계단으로 볼 너머 칸의 블록(계단 앞 가로줄) 몫 하한(2026-11-25: 진짜 계단 0.35~0.61, T01 거짓 낙차 0.01~0.12의 사이, 자체 선택). */
+    val beyondRowFrac: Float = 0.2f,
+    /** 옆 팔 띠 폭 상한(m): 선형블록 0.3 m·입구 앞 0.6 m(표 3)를 넘는 덩어리(둥근 칠)는 팔로 세지 않는다. */
+    val armMaxWidthM: Float = 0.6f,
+    /** 앞을 가로지르는 가로줄: 옆 ±0.6 m 13칸 중 블록 칸 하한(자체 선택: 0.8 m 넘게 가로지름). */
+    val rowMinCells: Int = 8,
+    /** 가로줄 너머 올라감: 낮음 중앙값이 −이 값보다 작음(평평한 바닥 먼 쪽이 높게 보이는 최대 +0.34 m, 2026-10-08 측정보다 크게). */
+    val rowRaiseM: Float = 0.4f,
+    /** 가로줄을 찾는 최대 앞 거리(m): 사용자 기준 154230 약 3 m·154154 약 2 m(270f)에 말하는 정도(자체 선택 4 m, 5 m면 154230을 31f에 말함). */
+    val rowMaxM: Float = 4f,
+    /** 계단 "내려가는" 증거(M69 설계 3.4절): EXCESS = 광선 방향 [stairsDepthExcessM] 넘게 먼 몫(M50), MEDIAN = 낮음 중앙값 > [dropMinM]이 두 번 연속. */
+    val stairsDownRule: StairsDownRule = StairsDownRule.EXCESS,
 )
+
+enum class BlockMethod { LINES, ARMS }
+
+enum class StairsDownRule { EXCESS, MEDIAN }
 
 /**
  * 보행 신호 판단(M71 설계 3.3·3.4절, 표 6). 학습 모델 없이 법규 모양(세로 2구, 위 빨강, 켜진 사람 꼴)으로 보고, 확인된 빨강에서 초록으로 바뀌는 것을

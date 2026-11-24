@@ -145,6 +145,27 @@ class SurfaceGrid(private val cfg: SituationConfig) {
         }
     }
 
+    /**
+     * 칸마다 최근 [k]번 관측(지난 [windowS] 안, 최근 영상부터)의 클래스별 수(M69). 걸어가며 같은 칸을 점점 가까이(더 많은 화소로) 보므로,
+     * 멀리서 놓친 가는 블록 선(가로 방향)을 가까이서 본 관측이 이기게 하려는 것이다. 열쇠는 칸 열쇠([keyAt]).
+     */
+    fun recent(nowNs: Long, windowS: Float, k: Int): Map<Long, IntArray> {
+        val fromNs = nowNs - (windowS * 1e9).toLong()
+        val out = HashMap<Long, IntArray>()
+        val seen = HashMap<Long, Int>()
+        for (f in frames.reversed()) {
+            if (f.tNs > nowNs) continue
+            if (f.tNs < fromNs) break
+            for (i in f.keys.indices) {
+                val n = seen.getOrDefault(f.keys[i], 0)
+                if (n >= k) continue
+                seen[f.keys[i]] = n + 1
+                out.getOrPut(f.keys[i]) { IntArray(SurfaceClass.COUNT) }[f.cls[i]]++
+            }
+        }
+        return out
+    }
+
     /** 월드 점 [pW]가 든 칸의 열쇠. */
     fun keyAt(pW: Vec3): Long = key(index(pW.x), index(pW.z))
 

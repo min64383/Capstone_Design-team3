@@ -147,8 +147,49 @@ class SignalReplay(cfg: SignalConfig, private val dir: File, reader: SessionRead
  * 재생에서 상황 판단을 돌리는 부분(재생 기록 [SituationListener]와 뷰어가 같이 쓴다). 오디오 블록마다 마지막 안내 출력을 기억하고,
  * 반영된 느린 경로 결과마다 그 시각까지 쓸 수 있는 노면 영상으로 [Situations]를 한 차례 돌린다.
  */
-class SituationRunner(config: Config, session: File, signalFullRes: Boolean = false, signalLog: Writer? = null, signalBlobLog: Writer? = null) {
+class SituationRunner(private val config: Config, session: File, signalFullRes: Boolean = false, signalLog: Writer? = null, signalBlobLog: Writer? = null) {
     private val situations = Situations(config.situation, config.corridor.widthM, config.corridor.heightM, config.vision.footHeightWindowS, (config.policy.maxInfoAgeMs * 1e6).toLong())
+
+    /**
+     * 블록 칸 기록(M69 평가 전용): 따라가는 선이 있는 판단마다 [steps]에 사용자·진행 방향·선을, [cells]에 사용자에서 수평 [radiusM] 안의
+     * 노면 칸(가장 많이 본 클래스, 블록으로 본 영상 수, 본 영상 수)을, [points]에 마지막 노면 영상의 노면 점(클래스, 깊이로 잰 낮음
+     * [Situations.lowM], 4점마다 하나)을 쓴다.
+     */
+    fun traceBlocks(steps: Writer, cells: Writer, points: Writer, arms: Writer? = null, radiusM: Float = 7f) {
+        steps.write(BLOCK_STEPS_HEADER + "\n")
+        cells.write(BLOCK_CELLS_HEADER + "\n")
+        points.write(BLOCK_POINTS_HEADER + "\n")
+        arms?.let { w ->
+            w.write(BLOCK_ARMS_HEADER + "\n")
+            situations.armTrace = { tNs, ds ->
+                for (d in ds) w.write("$tNs,${d.aheadM},${d.center.x},${d.center.z},${d.kind},${d.beyond},${d.beyondLowM},${d.refLowM},${d.armsDeg.joinToString(" ")}\n")
+            }
+        }
+        situations.blockTrace = { tNs, user, h, line, memory, depth, camH ->
+            steps.write("$tNs,${user.x},${user.z},${h.x},${h.z},${line.p0.x},${line.p0.z},${line.dir.x},${line.dir.z},${line.tMin},${line.tMax},${line.nInliers}\n")
+            val recent = situations.grid.recent(tNs, config.situation.gridMemoryS, RECENT_K)
+            for (c in memory.values) {
+                val dx = c.centerW.x - user.x
+                val dz = c.centerW.z - user.z
+                if (dx * dx + dz * dz > radiusM * radiusM) continue
+                val r = recent[situations.grid.keyAt(c.centerW)]
+                val rMajor = r?.indices?.maxBy { r[it] } ?: -1
+                cells.write("$tNs,${c.ix},${c.iz},${c.major},${c.frames[hearspace.core.situation.SurfaceClass.BLOCK.pixel]},${c.frames.sum()},$rMajor,${r?.get(hearspace.core.situation.SurfaceClass.BLOCK.pixel) ?: 0}\n")
+            }
+            if (!camH.isNaN()) {
+                val camFromWorld = depth.worldFromCam.rigidInverse()
+                situations.grid.lastPoints.forEachIndexed { i, sp ->
+                    if (i % 4 != 0) return@forEachIndexed
+                    val dx = sp.pW.x - user.x
+                    val dz = sp.pW.z - user.z
+                    if (dx * dx + dz * dz > radiusM * radiusM) return@forEachIndexed
+                    val lo = Situations.lowM(depth, camFromWorld, sp.pW, camH)
+                    if (!lo.isNaN()) points.write("$tNs,${sp.pW.x},${sp.pW.z},${sp.cls},$lo\n")
+                }
+            }
+        }
+    }
+
     private val reader = SessionReader(session)
     private val surface = SurfaceFrames(session, reader, config.situation.surfaceDelayMs * 1_000_000L)
     /** 신호 판단(M71). 끄면 null이고 상황 판단 입력은 M65와 같다(③). */
@@ -168,6 +209,19 @@ class SituationRunner(config: Config, session: File, signalFullRes: Boolean = fa
         if (!situations.due(step.depth.tCaptureNs, surf?.tCaptureNs)) return null
         return situations.step(SituationInput(step.doneNs, step.depth, step.snapshot, g?.commands.orEmpty(), Situations.headingOf(g), surf, signals = sig))
     }
+
+    companion object {
+        const val BLOCK_STEPS_FILE = "block_steps.csv"
+        const val BLOCK_CELLS_FILE = "block_cells.csv"
+        const val BLOCK_STEPS_HEADER = "tNs,userX,userZ,headX,headZ,lineX,lineZ,lineDx,lineDz,tMin,tMax,nInliers"
+        const val BLOCK_CELLS_HEADER = "tNs,ix,iz,major,nBlock,nFrames,recentMajor,recentBlock"
+        /** 블록 칸 기록의 최근 관측 수([hearspace.core.situation.SurfaceGrid.recent]). */
+        const val RECENT_K = 3
+        const val BLOCK_POINTS_FILE = "block_points.csv"
+        const val BLOCK_ARMS_FILE = "block_arms.csv"
+        const val BLOCK_ARMS_HEADER = "tNs,aheadM,x,z,kind,beyond,beyondLowM,refLowM,armsDeg"
+        const val BLOCK_POINTS_HEADER = "tNs,x,z,cls,lowM"
+    }
 }
 
 /**
@@ -180,10 +234,14 @@ class SituationListener(
     session: File,
     outDir: File,
     signalFullRes: Boolean = false,
+    /** M69 평가: 블록 칸 기록([SituationRunner.traceBlocks]). */
+    blockCells: Boolean = false,
 ) : ReplayListener by inner {
     private val signalOut: Writer? = if (config.signal.enabled) File(outDir, SignalReplay.LOG_FILE).bufferedWriter() else null
     private val blobOut: Writer? = if (config.signal.enabled) File(outDir, SignalReplay.BLOB_FILE).bufferedWriter() else null
     private val runner = SituationRunner(config, session, signalFullRes, signalOut, blobOut)
+    private val blockOut: List<Writer> = if (blockCells) listOf(SituationRunner.BLOCK_STEPS_FILE, SituationRunner.BLOCK_CELLS_FILE, SituationRunner.BLOCK_POINTS_FILE, SituationRunner.BLOCK_ARMS_FILE)
+        .map { File(outDir, it).bufferedWriter() }.also { runner.traceBlocks(it[0], it[1], it[2], it[3]) } else emptyList()
     private val speechOut: Writer = File(outDir, SPEECH_FILE).bufferedWriter().apply { write(RunLog.SPEECH_HEADER_LINE + "\n") }
     private val stateOut: Writer = File(outDir, STATE_FILE).bufferedWriter().apply { write(RunLog.SITUATION_HEADER_LINE + "\n") }
 
@@ -205,6 +263,7 @@ class SituationListener(
         stateOut.close()
         signalOut?.close()
         blobOut?.close()
+        blockOut.forEach { it.close() }
     }
 
     companion object {
