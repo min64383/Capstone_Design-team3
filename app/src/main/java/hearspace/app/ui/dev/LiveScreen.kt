@@ -131,7 +131,7 @@ class LiveScreen : Activity(), GLSurfaceView.Renderer {
         val runs = File(getExternalFilesDir(null), RunSession.RUNS_DIR)
         val dir = sessionDir?.let { File(it, "run_log/$stamp") } ?: File(runs, stamp)
         feeder.resetClock()
-        run = RunSession(this, config, hrtf, dir, feeder::nowNs).also { feeder.pipeline = it.pipeline; feeder.surface = it.surface }
+        run = RunSession(this, config, hrtf, dir, feeder::nowNs).also { feeder.pipeline = it.pipeline; feeder.surface = it.surface; feeder.signals = it.signals }
         // 재생 모드 "의미 영상 저장"(M49 0단계 0b): 자동 시작 인자로 요청했고 의미 모드가 켜졌으면 재생 세션 폴더의 semantic/에 쓴다
         // (같은 세션을 다시 재생하면 덮어씀). M61: 요청 없이 켜면 저장이 라벨을 가로채 의미 모드 재생 시험이 라벨 없이 돌았다
         if (replay && saveSemantic && ar.depthSupport?.semanticEnabled == true) feeder.semanticSaver = SemanticSaver(sessionDir!!)
@@ -141,6 +141,7 @@ class LiveScreen : Activity(), GLSurfaceView.Renderer {
     private fun stopRun() {
         feeder.pipeline = null
         feeder.surface = null
+        feeder.signals = null
         feeder.semanticSaver?.let { feeder.semanticSaver = null; it.close() }
         run?.close()
         run = null

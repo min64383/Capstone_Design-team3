@@ -28,6 +28,7 @@ data class Config(
     val slowPath: SlowPathConfig,
     val vision: VisionConfig,
     val situation: SituationConfig,
+    val signal: SignalConfig,
 ) {
     /** All live/replay/viewer geometry uses the same measured chest offset when enabled. */
     val headOffsetFromCameraM: Vec3 get() = heading.chestMount?.headOffsetBodyM ?: head.offsetFromCameraM
@@ -1039,6 +1040,53 @@ data class SituationConfig(
     val envSpeech: Boolean,
     /** "방지턱" 말을 낼지. 기본 꺼짐: 노면 모델이 T01 횡단보도 6곳을 모두 방지턱으로 칠함(M50 결과, 사용자 "권장대로") — M64에서 횡단보도 칠하기를 확인한 뒤 다시 정한다. */
     val bumpSpeech: Boolean,
+)
+
+/**
+ * 보행 신호 판단(M71 설계 3.3·3.4절, 표 6). 학습 모델 없이 법규 모양(세로 2구, 위 빨강, 켜진 사람 꼴)으로 보고, 확인된 빨강에서 초록으로 바뀌는 것을
+ * 직접 본 때만 말한다. 각은 °, 시간은 s. "보정"은 보정용 횡단보도(2026-11-24 왕복 2차선)에서 잰 값이다.
+ */
+data class SignalConfig(
+    /** 기본 꺼짐. 켜도 소리 출력은 그대로이고 말 요청만 더한다(③). 상황 판단(situation.enabled)이 켜져 있어야 돈다. */
+    val enabled: Boolean,
+    /**
+     * 앱이 CPU 영상을 넘기는 최소 간격(ms). 녹화 RGB(30 fps 중 세 장마다 = 10 Hz)와 같은 장 간격이 되게, 세 장째(약 100 ms)를 받도록 100 ms보다 짧게 둔다.
+     * PC 재생은 녹화 RGB를 모두 쓴다.
+     */
+    val intervalMs: Int,
+    /** 높이 띠: 수평 위 각 하한·상한(등 아래 끝 2.0 m·35 m 앞, 등틀 위 3.7 m·6 m 앞, 카메라 1.25 m)과 진행 방향(카메라 정면 수평) 좌우 반각. */
+    val bandMinDeg: Float,
+    val bandMaxDeg: Float,
+    val bandHalfWidthDeg: Float,
+    /** 켜진 등 색(보정): 빨강은 색상 0° ± [redHueDeg], 초록(청록)은 [greenHueMinDeg]~[greenHueMaxDeg], 채도·밝기(0~1) 하한. */
+    val redHueDeg: Float,
+    val greenHueMinDeg: Float,
+    val greenHueMaxDeg: Float,
+    val minSaturation: Float,
+    val minValue: Float,
+    /** 사람 꼴: 덩어리 폭(화소, 이보다 작으면 비율을 잴 수 없어 버림)과 세로 ÷ 가로 하한(보정: 차량 둥근 등이 넘지 않는 값). */
+    val minWidthPx: Float,
+    val minAspect: Float,
+    /** 세로 짝: 칸 간격 ÷ 덩어리 높이(보정), 꺼진 등 자리 평균 밝기(0~255) 상한(보정). */
+    val pairRatio: Float,
+    val darkMaxLuma: Float,
+    /** 같은 신호로 묶는 등틀 가운데 방향의 각(15 m에서 0.4 m), 켜진 관측이 없으면 track을 지우는 시간(자체 선택). */
+    val trackGateDeg: Float,
+    val trackKeepS: Float,
+    /** 빨강 확인: [confirmS] 동안 빨강이 장의 [redFraction]보다 많고 초록이 한 번도 없음(점멸 한 주기 상한 1.2 s). */
+    val confirmS: Float,
+    val redFraction: Float,
+    /** 전환: 마지막 빨강 뒤 [switchGapS] 안에 초록이 나타나 [greenWindowS] 안에 [greenFrames]장. */
+    val switchGapS: Float,
+    val greenWindowS: Float,
+    val greenFrames: Int,
+    /** 초록이 이보다 오래 안 보이면 초록 끝(점멸 꺼진 시간 상한 0.6 s). 기록용. */
+    val greenEndS: Float,
+    /** "초록불로 바뀜"은 전환(초록 첫 장) 뒤 이 시간 안에만. */
+    val speakWithinS: Float,
+    /** 멈춤: 지난 [stillS] 동안 카메라가 지금 자리에서 수평으로 [stillSpeedMps] × [stillS] 안에 있었음. 걷는 동안은 track을 비운다. */
+    val stillSpeedMps: Float,
+    val stillS: Float,
 )
 
 /**

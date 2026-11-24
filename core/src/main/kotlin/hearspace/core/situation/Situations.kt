@@ -33,6 +33,8 @@ class SituationInput(
     val surface: LabelImage?,
     /** 앱에서 지금 말하는 중인 줄의 등급(0 = 쉼, [Speech.tick]). PC 재생은 null(음절 수 어림). */
     val outputPriority: Int? = null,
+    /** 신호 판단(M71)의 최신 말. 신호 판단을 끄면 빈 목록. */
+    val signals: List<SignalSpeech> = emptyList(),
 )
 
 /** 한 차례의 상태 기록(`situation.csv`, 1b 블록 방향 값 포함). 없는 값은 NaN. */
@@ -151,7 +153,10 @@ class Situations(
         // 노면 영상 촬영 시각이 아니라 판단에 쓴 사용자 위치(이 깊이 장)의 시각이다(장애물 소리가 느린 경로 결과 시각으로 나이를 재는 것과 같다).
         // 안전장치: 마지막 노면 영상이 surfaceMaxAgeMs보다 오래되면(모델이 멈춤 등) 노면 지도에 기대는 말은 내지 않는다. 차·사람 다가옴은 노면과 무관하다.
         val fresh = lastSurfaceNs != Long.MIN_VALUE && inp.depth.tCaptureNs - lastSurfaceNs <= cfg.surfaceMaxAgeMs * 1_000_000L
-        return speech.tick(inp.nowNs, if (fresh) req else req.filter { it.key.startsWith("veh#") || it.key == "ped" }, inp.outputPriority) to rec
+        val kept = if (fresh) req else req.filter { it.key.startsWith("veh#") || it.key == "ped" }
+        // 신호 말(M71)은 노면과 무관하다. 전환 뒤 말할 수 있는 시간이 지난 말은 내지 않는다
+        val sig = inp.signals.filter { inp.nowNs <= it.untilNs }.map { SpeechRequest(it.key, it.text, it.priority, it.evidenceNs) }
+        return speech.tick(inp.nowNs, if (sig.isEmpty()) kept else kept + sig, inp.outputPriority) to rec
     }
 
     fun reset() {

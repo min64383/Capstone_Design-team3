@@ -55,6 +55,9 @@ class LivePipeline(
     @Volatile
     var surface: SurfaceModel? = null
 
+    /** 신호 판단 스레드(M71, 신호 판단이 켜졌을 때). 상황 판단이 차례마다 최신 신호 말을 읽는다. */
+    var signals: SignalWorker? = null
+
     /** 앱에서 지금 말하는 중인 줄의 등급(0 = 쉼, 1~3). 말 내보내기가 줄을 받은 때부터 끝날 때까지. */
     val speechLevel = AtomicInteger(0)
 
@@ -153,6 +156,7 @@ class LivePipeline(
             MapAction.RESET -> {
                 resetAfterNs.set(p.tCaptureNs)
                 snapshot.set(null) // 이전 월드 좌표의 물체로 안내하지 않는다
+                signals?.requestReset() // 신호 track도 이전 월드 방향이다
                 mapAction.set(MapAction.RESET)
                 wake.release()
             }
@@ -236,7 +240,7 @@ class LivePipeline(
             val consumer = onSpeech
             val level = if (consumer != null) speechLevel.get() else null
             val t0 = System.nanoTime()
-            val (said, rec) = sit.step(SituationInput(clockNs(), job.depth, job.snapshot, g?.commands.orEmpty(), Situations.headingOf(g), surf, level))
+            val (said, rec) = sit.step(SituationInput(clockNs(), job.depth, job.snapshot, g?.commands.orEmpty(), Situations.headingOf(g), surf, level, signals?.latest?.get().orEmpty()))
             logger?.situationTiming(rec.tNs, System.nanoTime() - t0)
             logger?.situation(said, rec)
             if (said.isNotEmpty() && consumer != null) {

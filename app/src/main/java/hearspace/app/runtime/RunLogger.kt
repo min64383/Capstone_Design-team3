@@ -39,10 +39,12 @@ class RunLogger(val dir: File) : AutoCloseable {
         SURFACE(RunLog.SURFACE_TIMING_FILE, RunLog.header(RunLog.SURFACE_TIMING_HEADER)),
         TTS(RunLog.TTS_FILE, RunLog.header(RunLog.TTS_HEADER)),
         SITUATION_TIMING("situation_timing.csv", "tNs,stepNs"),
+        // M71: 신호 판단 스레드 한 장(촬영 시각, 처리 ns, 켜진 등 덩어리 수, track 수)
+        SIGNAL_TIMING("signal_timing.csv", "tNs,signalNs,nBlobs,nTracks"),
     }
 
     /** 처음 쓸 때 만드는 파일(그 기능이 켜졌을 때만 생긴다). */
-    private val lazyKinds = setOf(Kind.GEOMETRY, Kind.SPEECH, Kind.SITUATION, Kind.SURFACE, Kind.TTS, Kind.SITUATION_TIMING)
+    private val lazyKinds = setOf(Kind.GEOMETRY, Kind.SPEECH, Kind.SITUATION, Kind.SURFACE, Kind.TTS, Kind.SITUATION_TIMING, Kind.SIGNAL_TIMING)
 
     private val queue = ConcurrentLinkedQueue<Pair<Kind, () -> List<String>>>()
     private val pending = AtomicInteger() // ConcurrentLinkedQueue.size는 O(n)이라 따로 센다
@@ -81,6 +83,10 @@ class RunLogger(val dir: File) : AutoCloseable {
 
     /** 상황 판단 스레드: 한 차례의 시간(M65, 앱 전용 `situation_timing.csv`: 판단 시각의 깊이 장 시각, 걸린 ns). */
     fun situationTiming(tNs: Long, stepNs: Long) = put(Kind.SITUATION_TIMING) { listOf("$tNs,$stepNs") }
+
+    /** 신호 판단 스레드: 한 장의 시간(M71 완료 기준 ④, 앱 전용 `signal_timing.csv`). */
+    fun signalTiming(tNs: Long, signalNs: Long, nBlobs: Int, nTracks: Int) =
+        put(Kind.SIGNAL_TIMING) { listOf("$tNs,$signalNs,$nBlobs,$nTracks") }
 
     /** 노면 모델 스레드: 노면 영상 하나(M65). */
     fun surface(imageTNs: Long, offerNs: Long, doneNs: Long, rgbNs: Long, preNs: Long, inferNs: Long, postNs: Long) =

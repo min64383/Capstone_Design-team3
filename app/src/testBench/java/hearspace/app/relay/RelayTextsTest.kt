@@ -18,9 +18,9 @@ class RelayTextsTest {
         listOf("risk-continuous.override.json", "harness.override.json", "situation.override.json", "semantic-combo.override.json").map(::asset))
 
     @Test
-    fun `목록은 64개이고 겹치지 않는다`() {
+    fun `목록은 66개이고 겹치지 않는다`() {
         val all = RelayTexts.all(config.situation)
-        assertEquals(64, all.size)
+        assertEquals(66, all.size) // M71 신호 말 둘을 더함
         assertEquals(all.size, all.toSet().size)
     }
 

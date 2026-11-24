@@ -10,14 +10,15 @@ import java.io.File
 import kotlin.concurrent.thread
 
 /**
- * 실행 하나: 실행 로그 + 파이프라인 + 오디오 출력(+ 상황 판단이 켜졌으면 노면 모델 스레드, M65).
+ * 실행 하나: 실행 로그 + 파이프라인 + 오디오 출력(+ 상황 판단이 켜졌으면 노면 모델 스레드, M65, 신호 판단도 켜졌으면 신호 스레드, M71).
  * 만들면 시작하고 [close]로 오디오 → 파이프라인 → 노면 모델 → 로그 순으로 멈춘다.
  * 오디오 출력을 열지 못하면 이미 시작한 파이프라인·로그 스레드를 닫고 예외를 그대로 낸다(A1 FA3).
  */
 class RunSession(context: Context, config: Config, hrtf: Hrtf, val dir: File, clockNs: () -> Long) : AutoCloseable {
     val logger = RunLogger(dir)
     val surface = if (config.situation.enabled) SurfaceModel(context.applicationContext, config, logger, clockNs) else null
-    val pipeline = LivePipeline(config, hrtf, logger, clockNs).also { it.surface = surface }
+    val signals = if (config.situation.enabled && config.signal.enabled) SignalWorker(config, logger) else null
+    val pipeline = LivePipeline(config, hrtf, logger, clockNs).also { it.surface = surface; it.signals = signals }
     val output = BinauralOutput(config.audio, pipeline::renderBlock)
 
     init {
@@ -26,6 +27,7 @@ class RunSession(context: Context, config: Config, hrtf: Hrtf, val dir: File, cl
         } catch (e: Exception) {
             pipeline.close()
             surface?.close()
+            signals?.close()
             logger.close()
             throw e
         }
@@ -43,6 +45,7 @@ class RunSession(context: Context, config: Config, hrtf: Hrtf, val dir: File, cl
         thread(name = "RunClose") {
             pipeline.close()
             surface?.close()
+            signals?.close()
             logger.close()
             Log.i(TAG, "run log: $dir")
         }

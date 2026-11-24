@@ -424,6 +424,7 @@ class UserModeActivity : Activity(), GLSurfaceView.Renderer {
             it.pipeline.requestAlert(AlertKind.START)
             feeder.pipeline = it.pipeline
             feeder.surface = it.surface
+            feeder.signals = it.signals
         }
         RunTap.current?.run(r.pipeline)
         prefs.edit().putBoolean(PREF_NOTICE_READ, true).apply()
@@ -448,6 +449,7 @@ class UserModeActivity : Activity(), GLSurfaceView.Renderer {
         ui.removeCallbacks(uiTick)
         feeder.pipeline = null
         feeder.surface = null
+        feeder.signals = null
         run?.close()
         run = null
         focus.abandon()
