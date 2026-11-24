@@ -348,7 +348,7 @@ class UserModeActivity : Activity(), GLSurfaceView.Renderer {
         }
         // 설정 단추: 안내 중이 아닐 때만. TalkBack에서는 화면 버튼과 따로 잡힌다
         settingsButton = ImageButton(this).apply {
-            setImageResource(R.drawable.ic_settings)
+            setImageResource(R.drawable.ic_menu)
             imageTintList = ColorStateList.valueOf(white)
             background = GradientDrawable().apply {
                 shape = GradientDrawable.OVAL
