@@ -52,6 +52,8 @@ fun main(args: Array<String>) {
         minOf(ut[i].tNs + dur, ut.getOrNull(i + 1)?.tNs ?: Long.MAX_VALUE)
     }
     fun speaking(t: Long) = ut.indices.any { t >= ut[it].tNs && t < sayEnd[it] }
+    /** 시각 [t]에 말하고 있는 문장(새 말이 앞 말을 끊으므로 마지막 것). */
+    fun sayingAt(t: Long) = ut.indices.lastOrNull { t >= ut[it].tNs && t < sayEnd[it] }?.let { ut[it].text }
 
     val url = (opt["url"]?.takeIf { it.isNotEmpty() } ?: "http://127.0.0.1:${settings.port}") + "/upload?k=" + URLEncoder.encode(settings.uploadKey, Charsets.UTF_8)
     val jitterMs = opt["jitter"]?.toLongOrNull() ?: 0L
@@ -90,8 +92,8 @@ fun main(args: Array<String>) {
                     lastSampleBlock = i
                     val b = r.blocks[i]
                     samples += RelaySample(live(b.tNs), b.g.state, b.g.headingDeg, speaking(b.tNs), b.g.commands)
-                    val c = b.g.commands.firstOrNull()
-                    val s = UserScreen.of(true, null, false, b.g.state, r.slowAt(b.tNs)?.snapshot?.mapHealth, c?.band, c?.azimuthDeg)
+                    val s = UserScreen.of(true, null, false, b.g.state, r.slowAt(b.tNs)?.snapshot?.mapHealth, b.g.commands.firstOrNull(), sayingAt(b.tNs),
+                        r.config.sonify.heightLowM, r.config.sonify.heightHighM)
                     if (s != lastScreen) { lastScreen = s; screens += RelayScreen(live(b.tNs), s, null) }
                 }
                 grid += stepNs

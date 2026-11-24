@@ -70,7 +70,8 @@ class RelayServerTest {
                     samples += RelaySample(next, GuidanceState.NORMAL, 0f, false, listOf(AudioCmd(1, az, 0.8f, Band.STOP, SoundKind.FLOOR_PULSE, 250f, true, -1f)))
                     // 앱은 화면을 200 ms마다 다시 그린다(UI_REFRESH_MS)
                     if ((next - start) % 200_000_000L < 20_000_000L) {
-                        val sc = UserScreen.of(true, null, false, GuidanceState.NORMAL, MapHealth.OK, Band.STOP, az.toInt().toFloat())
+                        val sc = UserScreen.of(true, null, false, GuidanceState.NORMAL, MapHealth.OK,
+                            AudioCmd(1, az.toInt().toFloat(), 0.8f, Band.STOP, SoundKind.FLOOR_PULSE, 250f, true, -1f), null, -1f, 1f)
                         if (sc != lastScreen) { lastScreen = sc; screens += RelayScreen(next, sc, null) }
                     }
                     next += 20_000_000L
