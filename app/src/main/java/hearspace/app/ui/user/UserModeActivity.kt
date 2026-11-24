@@ -5,7 +5,6 @@ import android.app.Activity
 import android.content.Intent
 import android.content.pm.PackageManager
 import android.content.res.ColorStateList
-import android.graphics.Color
 import android.graphics.Typeface
 import android.graphics.drawable.GradientDrawable
 import android.opengl.GLSurfaceView
@@ -350,11 +349,8 @@ class UserModeActivity : Activity(), GLSurfaceView.Renderer {
         settingsButton = ImageButton(this).apply {
             setImageResource(R.drawable.ic_menu)
             imageTintList = ColorStateList.valueOf(white)
-            background = GradientDrawable().apply {
-                shape = GradientDrawable.OVAL
-                setColor(Color.TRANSPARENT)
-                setStroke(dp(2), getColor(R.color.run_outline))
-            }
+            // 테두리 없이 그림만(사용자 요청), 누르면 테두리 없는 물결(다른 화면의 뒤로 단추와 같음)
+            setBackgroundResource(attrResource(android.R.attr.selectableItemBackgroundBorderless))
             contentDescription = "설정"
             setOnClickListener { startActivity(Intent(this@UserModeActivity, SettingsActivity::class.java)) }
         }

@@ -10,7 +10,6 @@
     <color name="run_bg">#000000</color>    <!-- MVP §11.2 검은 배경(배터리) -->
     <color name="run_text">#FFFFFF</color>  <!-- 21 -->
     <color name="run_text2">#B3B3B3</color> <!-- 10.0 -->
-    <color name="run_outline">#5F6167</color> <!-- 3.0, 설정 단추 테두리 -->
     <color name="run_guide">#439ECC</color> <!-- 7.0, 안내 중 점, 로고 청록 -->
     <color name="run_caution">#EAB431</color> <!-- 11.1, 주의·확인 불가, 로고 노랑(호박색) -->
     <color name="run_stop">#F26A5F</color>  <!-- 7.0, 멈춤, 로고 빨강 -->
