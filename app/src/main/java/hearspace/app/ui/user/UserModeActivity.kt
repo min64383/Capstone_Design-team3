@@ -369,7 +369,8 @@ class UserModeActivity : Activity(), GLSurfaceView.Renderer {
         }
         val column = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
-            addView(titleText, LinearLayout.LayoutParams(MATCH_PARENT, dp(56)).apply { topMargin = dp(32) })
+            // 폭은 글자에 맞춰 가운데에: 안내 중 점(compound drawable)은 칸의 왼쪽 끝에 붙으므로 칸이 화면 폭이면 점이 화면 왼쪽 끝으로 간다
+            addView(titleText, LinearLayout.LayoutParams(WRAP_CONTENT, dp(56)).apply { topMargin = dp(32); gravity = Gravity.CENTER_HORIZONTAL })
             addView(subText, LinearLayout.LayoutParams(MATCH_PARENT, dp(56)))
             addView(Space(context), LinearLayout.LayoutParams(MATCH_PARENT, 0, 1f))
             addView(guide, LinearLayout.LayoutParams(MATCH_PARENT, dp(GUIDE_DP)))
