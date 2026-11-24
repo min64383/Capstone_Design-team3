@@ -15,13 +15,18 @@ enum class Beyond { NONE, FLOOR, STAIRS_LABEL, DROP, RAISED_WALK, RAISED_BUILDIN
 
 /**
  * [center]는 띠 가운데로 옮긴 중심(월드), [aheadM]은 사용자에서 진행 방향 앞 거리, [armsDeg]는 팔 방향(수평면 각, x→z).
- * [beyondLowM]·[refLowM]은 너머 띠와 그 자리 바로 앞(사용자 쪽) 블록 길의 낮음 중앙값(기록용, 없으면 NaN).
+ * [beyondLowM]은 너머 띠의 낮음 중앙값(기록용, 없으면 NaN).
  */
 class ArmDecision(val center: Vec3, val aheadM: Float, val kind: ArmKind, val beyond: Beyond, val armsDeg: List<Float>,
-                  val beyondLowM: Float = Float.NaN, val refLowM: Float = Float.NaN)
+                  val beyondLowM: Float = Float.NaN)
 
-/** 깊이로 잰 노면 점 하나: 수평 위치와 바닥면보다 낮은 정도([Situations.lowM], 음수면 높음). */
-class LowPoint(val x: Float, val z: Float, val lowM: Float)
+/**
+ * 깊이로 잰 노면 점 낮음([Situations.lowM], 음수면 높음)을 띠마다 내 준다: 점 (cx, cz)에서 수평 방향 (fx, fz)로 [fromM]~[toM], 옆 ±[halfM] 안의
+ * 마지막 노면 영상 점. 필요한 띠만 계산한다(M69: 판단마다 점 전부를 계산하면 원래 크기 노면 영상에서 기기 상황 판단 p50 238 ms).
+ */
+fun interface LowSource {
+    fun band(cx: Float, cz: Float, fx: Float, fz: Float, fromM: Float, toM: Float, halfM: Float): List<Float>
+}
 
 /**
  * 팔 세기(M69 설계 3.1~3.3절). 따라가는 블록 선 위 [SituationConfig.armCenterStepM]마다 중심을 두고, 중심에서 [SituationConfig.armStepDeg] 간격
@@ -32,7 +37,7 @@ class LowPoint(val x: Float, val z: Float, val lowM: Float)
  */
 class BlockArms(private val cfg: SituationConfig, private val key: (Float, Float) -> Long) {
 
-    fun decide(user: Vec3, follow: BlockLine, counts: (Long) -> IntArray?, lows: List<LowPoint>): List<ArmDecision> {
+    fun decide(user: Vec3, follow: BlockLine, counts: (Long) -> IntArray?, lows: LowSource): List<ArmDecision> {
         val fx = follow.dir.x
         val fz = follow.dir.z
         val fDeg = deg(atan2(fz, fx))
@@ -64,7 +69,7 @@ class BlockArms(private val cfg: SituationConfig, private val key: (Float, Float
         return out
     }
 
-    private fun at(cx: Float, cz: Float, ahead: Float, fx: Float, fz: Float, fDeg: Float, counts: (Long) -> IntArray?, lows: List<LowPoint>): ArmDecision {
+    private fun at(cx: Float, cz: Float, ahead: Float, fx: Float, fz: Float, fDeg: Float, counts: (Long) -> IntArray?, lows: LowSource): ArmDecision {
         val c = Vec3(cx, 0f, cz)
         val groups = clusters(rays(counts, cx, cz))
         val mids = groups.map { it.mid }
@@ -99,7 +104,7 @@ class BlockArms(private val cfg: SituationConfig, private val key: (Float, Float
             }
             else -> ArmKind.UNKNOWN
         }
-        return ArmDecision(c, ahead, kind, b, mids, bz.beyondLow, bz.refLow)
+        return ArmDecision(c, ahead, kind, b, mids, bz.beyondLow)
     }
 
     /**
@@ -131,7 +136,7 @@ class BlockArms(private val cfg: SituationConfig, private val key: (Float, Float
      * 내려감, 낮음 중앙값 < −[SituationConfig.rowRaiseM]이면 올라감(평평한 바닥 먼 쪽 높게 보임 최대 +0.34 m보다 크게). 차도 라벨이면 판단 안 함.
      * 반환: (가로줄 앞 거리, 내려감 true / 올라감 false), 없으면 null.
      */
-    fun rowStairs(user: Vec3, h: Vec3, counts: (Long) -> IntArray?, lows: List<LowPoint>): Pair<Float, Boolean>? {
+    fun rowStairs(user: Vec3, h: Vec3, counts: (Long) -> IntArray?, lows: LowSource): Pair<Float, Boolean>? {
         val rx = -h.z
         val rz = h.x
         var a = cfg.endMinM
@@ -143,10 +148,7 @@ class BlockArms(private val cfg: SituationConfig, private val key: (Float, Float
             a += cfg.gridCellM
         }
         if (row.isNaN()) return null
-        val band = lows.filter { p ->
-            val along = (p.x - user.x) * h.x + (p.z - user.z) * h.z
-            along in row + cfg.beyondFromM..row + cfg.beyondToM && abs((p.x - user.x) * rx + (p.z - user.z) * rz) <= cfg.beyondHalfWidthM
-        }.map { it.lowM }.sorted()
+        val band = lows.band(user.x, user.z, h.x, h.z, row + cfg.beyondFromM, row + cfg.beyondToM, cfg.beyondHalfWidthM).sorted()
         if (band.size < cfg.stairsMinPoints) return null
         var road = 0
         var seen = 0
@@ -231,14 +233,14 @@ class BlockArms(private val cfg: SituationConfig, private val key: (Float, Float
         return out
     }
 
-private class BeyondResult(val beyond: Beyond, val anyBlock: Boolean, val beyondLow: Float, val refLow: Float)
+private class BeyondResult(val beyond: Beyond, val anyBlock: Boolean, val beyondLow: Float)
 
     /**
      * 너머 띠의 판단과, 띠에 블록 칠이 조금이라도 있는지. 차도·횡단보도·골목 라벨을 깊이보다 먼저 본다(라벨이 확실한 곳을 깊이 잡음으로 뒤집지 않음,
      * T01 279 s 횡단보도 앞). 낮음은 바닥면 기준(지도 바닥)이다. 같은 장의 바로 앞 점과 견주는 방식은 그 점들이 화면 아래 끝이라 없거나
-     * 크게 튀어(+1.8~+14 m, 2026-11-25 측정) 쓰지 않고 기록([refLow])만 한다.
+     * 크게 튀어(+1.8~+14 m, 2026-11-25 측정) 쓰지 않는다.
      */
-    private fun beyond(counts: (Long) -> IntArray?, lows: List<LowPoint>, cx: Float, cz: Float, fx: Float, fz: Float): BeyondResult {
+    private fun beyond(counts: (Long) -> IntArray?, lows: LowSource, cx: Float, cz: Float, fx: Float, fz: Float): BeyondResult {
         val rx = -fz
         val rz = fx
         val keys = HashSet<Long>()
@@ -254,19 +256,9 @@ private class BeyondResult(val beyond: Beyond, val anyBlock: Boolean, val beyond
             a += cfg.gridCellM
         }
         val anyBlock = seen.any { major(it) == SurfaceClass.BLOCK.pixel || it[SurfaceClass.BLOCK.pixel] > 0 }
-        val ref = lows.filter { p ->
-            val along = (p.x - cx) * fx + (p.z - cz) * fz
-            val lat = (p.x - cx) * rx + (p.z - cz) * rz
-            along in -1.0f..-0.3f && abs(lat) <= 0.6f
-        }.map { it.lowM }.sorted()
-        val refLow = if (ref.size >= cfg.stairsMinPoints) ref[ref.size / 2] else Float.NaN
-        val band = lows.filter { p ->
-            val along = (p.x - cx) * fx + (p.z - cz) * fz
-            val lat = (p.x - cx) * rx + (p.z - cz) * rz
-            along in cfg.beyondFromM..cfg.beyondToM && abs(lat) <= cfg.beyondHalfWidthM
-        }.map { it.lowM }
+        val band = lows.band(cx, cz, fx, fz, cfg.beyondFromM, cfg.beyondToM, cfg.beyondHalfWidthM)
         val beyondLow = if (band.isEmpty()) Float.NaN else band.sorted()[band.size / 2]
-        fun result(b: Beyond) = BeyondResult(b, anyBlock, beyondLow, refLow)
+        fun result(b: Beyond) = BeyondResult(b, anyBlock, beyondLow)
         if (seen.isEmpty()) return result(Beyond.UNKNOWN)
         val majors = seen.map { major(it) }
         if (seen.count { major(it) == SurfaceClass.STAIRS.pixel && it[SurfaceClass.STAIRS.pixel] >= cfg.confirmFrames } * 2 > seen.size) return result(Beyond.STAIRS_LABEL)

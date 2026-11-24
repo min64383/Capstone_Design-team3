@@ -117,7 +117,7 @@ class Situations(
         val s = inp.surface
         if (s != null && s.tCaptureNs > lastSurfaceNs && heights.isNotEmpty()) {
             lastSurfaceNs = s.tCaptureNs
-            grid.add(s, s.worldFromCam.translation().y - medianHeight())
+            grid.add(s, s.worldFromCam.translation().y - medianHeight(), cfg.gridStride, cfg.pointStride)
         }
         val req = ArrayList<SpeechRequest>()
         val memory = grid.cells(tNs, cfg.gridMemoryS)
@@ -300,29 +300,42 @@ class Situations(
      * 한 자리를 말하면 사용자가 그 자리를 지날 때까지(그 자리가 아직 앞에 있는 동안) 다른 블록 자리는 말하지 않는다(갈림 구조가 2~3 m라 여러 중심이 잡음).
      * 반환값은 가장 가까운 끝·계단 자리의 앞 거리(없으면 NaN).
      */
-    /** 이번 판단의 ARMS 입력(칸 라벨, 깊이로 잰 노면 점 낮음). 한 판단에 한 번 만든다. */
+    /**
+     * 이번 판단의 ARMS 입력: 칸 라벨(최근 관측, 이번 판단 안에서 찾은 칸은 다시 세지 않음)과 띠마다 깊이 낮음([LowSource], 필요한 띠만 계산).
+     * 한 판단에 한 번 만든다.
+     */
     private var armInputsNs = Long.MIN_VALUE
     private var armCounts: (Long) -> IntArray? = { null }
-    private var armLows: List<LowPoint> = emptyList()
+    private var armLows: LowSource = LowSource { _, _, _, _, _, _, _ -> emptyList() }
 
     private fun armInputs(inp: SituationInput, memory: Map<Long, SurfaceCell>, user: Vec3, h: Vec3) {
         if (armInputsNs == stepNs) return
         armInputsNs = stepNs
-        val recent = if (cfg.gridRecentK > 0) grid.recent(stepNs, cfg.gridMemoryS, cfg.gridRecentK) else null
-        armCounts = if (recent != null) { k -> recent[k] } else { k -> memory[k]?.frames }
-        val lows = ArrayList<LowPoint>()
-        if (heights.isNotEmpty()) {
-            val camH = medianHeight()
-            val camFromWorld = inp.depth.worldFromCam.rigidInverse()
-            val maxAhead = maxOf(cfg.armDecideMaxM, cfg.endMaxM) + cfg.beyondToM + 0.5f
-            for (sp in grid.lastPoints) {
-                val rel = sp.pW - user
-                if ((rel dot h) <= 0f || (rel dot h) > maxAhead) continue
-                val lo = lowM(inp.depth, camFromWorld, sp.pW, camH)
-                if (!lo.isNaN()) lows.add(LowPoint(sp.pW.x, sp.pW.z, lo))
-            }
+        armCounts = if (cfg.gridRecentK > 0) {
+            val memo = HashMap<Long, IntArray?>()
+            val now = stepNs
+            ({ k -> memo.getOrPut(k) { grid.recentCounts(k, now, cfg.gridMemoryS) } })
+        } else { k -> memory[k]?.frames }
+        if (heights.isEmpty()) {
+            armLows = LowSource { _, _, _, _, _, _, _ -> emptyList() }
+            return
         }
-        armLows = lows
+        val camH = medianHeight()
+        val camFromWorld = inp.depth.worldFromCam.rigidInverse()
+        val depth = inp.depth
+        val pts = grid.lastPoints
+        armLows = LowSource { cx, cz, fx, fz, fromM, toM, halfM ->
+            val out = ArrayList<Float>()
+            for (sp in pts) {
+                val dx = sp.pW.x - cx
+                val dz = sp.pW.z - cz
+                val along = dx * fx + dz * fz
+                if (along < fromM || along > toM || abs(-dx * fz + dz * fx) > halfM) continue
+                val lo = lowM(depth, camFromWorld, sp.pW, camH)
+                if (!lo.isNaN()) out.add(lo)
+            }
+            out
+        }
     }
 
     /** 가로줄 계단이 같은 쪽으로 서로 다른 노면 영상 몇 장에서 이어졌는지. */
@@ -355,8 +368,7 @@ class Situations(
     private fun arms(inp: SituationInput, follow: BlockLine, memory: Map<Long, SurfaceCell>, user: Vec3, h: Vec3, req: MutableList<SpeechRequest>): Float {
         armInputs(inp, memory, user, h)
         val counts = armCounts
-        val lows = armLows
-        val decisions = blockArms.decide(user, follow, counts, lows)
+        val decisions = blockArms.decide(user, follow, counts, armLows)
         // 후보는 노면 지도 기억(gridMemoryS) 동안만 남긴다
         armCands.removeAll { lastSurfaceNs - it.surfaceNs > (cfg.gridMemoryS * 1e9).toLong() }
         armTrace?.invoke(stepNs, decisions)

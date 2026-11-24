@@ -495,6 +495,8 @@ object ConfigLoader {
                     bumpSpeech = boolean("bumpSpeech"),
                     blockMethod = enumValue<BlockMethod>("blockMethod"),
                     gridRecentK = intIn("gridRecentK", 0, 100),
+                    gridStride = intIn("gridStride", 1, 16),
+                    pointStride = intIn("pointStride", 0, 16),
                     armMinM = positive("armMinM"),
                     armEdgeM = nonNegative("armEdgeM"),
                     armGapM = nonNegative("armGapM"),

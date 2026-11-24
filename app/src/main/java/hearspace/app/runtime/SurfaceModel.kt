@@ -90,7 +90,7 @@ class SurfaceModel(
 
     /** 모델 열기(이 스레드에서, GPU 대리자는 만든 스레드에서만 돈다). */
     private fun open(): Pair<Interpreter, GpuDelegate?>? = try {
-        val model = context.assets.openFd(MODEL_ASSET).use { fd ->
+        val model = context.assets.openFd(modelAsset(cfg.surfaceInputW, cfg.surfaceInputH)).use { fd ->
             FileInputStream(fd.fileDescriptor).channel.use { it.map(FileChannel.MapMode.READ_ONLY, fd.startOffset, fd.declaredLength) }
         }
         val options = Interpreter.Options()
@@ -173,5 +173,11 @@ class SurfaceModel(
 
     companion object {
         const val MODEL_ASSET = "surface.tflite"
+
+        /**
+         * 입력 크기에 묶인 모델 자산(M69): 학습 입력 320×256은 [MODEL_ASSET], 그 밖은 `surface_<폭>x<높이>.tflite`(같은 가중치를 그 크기로 내보낸 것,
+         * `tools/surface/convert_tflite.py --size`). 세로 영상 아래 60%(480×384)를 줄이지 않으면 먼 가로 블록 선이 칠해진다.
+         */
+        fun modelAsset(inW: Int, inH: Int): String = if (inW == 320 && inH == 256) MODEL_ASSET else "surface_${inW}x${inH}.tflite"
     }
 }

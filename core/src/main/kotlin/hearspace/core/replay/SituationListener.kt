@@ -162,17 +162,16 @@ class SituationRunner(private val config: Config, session: File, signalFullRes: 
         arms?.let { w ->
             w.write(BLOCK_ARMS_HEADER + "\n")
             situations.armTrace = { tNs, ds ->
-                for (d in ds) w.write("$tNs,${d.aheadM},${d.center.x},${d.center.z},${d.kind},${d.beyond},${d.beyondLowM},${d.refLowM},${d.armsDeg.joinToString(" ")}\n")
+                for (d in ds) w.write("$tNs,${d.aheadM},${d.center.x},${d.center.z},${d.kind},${d.beyond},${d.beyondLowM},${d.armsDeg.joinToString(" ")}\n")
             }
         }
         situations.blockTrace = { tNs, user, h, line, memory, depth, camH ->
             steps.write("$tNs,${user.x},${user.z},${h.x},${h.z},${line.p0.x},${line.p0.z},${line.dir.x},${line.dir.z},${line.tMin},${line.tMax},${line.nInliers}\n")
-            val recent = situations.grid.recent(tNs, config.situation.gridMemoryS, RECENT_K)
             for (c in memory.values) {
                 val dx = c.centerW.x - user.x
                 val dz = c.centerW.z - user.z
                 if (dx * dx + dz * dz > radiusM * radiusM) continue
-                val r = recent[situations.grid.keyAt(c.centerW)]
+                val r = situations.grid.recentCounts(situations.grid.keyAt(c.centerW), tNs, config.situation.gridMemoryS)
                 val rMajor = r?.indices?.maxBy { r[it] } ?: -1
                 cells.write("$tNs,${c.ix},${c.iz},${c.major},${c.frames[hearspace.core.situation.SurfaceClass.BLOCK.pixel]},${c.frames.sum()},$rMajor,${r?.get(hearspace.core.situation.SurfaceClass.BLOCK.pixel) ?: 0}\n")
             }
@@ -215,11 +214,9 @@ class SituationRunner(private val config: Config, session: File, signalFullRes: 
         const val BLOCK_CELLS_FILE = "block_cells.csv"
         const val BLOCK_STEPS_HEADER = "tNs,userX,userZ,headX,headZ,lineX,lineZ,lineDx,lineDz,tMin,tMax,nInliers"
         const val BLOCK_CELLS_HEADER = "tNs,ix,iz,major,nBlock,nFrames,recentMajor,recentBlock"
-        /** 블록 칸 기록의 최근 관측 수([hearspace.core.situation.SurfaceGrid.recent]). */
-        const val RECENT_K = 3
         const val BLOCK_POINTS_FILE = "block_points.csv"
         const val BLOCK_ARMS_FILE = "block_arms.csv"
-        const val BLOCK_ARMS_HEADER = "tNs,aheadM,x,z,kind,beyond,beyondLowM,refLowM,armsDeg"
+        const val BLOCK_ARMS_HEADER = "tNs,aheadM,x,z,kind,beyond,beyondLowM,armsDeg"
         const val BLOCK_POINTS_HEADER = "tNs,x,z,cls,lowM"
     }
 }
