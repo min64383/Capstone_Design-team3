@@ -461,4 +461,18 @@ class SituationTest {
         assertEquals(1, said.count { it.text == "방지턱" }, said.toString())
         assertTrue(run(100, userZ = { -0.12f * it }, cls = bump).none { it.text == "방지턱" }, "bump speech default off")
     }
+
+    @Test
+    fun `블록 선 맞추기는 주축이 없는 점 묶음에서 방향 없는 선을 내지 않는다`() {
+        // M69 반복 일치에서 처리 시간을 흔들자 상황 판단이 예외로 멈췄다: 안쪽 점이 어느 방향으로도 길지 않게 고르게 퍼지면
+        // (작은 점형 블록 조각 등) 공분산에 주축이 없어 방향이 0/0 = NaN이 되고, NaN 길이는 최소 길이 검사를 지나 각도 계산에서 예외
+        // 정확히 표현되는 값의 십자: 공분산이 정확히 등방(sxx = szz, sxz = 0)이라 주축이 없다. 허용 폭 0.65 m라 다섯 점이 모두 안쪽
+        val cross = listOf(Vec3(0f, 0f, 0f), Vec3(0.5f, 0f, 0f), Vec3(-0.5f, 0f, 0f), Vec3(0f, 0f, 0.5f), Vec3(0f, 0f, -0.5f))
+        val lines = hearspace.core.situation.BlockLines.fit(cross, 0.6f, 1.0f, 0.1f)
+        assertTrue(lines.all { it.dir.x.isFinite() && it.dir.z.isFinite() && it.lengthM.isFinite() }, lines.toString())
+        assertTrue(lines.isEmpty(), lines.toString())
+        // 정상 줄은 그대로 맞춘다
+        val row = List(20) { Vec3(3f, 0f, -0.1f * it) }
+        assertEquals(1, hearspace.core.situation.BlockLines.fit(row, 0.15f, 1.0f, 0.1f).size)
+    }
 }

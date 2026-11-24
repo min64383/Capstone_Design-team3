@@ -86,6 +86,9 @@ object BlockLines {
         // 고유벡터는 (l1 − szz, sxz) 또는 (sxz, l1 − sxx). 주축 쪽 성분이 큰 식을 써야 거의 축과 나란한 줄에서 0/0이 되지 않는다
         val (ex, ez) = if (sxx >= szz) Pair(l1 - szz, sxz) else Pair(sxz, l1 - sxx)
         val n = sqrt(ex * ex + ez * ez)
+        // 점이 수평으로 한 자리에 겹치면 방향이 없다(0/0 = NaN). NaN 선은 길이 검사(NaN < 최소 길이 = 거짓)를 지나
+        // 각도 계산에서 예외를 냈다(M69 반복 일치의 처리 시간 흔들기에서 발견). 선을 내지 않는다
+        if (!(n > 1e-9)) return null
         val dir = Vec3((ex / n).toFloat(), 0f, (ez / n).toFloat())
         val p0 = Vec3(cx.toFloat(), 0f, cz.toFloat())
         val ts = pts.map { (it - p0).horizontal() dot dir }

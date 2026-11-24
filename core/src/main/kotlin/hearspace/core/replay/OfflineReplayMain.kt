@@ -7,7 +7,7 @@ import hearspace.core.types.ConfigLoader
 import java.io.File
 
 /**
- * `./gradlew :core:replay -Psession=<세션 폴더> [-Pout=<출력>] [-PslowMs=10 | -PslowFrom=<slow_path.csv>] [-PoverridesFile=<json 파일>]`
+ * `./gradlew :core:replay -Psession=<세션 폴더> [-Pout=<출력>] [-PslowMs=10 | -PslowFrom=<slow_path.csv> | -PslowSampleFrom=<slow_path.csv> -Pseed=<n>] [-PoverridesFile=<json 파일>]`
  * 설정 덮어쓰기는 파일로 준다(Windows에서 명령줄 JSON의 따옴표가 사라진다, M8 검토 중 발견). `-Poverrides`도 받지만 따옴표 없는 셸에서만 쓴다.
  * 기본 출력: `core/build/replay/<세션ID>/<overrides 요약 또는 default>/`.
  * 정답 대입(M12.3 원인 분해, 평가 전용): `-Psubstitute=depth,map,heading`(쉼표로 조합, `depthMasked`는 입력에 값이 있는 화소만 정답 — M37)
@@ -30,8 +30,13 @@ fun main(args: Array<String>) {
     val tag = if (overrides == "{}") "default" else overrides.replace(Regex("[^A-Za-z0-9.]+"), "_").trim('_').take(60)
     val out = opts["out"]?.takeIf { it.isNotBlank() }?.let(::File)
         ?: File(System.getProperty("hearspace.replayOut"), "${session.name}/$tag")
-    val slow = slowFrom?.let { OfflineReplay.recorded(it, slowMs) } ?: OfflineReplay.fixed(slowMs)
-    val note = slowFrom?.let { "recorded:${it.path.replace('\\', '/')}" } ?: "fixed:${slowMs}ms"
+    // M69 반복 일치(평가 전용): slowSampleFrom=<slow_path.csv> seed=<n> — 처리 시간을 실측 분포에서 장마다 무작위로
+    val slowSampleFrom = opts["slowSampleFrom"]?.takeIf { it.isNotBlank() }?.let(::File)
+    val seed = opts["seed"]?.takeIf { it.isNotBlank() }?.toLong() ?: 0L
+    val slow = slowSampleFrom?.let { OfflineReplay.sampled(it, seed) }
+        ?: slowFrom?.let { OfflineReplay.recorded(it, slowMs) } ?: OfflineReplay.fixed(slowMs)
+    val note = slowSampleFrom?.let { "sampled:${it.path.replace('\\', '/')}:seed$seed" }
+        ?: slowFrom?.let { "recorded:${it.path.replace('\\', '/')}" } ?: "fixed:${slowMs}ms"
     // alignFrom만 있으면 대입 없이 그 정렬만 기록한다(M18: 바닥 규칙을 바꾼 변형도 기준 재생과 같은 정답을 쓴다)
     val subArg = opts["substitute"]?.takeIf { it.isNotBlank() } ?: opts["alignFrom"]?.takeIf { it.isNotBlank() }?.let { "" }
     val sub = subArg?.split(',')?.map { it.trim() }?.filter { it.isNotEmpty() }?.toSet()?.let { on ->
