@@ -1,0 +1,10 @@
+{
+  "id": "signal",
+  "order": 1,
+  "title": "신호 횡단보도",
+  "note": "세로 2구 보행등. 켜진 화소 수로 잼: 빨강 0~3.36 s, 3.40 s부터 초록(꺼진 틈 없음), 7.32 s 마지막 장은 어두워짐. 신호 방향은 정면 위 signalElevationDeg(판단에서 같은 신호 묶기에만 쓰임).",
+  "source": { "page": "https://www.pexels.com/video/a-pedestrian-traffic-light-turning-green-from-red-5665107/", "file": "https://videos.pexels.com/video-files/5665107/5665107-hd_1920_1080_25fps.mp4", "license": "Pexels License" },
+  "clip": { "startS": 0.0, "endS": 7.28 },
+  "camera": { "widthPx": 1920, "heightPx": 1080, "longSideFovDeg": 69.4, "heightM": 1.3 },
+  "signal": [[0.0, "RED"], [3.40, "GREEN"]]
+}

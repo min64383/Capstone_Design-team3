@@ -50,5 +50,6 @@ M50 노면 분할(승인 2026-11-15, M50 설계): LR-ASPP MobileNetV3-Large, tor
 |---|---|---|---|---|
 | SADIE II Database, subject D1 (Neumann KU100), University of York | `D1_48K_24bit_256tap_FIR_SOFA.sofa`의 수평면(고도 0°) 400개 방위각 → `app/src/main/assets/hrtf/sadie2_d1_48k.hrir` | Apache License 2.0 (Copyright 2018, University of York) | 라이선스 사본 첨부(`assets/hrtf/LICENSE-Apache-2.0.txt`), 변경 고지·출처(`assets/hrtf/NOTICE.txt`), 학술 사용 시 DOI 10.3390/app8112029 인용 | 2026-09-29 (M6) |
 | AI Hub 인도보행 영상(SideGuide, 한국지능정보사회진흥원·㈜테스트웍스 외, 2019, v1.1 2021) | Surface Masking 노면 다각형(받은 zip 5개 800묶음 46,399장) → 8종 마스크(M50 노면 분할 학습·검증). 원본은 `data/`(저장소 밖) | AI Hub 이용정책 | 내국인만 신청·승인 뒤 내려받기, AI 학습용으로만, 원본 재배포·제3자 제공 금지, NIA 사업 결과임을 밝힘(2차 저작물 포함), 국외 반출은 별도 합의. 학습 가중치 배포 조항은 확인 못 함 | 사용자 2026-11-15(M50 설계 승인), 신청은 사용자 |
+| Pexels 영상 8987275(“Car Going Out of the Repair Shop”)·5665107(“A Pedestrian Traffic Light Turning Green From Red”) | M73 영상 데모: 구간을 잘라 720p로 줄이고 재현 소리를 넣어 중계 서버 `/demo`에서 재생(파일은 git 밖 `data/videodemo/`). 장면 파일 `tools/demo/scenes/`에는 출처 주소와 손으로 적은 상자만 | Pexels License(https://www.pexels.com/license/) | 무료, 표기 불필요(페이지에 출처 링크는 둠), 수정 허용. 그대로 되팔기·다른 스톡 사이트 재배포·식별 가능한 사람을 나쁘게 보이게 쓰기 금지 | 2026-11-24 (M73, 사용자 영상 검토) |
 
 원본 SOFA는 `data/hrtf/`(git 제외)에 둔다. 다운로드: https://zenodo.org/records/12092466/files/D1_HRIR_SOFA.zip

@@ -61,9 +61,11 @@ class RelayPageTest {
             "title" to s.title, "titleColor" to if (s.titleTone == UserScreen.Tone.CAUTION) caution else white, "dot" to (s.titleTone == UserScreen.Tone.GUIDE),
             "sub" to s.sub, "visual" to (if (arrow != null) "Arrow" else s.visual.toString()), "az" to (arrow?.let { js(it.azimuthDeg) } ?: ""),
             "stop" to (arrow?.stop?.toString() ?: ""), "guideHeight" to if (s.visual == UserScreen.Visual.Logo) "176px" else "240px",
-            "label" to s.label, "labelSize" to when (s.labelTone) { UserScreen.Tone.STOP -> "36px"; UserScreen.Tone.CAUTION -> "30px"; else -> "34px" },
+            // 페이지에서 할 수 없는 조작 글은 없다: 안내 줄 비움, 시작 전 큰 글은 TalkBack 문장으로
+            "label" to if (s.idle && s.visual == UserScreen.Visual.Logo) s.spoken else s.label,
+            "labelSize" to when (s.labelTone) { UserScreen.Tone.STOP -> "36px"; UserScreen.Tone.CAUTION -> "30px"; else -> "34px" },
             "labelColor" to when { s.label == null || arrow == null -> white; s.labelTone == UserScreen.Tone.STOP -> stop; else -> caution },
-            "hints" to s.hints.joinToString("") { (g, m) -> "$g · $m" }, "hintsVisible" to s.hints.isNotEmpty(), "hintsBold" to s.hints.map { it.first },
+            "hints" to "", "hintsBold" to emptyList<String>(),
             "notice" to if (s.idle && s.visual == UserScreen.Visual.Logo) notice else null,
         )
     }

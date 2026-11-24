@@ -1,0 +1,14 @@
+/* 앱 작동 화면(M45, UserModeActivity·colors.xml run_*)과 같은 배치·크기·색. 앱 dp(글자 sp) = CSS px. M66 설계 표 5 */
+:root { --text: #FFFFFF; --text2: #B3B3B3; --outline: #5F6167; --guide: #439ECC; --caution: #EAB431; --stop: #F26A5F; }
+[hidden] { display: none !important; }
+#screen { flex: 1 1 auto; min-height: 0; display: flex; flex-direction: column; align-items: center; overflow: hidden; }
+#title { font-size: 40px; font-weight: 700; margin-top: 44px; display: flex; align-items: center; gap: 12px; line-height: 1.2; }
+#dot { width: 14px; height: 14px; border-radius: 50%; background: var(--guide); flex: none; }
+#sub { font-size: 18px; color: var(--text2); padding: 6px 28px 0; text-align: center; white-space: pre-line; align-self: stretch; }
+.spacer { flex: 1 1 0; }
+#guide { align-self: stretch; flex: 0 1 240px; min-height: 0; position: relative; }
+#cv { position: absolute; left: 0; top: 0; width: 100%; height: 100%; }
+#label { font-weight: 700; text-align: center; line-height: 1.1; white-space: pre-line; align-self: stretch; }
+#hints { font-size: 18px; color: var(--text2); text-align: center; line-height: 1.3; padding: 16px 24px 28px; align-self: stretch; }
+#hints b { color: var(--text); }
+#notice { font-size: 12.5px; color: var(--text2); padding: 0 26px 20px; white-space: pre-line; align-self: stretch; }

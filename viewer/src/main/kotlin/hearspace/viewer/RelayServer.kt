@@ -137,6 +137,11 @@ class RelayServer(
         "chatKeep" to num(settings.chatKeep), "clientStatsS" to num(settings.clientStatsS),
     ), pretty = false))
     private val worklet: ByteArray = javaClass.getResource("/relay/worklet.js")!!.readBytes()
+    private val screenJs: ByteArray = javaClass.getResource("/relay/screen.js")!!.readBytes()
+    private val screenCss: ByteArray = javaClass.getResource("/relay/screen.css")!!.readBytes()
+    private val demoPage: ByteArray = javaClass.getResource("/relay/demo.html")!!.readBytes()
+    /** 영상 데모(M73) 결과 폴더: `<장면>.mp4`·`<장면>.json`·`scenes.json`. */
+    private val demoDir = File(settings.demoDir).let { if (it.isAbsolute) it else File(Repo.root, settings.demoDir) }
     private val logo = File(Repo.root, "app/src/main/res/drawable-xxhdpi/logo_run.png")
     private val stats = runDir?.let { it.mkdirs(); File(it, "stats.csv").bufferedWriter() }
         ?.apply { appendLine("wallS,live,heldAgeMs,audioPages,ssePages,lateEvents,lateAlertsDropped,listenerSkips,missingTexts"); flush() }
@@ -222,13 +227,23 @@ class RelayServer(
             when ("${ex.requestMethod} ${ex.requestURI.path}") {
                 "GET /" -> if (view) send(ex, 200, "text/html; charset=utf-8", page.toByteArray()) else send(ex, 403)
                 "GET /worklet.js" -> send(ex, 200, "text/javascript; charset=utf-8", worklet)
+                "GET /screen.js" -> send(ex, 200, "text/javascript; charset=utf-8", screenJs)
+                "GET /screen.css" -> send(ex, 200, "text/css; charset=utf-8", screenCss)
+                "GET /demo" -> if (view) send(ex, 200, "text/html; charset=utf-8", demoPage) else send(ex, 403)
                 "GET /logo.png" -> if (logo.isFile) send(ex, 200, "image/png", logo.readBytes()) else send(ex, 404)
                 "GET /audio" -> if (view) streamAudio(ex) else send(ex, 403)
                 "GET /events" -> if (view) streamEvents(ex) else send(ex, 403)
                 "POST /chat" -> if (view) chat(ex) else send(ex, 403)
                 "POST /stats" -> if (view) clientStats(ex) else send(ex, 403)
                 "POST /upload" -> if (ok(q["k"], settings.uploadKey)) upload(ex) else send(ex, 403)
-                else -> send(ex, 404)
+                else -> {
+                    val m = DEMO_FILE.matchEntire(ex.requestURI.path)
+                    when {
+                        ex.requestMethod != "GET" || m == null -> send(ex, 404)
+                        !view -> send(ex, 403)
+                        else -> sendFile(ex, File(demoDir, m.groupValues[1]), if (m.groupValues[2] == "mp4") "video/mp4" else "application/json; charset=utf-8")
+                    }
+                }
             }
         } catch (e: IOException) {
             // 페이지가 연결을 끊음
@@ -346,6 +361,41 @@ class RelayServer(
         send(ex, code)
     }
 
+    /**
+     * 파일 하나를 준다. 바이트 범위 요청(`Range: bytes=a-b`, 하나만)이면 206 부분 응답: 아이폰 Safari는 영상을 범위 요청으로만 받는다(M73 설계 3.5절).
+     * 범위가 여럿이거나 형식이 다르면 전체(200), 파일 밖이면 416.
+     */
+    private fun sendFile(ex: HttpExchange, f: File, type: String) {
+        if (!f.isFile) return send(ex, 404)
+        val len = f.length()
+        ex.responseHeaders.add("Accept-Ranges", "bytes")
+        val m = ex.requestHeaders.getFirst("Range")?.trim()?.let { RANGE.matchEntire(it) }
+        if (m == null) return send(ex, 200, type, f.readBytes())
+        val (a, b) = m.destructured
+        val start = if (a.isEmpty()) maxOf(0L, len - (b.toLongOrNull() ?: 0L)) else a.toLong()
+        val end = if (a.isEmpty() || b.isEmpty()) len - 1 else minOf(b.toLong(), len - 1)
+        if (a.isEmpty() && b.isEmpty() || start > end || start >= len) {
+            ex.responseHeaders.add("Content-Range", "bytes */$len")
+            return send(ex, 416)
+        }
+        ex.responseHeaders.add("Content-Range", "bytes $start-$end/$len")
+        ex.responseHeaders.add("Content-Type", type)
+        ex.responseHeaders.add("Cache-Control", "no-store")
+        ex.responseHeaders.add("Referrer-Policy", "no-referrer")
+        ex.sendResponseHeaders(206, end - start + 1)
+        java.io.RandomAccessFile(f, "r").use { raf ->
+            raf.seek(start)
+            val buf = ByteArray(64 * 1024)
+            var left = end - start + 1
+            while (left > 0) {
+                val n = raf.read(buf, 0, minOf(buf.size.toLong(), left).toInt())
+                if (n < 0) break
+                ex.responseBody.write(buf, 0, n)
+                left -= n
+            }
+        }
+    }
+
     private fun body(ex: HttpExchange, limit: Int): ByteArray? = ex.requestBody.readNBytes(limit + 1).takeIf { it.size <= limit }
 
     private fun send(ex: HttpExchange, code: Int, type: String? = null, body: ByteArray? = null) {
@@ -377,6 +427,10 @@ class RelayServer(
     }
 
     companion object {
+        /** 영상 데모 파일 이름(폴더 밖으로 나갈 수 없는 꼴만). */
+        private val DEMO_FILE = Regex("""/demo/([a-z0-9_-]+\.(mp4|json))""")
+        private val RANGE = Regex("""bytes=(\d*)-(\d*)""")
+
         private fun obj(vararg p: Pair<String, JsonValue?>) = JsonObject(LinkedHashMap<String, JsonValue>().apply { for ((k, v) in p) put(k, v ?: JsonNull) })
         private fun num(x: Int) = JsonNumber(x.toDouble())
 

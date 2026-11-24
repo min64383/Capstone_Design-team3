@@ -116,3 +116,14 @@ tasks.register<JavaExec>("relayReplay") {
     // -P 값만 읽는다(findProperty는 같은 이름의 작업, 예: check를 돌려준다)
     args = listOf("session", "jitter", "loop", "check", "url").mapNotNull { k -> providers.gradleProperty(k).orNull?.let { "$k=$it" } }
 }
+
+// M73 영상 데모: 장면 파일(tools/demo/scenes)을 core 재현 실행기로 → relay.json demoDir에 <장면>.wav·.json. ./gradlew :viewer:videoDemo [-Pscene=<id>]
+tasks.register<JavaExec>("videoDemo") {
+    group = "hearspace"
+    description = "영상 데모(M73): 손으로 적은 장면을 앱 규칙으로 소리·화면·말 시간표로"
+    classpath = sourceSets["main"].runtimeClasspath
+    mainClass.set("hearspace.viewer.VideoDemoMainKt")
+    workingDir = rootProject.projectDir
+    systemProperty("hearspace.repoRoot", rootProject.projectDir.absolutePath)
+    args = listOf("scene").mapNotNull { k -> providers.gradleProperty(k).orNull?.let { "$k=$it" } }
+}

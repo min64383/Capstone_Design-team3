@@ -37,6 +37,8 @@ data class RelaySettings(
     val bindHost: String,
     /** 말 소리 모음 폴더(저장소 기준). 파일 이름은 문장(UTF-8)의 SHA-1 + `.wav`. */
     val clipDir: String,
+    /** 영상 데모(M73) 결과 폴더(저장소 기준): `<장면>.mp4`·`<장면>.json`을 `/demo/`로 준다. */
+    val demoDir: String,
     val uploadKey: String,
     val viewKey: String,
     /** S10 업로더가 올릴 서버 주소(M67, 기기 파일에서 얹음). 서버는 읽지 않는다. */
@@ -69,7 +71,7 @@ data class RelaySettings(
                 speechGainDb = num("speechGainDb").toFloat(), chatKeep = int("chatKeep"), chatMaxChars = int("chatMaxChars"),
                 chatMinIntervalMs = int("chatMinIntervalMs", 0), nickMaxChars = int("nickMaxChars"), maxPages = int("maxPages"),
                 sseKeepaliveS = int("sseKeepaliveS"), clientStatsS = int("clientStatsS"), uploadMaxBytes = int("uploadMaxBytes"),
-                port = int("port", 0), bindHost = str("bindHost"), clipDir = str("clipDir"),
+                port = int("port", 0), bindHost = str("bindHost"), clipDir = str("clipDir"), demoDir = str("demoDir"),
                 uploadKey = str("uploadKey"), viewKey = str("viewKey"),
                 serverUrl = str("serverUrl"), uploadTimeoutMs = int("uploadTimeoutMs"),
             )

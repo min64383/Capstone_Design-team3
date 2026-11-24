@@ -1,0 +1,134 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="referrer" content="no-referrer">
+<title>HEARSPACE 영상 데모</title>
+<link rel="stylesheet" href="screen.css">
+<style>
+  /* 영상 데모(M73 설계 3.5절, 그림 4): 세로 화면은 영상 아래, 가로 화면은 영상 옆에 앱 화면. 앱 화면 배치·색은 screen.css */
+  html, body { margin: 0; min-height: 100%; background: #000000; color: var(--text);
+    font-family: system-ui, -apple-system, "Noto Sans KR", "Apple SD Gothic Neo", sans-serif; }
+  #top { padding: 10px 14px 6px; }
+  #about { font-size: 14px; color: var(--text2); line-height: 1.4; margin: 0 0 8px; }
+  #scenes { display: flex; gap: 8px; flex-wrap: wrap; }
+  #scenes button { font: inherit; font-size: 16px; color: var(--text); background: #111111; border: 1px solid var(--outline); border-radius: 8px; padding: 8px 14px; }
+  #scenes button[aria-pressed="true"] { border-color: var(--guide); background: #10283A; }
+  #main { display: flex; flex-direction: column; gap: 8px; padding: 6px 14px 14px; }
+  #left { display: flex; flex-direction: column; gap: 4px; min-width: 0; }
+  video { width: 100%; max-height: 56vh; background: #000; display: block; }
+  #credit { font-size: 12px; color: var(--text2); }
+  #credit a { color: var(--text2); }
+  #screen { border: 1px solid var(--outline); border-radius: 12px; min-height: 300px; }
+  #caption { font-size: 22px; font-weight: 700; text-align: center; min-height: 1.4em; margin: 2px 0; }
+  @media (orientation: landscape) and (min-width: 700px) {
+    #main { flex-direction: row; align-items: flex-start; }
+    #left { flex: 1 1 auto; }
+    video { max-height: 78vh; }
+    #right { flex: 0 0 340px; }
+  }
+</style>
+</head>
+<body>
+<div id="top">
+  <p id="about">공개 영상 속 사람·차·신호의 위치와 상태를 사람이 적고, 앱과 같은 안내 규칙으로 소리·화면·말을 만들었어요. 앱이 이 영상을 보고 판단한 것은 아니에요. 이어폰을 끼고 들어 주세요.</p>
+  <div id="scenes"></div>
+</div>
+<div id="main">
+  <div id="left">
+    <video id="video" controls playsinline preload="auto"></video>
+    <p id="caption" aria-live="polite"></p>
+    <div id="credit"></div>
+  </div>
+  <div id="right">
+    <div id="screen">
+      <div id="title" hidden><span id="dot" hidden></span><span id="titleText"></span></div>
+      <div id="sub" hidden></div>
+      <div class="spacer"></div>
+      <div id="guide"><canvas id="cv"></canvas></div>
+      <div id="label" hidden></div>
+      <div class="spacer"></div>
+      <div id="hints"></div>
+      <div id="notice" hidden></div>
+    </div>
+  </div>
+</div>
+<pre id="test-out" hidden></pre>
+<script src="screen.js"></script>
+<script>
+'use strict';
+const K = new URLSearchParams(location.search).get('k') || '';
+const KQ = 'k=' + encodeURIComponent(K);
+const video = $('video');
+let scenes = [];
+let timeline = null;
+let shownAt = -1;
+
+/** 시간표에서 시각 [t](s) 이하의 마지막 화면 요소 번호(없으면 −1). 시간표는 시각 순이다. */
+function screenIndex(tl, t) {
+  let lo = 0, hi = tl.screens.length - 1, at = -1;
+  while (lo <= hi) { const m = (lo + hi) >> 1; if (tl.screens[m][0] <= t) { at = m; lo = m + 1; } else hi = m - 1; }
+  return at;
+}
+/** 시각 [t]에 들리는 말(없으면 null). */
+function speechAt(tl, t) {
+  const s = tl.speech.filter((x) => x[0] <= t && t < x[1]);
+  return s.length ? s[s.length - 1][2] : null;
+}
+/** 영상 시각에 맞춰 앱 화면과 말 자막을 그린다(멈춤·되감기도 같은 규칙). */
+function sync() {
+  if (timeline) {
+    const t = video.currentTime;
+    const i = Math.max(0, screenIndex(timeline, t)); // 첫 요소(0.0x s)는 영상 첫 장부터 보인다
+    if (i !== shownAt && timeline.screens.length) { shownAt = i; showApp(timeline.screens[i][1]); }
+    const say = speechAt(timeline, t);
+    const text = say ? '말: ' + say : '';
+    if ($('caption').textContent !== text) $('caption').textContent = text;
+  }
+  requestAnimationFrame(sync);
+}
+
+async function pick(id) {
+  const s = scenes.find((x) => x.id === id);
+  for (const b of $('scenes').children) b.setAttribute('aria-pressed', String(b.dataset.id === id));
+  timeline = await (await fetch('demo/' + id + '.json?' + KQ, { cache: 'no-store' })).json();
+  shownAt = -1;
+  video.src = 'demo/' + id + '.mp4?' + KQ;
+  const c = $('credit');
+  c.replaceChildren('영상: ');
+  const a = document.createElement('a');
+  a.href = s.page; a.target = '_blank'; a.rel = 'noopener noreferrer'; a.textContent = 'Pexels';
+  c.append(a, ' · 재현 ' + Math.round(timeline.durationS) + '초');
+}
+
+async function start() {
+  scenes = await (await fetch('demo/scenes.json?' + KQ, { cache: 'no-store' })).json();
+  for (const s of scenes) {
+    const b = document.createElement('button');
+    b.type = 'button'; b.dataset.id = s.id; b.textContent = s.title;
+    b.addEventListener('click', () => pick(s.id));
+    $('scenes').append(b);
+  }
+  if (scenes.length) await pick(scenes[0].id);
+}
+
+if (new URLSearchParams(location.search).get('test') === '1') {
+  // 페이지 시험(RelayPageTest): 첫 장면 시간표를 읽어 주소 # 뒤의 시각마다 그릴 화면·말을 #test-out에 JSON으로 쓴다
+  start().then(() => {
+    const times = JSON.parse(decodeURIComponent(location.hash.slice(1)));
+    const out = { scenes: scenes.map((s) => s.id), at: [] };
+    for (const t of times) {
+      showApp(timeline.screens[Math.max(0, screenIndex(timeline, t))][1]);
+      out.at.push({ t, visual: cv.dataset.visual, label: $('label').hidden ? null : $('label').textContent, say: speechAt(timeline, t) });
+    }
+    out.videoSrc = video.getAttribute('src');
+    $('test-out').textContent = JSON.stringify(out);
+  });
+} else {
+  start();
+  requestAnimationFrame(sync);
+}
+</script>
+</body>
+</html>
