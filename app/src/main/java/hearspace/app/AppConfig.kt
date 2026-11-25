@@ -16,7 +16,7 @@ object AppConfig {
     private const val SONIFY_OVERRIDE_ASSET = "config/risk-continuous.override.json"
     /** 하네스 착용 실측(M61, 사용자 줄자 2026-11-17: 카메라가 머리 중심보다 앞 0.10·아래 0.20 m). PC 재생 기준선(default.json, 손 파지 실측)은 그대로. */
     private const val HARNESS_OVERRIDE_ASSET = "config/harness.override.json"
-    /** 앱에서만 상황 판단(M50 보행상황 말)을 켠다(M65). PC 재생 기준선(default.json)은 꺼진 채. 노면 모델 파일이 없으면 노면 말은 나지 않는다. 보행 신호 판단(M71)은 판정을 넘었지만 앱에서는 꺼 둔다(사용자 결정 2026-11-24). */
+    /** 앱에서만 상황 판단(M50 보행상황 말)을 켠다(M65). PC 재생 기준선(default.json)은 꺼진 채. 노면 모델 파일이 없으면 노면 말은 나지 않는다. 보행 신호 판단(M71)은 판정을 넘었지만 앱에서는 꺼 둔다(사용자 결정 2026-11-24). 블록 말은 새 방식(팔 세기 ARMS + 노면 입력 480×384, M69, 사용자 결정 2026-11-25). */
     private const val SITUATION_OVERRIDE_ASSET = "config/situation.override.json"
     /** 데모·앱 기본 안내 = 조합 C(뷰어 변형 44 + ARCore 의미 모드, M51 사용자 결정 2026-11-22). PC 재생 기준선(default.json)은 그대로. */
     private const val COMBO_OVERRIDE_ASSET = "config/semantic-combo.override.json"

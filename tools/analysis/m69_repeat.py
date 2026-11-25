@@ -18,7 +18,8 @@ import sys
 
 def load(path, t0):
     if not os.path.isfile(path):
-        return None
+        # 회차 폴더는 있는데 말 기록이 없으면 말이 없던 회차(앱은 말이 없으면 파일을 만들지 않음), 폴더도 없으면 빠진 회차
+        return [] if os.path.isdir(os.path.dirname(path)) and os.listdir(os.path.dirname(path)) else None
     return [((int(r['tNs']) - t0) / 1e9, r['text']) for r in csv.DictReader(open(path, encoding='utf-8'))]
 
 
