@@ -37,12 +37,14 @@ data class DepthSupport(
  * [playbackMp4]가 있으면 카메라 대신 녹화 MP4를 재생한다(재생 모드, §9.2).
  * [sensorUsage]가 AUTO가 아니면 그 깊이 센서 사용의 카메라 설정을 고른다(M47 ToF 확인, `depth.sensorUsage`). 재생 모드에서는 고르지 않는다.
  * [semantics]면 지원할 때 ARCore 의미 모드를 켠다(M49, `vision.semantics`).
+ * [imageSize]("1920x1080" 꼴)가 있으면 CPU 영상 크기만 그것인 설정을 고른다(M71 녹화, 텍스처·fps·깊이 센서 사용은 기본과 같게). 재생 모드에서는 고르지 않는다.
  */
 class ArSessionManager(
     private val activity: Activity,
     private val playbackMp4: File? = null,
     private val sensorUsage: DepthSensorUsage = DepthSensorUsage.AUTO,
     private val semantics: Boolean = false,
+    private val imageSize: String? = null,
 ) {
 
     /** 준비된 세션. [resume]이 성공한 뒤에만 null이 아니다. */
@@ -97,7 +99,7 @@ class ArSessionManager(
                 return "이 기기는 깊이 측정을 지원하지 않아 안내할 수 없습니다"
             } catch (e: NoSensorConfigException) {
                 Log.e(TAG, e.message ?: "no camera config")
-                return "깊이 센서 설정(${sensorUsage.name})을 쓸 수 없습니다. 기기 설정 덮어쓰기를 확인하세요"
+                return "카메라 설정(깊이 센서 ${sensorUsage.name}, 영상 ${imageSize ?: "기본"})을 쓸 수 없습니다. 기기 설정 덮어쓰기를 확인하세요"
             }
         }
         return try {
@@ -124,16 +126,20 @@ class ArSessionManager(
     /**
      * 지원 카메라 설정을 로그에 남기고(M47), [sensorUsage]가 AUTO가 아니면 그 깊이 센서 사용의 설정 중 ARCore 기본 설정과 영상 크기·fps가
      * 같은 것을(없으면 첫 번째) 고른다. 크기가 다르면 ToF 효과와 섞이므로 로그에 남긴다.
+     * [imageSize]가 있으면 영상 크기가 그것이고 텍스처·fps가 기본과 같은 설정만 받는다(M71: 깊이 내부 파라미터는 텍스처에서 오므로 텍스처를 바꾸지 않음).
      */
     private fun selectCameraConfig(s: Session) {
         val all = s.getSupportedCameraConfigs(CameraConfigFilter(s))
         all.forEach { Log.i(TAG, "camera config: ${describe(it)}") }
         val current = s.cameraConfig
         Log.i(TAG, "camera config (ARCore default): ${describe(current)}")
-        if (sensorUsage == DepthSensorUsage.AUTO || playbackMp4 != null) return
-        val want = CameraConfig.DepthSensorUsage.valueOf(sensorUsage.name)
+        if ((sensorUsage == DepthSensorUsage.AUTO && imageSize == null) || playbackMp4 != null) return
+        val want = if (sensorUsage == DepthSensorUsage.AUTO) current.depthSensorUsage else CameraConfig.DepthSensorUsage.valueOf(sensorUsage.name)
         val candidates = s.getSupportedCameraConfigs(CameraConfigFilter(s).setDepthSensorUsage(EnumSet.of(want)))
-        val pick = candidates.firstOrNull {
+        val pick = if (imageSize != null) {
+            candidates.firstOrNull { it.imageSize.toString() == imageSize && it.textureSize == current.textureSize && it.fpsRange == current.fpsRange }
+                ?: throw NoSensorConfigException("no camera config with image $imageSize texture ${current.textureSize} depth sensor usage $want")
+        } else candidates.firstOrNull {
             it.imageSize == current.imageSize && it.textureSize == current.textureSize && it.fpsRange == current.fpsRange
         } ?: candidates.firstOrNull() ?: throw NoSensorConfigException("no camera config with depth sensor usage $want")
         // VERIFY: setCameraConfig는 세션이 일시정지(첫 resume 전)일 때 부르고 configure 전에 둔다(ARCore Session.setCameraConfig 문서)

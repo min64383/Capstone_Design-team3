@@ -1,6 +1,7 @@
 package hearspace.app.relay
 
 import hearspace.core.situation.Environment
+import hearspace.core.situation.Signals
 import hearspace.core.types.SituationConfig
 import kotlin.math.ceil
 
@@ -32,6 +33,9 @@ object RelayTexts {
         "올라가는 계단", "방지턱", "차 다가옴", "사람 다가옴",
     )
 
+    /** 신호 말(M71, core [Signals]의 상수를 그대로). */
+    val SIGNAL = listOf(Signals.RED_TEXT, Signals.GREEN_TEXT)
+
     /** 거리가 붙는 상황 말(core Situations, 거리는 반올림·최소 1 m). */
     private val DISTANCE: List<(Int) -> String> = listOf(
         { "내려가는 곳, ${it}미터" }, { "블록 위 물체, ${it}미터" }, { "블록 끝, ${it}미터" }, { "내려가는 계단, ${it}미터" }, { "계단, ${it}미터" },
@@ -40,6 +44,6 @@ object RelayTexts {
     /** 전체 목록. 거리는 1 m부터, 거리 붙는 규칙이 말하는 가장 먼 범위(설정)까지. */
     fun all(c: SituationConfig): List<String> {
         val maxM = ceil(maxOf(c.gridMaxDistM, c.envAheadMaxM, c.endMaxM)).toInt()
-        return STATUS + SITUATION + DISTANCE.flatMap { f -> (1..maxM).map(f) }
+        return STATUS + SITUATION + SIGNAL + DISTANCE.flatMap { f -> (1..maxM).map(f) }
     }
 }

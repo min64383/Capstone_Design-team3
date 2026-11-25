@@ -45,6 +45,9 @@ class ArFeeder(private val config: Config, private val replay: Boolean, private 
     @Volatile
     var surface: SurfaceModel? = null
 
+    /** 신호 판단 스레드(M71). 노면 모델과 같은 장을 원하면 CPU 영상 복사 하나를 같이 넘긴다(두 스레드 모두 읽기만 함). */
+    var signals: hearspace.app.runtime.SignalWorker? = null
+
     @Volatile
     private var clockOffsetNs: Long? = null
 
@@ -149,12 +152,18 @@ class ArFeeder(private val config: Config, private val replay: Boolean, private 
         val p = pipeline ?: return camera
         p.publishPose(pose)
         if (vision) readRaw(frame, camera, p)
-        surface?.let { sm ->
-            if (camera.trackingState == com.google.ar.core.TrackingState.TRACKING && sm.wants(frame.timestamp)) {
+        if (camera.trackingState == com.google.ar.core.TrackingState.TRACKING) {
+            val sm = surface?.takeIf { it.wants(frame.timestamp) }
+            val sw = signals?.takeIf { it.wants(frame.timestamp) }
+            if (sm != null || sw != null) {
                 val t0 = System.nanoTime()
                 val img = FrameAdapter.readCameraNv21(frame)
                 p.logInput(frame.timestamp, "CAMERA", img?.tNs, System.nanoTime() - t0, if (img == null) FrameAdapter.lastFailure ?: "NULL" else "NEW", null)
-                if (img != null) sm.offer(img, pose.worldFromCam, FrameAdapter.toIntrinsics(camera.imageIntrinsics))
+                if (img != null) {
+                    val k = FrameAdapter.toIntrinsics(camera.imageIntrinsics)
+                    sm?.offer(img, pose.worldFromCam, k)
+                    sw?.offer(img, pose.worldFromCam, k)
+                }
             }
         }
 

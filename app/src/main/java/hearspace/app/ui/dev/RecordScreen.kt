@@ -19,6 +19,7 @@ import android.view.ViewGroup
 import android.view.ViewGroup.LayoutParams.MATCH_PARENT
 import android.view.ViewGroup.LayoutParams.WRAP_CONTENT
 import android.view.WindowManager
+import android.widget.AdapterView
 import android.widget.ArrayAdapter
 import android.widget.Button
 import android.widget.EditText
@@ -70,6 +71,8 @@ class RecordScreen : Activity(), GLSurfaceView.Renderer {
     private lateinit var glView: GLSurfaceView
     private lateinit var status: TextView
     private lateinit var sceneSpinner: Spinner
+    private lateinit var imageSpinner: Spinner
+    private var imageSize: String? = null
     private lateinit var offsetInputs: List<EditText>
     private lateinit var startStop: Button
 
@@ -97,7 +100,8 @@ class RecordScreen : Activity(), GLSurfaceView.Renderer {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         config = AppConfig.get(this)
-        ar = ArSessionManager(this, sensorUsage = config.depth.sensorUsage, semantics = config.vision.semantics)
+        imageSize = getSharedPreferences(PREFS, MODE_PRIVATE).getString(KEY_IMAGE_SIZE, null)
+        ar = ArSessionManager(this, sensorUsage = config.depth.sensorUsage, semantics = config.vision.semantics, imageSize = imageSize)
         thermal = ThermalMonitor(this)
         window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
         buildLayout()
@@ -127,6 +131,25 @@ class RecordScreen : Activity(), GLSurfaceView.Renderer {
             setSelection(SCENE_IDS.indexOf("S01"))
             contentDescription = "장면 ID"
         }
+        // M71: CPU 영상 크기. 카메라 설정은 세션을 만들 때만 정하므로, 바꾸면 저장하고 화면을 다시 연다.
+        imageSpinner = Spinner(this).apply {
+            adapter = object : ArrayAdapter<String>(this@RecordScreen, android.R.layout.simple_spinner_item, IMAGE_SIZES) {
+                override fun getView(position: Int, convertView: View?, parent: ViewGroup): View =
+                    (super.getView(position, convertView, parent) as TextView).apply { setTextColor(Color.WHITE) }
+            }.apply { setDropDownViewResource(android.R.layout.simple_spinner_dropdown_item) }
+            setSelection(imageSize?.let { IMAGE_SIZES.indexOf(it) }?.takeIf { it >= 0 } ?: 0)
+            contentDescription = "CPU 영상 크기"
+            onItemSelectedListener = object : AdapterView.OnItemSelectedListener {
+                override fun onItemSelected(parent: AdapterView<*>, view: View?, position: Int, id: Long) {
+                    val picked = IMAGE_SIZES[position].takeIf { position > 0 }
+                    if (picked == imageSize) return
+                    getSharedPreferences(PREFS, MODE_PRIVATE).edit().putString(KEY_IMAGE_SIZE, picked).apply()
+                    recreate()
+                }
+
+                override fun onNothingSelected(parent: AdapterView<*>) = Unit
+            }
+        }
         val defaultOffset = config.headOffsetFromCameraM
         offsetInputs = listOf("x" to defaultOffset.x, "y" to defaultOffset.y, "z" to defaultOffset.z).map { (axis, v) ->
             EditText(this).apply {
@@ -148,6 +171,7 @@ class RecordScreen : Activity(), GLSurfaceView.Renderer {
             setPadding(24, 16, 24, 24)
             addView(TextView(context).apply { text = "장면 ID / 파지 오프셋(카메라→머리, 월드 수평, m)"; setTextColor(Color.WHITE) })
             addView(sceneSpinner)
+            addView(imageSpinner)
             addView(LinearLayout(context).apply {
                 orientation = LinearLayout.HORIZONTAL
                 offsetInputs.forEach { addView(it, LinearLayout.LayoutParams(0, WRAP_CONTENT, 1f)) }
@@ -331,6 +355,7 @@ class RecordScreen : Activity(), GLSurfaceView.Renderer {
         startStop.text = if (recorder != null) "녹화 정지" else "녹화 시작"
         startStop.isEnabled = true
         sceneSpinner.isEnabled = recorder == null
+        imageSpinner.isEnabled = recorder == null
         offsetInputs.forEach { it.isEnabled = recorder == null }
     }
 
@@ -345,7 +370,8 @@ class RecordScreen : Activity(), GLSurfaceView.Renderer {
         sb.append("깊이 지원(F1): AUTOMATIC=").append(d?.automatic ?: "?")
             .append(" RAW=").append(d?.rawDepthOnly ?: "?")
             .append(" → ").append(d?.modeUsed ?: "?")
-            .append(" | 깊이 센서: ").append(d?.sensorUsed ?: "?").append('\n')
+            .append(" | 깊이 센서: ").append(d?.sensorUsed ?: "?")
+            .append(" | 영상: ").append(session?.cameraConfig?.imageSize ?: "?").append('\n')
         val r = recorder
         if (r != null) {
             val st = r.stats()
@@ -393,7 +419,16 @@ class RecordScreen : Activity(), GLSurfaceView.Renderer {
 
         /** 부록 A 장면 ID. K01: M31 보정 녹화(IMPROVE_SPEC §11.2). */
         /** O06 ToF 확인·O07 사람 다가오기·O08 보도 걷기는 M47 실외 녹화(IMPROVE_SPEC §11.3). */
-        val SCENE_IDS = listOf("S01", "S02", "S03", "S04", "S05", "S06", "S07", "S08", "S09", "S10", "T01", "K01", "O06", "O07", "O08")
+        /** T02: M69 점자블록·계단 판정 녹화, X01~X06: M71 신호 횡단보도(곳마다 하나, 설계 표 8). */
+        val SCENE_IDS = listOf(
+            "S01", "S02", "S03", "S04", "S05", "S06", "S07", "S08", "S09", "S10", "T01", "K01", "O06", "O07", "O08",
+            "T02", "X01", "X02", "X03", "X04", "X05", "X06",
+        )
+
+        /** CPU 영상 크기 선택(M71). 첫 칸은 ARCore 기본(640×480). 1920×1080은 텍스처(1920×1080)와 중심·초점이 같고 3배다. */
+        val IMAGE_SIZES = listOf("영상 기본(640x480)", "1920x1080")
+        private const val PREFS = "record"
+        private const val KEY_IMAGE_SIZE = "imageSize"
 
         /** 세션 폴더의 부모: `<앱 전용 외부 저장소>/sessions` (§8.1). */
         fun sessionsRoot(activity: Activity): File = File(activity.getExternalFilesDir(null), "sessions")

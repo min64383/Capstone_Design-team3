@@ -499,6 +499,38 @@ object ConfigLoader {
                     if (it.endMaxM <= it.endMinM) throw ConfigException("situation.endMaxM", "must be > endMinM")
                 }
             },
+            signal = root.section("signal") {
+                SignalConfig(
+                    enabled = boolean("enabled"),
+                    intervalMs = intIn("intervalMs", 1, 5000),
+                    bandMinDeg = float("bandMinDeg"),
+                    bandMaxDeg = positive("bandMaxDeg"),
+                    bandHalfWidthDeg = positive("bandHalfWidthDeg"),
+                    redHueDeg = positive("redHueDeg"),
+                    greenHueMinDeg = nonNegative("greenHueMinDeg"),
+                    greenHueMaxDeg = positive("greenHueMaxDeg"),
+                    minSaturation = unit("minSaturation"),
+                    minValue = unit("minValue"),
+                    minWidthPx = positive("minWidthPx"),
+                    minAspect = positive("minAspect"),
+                    pairRatio = positive("pairRatio"),
+                    darkMaxLuma = positive("darkMaxLuma"),
+                    trackGateDeg = positive("trackGateDeg"),
+                    trackKeepS = positive("trackKeepS"),
+                    confirmS = positive("confirmS"),
+                    redFraction = unit("redFraction"),
+                    switchGapS = positive("switchGapS"),
+                    greenWindowS = positive("greenWindowS"),
+                    greenFrames = atLeast1("greenFrames"),
+                    greenEndS = positive("greenEndS"),
+                    speakWithinS = positive("speakWithinS"),
+                    stillSpeedMps = positive("stillSpeedMps"),
+                    stillS = positive("stillS"),
+                ).also {
+                    if (it.bandMaxDeg <= it.bandMinDeg) throw ConfigException("signal.bandMaxDeg", "must be > bandMinDeg")
+                    if (it.greenHueMaxDeg <= it.greenHueMinDeg) throw ConfigException("signal.greenHueMaxDeg", "must be > greenHueMinDeg")
+                }
+            },
             sonify = root.section("sonify") {
                 SonifyConfig(
                     mode = enumValue<SonifyMode>("mode"),

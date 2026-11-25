@@ -16,6 +16,7 @@ import java.io.File
  * RGB 안내 보정의 RGB 원천(M19): `-PrgbFrom=mp4`(`tools/analysis/mp4_rgb.py`가 꺼낸 매 프레임 밝기) | `recorded`(기본, 녹화 JPEG).
  * 학습형 깊이 장(M37): `-PdepthFrom=<변형>/<full|fill>`(`tools/analysis/learned_depth.py`) `-PdepthFromDelayMs=<기기 모델 시간>`. depth.source RAW 필요.
  * 움직임 정답(M48, 평가 전용): `-PmovingFrom=clicks` — 움직임 판정을 세션 클릭 정답(`annotations/events.json`의 움직이는 물체)으로 바꾼다.
+ * 신호 판단(M71, `signal.enabled`): 기본은 녹화 RGB를 앱 CPU 영상 폭(640)으로 줄여 판단, `-PsignalFullRes=true`면 원본 해상도로.
  */
 fun main(args: Array<String>) {
     val opts = args.associate { a -> a.substringBefore('=') to a.substringAfter('=', "") }
@@ -60,6 +61,7 @@ fun main(args: Array<String>) {
     }
     val replay = OfflineReplay(config, slow, sub?.second, sub?.first?.path ?: "", rgbSource, depthFrom, delayNs, oracle, movingFrom)
     replay.mapInserts = opts["mapInserts"] == "true" // M54 평가: 장마다 지도에 넣은 칸(map_inserts.csv)
+    replay.signalFullRes = opts["signalFullRes"] == "true" // M71 평가: 신호 판단을 녹화 RGB 원본 해상도로(기본은 앱 해상도로 줄임)
     // M55 평가: 라벨 화소 값 바꾸기 "5:8,4:8"
     replay.labelRemap = opts["labelRemap"]?.takeIf { it.isNotBlank() }?.split(',')?.associate { p ->
         p.split(':').let { (a, b) -> a.trim().toInt() to b.trim().toInt() }
