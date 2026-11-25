@@ -6,5 +6,8 @@
   "policy": {
     "maxSources": 2,
     "prioritizeStop": true
+  },
+  "audio": {
+    "ttsVolume": 0.5
   }
 }

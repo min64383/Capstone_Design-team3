@@ -16,6 +16,8 @@ import java.util.TreeMap
  * - P 이하의 마지막 표본만 쓴다(미래 값 금지). 음원 정보 나이에 (P − 표본 시각)을 더해, 렌더러가 허용치를 넘은 음원을 버리게 한다.
  * - 렌더러는 S10이 보낸 설정 층으로 합친 설정의 core [BinauralRenderer]이고, S10과 같은 `renderWithSpeech`로 부른다.
  * - 말 소리는 말 시작 사건이 지난 블록부터 섞고 끝 사건에서 멈춘다. 하나만 섞고 새 말이 앞 말을 끊는다.
+ *   크기는 S10 설정의 `audio.ttsVolume` × [RelaySettings.speechGainDb]: S10은 TTS가 재생할 때 음량을 곱하지만 말 소리 모음(`synthesizeToFile`)에는
+ *   음량이 걸리지 않는다(M70 설계 3.5절, S10에서 1.0·0.7로 만든 64개가 바이트까지 같음).
  * 업로드는 대기열이 아니다: 시각 순 저장소에 넣고 재생 시각으로 찾으므로 늦게 온 값이 쌓여 소리를 늦추지 않는다.
  * ponytail: 시계 차는 최솟값을 계속 쓴다. 두 시계의 빠르기 차이(수십 ppm, 검증 안 함)만큼 묵힘이 줄거나 늘며, 크면 창 최솟값으로.
  * [accept]와 [render]는 다른 스레드에서 불러도 된다(이 객체로 동기화).
@@ -124,7 +126,7 @@ class RelayPlayback(
         speech?.let { c ->
             var i = 0
             while (i < blockSize && speechPos < c.size) {
-                val v = c[speechPos++] * speechGain
+                val v = c[speechPos++] * speechGain * cfg.audio.ttsVolume
                 out[2 * i] += v
                 out[2 * i + 1] += v
                 i++

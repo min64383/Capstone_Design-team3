@@ -16,7 +16,7 @@ import java.util.Locale
 
 /**
  * 데모 중계 말 소리 만들기(M67 설계 3.5절, bench 빌드에만, 앱 아이콘 없음). `tools/relay/s10.ps1 -Clips`가 adb로 띄운다.
- * 앱과 같은 TTS 엔진·음성·속도·높이·음량으로 [RelayTexts] 문장마다 `synthesizeToFile`을 부르고, 이름은 문장(UTF-8)의 SHA-1 + `.wav`.
+ * 앱과 같은 TTS 엔진·음성·속도·높이로 [RelayTexts] 문장마다 `synthesizeToFile`을 부르고, 이름은 문장(UTF-8)의 SHA-1 + `.wav`.
  * 끝나면 `texts.txt`(이름·문장), `voice.txt`(엔진·음성), `done.txt`를 쓴다. 실패하면 `failed.txt`. 표본율은 서버가 읽을 때 바꾼다.
  */
 class ClipMakerActivity : Activity() {
@@ -71,7 +71,8 @@ class ClipMakerActivity : Activity() {
             return
         }
         val text = texts[next++]
-        val params = Bundle().apply { putFloat(TextToSpeech.Engine.KEY_PARAM_VOLUME, config.audio.ttsVolume) } // AndroidTts와 같은 음량
+        // 음량은 파일에 걸리지 않는다(M70: 1.0·0.7로 만든 64개가 바이트까지 같음). 서버가 섞을 때 ttsVolume을 곱한다(RelayPlayback)
+        val params = Bundle().apply { putFloat(TextToSpeech.Engine.KEY_PARAM_VOLUME, config.audio.ttsVolume) }
         if (t.synthesizeToFile(text, params, File(dir, sha1(text) + ".wav"), "clip$next") != TextToSpeech.SUCCESS) return fail("합성 요청 실패: $text")
         show("말 소리 만드는 중 $next/${texts.size}")
     }

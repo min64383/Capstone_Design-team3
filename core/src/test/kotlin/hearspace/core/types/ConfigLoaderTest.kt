@@ -32,6 +32,7 @@ class ConfigLoaderTest {
         assertEquals(MotionEvidence.FREE_SPACE, c.track.motionEvidence)
         assertEquals(HitWeighting.DISTANCE, c.map.hitWeighting) // M51: 조합에서 신뢰도 무게를 뺌(원시 신뢰도가 낮으면 지도가 빔, T01·회전 뒤 지연)
         assertEquals(true, c.situation.enabled)
+        assertEquals(0.5f, c.audio.ttsVolume) // M70 사용자 선택(사운드팩 27번): 앱 소리 층에만, 기준선 0.7
         val base = load()
         assertEquals(Vec3(0f, 0.5f, -0.39f), base.headOffsetFromCameraM) // 재생 기준선은 그대로
         assertEquals(null, base.heading.chestMount)
