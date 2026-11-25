@@ -727,6 +727,8 @@ def main():
     check_label_band()
     import occupancy
     occupancy.selftest()  # M55 칸 관측 기록 분석: 상자 거리, 증거 합 창, 지금 규칙 창, 띠 합침, λ
+    import relay_hold
+    relay_hold.selftest()  # M68 중계 묵힘 다시 돌리기: 그림 2 계산 예, 지연만 늘면 묵힘이 덮음, 번호 빈 곳
     print("analysis self-check ok")
 
 

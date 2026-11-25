@@ -17,6 +17,7 @@
 - 평가 GUI: `./gradlew :viewer:run -Psession=<세션ID 또는 그 일부>` (testdata/sessions → data/sessions 순으로 찾음)
 - 데모 중계 서버: `./gradlew :viewer:relay` (설정 `app/src/bench/assets/relay.json`, 열쇠는 git 밖 `data/relay/server.json`), PC 녹화 재생기: `./gradlew :viewer:relayReplay -Psession=<세션>` (M66)
 - 데모 중계 S10(bench 빌드): 켜기 `powershell -File tools/relay/s10.ps1 -Url http://<PC IP>:8080`, 끄기 `-Off`, 말 소리 만들기·가져오기 `-Clips`. 업로더 시험 `./gradlew :app:testBenchUnitTest` (M67)
+- 데모 중계 집 앞단(HTTPS): `powershell -File tools/relay/home.ps1` (DuckDNS 갱신 + Caddy, 이름·토큰은 git 밖 `data/relay/ddns.json`, `-Local`은 PC 확인용 http://localhost:8081). S10은 `s10.ps1 -Url https://<이름>.duckdns.org`. 묵힘 분석 `python tools/analysis/relay_hold.py data/relay/runs/<시각> --s10-run <S10 실행 폴더>` (M68)
 - 로그: `adb logcat -s HEARSPACE`
 
 ## 반드시 지킬 원칙
