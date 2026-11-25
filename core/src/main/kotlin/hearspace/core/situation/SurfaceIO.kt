@@ -32,6 +32,19 @@ class SurfaceIO(
     /** 센서 방향 [rgb](행 우선 RGB)를 모델 입력 [input](1×[inH]×[inW]×4, NHWC)에 쓴다. */
     fun preprocess(rgb: ByteArray, input: FloatArray) {
         require(rgb.size >= srcW * srcH * 3 && input.size >= inH * inW * 4)
+        // 줄이지 않는 입력(M69, 세로 아래 몫 그대로): Pillow도 같은 크기면 화소를 그대로 둔다 → 돌려 자르기만(필터 계산 없이)
+        if (inW == portraitW && inH == cropH) {
+            for (cy in 0 until cropH) {
+                val sx = top + cy
+                for (x in 0 until inW) {
+                    val i = ((srcH - 1 - x) * srcW + sx) * 3
+                    val o = (cy * inW + x) * 3
+                    resized[o] = rgb[i]; resized[o + 1] = rgb[i + 1]; resized[o + 2] = rgb[i + 2]
+                }
+            }
+            normalize(input)
+            return
+        }
         // 가로: 자른 세로 영상의 행 cy(세로 y = top + cy = 센서 x), 열 px(센서 y = srcH − 1 − px)
         for (cy in 0 until cropH) {
             val sx = top + cy
@@ -66,6 +79,10 @@ class SurfaceIO(
                 resized[o] = clip8(s0); resized[o + 1] = clip8(s1); resized[o + 2] = clip8(s2)
             }
         }
+        normalize(input)
+    }
+
+    private fun normalize(input: FloatArray) {
         for (p in 0 until inW * inH) {
             for (c in 0 until 3) input[p * 4 + c] = ((resized[p * 3 + c].toInt() and 0xFF) / 255f - MEAN[c]) / STD[c]
             input[p * 4 + 3] = 0f

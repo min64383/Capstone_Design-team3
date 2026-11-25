@@ -49,6 +49,25 @@ class SurfaceIOTest {
     }
 
     @Test
+    fun `SP-35 native size input is the rotated crop without resampling, as Pillow keeps a same-size image`() {
+        // M69: 640×480 → 세로 아래 60% 480×384를 줄이지 않음(infer_sessions.native_input). 세로 (px, py) = 센서 (x = py, y = 479 − px), 위 256행 버림
+        val rgb = synthRgb(640, 480)
+        val io = SurfaceIO(640, 480, 0.4f, 480, 384, 640, 480)
+        io.preprocess(rgb, FloatArray(384 * 480 * 4))
+        val want = ByteArray(384 * 480 * 3)
+        for (cy in 0 until 384) for (px in 0 until 480) for (c in 0 until 3) want[(cy * 480 + px) * 3 + c] = rgb[((479 - px) * 640 + (256 + cy)) * 3 + c]
+        assertArrayEquals(want, io.resized)
+        // 뒤처리: 세로 라벨이 크기 그대로 아래 384행에 놓이고, 센서 방향 640×480의 왼쪽 256열은 계산 안 함
+        val labels = synthLabels(480, 384)
+        val out = ByteArray(640 * 480)
+        io.placeAndRotate(labels, out)
+        for (yp in 0 until 480 step 37) for (xp in 0 until 640 step 41) {
+            val expect = if (xp < 256) hearspace.core.situation.SurfaceClass.UNKNOWN_PIXEL.toByte() else labels[(xp - 256) * 480 + (479 - yp)]
+            assertEquals(expect, out[yp * 640 + xp], "($xp, $yp)")
+        }
+    }
+
+    @Test
     fun `SP-15 postprocess picks the largest logit`() {
         val io = SurfaceIO(40, 30, 0.4f, 20, 16, 32, 24)
         val labels = synthLabels(20, 16)

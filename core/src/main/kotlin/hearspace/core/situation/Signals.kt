@@ -39,6 +39,9 @@ data class SignalBlob(
 /** 한 장의 track 상태(기록용). obs: R 빨강, G 초록, B 둘 다, . 없음. */
 data class SignalTrackRecord(val id: Int, val azDeg: Float, val elDeg: Float, val obs: Char, val redConfirmed: Boolean, val transitionNs: Long?)
 
+/** 사람이 적은 켜진 등 하나([Signals.observe]): 등틀 가운데의 월드 단위 방향과 빨강(아니면 초록) 여부. */
+data class SignalLight(val dirW: Vec3, val red: Boolean)
+
 /** 한 장 처리 결과. [speech]는 다음 장까지 상황 판단이 읽는 최신 값이다(최신 값 교체). */
 class SignalOutput(val tNs: Long, val still: Boolean, val speech: List<SignalSpeech>, val blobs: List<SignalBlob>, val tracks: List<SignalTrackRecord>)
 
@@ -83,15 +86,24 @@ class Signals(private val cfg: SignalConfig) {
         positions.clear()
     }
 
-    /** 한 장을 처리한다. 과거 장만 차례로 넣는다. */
-    fun process(img: ColorImage): SignalOutput {
-        val t = img.tCaptureNs
-        val still = img.tracking && updateStill(t, img.worldFromCam.translation())
+    /** 한 장을 처리한다(검출 1~4단계 → 판단 5단계·말). 과거 장만 차례로 넣는다. */
+    fun process(img: ColorImage): SignalOutput = judge(img.tCaptureNs, img.tracking, img.worldFromCam.translation()) { detect(img) }
+
+    /**
+     * 검출 없이 켜진 등을 바로 판단에 넣는다(M73 영상 데모: 사람이 영상에서 적은 신호 상태). [lights]는 이 장에 켜진 등마다
+     * 등틀 가운데의 월드 방향과 빨강 여부. 멈춤 확인·track·빨강 확인·전환·말은 [process]와 같다.
+     */
+    fun observe(tNs: Long, tracking: Boolean, cameraW: Vec3, lights: List<SignalLight>): SignalOutput = judge(tNs, tracking, cameraW) {
+        lights.map { Blob(tNs, it.red, 0, it.dirW, Float.NaN, Float.NaN, Float.NaN, true, it.dirW) }
+    }
+
+    private inline fun judge(t: Long, tracking: Boolean, cameraW: Vec3, blobsOf: () -> List<Blob>): SignalOutput {
+        val still = tracking && updateStill(t, cameraW)
         if (!still) {
             tracks.clear()
             return SignalOutput(t, false, emptyList(), emptyList(), emptyList())
         }
-        val blobs = detect(img)
+        val blobs = blobsOf()
         val red = HashSet<Int>()
         val green = HashSet<Int>()
         val out = ArrayList<SignalBlob>(blobs.size)

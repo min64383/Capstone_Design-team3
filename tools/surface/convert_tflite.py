@@ -10,6 +10,8 @@ export.py(4채널 입력, hard-sigmoid → relu6) → ONNX → onnx2tf → float
 
 사용: .venv-convert/python tools/surface/convert_tflite.py --weights data/models/surface_large.pt --out data/models/app/surface.tflite
       --data data/aihub/surface_prep --session data/sessions/20260928_085205_T01 [--n 1000]
+M69 원래 크기 입력: --size 384x480 --out data/models/app/surface_480x384.tflite (같은 가중치를 세로 아래 60% 그대로 넣는 입력 크기로 내보냄.
+비교는 같은 크기로: AI Hub는 높이 384로 줄여 가운데 480, 세션은 infer_sessions.native_input).
 """
 import argparse
 import csv
@@ -25,25 +27,25 @@ from PIL import Image
 
 sys.path.insert(0, os.path.dirname(__file__))
 from export import H, N_CLASSES, W, FourChannel, build  # noqa: E402
-from infer_sessions import MEAN, STD, portrait_input  # noqa: E402
+from infer_sessions import MEAN, STD, native_input, portrait_input  # noqa: E402
 
 NAMES = ["배경", "점자블록", "인도", "골목", "차도", "횡단보도", "계단", "방지턱"]
 
 
-def convert(weights: str, work: str):
+def convert(weights: str, work: str, h: int = H, w: int = W):
     import onnx2tf
     net = build("large")
     net.load_state_dict(torch.load(weights, map_location="cpu", weights_only=True))
     model = FourChannel(net).eval()
     os.makedirs(work, exist_ok=True)
     onnx_path = os.path.join(work, "surface.onnx")
-    torch.onnx.export(model, (torch.zeros(1, 4, H, W),), onnx_path, input_names=["input"], output_names=["logits"], opset_version=17, dynamo=False)
+    torch.onnx.export(model, (torch.zeros(1, 4, h, w),), onnx_path, input_names=["input"], output_names=["logits"], opset_version=17, dynamo=False)
     onnx2tf.convert(input_onnx_file_path=onnx_path, output_folder_path=work, non_verbose=True)
     return os.path.join(work, "surface_float32.tflite"), model
 
 
-def val_input(path: str) -> np.ndarray:
-    """학습 검증과 같은 앞처리: 높이 256으로 줄이고 가운데 320 자르기. 1×3×256×320."""
+def val_input(path: str, H: int = H, W: int = W) -> np.ndarray:
+    """학습 검증과 같은 앞처리: 높이 H로 줄이고 가운데 W 자르기. 1×3×H×W."""
     img = Image.open(path).convert("RGB")
     w = round(img.width * H / img.height)
     img = img.resize((w, H), Image.BILINEAR)
@@ -52,7 +54,7 @@ def val_input(path: str) -> np.ndarray:
     return ((np.asarray(img, np.float32) / 255.0 - MEAN) / STD).transpose(2, 0, 1)[None]
 
 
-def val_mask(path: str) -> np.ndarray:
+def val_mask(path: str, H: int = H, W: int = W) -> np.ndarray:
     m = Image.open(path)
     w = round(m.width * H / m.height)
     m = m.resize((w, H), Image.NEAREST)
@@ -61,7 +63,7 @@ def val_mask(path: str) -> np.ndarray:
 
 
 class Lite:
-    def __init__(self, path: str):
+    def __init__(self, path: str, H: int = H, W: int = W):
         from ai_edge_litert.interpreter import Interpreter
         self.it = Interpreter(model_path=path)
         self.it.allocate_tensors()
@@ -89,13 +91,15 @@ def main():
     ap.add_argument("--data", required=True)
     ap.add_argument("--session", action="append", default=[])
     ap.add_argument("--n", type=int, default=1000)
+    ap.add_argument("--size", default=f"{H}x{W}", help="입력 높이x폭(세로 영상), M69 원래 크기 384x480")
     a = ap.parse_args()
+    ih, iw = (int(v) for v in a.size.split("x"))
     work = os.path.join(os.path.dirname(os.path.dirname(a.out)), "convert")  # 앱 자산 폴더(data/models/app) 밖
-    tfl, model = convert(a.weights, work)
+    tfl, model = convert(a.weights, work, ih, iw)
     os.makedirs(os.path.dirname(a.out), exist_ok=True)
     shutil.copyfile(tfl, a.out)
     print("wrote", a.out, os.path.getsize(a.out), "bytes sha256", hashlib.sha256(open(a.out, "rb").read()).hexdigest()[:16])
-    lite = Lite(a.out)
+    lite = Lite(a.out, ih, iw)
     torch.set_num_threads(os.cpu_count() or 4)
 
     def pt(x4: np.ndarray) -> np.ndarray:
@@ -109,8 +113,8 @@ def main():
     conf_pt = np.zeros((N_CLASSES, N_CLASSES), np.int64)
     conf_tl = np.zeros((N_CLASSES, N_CLASSES), np.int64)
     for i, n in enumerate(names):
-        x4 = four(val_input(os.path.join(a.data, "images", n + ".jpg")))
-        gt = val_mask(os.path.join(a.data, "masks", n + ".png"))
+        x4 = four(val_input(os.path.join(a.data, "images", n + ".jpg"), ih, iw))
+        gt = val_mask(os.path.join(a.data, "masks", n + ".png"), ih, iw)
         p, t = pt(x4), lite(x4)
         same += int((p == t).sum())
         total += p.size
@@ -134,7 +138,8 @@ def main():
         frames = {r["tNs"]: r["rgbFile"] for r in csv.DictReader(open(os.path.join(s, "frames.csv"))) if r.get("rgbFile")}
         same = total = 0
         for r in rows:
-            x4 = four(portrait_input(Image.open(os.path.join(s, frames[r["frameTNs"]]))))
+            img = Image.open(os.path.join(s, frames[r["frameTNs"]]))
+            x4 = four(portrait_input(img) if (ih, iw) == (H, W) else native_input(img))
             p, t = pt(x4), lite(x4)
             same += int((p == t).sum())
             total += p.size

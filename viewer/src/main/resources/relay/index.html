@@ -86,20 +86,14 @@ function showApp(s) {
   $('sub').textContent = s.sub || '';
   // 그림 칸: 가장 큰 그림(화살표 230)이 들어가는 240, 시작 전 로고는 176
   $('guide').style.flexBasis = (s.visual === 'Logo' ? 176 : 240) + 'px';
+  // 페이지에서 할 수 없는 조작(두 번 탭·길게 누르기)의 글은 쓰지 않는다: 앱 안내 줄(s.hints)은 비워 두고(#hints는 빈 자리),
+  // 앱 시작 전 큰 글 "두 번 탭하여 시작"은 그 상태의 TalkBack 문장("시작 전")으로. 페이지 자체 화면(showStart)은 spoken이 없어 그대로
+  const text = s.idle && s.visual === 'Logo' && s.spoken ? s.spoken : s.label;
   const label = $('label');
-  label.hidden = s.label == null;
-  label.textContent = s.label || '';
+  label.hidden = text == null;
+  label.textContent = text || '';
   label.style.fontSize = (s.labelTone === 'STOP' ? 36 : s.labelTone === 'CAUTION' ? 30 : 34) + 'px';
-  label.style.color = s.label == null || s.visual !== 'Arrow' ? COLOR.text : s.labelTone === 'STOP' ? COLOR.stop : COLOR.caution;
-  const hints = $('hints');
-  hints.replaceChildren();
-  (s.hints || []).forEach(([gesture, meaning], i) => {
-    if (i > 0) hints.append(document.createElement('br'));
-    const b = document.createElement('b');
-    b.textContent = gesture;
-    hints.append(b, ' · ' + meaning);
-  });
-  hints.style.visibility = (s.hints || []).length ? 'visible' : 'hidden';
+  label.style.color = text == null || s.visual !== 'Arrow' ? COLOR.text : s.labelTone === 'STOP' ? COLOR.stop : COLOR.caution;
   $('notice').hidden = !(s.idle && s.visual === 'Logo' && s.notice);
   $('notice').textContent = s.notice || '';
   visual = s;

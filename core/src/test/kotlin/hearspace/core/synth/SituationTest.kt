@@ -330,6 +330,63 @@ class SituationTest {
         assertEquals(2, said.count { it.text == "블록 갈림" }, said.toString())
     }
 
+    // ---- M69 팔 세기(ARMS): 1 m/s로 걷고, 선을 잡은 자리(M51 선 시작 규칙 7 m)보다 먼 10 m에 자리를 둔다 ----
+    private val arms = config.situation.copy(blockMethod = hearspace.core.types.BlockMethod.ARMS, gridRecentK = 3)
+
+    private fun blockSaid(said: List<Utterance>) = said.filter { it.text.contains("갈림") || it.text.contains("꺾임") || it.text.startsWith("블록 끝") }
+
+    @Test
+    fun `SP-29 arms says a straight line nothing and a crossing line a branch once`() {
+        val straight: (Float, Float) -> Int = { x, z -> if (x in -0.15f..0.15f && -z in 0.5f..16f) B else S }
+        val s = run(120, userZ = { i -> -0.1f * i }, cls = straight, sc = arms)
+        assertTrue(blockSaid(s).isEmpty(), s.toString())
+        val cross: (Float, Float) -> Int = { x, z -> if ((x in -0.15f..0.15f && -z in 0.5f..14f) || (x in -2f..2f && -z in 9.6f..9.9f)) B else S }
+        val c = run(95, userZ = { i -> -0.1f * i }, cls = cross, sc = arms)
+        assertEquals(1, c.count { it.text == "블록 갈림" }, c.toString())
+        assertTrue(c.none { it.text.contains("꺾임") }, c.toString())
+    }
+
+    @Test
+    fun `SP-30 arms says a right turn with a corner pad as a turn, not a branch`() {
+        // 선 0.5~10 m, 모서리 점형 판 0.6 m(x −0.15~0.45), 오른쪽 선(x 0.45~4)
+        val turn: (Float, Float) -> Int = { x, z ->
+            if ((x in -0.15f..0.15f && -z in 0.5f..10f) || (x in -0.15f..0.45f && -z in 10f..10.6f) || (x in 0.45f..4f && -z in 10.15f..10.45f)) B else S
+        }
+        val s = run(95, userZ = { i -> -0.1f * i }, cls = turn, sc = arms)
+        assertEquals(1, s.count { it.text == "블록 오른쪽으로 꺾임" }, s.toString())
+        assertTrue(s.none { it.text.contains("갈림") || it.text.contains("왼쪽") }, s.toString())
+    }
+
+    private val rowBeforeEdge: (Float, Float) -> Int = { x, z -> if ((x in -0.15f..0.15f && -z in 0.5f..10f) || (x in -2f..2f && -z in 10f..10.6f)) B else S }
+
+    @Test
+    fun `SP-31 a stop row before a 1 m drop is down stairs, not a branch`() {
+        val s = run(95, userZ = { i -> -0.1f * i }, cls = rowBeforeEdge, depthOf = { t, w -> depth(t, w, edgeM = 10.9f, dropM = 1.0f) }, sc = arms)
+        assertTrue(s.any { it.text.startsWith("내려가는 계단") }, s.toString())
+        assertTrue(s.none { it.text.contains("갈림") || it.text.contains("꺾임") || it.text.startsWith("올라가는") }, s.toString())
+    }
+
+    @Test
+    fun `SP-32 a stop row before a 0_5 m rise is up stairs, never down`() {
+        val s = run(95, userZ = { i -> -0.1f * i }, cls = rowBeforeEdge, depthOf = { t, w -> depth(t, w, edgeM = 10.9f, dropM = -0.5f) }, sc = arms)
+        assertTrue(s.any { it.text == "올라가는 계단" }, s.toString())
+        assertTrue(s.none { it.text.contains("갈림") || it.text.contains("꺾임") || it.text.startsWith("내려가는") }, s.toString())
+    }
+
+    @Test
+    fun `SP-33 a stop row on flat ground is no stairs and a row reached across the sidewalk is no branch`() {
+        // 블록 없이 인도를 걷다가 9 m 앞 가로줄에서 선이 시작(ㅗ 시작 구조, 154154처럼 뒤 팔 없음), 평평함
+        val start: (Float, Float) -> Int = { x, z -> if ((x in -2f..2f && -z in 9f..9.6f) || (x in -0.15f..0.15f && -z in 9.6f..16f)) B else S }
+        val s = run(110, userZ = { i -> -0.1f * i }, cls = start, sc = arms)
+        assertTrue(s.none { it.text.contains("계단") || it.text.contains("갈림") || it.text.contains("꺾임") }, s.toString())
+    }
+
+    @Test
+    fun `SP-34 arms is off by default and the line method stays the default`() {
+        assertEquals(hearspace.core.types.BlockMethod.LINES, config.situation.blockMethod)
+        assertEquals(0, config.situation.gridRecentK)
+    }
+
     @Test
     fun `SP-5 no block end when the ground beyond is unobserved`() {
         val said = run(100, cls = { x, z -> if (-z > 3.5f) 255 else blockLine()(x, z) })

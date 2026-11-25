@@ -119,6 +119,9 @@ class OfflineReplay(
     /** 신호 판단(M71) PC 재생: true면 녹화 RGB 원본 해상도로, false(기본)면 앱 CPU 영상 폭에 맞게 줄여 판단한다. */
     var signalFullRes = false
 
+    /** M69 평가: 블록 칸 기록(`block_steps.csv`·`block_cells.csv`). */
+    var blockCells = false
+
     /** 근거리 STOP 진단(평가 전용): 느린 경로 장마다 근거리 후보 단계별 수(ROI 점·칸·크기 통과·누적 관측·출력). */
     internal var nearStopFrameObserver: ((Long, hearspace.core.guidance.NearStopDetector.FrameEvidence) -> Unit)? = null
 
@@ -137,7 +140,7 @@ class OfflineReplay(
             val truth = File(session, "annotations/obstacles.json").isFile
             val base = if (truth) MapEvalWriter(ClusterEvalWriter(log, outDir, session, config, substitution?.align), outDir, session, config, align = substitution?.align, alignFile = alignFrom.takeIf { it.isNotBlank() }?.let(::File)) else log
             // M50: 상황 가지는 결과를 읽기만 하고 speech.csv·situation.csv를 따로 쓴다(실행 로그는 그대로)
-            run(session, if (config.situation.enabled) SituationListener(base, config, session, outDir, signalFullRes) else base)
+            run(session, if (config.situation.enabled) SituationListener(base, config, session, outDir, signalFullRes, blockCells) else base)
         }
         markDone(outDir)
     }

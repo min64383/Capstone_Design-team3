@@ -1,0 +1,1 @@
+{ "situation": { "surfaceInputW": 480, "surfaceInputH": 384, "surfaceOutW": 640, "surfaceOutH": 480, "pointStride": 4, "blockMethod": "ARMS", "gridRecentK": 3 } }

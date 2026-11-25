@@ -89,7 +89,7 @@ tasks.register<JavaExec>("replay") {
     // M63: 프로파일용 JVM 인자(예: -PreplayJvmArgs="-XX:StartFlightRecording=filename=rec.jfr,settings=profile")
     (project.findProperty("replayJvmArgs") as String?)?.let { jvmArgs(it.split(' ').filter(String::isNotBlank)) }
     val paths = setOf("session", "out", "slowFrom", "overridesFile", "alignFrom")
-    args = listOf("session", "out", "slowMs", "slowFrom", "overrides", "overridesFile", "substitute", "alignFrom", "depthNoisePerM", "rgbFrom", "depthFrom", "depthFromDelayMs", "movingFrom", "mapInserts", "cellTrace", "labelRemap", "signalFullRes").mapNotNull { k ->
+    args = listOf("session", "out", "slowMs", "slowFrom", "overrides", "overridesFile", "substitute", "alignFrom", "depthNoisePerM", "rgbFrom", "depthFrom", "depthFromDelayMs", "movingFrom", "mapInserts", "cellTrace", "labelRemap", "signalFullRes", "blockCells").mapNotNull { k ->
         (project.findProperty(k) as String?)?.let { v -> "$k=${if (k in paths) rootProject.file(v).absolutePath else v}" }
     }
 }
