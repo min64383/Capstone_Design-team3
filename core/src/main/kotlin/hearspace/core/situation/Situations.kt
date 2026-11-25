@@ -96,6 +96,13 @@ class Situations(
     private var driftOverSinceNs = Long.MIN_VALUE
     private var driftEpisode = 0
     private var drifting = false
+
+    /** 보행 상태(M69, 사용자 2026-11-25): 점자블록 유도보행이면 true, 기본 보행이면 false. 블록 말은 유도보행일 때만 낸다. */
+    var guided = false
+        private set
+    private var guideWalkedM = 0f
+    private var guideLastUser: Vec3? = null
+    private var guideOffSinceNs = Long.MIN_VALUE
     private var driftRight = false
     private var driftOverRight = false
 
@@ -137,14 +144,20 @@ class Situations(
 
             val follow = lines.filter { angleDeg(it.dir, h) <= cfg.lineMaxAngleDeg && abs(it.lateral(user)) <= cfg.envHalfWidthM }
                 .minByOrNull { abs(it.lateral(user)) }
+            updateGuide(tNs, follow, user, h)
             if (follow != null) {
                 blockTrace?.invoke(tNs, user, h, follow, memory, inp.depth, if (heights.isEmpty()) Float.NaN else medianHeight())
                 noteFollow(tNs, user)
                 val lat = -follow.lateral(user) // + = 블록이 사용자 오른쪽
                 rec = rec.copy(followAngleDeg = angleDeg(follow.dir, h), lateralM = lat, blockYawDeg = yawDeg(follow.dir))
-                drift(tNs, lat, req)
-                onBlock(inp, follow, user, h, req)
-                rec = rec.copy(endAheadM = if (cfg.blockMethod == BlockMethod.ARMS) arms(inp, follow, memory, user, h, req) else endAndTurns(follow, lines, memory, user, h, right, req))
+                // 블록 말은 점자블록 유도보행일 때만(사용자 2026-11-25): 블록 위를 따라 걷지 않는 사람에게 갈림·꺾임·끝을 말하면 오답
+                if (guided) {
+                    drift(tNs, lat, req)
+                    onBlock(inp, follow, user, h, req)
+                    rec = rec.copy(endAheadM = if (cfg.blockMethod == BlockMethod.ARMS) arms(inp, follow, memory, user, h, req) else endAndTurns(follow, lines, memory, user, h, right, req))
+                } else {
+                    driftOverSinceNs = Long.MIN_VALUE
+                }
             } else {
                 driftOverSinceNs = Long.MIN_VALUE
             }
@@ -185,6 +198,10 @@ class Situations(
         rowSurfaceNs = Long.MIN_VALUE
         drifting = false
         driftOverSinceNs = Long.MIN_VALUE
+        guided = false
+        guideWalkedM = 0f
+        guideLastUser = null
+        guideOffSinceNs = Long.MIN_VALUE
     }
 
     private fun medianHeight(): Float {
@@ -228,6 +245,28 @@ class Situations(
         return maxOf(a, b) >= cfg.envAheadMinM && minOf(a, b) <= cfg.envAheadMaxM
     }
 
+    /**
+     * 보행 상태 갱신(M69, 사용자 2026-11-25). 1자 블록 위 = 따라가는 선이 있고 옆 거리 ≤ [SituationConfig.driftOnM], 방향 차 ≤ [SituationConfig.lineMaxAngleDeg].
+     * 블록 위에서 블록 방향으로 이어 걸은 거리가 [SituationConfig.guideEnterM]이 되면 유도보행, 유도보행 중 블록 위가 아닌 채
+     * [SituationConfig.guideExitS]가 지나면 기본 보행. 유도보행 전에 블록을 벗어나면 걸은 거리를 다시 센다.
+     */
+    private fun updateGuide(tNs: Long, follow: BlockLine?, user: Vec3, h: Vec3) {
+        if (cfg.guideEnterM <= 0f) { guided = true; return }
+        val onLine = follow != null && abs(follow.lateral(user)) <= cfg.driftOnM && angleDeg(follow.dir, h) <= cfg.lineMaxAngleDeg
+        if (onLine) {
+            guideOffSinceNs = Long.MIN_VALUE
+            // 블록 방향으로 앞으로 걸은 만큼(뒤로·옆으로는 세지 않음, 한 차례 1 m 넘는 건너뜀은 자세 튐으로 보고 버림)
+            guideLastUser?.let { last -> val d = (user - last).horizontal() dot follow!!.dir; if (d > 0f && d < 1f) guideWalkedM += d }
+            guideLastUser = user
+            if (guideWalkedM >= cfg.guideEnterM) guided = true
+        } else {
+            guideLastUser = null
+            if (!guided) guideWalkedM = 0f
+            if (guideOffSinceNs == Long.MIN_VALUE) guideOffSinceNs = tNs
+            if (guided && tNs - guideOffSinceNs >= (cfg.guideExitS * 1e9).toLong()) { guided = false; guideWalkedM = 0f }
+        }
+    }
+
     /** 1a: 늘인 블록 선이 몸에서 [SituationConfig.driftOnM] 넘게 [SituationConfig.driftHoldS] 떨어지면 블록이 있는 쪽을 말한다. */
     private fun drift(tNs: Long, lat: Float, req: MutableList<SpeechRequest>) {
         if (drifting && abs(lat) < cfg.driftOffM) drifting = false
@@ -257,8 +296,11 @@ class Situations(
             val o = byId[cmd.obstacleId] ?: continue
             if (((o.repPointW - user).horizontal() dot h) <= 0f) continue
             // 상자 네 모서리(수평)의 블록 선 옆 거리 범위가 블록 띠 ±onBlockBandM과 겹쳐야 블록 위(M51)
-            val lats = listOf(o.aabbMinW, o.aabbMaxW, Vec3(o.aabbMinW.x, 0f, o.aabbMaxW.z), Vec3(o.aabbMaxW.x, 0f, o.aabbMinW.z)).map { line.lateral(it) }
+            val corners = listOf(o.aabbMinW, o.aabbMaxW, Vec3(o.aabbMinW.x, 0f, o.aabbMaxW.z), Vec3(o.aabbMaxW.x, 0f, o.aabbMinW.z))
+            val lats = corners.map { line.lateral(it) }
             if (lats.min() > cfg.onBlockBandM || lats.max() < -cfg.onBlockBandM) continue
+            // 블록이 끝난 너머(문·계단 단)는 블록 위가 아니다(2026-11-25 녹화: 블록 끝의 문, 계단 앞 가로줄 너머 계단 단): 상자 가까운 끝이 선의 먼 끝을 넘으면 뺀다
+            if (corners.minOf { line.t(it) } > line.tMax) continue
             req.add(SpeechRequest("obj#${o.id}", "블록 위 물체, ${meters(cmd.distanceM)}미터", 2, inp.snapshot.tCaptureNs))
         }
     }
@@ -387,8 +429,9 @@ class Situations(
             }
             if (d.kind == ArmKind.END || d.kind == ArmKind.STAIRS_DOWN || d.kind == ArmKind.STAIRS_UP) endAhead = if (endAhead.isNaN()) d.aheadM else minOf(endAhead, d.aheadM)
             // 선의 시작(M51 사용자 규칙을 ARMS에도): 블록이 없다가 선을 새로 잡은 자리에서 endMaxM + junctionMergeM 안의 갈림·꺾임은 시작 구조(ㅗ자 정지 가로줄)로 보고
-            // 말하지 않는다(T01 162 s 골목에서 인도 연석 점형 줄로 올라섬)
-            if ((key == "turn") && episodeStart?.let { (d.center - it).horizontal().norm() <= cfg.endMaxM + cfg.junctionMergeM } == true) continue
+            // 말하지 않는다(T01 162 s 골목에서 인도 연석 점형 줄로 올라섬). 보행 상태가 켜져 있으면(guideEnterM > 0) 쓰지 않는다(2026-11-25 녹화 135720:
+            // 녹화 시작 6~7 m 앞 진짜 갈림을 3회 모두 놓침): 블록 위를 guideEnterM 걸어야 블록 말을 하므로 그때 시작 구조는 이미 뒤에 있다
+            if ((key == "turn") && cfg.guideEnterM <= 0f && episodeStart?.let { (d.center - it).horizontal().norm() <= cfg.endMaxM + cfg.junctionMergeM } == true) continue
             // 같은 자리(junctionMergeM 안)·같은 종류가 서로 다른 노면 영상 [confirmFrames]장에서 이어져야 말한다(M69: T01 거짓 갈림 4873·5077f는 한 판단뿐,
             // 진짜 갈림·꺾임은 2~8번 이어짐). 계단 칸 확인·가로줄 계단과 같은 규칙
             val cand = armCands.firstOrNull { it.kind == d.kind && (it.center - d.center).horizontal().norm() <= cfg.junctionMergeM }
@@ -463,7 +506,9 @@ class Situations(
         val nearest = cells.minByOrNull { (it.centerW - user) dot h } ?: return Float.NaN to ""
         val ahead = (nearest.centerW - user) dot h
         val up = inp.snapshot.obstacles.any { o -> cells.any { c -> c.centerW.x in o.aabbMinW.x - cfg.gridCellM..o.aabbMaxW.x + cfg.gridCellM && c.centerW.z in o.aabbMinW.z - cfg.gridCellM..o.aabbMaxW.z + cfg.gridCellM } }
-        val down = !up && downEvidence(inp.depth, user, h, ahead)
+        // stairsDepthExcessM 0 = 라벨 규칙은 내려감을 말하지 않음(앱, 2026-11-25: 올라가는 계단 둘을 '내려가는'으로 말함, 0.1 m 초과는 깊이 흔들림 안).
+        // 내려가는 계단은 가로줄 규칙([rowStairs], 가로줄 너머 0.5 m 넘게 낮음)이 말한다
+        val down = !up && cfg.stairsDepthExcessM > 0f && downEvidence(inp.depth, user, h, ahead)
         val key = "stairs"
         when {
             down -> req.add(SpeechRequest(key, "내려가는 계단, ${meters(ahead)}미터", 1, inp.depth.tCaptureNs, level = 2))

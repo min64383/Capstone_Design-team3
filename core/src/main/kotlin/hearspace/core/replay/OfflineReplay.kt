@@ -360,5 +360,16 @@ class OfflineReplay(
             }
             return { d -> byT[d.tCaptureNs] ?: (fallbackMs * 1e6).toLong() }
         }
+
+        /**
+         * 기록된 실행 로그(`slow_path.csv`)의 처리 시간 분포에서 장마다 무작위로 뽑는다(M69 반복 일치, 평가 전용).
+         * 라이브처럼 처리 시간이 매번 달라 건너뛰는 장이 달라진다. 같은 [seed]면 같은 결과(재생은 여전히 결정적).
+         */
+        fun sampled(slowPathCsv: File, seed: Long): (DepthFrame) -> Long {
+            val durs = slowPathCsv.readLines().drop(1).filter { it.isNotBlank() }.map { line -> line.split(',').let { it[2].toLong() - it[1].toLong() } }
+            require(durs.isNotEmpty()) { "no rows in $slowPathCsv" }
+            val rnd = java.util.Random(seed)
+            return { _ -> durs[rnd.nextInt(durs.size)] }
+        }
     }
 }

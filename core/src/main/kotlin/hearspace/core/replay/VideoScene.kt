@@ -288,8 +288,9 @@ class VideoSceneRunner(
                 // 화면은 앱처럼 screenRefreshMs마다 다시 그린다(블록마다 바뀌는 방위로 시간표가 부풀지 않게)
                 if (now >= nextScreenNs) {
                     nextScreenNs += settings.screenRefreshMs * 1_000_000L
-                    val c0 = g.commands.firstOrNull()
-                    val s = UserScreen.of(true, null, false, g.state, MapHealth.OK, c0?.band, c0?.azimuthDeg)
+                    val talking = said.lastOrNull()?.takeIf { now >= it.startNs && now < it.endNs }?.text
+                    val s = UserScreen.of(true, null, false, g.state, MapHealth.OK, g.commands.firstOrNull(), talking,
+                        config.sonify.heightLowM, config.sonify.heightHighM)
                     if (s != lastScreen) { lastScreen = s; screens += now to s }
                 }
                 if (now >= nextTruthNs) {

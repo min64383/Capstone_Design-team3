@@ -108,6 +108,8 @@ data class RelayBatch(
                 "label" to s.label?.let(::JsonString), "labelTone" to JsonString(s.labelTone.name),
                 "hints" to JsonArray(s.hints.map { (g, m) -> JsonArray(listOf(JsonString(g), JsonString(m))) }),
                 "idle" to JsonBool(s.idle), "spoken" to JsonString(s.spoken), "notice" to r.notice?.let(::JsonString),
+                "detail" to s.detail?.let { obj("dir" to JsonString(it.direction), "dist" to JsonString(it.distance), "height" to it.height?.let(::JsonString)) },
+                "speech" to s.speech?.let(::JsonString),
             )
         }
 
@@ -118,7 +120,10 @@ data class RelayBatch(
             }
             return UserScreen(o.fields["title"].strOrNull(), o.fields["sub"].strOrNull(), UserScreen.Tone.valueOf(o.s("titleTone")), visual,
                 o.fields["label"].strOrNull(), UserScreen.Tone.valueOf(o.s("labelTone")),
-                o.a("hints").map { h -> (h as JsonArray).items.let { it[0].str() to it[1].str() } }, (o.fields["idle"] as JsonBool).value, o.s("spoken"))
+                o.a("hints").map { h -> (h as JsonArray).items.let { it[0].str() to it[1].str() } }, (o.fields["idle"] as JsonBool).value, o.s("spoken"),
+                // M72 칸(없으면 M72 전 묶음): 정보 줄·말 줄
+                o.fields["detail"]?.takeIf { it !is JsonNull }?.o()?.let { d -> UserScreen.Detail(d.s("dir"), d.s("dist"), d.fields["height"].strOrNull()) },
+                o.fields["speech"].strOrNull())
         }
 
         private val VISUALS = listOf(UserScreen.Visual.Logo, UserScreen.Visual.Preparing, UserScreen.Visual.FloorCheck, UserScreen.Visual.None,

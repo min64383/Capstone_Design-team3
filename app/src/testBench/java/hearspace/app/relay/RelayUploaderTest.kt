@@ -34,7 +34,7 @@ class RelayUploaderTest {
         RelaySettings.load(base, listOf("""{"serverUrl": "$url", "uploadKey": "k e/y", "uploadTimeoutMs": $timeoutMs}"""))
 
     private val start = RelayStart("test", listOf("{}"))
-    private val screen = UserScreen.of(false, null, false, null, null, null, null)
+    private val screen = UserScreen.of(false, null, false, null, null, null, null, -1f, 1f)
 
     /** 가짜 중계 서버: 받은 묶음을 모으고, [respond]가 정한 코드로 [delayMs] 뒤에 답한다. */
     private class Fake : AutoCloseable {

@@ -480,7 +480,7 @@ object ConfigLoader {
                     junctionMergeM = positive("junctionMergeM"),
                     confirmFrames = atLeast1("confirmFrames"),
                     stairsBeyondM = nonNegative("stairsBeyondM"),
-                    stairsDepthExcessM = positive("stairsDepthExcessM"),
+                    stairsDepthExcessM = nonNegative("stairsDepthExcessM"),
                     stairsDepthFraction = unit("stairsDepthFraction"),
                     stairsMinPoints = atLeast1("stairsMinPoints"),
                     dropMinM = positive("dropMinM"),
@@ -520,6 +520,8 @@ object ConfigLoader {
                     rowRaiseM = positive("rowRaiseM"),
                     rowMaxM = positive("rowMaxM"),
                     stairsDownRule = enumValue<StairsDownRule>("stairsDownRule"),
+                    guideEnterM = nonNegative("guideEnterM"),
+                    guideExitS = nonNegative("guideExitS"),
                 ).also {
                     if (it.envAheadMaxM <= it.envAheadMinM) throw ConfigException("situation.envAheadMaxM", "must be > envAheadMinM")
                     if (it.driftOffM >= it.driftOnM) throw ConfigException("situation.driftOffM", "must be < driftOnM")

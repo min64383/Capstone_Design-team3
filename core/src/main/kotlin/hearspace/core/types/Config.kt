@@ -1012,7 +1012,7 @@ data class SituationConfig(
      * (자체 선택, 검증 안 함: 다가가며 다시 맞춘 교점의 흔들림보다 크고, T01의 실제 두 갈림 간격 약 10 m보다 작게).
      */
     val junctionMergeM: Float,
-    /** 1e 계단·방지턱: 서로 다른 노면 영상 수, 내리막 증거를 볼 계단 화소(가장 가까운 칸보다 이만큼 먼), 깊이 초과(광선 방향), 화소 몫. */
+    /** 1e 계단·방지턱: 서로 다른 노면 영상 수, 내리막 증거를 볼 계단 화소(가장 가까운 칸보다 이만큼 먼), 깊이 초과(광선 방향, 0이면 라벨 규칙은 내려감을 말하지 않음 = 앱), 화소 몫. */
     val confirmFrames: Int,
     val stairsBeyondM: Float,
     val stairsDepthExcessM: Float,
@@ -1083,6 +1083,14 @@ data class SituationConfig(
     val rowMaxM: Float = 4f,
     /** 계단 "내려가는" 증거(M69 설계 3.4절): EXCESS = 광선 방향 [stairsDepthExcessM] 넘게 먼 몫(M50), MEDIAN = 낮음 중앙값 > [dropMinM]이 두 번 연속. */
     val stairsDownRule: StairsDownRule = StairsDownRule.EXCESS,
+    /**
+     * 보행 상태(M69, 사용자 2026-11-25): 점자블록 유도보행으로 보는 데 필요한, 1자 블록 위(옆 거리 ≤ [driftOnM], 방향 차 ≤ [lineMaxAngleDeg])에서
+     * 블록 방향으로 이어 걸은 거리(m). 블록 말(갈림·꺾임·끝·치우침·블록 위 물체)은 유도보행일 때만. 0이면 늘 유도보행(옛 동작).
+     * 자체 선택 2 m: 최소 선 길이 [lineMinLengthM] 1 m보다 길게, 세 걸음 남짓.
+     */
+    val guideEnterM: Float = 2f,
+    /** 유도보행에서 1자 블록을 벗어난 채 이 시간(s)이 지나면 기본 보행. 치우침 말([driftHoldS] 1 s)이 먼저 나오고 돌아올 틈을 두는 자체 선택 3 s. */
+    val guideExitS: Float = 3f,
 )
 
 enum class BlockMethod { LINES, ARMS }

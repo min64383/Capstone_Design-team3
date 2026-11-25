@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- 말 표시(M72): 막대 넷, 움직이지 않음. 작동 화면 말 줄 위 가운데에 고정. 중계 페이지 #spk와 같은 도형 -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="26dp"
+    android:height="22dp"
+    android:viewportWidth="26"
+    android:viewportHeight="24">
+    <path android:fillColor="@color/run_text2" android:pathData="M3,8h0a2,2 0,0 1,2 2v4a2,2 0,0 1,-2 2h0a2,2 0,0 1,-2 -2v-4a2,2 0,0 1,2 -2z" />
+    <path android:fillColor="@color/run_text2" android:pathData="M10,3h0a2,2 0,0 1,2 2v14a2,2 0,0 1,-2 2h0a2,2 0,0 1,-2 -2v-14a2,2 0,0 1,2 -2z" />
+    <path android:fillColor="@color/run_text2" android:pathData="M17,6h0a2,2 0,0 1,2 2v8a2,2 0,0 1,-2 2h0a2,2 0,0 1,-2 -2v-8a2,2 0,0 1,2 -2z" />
+    <path android:fillColor="@color/run_text2" android:pathData="M24,9h0a2,2 0,0 1,2 2v2a2,2 0,0 1,-2 2h0a2,2 0,0 1,-2 -2v-2a2,2 0,0 1,2 -2z" />
+</vector>

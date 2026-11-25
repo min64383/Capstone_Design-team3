@@ -19,7 +19,9 @@ import hearspace.app.ar.ArSessionManager
 import hearspace.app.ar.SemanticSaver
 import hearspace.app.ar.displayRotationCompat
 import hearspace.app.loadHrtf
+import hearspace.app.runtime.AndroidTts
 import hearspace.app.runtime.RunSession
+import hearspace.app.runtime.SpeechOut
 import hearspace.app.runtime.ThermalMonitor
 import hearspace.core.audio.Hrtf
 import hearspace.core.session.SessionFormat
@@ -51,6 +53,9 @@ class LiveScreen : Activity(), GLSurfaceView.Renderer {
     private val replay get() = sessionDir != null
     private val ui = Handler(Looper.getMainLooper())
     private var run: RunSession? = null
+    /** 상황 말(블록·계단·차 등): 사용자 모드와 같은 TTS·말 내보내기(M72, 사용자 "상황말 나오게 해줘"). 화면이 앞에 있을 때만 */
+    private var tts: AndroidTts? = null
+    private var speechOut: SpeechOut? = null
 
     /** GL 스레드 → UI: 카메라 화면에 투영한 물체 대표점. */
     private val markers = AtomicReference<List<DebugOverlay.Marker>>(emptyList())
@@ -96,6 +101,8 @@ class LiveScreen : Activity(), GLSurfaceView.Renderer {
         super.onResume()
         ar.resume()?.let { Toast.makeText(this, it, Toast.LENGTH_LONG).show() }
         feeder.session = ar.session
+        tts = AndroidTts(this, config, onDuckingChanged = { active -> run?.pipeline?.speechActive = active }, onEvent = { e -> speechOut?.onEvent(e) })
+        speechOut = tts?.let { SpeechOut(it, feeder::nowNs) }
         if (ar.session != null) startRun()
         glView.onResume()
         ui.post(uiTick)
@@ -106,6 +113,9 @@ class LiveScreen : Activity(), GLSurfaceView.Renderer {
         ui.removeCallbacks(uiTick)
         glView.onPause()
         stopRun()
+        speechOut = null
+        tts?.close()
+        tts = null
         ar.pause()
     }
 
@@ -132,6 +142,20 @@ class LiveScreen : Activity(), GLSurfaceView.Renderer {
         val dir = sessionDir?.let { File(it, "run_log/$stamp") } ?: File(runs, stamp)
         feeder.resetClock()
         run = RunSession(this, config, hrtf, dir, feeder::nowNs).also { feeder.pipeline = it.pipeline; feeder.surface = it.surface; feeder.signals = it.signals }
+        // 상황 말: 사용자 모드(UserModeActivity.start)와 같은 연결. 느린 경로 → UI 스레드 → 말 내보내기, 내보내기가 없으면 되돌린다
+        run?.let {
+            val p = it.pipeline
+            p.speechActive = tts?.isDucked == true
+            speechOut?.pipeline = p
+            speechOut?.logger = it.logger
+            p.onSpeech = { said ->
+                ui.post {
+                    val so = speechOut
+                    if (so != null && so.pipeline === p) said.forEach(so::situation)
+                    else { said.forEach { u -> p.unsay(u.key) }; p.speechLevel.set(0) }
+                }
+            }
+        }
         // 재생 모드 "의미 영상 저장"(M49 0단계 0b): 자동 시작 인자로 요청했고 의미 모드가 켜졌으면 재생 세션 폴더의 semantic/에 쓴다
         // (같은 세션을 다시 재생하면 덮어씀). M61: 요청 없이 켜면 저장이 라벨을 가로채 의미 모드 재생 시험이 라벨 없이 돌았다
         if (replay && saveSemantic && ar.depthSupport?.semanticEnabled == true) feeder.semanticSaver = SemanticSaver(sessionDir!!)
@@ -139,6 +163,9 @@ class LiveScreen : Activity(), GLSurfaceView.Renderer {
     }
 
     private fun stopRun() {
+        tts?.stop()
+        speechOut?.pipeline = null
+        speechOut?.logger = null
         feeder.pipeline = null
         feeder.surface = null
         feeder.signals = null

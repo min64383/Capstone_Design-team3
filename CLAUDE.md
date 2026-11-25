@@ -18,7 +18,7 @@
 - 데모 중계 서버: `./gradlew :viewer:relay` (설정 `app/src/bench/assets/relay.json`, 열쇠는 git 밖 `data/relay/server.json`), PC 녹화 재생기: `./gradlew :viewer:relayReplay -Psession=<세션>` (M66)
 - 사운드팩(앱이 낼 수 있는 소리를 앱 설정으로 WAV + index.html): `./gradlew :viewer:soundPack` (결과 git 밖 `data/soundpack/<시각>`, M70)
 - 영상 데모(M73): 장면 `tools/demo/scenes/` → `./gradlew :viewer:videoDemo [-Pscene=<id>]`(WAV·시간표) → `python tools/demo/video_demo.py [--check]`(MP4, 결과 git 밖 `data/videodemo/out`)
-- 데모 중계 S10(bench 빌드): 켜기 `powershell -File tools/relay/s10.ps1 -Url http://<PC IP>:8080`, 끄기 `-Off`, 말 소리 만들기·가져오기 `-Clips`. 업로더 시험 `./gradlew :app:testBenchUnitTest` (M67)
+- 데모 중계 S10(bench 빌드): 켜기 `powershell -File tools/relay/s10.ps1 -Url http://<PC IP>:8080`, 끄기 `-Off`, 말 소리 만들기·가져오기 `-Clips`, S10을 바꾸면 `-Install`(같은 작업 트리로 bench 설치 + 말 소리 모음 + 중계 서버 다시 띄우기, 모두가 S10과 같은 소리). 업로더 시험 `./gradlew :app:testBenchUnitTest` (M67)
 - 데모 중계 집 앞단(HTTPS): `powershell -File tools/relay/home.ps1` (DuckDNS 갱신 + Caddy, 이름·토큰은 git 밖 `data/relay/ddns.json`, `-Local`은 PC 확인용 http://localhost:8081). S10은 `s10.ps1 -Url https://<이름>.duckdns.org`. 묵힘 분석 `python tools/analysis/relay_hold.py data/relay/runs/<시각> --s10-run <S10 실행 폴더>` (M68)
 - 로그: `adb logcat -s HEARSPACE`
 

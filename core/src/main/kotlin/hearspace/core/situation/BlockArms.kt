@@ -88,17 +88,21 @@ class BlockArms(private val cfg: SituationConfig, private val key: (Float, Float
         val anyBlock = bz.anyBlock
         val right = norm(fDeg + 90f) // rightOf(f) = (-fz, fx)
         val left = norm(fDeg - 90f)
+        fun turn(side: Float): ArmKind {
+            val isRight = angDiff(side, right) < angDiff(side, left)
+            return if (sideClear(counts, cx, cz, if (isRight) left else right)) (if (isRight) ArmKind.TURN_RIGHT else ArmKind.TURN_LEFT) else ArmKind.UNSEEN
+        }
         val kind = when (b) {
             Beyond.STAIRS_LABEL -> ArmKind.STAIRS_LABEL
-            Beyond.DROP -> ArmKind.STAIRS_DOWN
+            // 내려가는 계단은 가로줄 규칙([rowStairs])만 말한다(2026-11-25: 꺾임 모퉁이 너머를 낙차로 봐 거짓 '내려가는 계단' S10 3회 모두, 진짜 내려가는
+            // 계단 11-24 둘·11-25 둘은 모두 가로줄 규칙이 말함). 계단 앞 가로줄은 시설 폭으로 선 양쪽에 깔리고 꺾임 팔은 한쪽뿐이라, 옆 팔이 하나면
+            // 너머 깊이가 낮게 재져도 꺾임(135720 모퉁이 너머 평평한 광장을 0.5 m 넘게 낮게 잼, S10 3회 모두 꺾임 놓침), 둘 이상이면 가로줄일 수 있어 모름
+            Beyond.DROP -> if (sides.size == 1) turn(sides[0]) else ArmKind.UNKNOWN
             // 높게 재진 너머는 올라가는 계단·문·벽을 깊이로 가르지 못한다(154133 계단·154036 유리문 둘 다 약 0.3 m 높음, 2026-11-25) → 끝만 말함
             Beyond.RAISED_WALK, Beyond.RAISED_BUILDING, Beyond.HAZARD -> ArmKind.END
             Beyond.FLOOR -> when {
                 sides.size >= 2 -> ArmKind.FORK
-                sides.size == 1 -> {
-                    val isRight = angDiff(sides[0], right) < angDiff(sides[0], left)
-                    if (sideClear(counts, cx, cz, if (isRight) left else right)) (if (isRight) ArmKind.TURN_RIGHT else ArmKind.TURN_LEFT) else ArmKind.UNSEEN
-                }
+                sides.size == 1 -> turn(sides[0])
                 // 인도 위 끝: 너머에 블록 칠이 전혀 없고(칠 끊김을 끝으로 보지 않게, 옛 끝 규칙) 양옆이 블록 아닌 바닥으로 관측
                 else -> if (!anyBlock && sideClear(counts, cx, cz, right) && sideClear(counts, cx, cz, left)) ArmKind.END else ArmKind.UNSEEN
             }
@@ -143,8 +147,15 @@ class BlockArms(private val cfg: SituationConfig, private val key: (Float, Float
         var row = Float.NaN
         while (a <= cfg.rowMaxM + 1e-4f) {
             var n = 0
-            for (j in -6..6) if (block(counts, user.x + h.x * a + rx * j * cfg.gridCellM, user.z + h.z * a + rz * j * cfg.gridCellM)) n++
-            if (n >= cfg.rowMinCells) { row = a; break }
+            var lo = 0
+            var hi = 0
+            for (j in -6..6) if (block(counts, user.x + h.x * a + rx * j * cfg.gridCellM, user.z + h.z * a + rz * j * cfg.gridCellM)) {
+                n++
+                if (j <= 0) lo++
+                if (j >= 0) hi++
+            }
+            // 계단 앞 가로줄은 시설 폭이라 진행 방향 양쪽에 깔린다: 양쪽 각각 rowMinCells의 절반 이상(2026-11-25: 한쪽으로만 뻗은 꺾임 모퉁이를 가로줄로 봐 거짓 '내려가는 계단')
+            if (n >= cfg.rowMinCells && lo >= cfg.rowMinCells / 2 && hi >= cfg.rowMinCells / 2) { row = a; break }
             a += cfg.gridCellM
         }
         if (row.isNaN()) return null

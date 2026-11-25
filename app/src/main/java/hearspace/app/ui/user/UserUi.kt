@@ -37,7 +37,7 @@ private fun View.asHeading() {
     if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) isAccessibilityHeading = true
 }
 
-private fun Context.attrResource(attr: Int): Int = TypedValue().also { theme.resolveAttribute(attr, it, true) }.resourceId
+internal fun Context.attrResource(attr: Int): Int = TypedValue().also { theme.resolveAttribute(attr, it, true) }.resourceId
 
 /** 화면을 만들고 본문을 돌려준다. */
 internal fun Activity.userScreen(title: String): LinearLayout {

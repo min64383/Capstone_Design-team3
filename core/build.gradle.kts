@@ -88,8 +88,8 @@ tasks.register<JavaExec>("replay") {
     systemProperty("hearspace.gitHash", gitHash)
     // M63: 프로파일용 JVM 인자(예: -PreplayJvmArgs="-XX:StartFlightRecording=filename=rec.jfr,settings=profile")
     (project.findProperty("replayJvmArgs") as String?)?.let { jvmArgs(it.split(' ').filter(String::isNotBlank)) }
-    val paths = setOf("session", "out", "slowFrom", "overridesFile", "alignFrom")
-    args = listOf("session", "out", "slowMs", "slowFrom", "overrides", "overridesFile", "substitute", "alignFrom", "depthNoisePerM", "rgbFrom", "depthFrom", "depthFromDelayMs", "movingFrom", "mapInserts", "cellTrace", "labelRemap", "signalFullRes", "blockCells").mapNotNull { k ->
+    val paths = setOf("session", "out", "slowFrom", "slowSampleFrom", "overridesFile", "alignFrom")
+    args = listOf("session", "out", "slowMs", "slowFrom", "slowSampleFrom", "seed", "overrides", "overridesFile", "substitute", "alignFrom", "depthNoisePerM", "rgbFrom", "depthFrom", "depthFromDelayMs", "movingFrom", "mapInserts", "cellTrace", "labelRemap", "signalFullRes", "blockCells").mapNotNull { k ->
         (project.findProperty(k) as String?)?.let { v -> "$k=${if (k in paths) rootProject.file(v).absolutePath else v}" }
     }
 }

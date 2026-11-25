@@ -239,11 +239,12 @@ class RelayPlaybackTest {
 
     @Test
     fun `묶음 JSON은 쓴 그대로 읽힌다`() {
-        val screen = UserScreen.of(true, null, false, GuidanceState.NORMAL, MapHealth.OK, Band.STOP, -20.5f)
+        val screen = UserScreen.of(true, null, false, GuidanceState.NORMAL, MapHealth.OK,
+            AudioCmd(3, -20.5f, 0.84f, Band.STOP, SoundKind.FLOOR_PULSE, 12f, true, 0.5f), "블록 끝, 2미터", -1f, 1f)
         val b = RelayBatch("세션", 7, s10T0, RelayStart("abc123", layers.take(2)),
             listOf(richSample(30), richSample(31), RelaySample(s10T0, GuidanceState.PAUSED, Float.NaN, true, emptyList())),
             listOf(RelayEvent.Alert(s10T0, AlertKind.START), RelayEvent.SayStart(s10T0 + 1, "블록 오른쪽으로 꺾임"), RelayEvent.SayEnd(s10T0 + 2)),
-            listOf(RelayScreen(s10T0, screen, null), RelayScreen(s10T0 + 5, UserScreen.of(false, null, false, null, null, null, null), "고지 \"글\"\n둘째 줄")))
+            listOf(RelayScreen(s10T0, screen, null), RelayScreen(s10T0 + 5, UserScreen.of(false, null, false, null, null, null, null, -1f, 1f), "고지 \"글\"\n둘째 줄")))
         assertEquals(b, RelayBatch.parse(b.toJson()))
         assertThrows(IllegalArgumentException::class.java) { RelayBatch.parse("""{"v": 2}""") }
     }

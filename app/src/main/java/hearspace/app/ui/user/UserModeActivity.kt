@@ -5,7 +5,6 @@ import android.app.Activity
 import android.content.Intent
 import android.content.pm.PackageManager
 import android.content.res.ColorStateList
-import android.graphics.Color
 import android.graphics.Typeface
 import android.graphics.drawable.GradientDrawable
 import android.opengl.GLSurfaceView
@@ -17,6 +16,8 @@ import android.text.SpannableStringBuilder
 import android.text.Spanned
 import android.text.style.ForegroundColorSpan
 import android.text.style.StyleSpan
+import android.text.TextUtils
+import android.util.TypedValue
 import android.util.Log
 import android.view.GestureDetector
 import android.view.Gravity
@@ -31,6 +32,7 @@ import android.view.accessibility.AccessibilityNodeInfo
 import android.view.accessibility.AccessibilityNodeInfo.AccessibilityAction
 import android.widget.FrameLayout
 import android.widget.ImageButton
+import android.widget.ImageView
 import android.widget.LinearLayout
 import android.widget.Space
 import android.widget.TextView
@@ -94,6 +96,13 @@ class UserModeActivity : Activity(), GLSurfaceView.Renderer {
     private lateinit var subText: TextView
     private lateinit var guide: GuideView
     private lateinit var labelText: TextView
+    private lateinit var detailDir: TextView
+    private lateinit var detailDist: TextView
+    private lateinit var detailHeight: TextView
+    private lateinit var detailSep1: TextView
+    private lateinit var detailSep2: TextView
+    private lateinit var speechIcon: ImageView
+    private lateinit var speechText: TextView
     private lateinit var hintText: TextView
     private lateinit var noticeText: TextView
     private lateinit var settingsButton: ImageButton
@@ -109,6 +118,8 @@ class UserModeActivity : Activity(), GLSurfaceView.Renderer {
     private var foreground = false
     private var endedByUser = false
     private var ttsFailure: String? = null
+    /** 지금 말하는 TTS 줄(id, 문장): 시작 사건부터 같은 줄의 끝·끊김·오류 사건까지(M72 말 줄). UI 스레드만. */
+    private var speaking: Pair<String, String>? = null
     private var screenReaderActive = false
     private var lastDeviceMs = 0L
     /** M65 실험 E1(개발 도구 빌드, 인자 `ttsBench` = 되풀이 수): 안내를 켠 채 고정 문구의 TTS 시작 지연을 잰다. */
@@ -188,6 +199,10 @@ class UserModeActivity : Activity(), GLSurfaceView.Renderer {
         tts = AndroidTts(this, config, onDuckingChanged = { active ->
             run?.pipeline?.speechActive = active
         }, onEvent = { event ->
+            // UI 스레드(AndroidTts가 main으로 넘겨 부른다)
+            if (event.state == AndroidTts.State.STARTED) speaking = event.id to event.text
+            else if (speaking?.first == event.id) speaking = null
+            if (foreground) ui.post { if (foreground) render() }
             RunTap.current?.speech(event)
             speechOut?.onEvent(event)
             bench?.onEvent(event)
@@ -246,34 +261,81 @@ class UserModeActivity : Activity(), GLSurfaceView.Renderer {
             renderMode = GLSurfaceView.RENDERMODE_CONTINUOUSLY
             importantForAccessibility = View.IMPORTANT_FOR_ACCESSIBILITY_NO
         }
-        // 아래 글들은 모두 버튼(root)의 설명으로 읽힌다
+        // 아래 글들은 모두 버튼(root)의 설명으로 읽힌다.
+        // M72 칸 고정 배치(milepost demo-relay/M72-design 표 3): 칸마다 높이가 정해져 있고(8 dp 격자) 내용이 없어도 자리를 지킨다.
+        // 그래서 정보 줄·말 줄이 나타나고 사라져도 다른 글자·기호가 위아래로도 좌우로도 움직이지 않는다. 중계 페이지 index.html과 같은 칸
         titleText = TextView(this).apply {
             textSize = 40f
             typeface = Typeface.DEFAULT_BOLD
             gravity = Gravity.CENTER
+            maxLines = 1
             compoundDrawablePadding = dp(12)
             importantForAccessibility = View.IMPORTANT_FOR_ACCESSIBILITY_NO
         }
         subText = TextView(this).apply {
-            textSize = 18f
             setTextColor(gray)
-            gravity = Gravity.CENTER
-            setPadding(dp(28), dp(6), dp(28), 0)
+            gravity = Gravity.TOP or Gravity.CENTER_HORIZONTAL
+            setPadding(dp(28), dp(4), dp(28), 0)
+            // 두 줄(18)까지. 음성 오류 글처럼 길면 칸을 늘리지 않고 글자를 줄인다
+            setAutoSizeTextTypeUniformWithConfiguration(12, 18, 1, TypedValue.COMPLEX_UNIT_SP)
             importantForAccessibility = View.IMPORTANT_FOR_ACCESSIBILITY_NO
         }
         guide = GuideView(this).apply { importantForAccessibility = View.IMPORTANT_FOR_ACCESSIBILITY_NO }
         labelText = TextView(this).apply {
             typeface = Typeface.DEFAULT_BOLD
             gravity = Gravity.CENTER
-            setLineSpacing(0f, 1.1f)
+            maxLines = 1
             importantForAccessibility = View.IMPORTANT_FOR_ACCESSIBILITY_NO
+        }
+        // 정보 줄: 거리를 가운데 고정하고 방향은 그 왼쪽(오른쪽 맞춤), 높이는 그 오른쪽(왼쪽 맞춤). 숫자는 폭이 같은 숫자
+        fun detailCell(g: Int, color: Int) = TextView(this).apply {
+            textSize = 22f
+            setTextColor(color)
+            gravity = g or Gravity.CENTER_VERTICAL
+            maxLines = 1
+            fontFeatureSettings = "tnum"
+            importantForAccessibility = View.IMPORTANT_FOR_ACCESSIBILITY_NO
+        }
+        detailDir = detailCell(Gravity.END, white)
+        detailDist = detailCell(Gravity.CENTER_HORIZONTAL, white)
+        detailHeight = detailCell(Gravity.START, white)
+        detailSep1 = detailCell(Gravity.CENTER_HORIZONTAL, gray).apply { text = "·" }
+        detailSep2 = detailCell(Gravity.CENTER_HORIZONTAL, gray).apply { text = "·" }
+        val detailRow = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            setPadding(dp(12), 0, dp(12), 0)
+            addView(detailDir, LinearLayout.LayoutParams(0, MATCH_PARENT, 1f))
+            addView(detailSep1, LinearLayout.LayoutParams(dp(22), MATCH_PARENT))
+            addView(detailDist, LinearLayout.LayoutParams(WRAP_CONTENT, MATCH_PARENT))
+            addView(detailSep2, LinearLayout.LayoutParams(dp(22), MATCH_PARENT))
+            addView(detailHeight, LinearLayout.LayoutParams(0, MATCH_PARENT, 1f))
+        }
+        // 말 줄: 말 표시를 칸 위 가운데에 고정하고 문장은 그 아래(두 줄까지). 표시를 문장 옆에 두면 문장 길이에 따라 옆으로 움직인다
+        speechIcon = ImageView(this).apply {
+            setImageResource(R.drawable.ic_speaking)
+            importantForAccessibility = View.IMPORTANT_FOR_ACCESSIBILITY_NO
+        }
+        speechText = TextView(this).apply {
+            textSize = 21f
+            setTextColor(white)
+            gravity = Gravity.CENTER_HORIZONTAL
+            maxLines = 2
+            ellipsize = TextUtils.TruncateAt.END
+            importantForAccessibility = View.IMPORTANT_FOR_ACCESSIBILITY_NO
+        }
+        val speechRow = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            gravity = Gravity.CENTER_HORIZONTAL
+            setPadding(dp(28), dp(4), dp(28), 0)
+            addView(speechIcon, LinearLayout.LayoutParams(dp(26), dp(22)))
+            addView(speechText, LinearLayout.LayoutParams(MATCH_PARENT, WRAP_CONTENT).apply { topMargin = dp(6) })
         }
         hintText = TextView(this).apply {
             textSize = 18f
             setTextColor(gray)
-            gravity = Gravity.CENTER
+            gravity = Gravity.TOP or Gravity.CENTER_HORIZONTAL
             setLineSpacing(0f, 1.3f)
-            setPadding(dp(24), dp(16), dp(24), dp(28))
+            setPadding(dp(24), dp(12), dp(24), 0)
             importantForAccessibility = View.IMPORTANT_FOR_ACCESSIBILITY_NO
         }
         noticeText = TextView(this).apply {
@@ -285,28 +347,33 @@ class UserModeActivity : Activity(), GLSurfaceView.Renderer {
         }
         // 설정 단추: 안내 중이 아닐 때만. TalkBack에서는 화면 버튼과 따로 잡힌다
         settingsButton = ImageButton(this).apply {
-            setImageResource(R.drawable.ic_settings)
+            setImageResource(R.drawable.ic_menu)
             imageTintList = ColorStateList.valueOf(white)
-            background = GradientDrawable().apply {
-                shape = GradientDrawable.OVAL
-                setColor(Color.TRANSPARENT)
-                setStroke(dp(2), getColor(R.color.run_outline))
-            }
+            // 테두리 없이 그림만(사용자 요청), 누르면 테두리 없는 물결(다른 화면의 뒤로 단추와 같음)
+            setBackgroundResource(attrResource(android.R.attr.selectableItemBackgroundBorderless))
             contentDescription = "설정"
             setOnClickListener { startActivity(Intent(this@UserModeActivity, SettingsActivity::class.java)) }
         }
+        // 아래 두 칸(말 줄 + 조작 안내). 시작 전에는 이 자리에 고지 글을 겹쳐 보인다(그때 두 칸은 비어 있다)
+        val bottom = FrameLayout(this).apply {
+            addView(LinearLayout(context).apply {
+                orientation = LinearLayout.VERTICAL
+                addView(speechRow, LinearLayout.LayoutParams(MATCH_PARENT, dp(SPEECH_DP)))
+                addView(hintText, LinearLayout.LayoutParams(MATCH_PARENT, dp(HINTS_DP)))
+            }, FrameLayout.LayoutParams(MATCH_PARENT, MATCH_PARENT))
+            addView(noticeText, FrameLayout.LayoutParams(MATCH_PARENT, WRAP_CONTENT, Gravity.BOTTOM))
+        }
         val column = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
-            gravity = Gravity.CENTER_HORIZONTAL
-            addView(titleText, LinearLayout.LayoutParams(WRAP_CONTENT, WRAP_CONTENT).apply { topMargin = dp(44) })
-            addView(subText, LinearLayout.LayoutParams(MATCH_PARENT, WRAP_CONTENT))
-            // 그림과 그 아래 글자를 한 덩어리로 가운데에(위아래 빈칸이 남는 자리를 나눠 가짐). 그림 높이는 show()에서
+            // 폭은 글자에 맞춰 가운데에: 안내 중 점(compound drawable)은 칸의 왼쪽 끝에 붙으므로 칸이 화면 폭이면 점이 화면 왼쪽 끝으로 간다
+            addView(titleText, LinearLayout.LayoutParams(WRAP_CONTENT, dp(56)).apply { topMargin = dp(32); gravity = Gravity.CENTER_HORIZONTAL })
+            addView(subText, LinearLayout.LayoutParams(MATCH_PARENT, dp(56)))
             addView(Space(context), LinearLayout.LayoutParams(MATCH_PARENT, 0, 1f))
             addView(guide, LinearLayout.LayoutParams(MATCH_PARENT, dp(GUIDE_DP)))
-            addView(labelText, LinearLayout.LayoutParams(MATCH_PARENT, WRAP_CONTENT))
+            addView(labelText, LinearLayout.LayoutParams(MATCH_PARENT, dp(48)))
+            addView(detailRow, LinearLayout.LayoutParams(MATCH_PARENT, dp(40)))
             addView(Space(context), LinearLayout.LayoutParams(MATCH_PARENT, 0, 1f))
-            addView(hintText, LinearLayout.LayoutParams(MATCH_PARENT, WRAP_CONTENT))
-            addView(noticeText, LinearLayout.LayoutParams(MATCH_PARENT, WRAP_CONTENT))
+            addView(bottom, LinearLayout.LayoutParams(MATCH_PARENT, dp(SPEECH_DP + HINTS_DP)))
         }
         val detector = GestureDetector(this, object : GestureDetector.SimpleOnGestureListener() {
             override fun onDown(e: MotionEvent) = true
@@ -444,6 +511,7 @@ class UserModeActivity : Activity(), GLSurfaceView.Renderer {
     private fun stop() {
         RunTap.current?.run(null)
         tts?.stop()
+        speaking = null
         speechOut?.pipeline = null
         speechOut?.logger = null
         ui.removeCallbacks(uiTick)
@@ -464,6 +532,7 @@ class UserModeActivity : Activity(), GLSurfaceView.Renderer {
         speechOut = null
         tts?.close()
         tts = null
+        speaking = null
         // 앱을 떠나면(화면 잠금·전화) 안내를 멈춘다. 돌아오면 다시 두 번 탭으로 시작. 설정 화면은 안내 중이 아닐 때만 열린다
         // VERIFY: 화면이 꺼지는 중(onPause)에도 진동이 전달되는지(Android 13+ 백그라운드 진동 제한) 기기에서 확인
         if (run != null) stopWithNotice("화면을 떠나 안내를 멈췄습니다", haptics::exit) else stop()
@@ -515,8 +584,10 @@ class UserModeActivity : Activity(), GLSurfaceView.Renderer {
             paused = r?.pipeline?.paused == true,
             state = g?.state,
             mapHealth = r?.pipeline?.snapshot?.get()?.mapHealth,
-            band = cmd?.band,
-            azimuthDeg = cmd?.azimuthDeg,
+            cmd = cmd,
+            speech = speaking?.second,
+            heightLowM = config.sonify.heightLowM,
+            heightHighM = config.sonify.heightHighM,
         )
         if (s.spoken != spokenLine) {
             spokenLine = s.spoken
@@ -558,31 +629,29 @@ class UserModeActivity : Activity(), GLSurfaceView.Renderer {
     private fun show(s: UserScreen) {
         shown = s
         RunTap.current?.screen(s)
-        titleText.visibility = if (s.title == null) View.GONE else View.VISIBLE
-        titleText.text = s.title
+        // 칸은 늘 자리를 지키고 글만 바꾼다(M72): 숨길 때도 GONE을 쓰지 않는다
+        titleText.text = s.title.orEmpty()
         titleText.setTextColor(getColor(if (s.titleTone == UserScreen.Tone.CAUTION) R.color.run_caution else R.color.run_text))
-        titleText.setCompoundDrawablesRelativeWithIntrinsicBounds(if (s.titleTone == UserScreen.Tone.GUIDE) guideDot else null, null, null, null)
-        val detail = listOfNotNull(s.sub, ttsFailure).joinToString("\n")
-        subText.visibility = if (detail.isEmpty()) View.GONE else View.VISIBLE
-        subText.text = detail
+        titleText.setCompoundDrawablesRelativeWithIntrinsicBounds(if (s.titleTone == UserScreen.Tone.GUIDE && s.title != null) guideDot else null, null, null, null)
+        subText.text = listOfNotNull(s.sub, ttsFailure).joinToString("\n")
         guide.visual = s.visual
-        // 그림 칸: 시안의 가장 큰 그림(화살표 230 dp)이 들어가는 높이, 시작 전 로고(150 dp)는 글자와 가깝게
-        val guideHeight = dp(if (s.visual == UserScreen.Visual.Logo) LOGO_DP else GUIDE_DP)
-        if (guide.layoutParams.height != guideHeight) guide.layoutParams = guide.layoutParams.apply { height = guideHeight }
-        labelText.visibility = if (s.label == null) View.GONE else View.VISIBLE
-        labelText.text = s.label
-        labelText.textSize = when (s.labelTone) {
-            UserScreen.Tone.STOP -> 36f
-            UserScreen.Tone.CAUTION -> 30f
-            else -> 34f
-        }
+        val start = s.idle && s.visual == UserScreen.Visual.Logo
+        labelText.text = s.label.orEmpty()
+        labelText.textSize = if (start) 28f else 34f
         labelText.setTextColor(getColor(when {
             s.label == null || s.visual !is UserScreen.Visual.Arrow -> R.color.run_text
             s.labelTone == UserScreen.Tone.STOP -> R.color.run_stop
             else -> R.color.run_caution
         }))
+        val d = s.detail
+        detailDir.text = d?.direction.orEmpty()
+        detailDist.text = d?.distance.orEmpty()
+        detailHeight.text = d?.height.orEmpty()
+        detailSep1.visibility = if (d != null) View.VISIBLE else View.INVISIBLE
+        detailSep2.visibility = if (d?.height != null) View.VISIBLE else View.INVISIBLE
+        speechIcon.visibility = if (s.speech != null) View.VISIBLE else View.INVISIBLE
+        speechText.text = s.speech.orEmpty()
         // "두 번 탭 · 일시정지": 동작은 흰 굵은 글, 뜻은 회색
-        hintText.visibility = if (s.hints.isEmpty()) View.INVISIBLE else View.VISIBLE
         hintText.text = SpannableStringBuilder().apply {
             s.hints.forEachIndexed { i, (gesture, meaning) ->
                 if (i > 0) append("\n")
@@ -594,7 +663,7 @@ class UserModeActivity : Activity(), GLSurfaceView.Renderer {
             }
         }
         settingsButton.visibility = if (s.idle) View.VISIBLE else View.GONE
-        noticeText.visibility = if (s.idle && s.visual == UserScreen.Visual.Logo) View.VISIBLE else View.GONE
+        noticeText.visibility = if (start) View.VISIBLE else View.INVISIBLE
     }
 
     /** "안내 중" 앞의 청록 점(앱이 동작 중임만 보인다). */
@@ -638,8 +707,10 @@ class UserModeActivity : Activity(), GLSurfaceView.Renderer {
         private const val UI_REFRESH_MS = 200L
         /** 스플래시 최소 시간(ms): 로고가 보일 만큼(직접 정한 값). */
         private const val SPLASH_MIN_MS = 800L
+        /** 작동 화면 칸 높이(dp, M72 설계 표 3): 기호 240(시안의 가장 큰 그림 화살표 230이 드는 높이), 말 줄 88, 조작 안내 88. */
         private const val GUIDE_DP = 240
-        private const val LOGO_DP = 176
+        private const val SPEECH_DP = 88
+        private const val HINTS_DP = 88
         private const val PREFS = "user_mode"
         private const val PREF_NOTICE_READ = "arcoreNoticeRead"
         /** E1 인자(되풀이 수)와 안내 시작 뒤 측정까지 기다리는 시간(ARCore 추적이 자리 잡게, 측정 도구 값). */
