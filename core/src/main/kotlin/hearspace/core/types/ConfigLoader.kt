@@ -480,7 +480,7 @@ object ConfigLoader {
                     junctionMergeM = positive("junctionMergeM"),
                     confirmFrames = atLeast1("confirmFrames"),
                     stairsBeyondM = nonNegative("stairsBeyondM"),
-                    stairsDepthExcessM = positive("stairsDepthExcessM"),
+                    stairsDepthExcessM = nonNegative("stairsDepthExcessM"),
                     stairsDepthFraction = unit("stairsDepthFraction"),
                     stairsMinPoints = atLeast1("stairsMinPoints"),
                     dropMinM = positive("dropMinM"),

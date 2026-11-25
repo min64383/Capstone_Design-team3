@@ -296,8 +296,11 @@ class Situations(
             val o = byId[cmd.obstacleId] ?: continue
             if (((o.repPointW - user).horizontal() dot h) <= 0f) continue
             // 상자 네 모서리(수평)의 블록 선 옆 거리 범위가 블록 띠 ±onBlockBandM과 겹쳐야 블록 위(M51)
-            val lats = listOf(o.aabbMinW, o.aabbMaxW, Vec3(o.aabbMinW.x, 0f, o.aabbMaxW.z), Vec3(o.aabbMaxW.x, 0f, o.aabbMinW.z)).map { line.lateral(it) }
+            val corners = listOf(o.aabbMinW, o.aabbMaxW, Vec3(o.aabbMinW.x, 0f, o.aabbMaxW.z), Vec3(o.aabbMaxW.x, 0f, o.aabbMinW.z))
+            val lats = corners.map { line.lateral(it) }
             if (lats.min() > cfg.onBlockBandM || lats.max() < -cfg.onBlockBandM) continue
+            // 블록이 끝난 너머(문·계단 단)는 블록 위가 아니다(2026-11-25 녹화: 블록 끝의 문, 계단 앞 가로줄 너머 계단 단): 상자 가까운 끝이 선의 먼 끝을 넘으면 뺀다
+            if (corners.minOf { line.t(it) } > line.tMax) continue
             req.add(SpeechRequest("obj#${o.id}", "블록 위 물체, ${meters(cmd.distanceM)}미터", 2, inp.snapshot.tCaptureNs))
         }
     }
@@ -426,8 +429,9 @@ class Situations(
             }
             if (d.kind == ArmKind.END || d.kind == ArmKind.STAIRS_DOWN || d.kind == ArmKind.STAIRS_UP) endAhead = if (endAhead.isNaN()) d.aheadM else minOf(endAhead, d.aheadM)
             // 선의 시작(M51 사용자 규칙을 ARMS에도): 블록이 없다가 선을 새로 잡은 자리에서 endMaxM + junctionMergeM 안의 갈림·꺾임은 시작 구조(ㅗ자 정지 가로줄)로 보고
-            // 말하지 않는다(T01 162 s 골목에서 인도 연석 점형 줄로 올라섬)
-            if ((key == "turn") && episodeStart?.let { (d.center - it).horizontal().norm() <= cfg.endMaxM + cfg.junctionMergeM } == true) continue
+            // 말하지 않는다(T01 162 s 골목에서 인도 연석 점형 줄로 올라섬). 보행 상태가 켜져 있으면(guideEnterM > 0) 쓰지 않는다(2026-11-25 녹화 135720:
+            // 녹화 시작 6~7 m 앞 진짜 갈림을 3회 모두 놓침): 블록 위를 guideEnterM 걸어야 블록 말을 하므로 그때 시작 구조는 이미 뒤에 있다
+            if ((key == "turn") && cfg.guideEnterM <= 0f && episodeStart?.let { (d.center - it).horizontal().norm() <= cfg.endMaxM + cfg.junctionMergeM } == true) continue
             // 같은 자리(junctionMergeM 안)·같은 종류가 서로 다른 노면 영상 [confirmFrames]장에서 이어져야 말한다(M69: T01 거짓 갈림 4873·5077f는 한 판단뿐,
             // 진짜 갈림·꺾임은 2~8번 이어짐). 계단 칸 확인·가로줄 계단과 같은 규칙
             val cand = armCands.firstOrNull { it.kind == d.kind && (it.center - d.center).horizontal().norm() <= cfg.junctionMergeM }
@@ -502,7 +506,9 @@ class Situations(
         val nearest = cells.minByOrNull { (it.centerW - user) dot h } ?: return Float.NaN to ""
         val ahead = (nearest.centerW - user) dot h
         val up = inp.snapshot.obstacles.any { o -> cells.any { c -> c.centerW.x in o.aabbMinW.x - cfg.gridCellM..o.aabbMaxW.x + cfg.gridCellM && c.centerW.z in o.aabbMinW.z - cfg.gridCellM..o.aabbMaxW.z + cfg.gridCellM } }
-        val down = !up && downEvidence(inp.depth, user, h, ahead)
+        // stairsDepthExcessM 0 = 라벨 규칙은 내려감을 말하지 않음(앱, 2026-11-25: 올라가는 계단 둘을 '내려가는'으로 말함, 0.1 m 초과는 깊이 흔들림 안).
+        // 내려가는 계단은 가로줄 규칙([rowStairs], 가로줄 너머 0.5 m 넘게 낮음)이 말한다
+        val down = !up && cfg.stairsDepthExcessM > 0f && downEvidence(inp.depth, user, h, ahead)
         val key = "stairs"
         when {
             down -> req.add(SpeechRequest(key, "내려가는 계단, ${meters(ahead)}미터", 1, inp.depth.tCaptureNs, level = 2))

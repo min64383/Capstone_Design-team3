@@ -1012,7 +1012,7 @@ data class SituationConfig(
      * (자체 선택, 검증 안 함: 다가가며 다시 맞춘 교점의 흔들림보다 크고, T01의 실제 두 갈림 간격 약 10 m보다 작게).
      */
     val junctionMergeM: Float,
-    /** 1e 계단·방지턱: 서로 다른 노면 영상 수, 내리막 증거를 볼 계단 화소(가장 가까운 칸보다 이만큼 먼), 깊이 초과(광선 방향), 화소 몫. */
+    /** 1e 계단·방지턱: 서로 다른 노면 영상 수, 내리막 증거를 볼 계단 화소(가장 가까운 칸보다 이만큼 먼), 깊이 초과(광선 방향, 0이면 라벨 규칙은 내려감을 말하지 않음 = 앱), 화소 몫. */
     val confirmFrames: Int,
     val stairsBeyondM: Float,
     val stairsDepthExcessM: Float,

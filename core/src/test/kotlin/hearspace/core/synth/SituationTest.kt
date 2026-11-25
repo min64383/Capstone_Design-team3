@@ -525,4 +525,42 @@ class SituationTest {
         val exitAt = 50 + (sc.guideExitS * 10).toInt()
         assertTrue(guided[exitAt - 2] && !guided[exitAt + 2], "basic walking after guideExitS off the block: $guided")
     }
+
+    // ---- 2026-11-25 녹화(640×480 6세션) 오답 고침 ----
+
+    @Test
+    fun `F-1 in guided walking a fork within 7 m of where the line was first seen is spoken`() {
+        // 녹화 시작부터 블록 위(135720): 선 x ±0.15, 0.5~6 m, 6~6.3 m에 좌우 2 m 가로 막대(T 갈림), 너머 인도
+        val tee: (Float, Float) -> Int = { x, z -> if ((x in -0.15f..0.15f && -z in 0.5f..6f) || (x in -2f..2f && -z in 6f..6.3f)) B else S }
+        val guided = run(50, userZ = { i -> -0.1f * i }, cls = tee, sc = arms)
+        assertEquals(1, guided.count { it.text == "블록 갈림" }, guided.toString())
+        // 보행 상태를 끄면(옛 동작) 선 시작 규칙이 그대로 막는다
+        val old = run(50, userZ = { i -> -0.1f * i }, cls = tee, sc = arms.copy(guideEnterM = 0f))
+        assertTrue(old.none { it.text == "블록 갈림" }, old.toString())
+    }
+
+    @Test
+    fun `F-2 an obstacle past the end of the block is not on the block`() {
+        // 블록 0.5~4 m에서 끝남. on은 3 m(블록 위), past는 5 m(블록 끝 너머, 문·계단 단처럼 선 연장 위)
+        val on = obstacle(1, Vec3(0f, 0.4f, -3f))
+        val past = obstacle(2, Vec3(0f, 0.4f, -5f))
+        val said = run(100, cls = blockLine(to = 4f), obstacles = listOf(on, past), sc = still)
+        assertEquals(listOf("obj#1"), said.filter { it.key.startsWith("obj#") }.map { it.key }.distinct(), said.toString())
+    }
+
+    @Test
+    fun `F-3 with stairsDepthExcessM 0 the label stairs rule never says down`() {
+        val stairs: (Float, Float) -> Int = { x, z -> if (-z >= 2.0f && x in -0.6f..0.6f) SurfaceClass.STAIRS.pixel else S }
+        val down = run(40, cls = stairs, depthOf = { t, w -> depth(t, w, edgeM = 2.0f, dropM = 0.25f) }, sc = config.situation.copy(stairsDepthExcessM = 0f))
+        assertTrue(down.any { it.text.startsWith("계단,") } && down.none { it.text.startsWith("내려가는") }, down.toString())
+    }
+
+    @Test
+    fun `F-4 an L turn whose ground beyond is measured low is still a turn, never down stairs`() {
+        // 선 x ±0.15, 0.5~10 m, 10~10.3 m에서 왼쪽으로 4 m 꺾임. 너머 10.9 m부터 깊이가 1 m 낮게 재짐(135720 모퉁이처럼 깊이 오차)
+        val ell: (Float, Float) -> Int = { x, z -> if ((x in -0.15f..0.15f && -z in 0.5f..10.3f) || (x in -4f..0.15f && -z in 10f..10.3f)) B else S }
+        val s = run(95, userZ = { i -> -0.1f * i }, cls = ell, depthOf = { t, w -> depth(t, w, edgeM = 10.9f, dropM = 1.0f) }, sc = arms)
+        assertEquals(1, s.count { it.text == "블록 왼쪽으로 꺾임" }, s.toString())
+        assertTrue(s.none { it.text.contains("계단") || it.text.contains("갈림") }, s.toString())
+    }
 }

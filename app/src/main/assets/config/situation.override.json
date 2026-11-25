@@ -1,1 +1,1 @@
-{"situation": {"enabled": true, "blockMethod": "ARMS", "surfaceInputW": 480, "surfaceInputH": 384, "surfaceOutW": 640, "surfaceOutH": 480, "pointStride": 4, "gridRecentK": 3}}
+{"situation": {"enabled": true, "blockMethod": "ARMS", "surfaceInputW": 480, "surfaceInputH": 384, "surfaceOutW": 640, "surfaceOutH": 480, "pointStride": 4, "gridRecentK": 3, "stairsDepthExcessM": 0}}
